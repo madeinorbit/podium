@@ -107,7 +107,7 @@ export function createSessionsCommands<TApi extends PodiumClientApi>(
     hibernate: async (sessionId) => {
       await editSessionLifecycle(sessionId, 'hibernated')
     },
-    // Clean end [spec:SP-9904], as an edit (POD-6399). `ok` means the edit is
+    // Clean end, as an edit (POD-6399). `ok` means the edit is
     // queued; a refusal (an unsaved working tree) arrives later as the
     // session's `lifecycleFailure`, which the session's own bar shows with the
     // force offer, on every device. Only a call the API refuses outright

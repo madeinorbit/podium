@@ -28,7 +28,7 @@ import {
 import type { ArtifactUploadsRepository } from '../../store/artifact-uploads'
 
 /**
- * Permanent artifact snapshot store ([spec:SP-0fc9] #441), on the workspace's
+ * Permanent artifact snapshot store (#441), on the workspace's
  * blob store (POD-6963 design 2.4).
  *
  * At `artifact-add` time the server pulls the file bytes from the owning daemon

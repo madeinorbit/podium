@@ -39,6 +39,7 @@ import { normalizeSettings } from '@podium/runtime'
 import type { Capability } from '../../issue-authz'
 import { isMemberCwd, sessionsForIssue } from '../../issue-util'
 import type { SessionStore } from '../../store'
+import { TEST_MACHINE_ID } from '../../test-support/machine-id'
 import { messageTestWriter, messageTestWriters } from '../../test-support/message-writer'
 import { openTestStore } from '../../test-support/open-test-store'
 import { metaAsFacts, sessionReadPorts } from '../../test-support/session-facts'
@@ -255,11 +256,11 @@ export interface MailHarness {
 export { OPERATOR } from '../../test-support/capabilities'
 
 export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
-  const store = await openTestStore(':memory:')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
-  // implicit placement), so the fixture's repo is reported by the host machine.
+  // implicit placement), so the fixture's repo is reported by its explicit machine.
   // A reported repo carries a prefix (`REP`), so issue labels read `REP-<seq>`.
-  await store.repos.addRepo('/repo', store.hostMachineId)
+  await store.repos.addRepo('/repo', TEST_MACHINE_ID)
   const sessions: SessionMeta[] = []
   const owners = new Map<string, UserId>()
   const pushes: Push[] = []
@@ -295,6 +296,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       }),
     spawnSession: async () => ({ sessionId: asSessionId('unused'), machine: 'machine-under-test' }),
     repoOp: async () => ({ ok: true, output: '' }),
+    resolveMachine: async () => TEST_MACHINE_ID,
     ...issueTestPlumbing(undefined, { store }),
     now,
   }
@@ -471,7 +473,8 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
           sessions.some((s) => s.sessionId === id)
             ? (owners.get(id) ?? firstAdminMemberId())
             : undefined),
-      createIssue: async (writer, input) => await issues.crud.create(writer, { ...input, startNow: false }),
+      createIssue: async (writer, input) =>
+        await issues.crud.create(writer, { ...input, startNow: false }),
       appendEvent: async (e) => {
         await store.events.appendEvent(e)
       },

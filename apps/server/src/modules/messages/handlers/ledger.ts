@@ -1,6 +1,6 @@
 /**
  * Handler for the `mail.ledger` contract (L3) — the per-issue / per-session
- * delivery ledger (#237) [spec:SP-34d7 web]. A pure read; it never consumes
+ * delivery ledger (#237). A pure read; it never consumes
  * queued status.
  *
  * RECLASSIFIED IN THIS PASS (acceptance criterion 8). It was operator-only, and

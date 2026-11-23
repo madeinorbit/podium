@@ -17,11 +17,11 @@ import { runPlainDef } from '../plain-command/entry'
 import type { LockCallerIdentity, LockHolderId, LockService } from './service'
 
 /**
- * The lock command registry [spec:SP-85d1]: every lock.* command (advisory
+ * The lock command registry: every lock.* command (advisory
  * named lease locks) defined once — input schema, required action, handler
  * over LockService — with the tRPC router, the daemon relay dispatch and the
  * CLI client shape all derived from it, exactly like the issues registry
- * (#248 [spec:SP-3fe2]). The def keys are pinned to @podium/protocol's
+ * (#248). The def keys are pinned to @podium/protocol's
  * LOCK_COMMAND_NAMES via `satisfies`.
  *
  * Authorization is declared like `mailSend`: writes with NO issue-scope target

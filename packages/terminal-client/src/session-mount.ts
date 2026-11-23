@@ -166,7 +166,6 @@ export const READY_TIMEOUT_MS = 2000
  * served). Codex can paint a composer before startup work (notably MCP
  * initialization) redraws it, so the browser harness additionally holds this
  * predicate through a quiet window — a later redraw resets the wait.
- * [spec:SP-e639]
  *
  * A kind with no bundled rules — unknown to this build, or declined in its
  * manifest — answers false: no heuristic, never another harness's, never a

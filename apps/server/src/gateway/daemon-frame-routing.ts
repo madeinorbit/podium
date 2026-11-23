@@ -114,6 +114,7 @@ export const DAEMON_FRAME_PORTS = {
 
   // ---- RPC replies, settled by the generic correlator (POD-318) ----
   scanReposResult: ['rpc'],
+  transcriptPathsResult: ['rpc'],
   browseDirsResult: ['rpc'],
   dirOpResult: ['rpc'],
   githubCliResult: ['rpc'],
@@ -265,6 +266,7 @@ export const MACHINE_SCOPE_CARRIER = {
   scanResult: 'principal',
   conversationsChanged: 'principal',
   scanReposResult: 'request-correlated',
+  transcriptPathsResult: 'request-correlated',
   browseDirsResult: 'request-correlated',
   dirOpResult: 'request-correlated',
   githubCliResult: 'request-correlated',

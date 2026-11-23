@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, asThreadId, BUILTIN_HARNESS_KINDS, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BindingStore } from '../../daemon/src/binding-store'
 import { memoryMarkers, SessionAccessStore } from '../../daemon/src/control/access'
 import type { DaemonContext } from '../../daemon/src/control/context'
@@ -29,7 +29,7 @@ afterEach(async () => {
 async function gateHarness() {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
-  const host = registry.sessionStore.hostMachineId
+  const host = registry.sessionStore.hostMachine!.id
   await assignHostMachine(registry.sessionStore)
   await (
     registry.sessionStore as unknown as {
@@ -46,6 +46,7 @@ async function gateHarness() {
     inventory: {
       os: 'linux',
       arch: 'x64',
+      homePath: '/home/u',
       agents: BUILTIN_HARNESS_KINDS.map((kind) => ({
         kind,
         installed: true,
@@ -55,6 +56,10 @@ async function gateHarness() {
     },
   })
   const repos = new RepoRegistry(registry, registry.sessionStore)
+  vi.spyOn(registry.modules.rpc, 'scanRepos').mockResolvedValue({
+    repositories: [],
+    diagnostics: [],
+  })
   await repos.add(repos.serverWriter, '/r', host)
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return { registry, sa, frames, host }

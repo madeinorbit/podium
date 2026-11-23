@@ -525,14 +525,14 @@ export const SpawnMessage = z.object({
   // Additive + optional: an older daemon ignores it, an older server omits it.
   env: z.record(z.string(), z.string()).optional(),
   // Seed the CLI's theme with per-session official flags so it follows the
-  // terminal's colors (roles.coding.seedCliTheme, [spec:SP-a04d]).
+  // terminal's colors (roles.coding.seedCliTheme).
   // Absent = the setting's default (on) — older servers simply get the default.
   seedCliTheme: z.boolean().optional(),
   // Draft Sync v2 (POD-859): the server's `draftSync` flag for this session — the
   // daemon runs its composer scrape/inject engine (and disables codex kitty
   // keyboard enhancement) only when true. Additive; older servers omit it (off).
   draftSync: z.boolean().optional(),
-  /** Durable server-issued observer lease fence [spec:SP-cdb2]. */
+  /** Durable server-issued observer lease fence. */
   observationGeneration: z.number().int().positive().optional(),
   /** Version of the exact provider binding carried by this lease. */
   observationBindingVersion: z.number().int().positive().optional(),
@@ -584,6 +584,9 @@ export const ReattachMessage = z.object({
   durableLabel: z.string(),
   agentKind: AgentKind,
   cwd: z.string(),
+  /** Latest accepted selections for a process-less headless session. */
+  model: z.string().optional(),
+  effort: z.string().optional(),
   /**
    * THE SERVER'S LAST-KNOWN GRID, AND A HINT ONLY (POD-3279).
    *
@@ -630,7 +633,7 @@ export const ReattachMessage = z.object({
    * preference at spawn and never lets the echo widen into a second request.
    */
   requestedDriverId: z.string().min(1).optional(),
-  /** Durable server-issued observer lease fence [spec:SP-cdb2]. */
+  /** Durable server-issued observer lease fence. */
   observationGeneration: z.number().int().positive().optional(),
   /** Version of the exact provider binding carried by this lease. */
   observationBindingVersion: z.number().int().positive().optional(),

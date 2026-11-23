@@ -88,7 +88,7 @@ export async function readRegisteredWorktrees(
     const gitDir = await canonicalPath(join(worktreesDir, entry.name))
     const worktree = await readRegisteredWorktree(gitDir, resolvedCommonGitDir, diagnostics)
     if (worktree === undefined) continue
-    // Workspace-fetch peeks [spec:SP-6d57] are read-only snapshot artifacts of
+    // Workspace-fetch peeks are read-only snapshot artifacts of
     // ANOTHER machine's state, not workspaces: keep them out of every repo scan
     // so they never surface in the sidebar, re-home a session, or count as a
     // handoff-eligible worktree.

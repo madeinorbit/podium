@@ -528,12 +528,12 @@ describe('C15: spawn hardcodes DEFAULT_GEOMETRY, create() accepts no geometry, w
     })
     // A resurrect only respawns a session it can resume; without the ref it
     // reports ok and sends the daemon nothing.
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'abc-123' },
     })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -592,7 +592,7 @@ describe('C10: the terminal state topic carries the server size to the client; t
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -637,7 +637,7 @@ describe('POD-3279: a bind without geometry keeps the copy and announces nothing
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -671,14 +671,14 @@ describe('POD-3279: a bind without geometry keeps the copy and announces nothing
     const { reg, sessionId, session, watcher } = await boundSession()
 
     // The daemon holding the bridge went away.
-    reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
+    reg.gateway.detachDaemon(reg.sessionStore.hostMachine!.id)
     expect(session.status).toBe('live')
     expect(session.awaitingRebind).toBe(true)
     watcher.sent.length = 0
 
     const send: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => send.push(m))
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bareBind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bareBind(sessionId))
 
     // The session is bound again — the bind is still proof the agent is there.
     expect(session.status).toBe('live')
@@ -690,11 +690,11 @@ describe('POD-3279: a bind without geometry keeps the copy and announces nothing
 
   it('ARMED: the same bind WITH a geometry reports, so the silence above is the absence', async () => {
     const { reg, sessionId, session, watcher } = await boundSession()
-    reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
+    reg.gateway.detachDaemon(reg.sessionStore.hostMachine!.id)
     watcher.sent.length = 0
 
     await attachHostDaemon(reg, () => {})
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       ...bareBind(sessionId),
       geometry: { cols: 200, rows: 60 },
     })
@@ -705,9 +705,9 @@ describe('POD-3279: a bind without geometry keeps the copy and announces nothing
 
   it('the terminal state carries the last-known copy after a bare bind', async () => {
     const { reg, sessionId } = await boundSession()
-    reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
+    reg.gateway.detachDaemon(reg.sessionStore.hostMachine!.id)
     await attachHostDaemon(reg, () => {})
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bareBind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bareBind(sessionId))
 
     expect(await terminalState(reg, sessionId)).toMatchObject({ geometry: { cols: 132, rows: 43 } })
   })

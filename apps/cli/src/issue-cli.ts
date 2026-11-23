@@ -87,7 +87,7 @@ function helpText(): string {
   ].join('\n')
 }
 
-/** The registry slice per-command help renders (both ISSUE_COMMANDS and SPEC_COMMANDS fit). */
+/** The registry slice per-command help renders (the ISSUE_COMMANDS table). */
 interface HelpableCommand {
   name: string
   summary: string

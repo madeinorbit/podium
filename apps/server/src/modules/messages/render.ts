@@ -132,7 +132,7 @@ export function renderEnvelope(
   note?: string,
   opts?: { turnClose?: boolean },
 ): string {
-  // The seance constraint [spec:SP-34d7 read-toolkit tier 4]: a question's
+  // The seance constraint: a question's
   // frame binds the receiver — answer from existing context, reply, then
   // RESUME. Server-rendered like the rest of the frame, never client text.
   const questionRule =
@@ -140,7 +140,7 @@ export function renderEnvelope(
       ? `[this is a question: answer it from your existing context with \`podium mail reply ${m.id}\`, ` +
         `then RETURN TO WHAT YOU WERE DOING — do not take up new work because of it]\n`
       : ''
-  // A --expect-response message [spec:SP-bf44] carries the same reply directive a
+  // A --expect-response message carries the same reply directive a
   // question does, minus the answer-then-resume binding: the sender wants a reply
   // (else the steward will nag them that none came), but it is not a seance. A
   // question already gets its own, stronger rule above, so this is question-exempt.
@@ -227,7 +227,7 @@ export class MessageRenderer {
     // a boundary rather than a habit. What is preserved here is what the operator
     // path was actually for: no envelope, no id, no frame.
     //
-    // The ONE exception is a question [spec:SP-34d7 read-toolkit tier 4]: the ask
+    // The ONE exception is a question: the ask
     // round-trip needs the reply frame (message id + `podium mail reply`) or
     // the target can never ack and awaitAck always times out — so operator
     // questions render the frame around the operator's own body. That body is NOT
@@ -274,7 +274,7 @@ export class MessageRenderer {
     )
   }
 
-  /** Cross-machine provenance [spec:SP-6d57]: when the sending session runs on a
+  /** Cross-machine provenance: when the sending session runs on a
    *  DIFFERENT machine than the receiver, say so and how to inspect its working
    *  state — built only from what podium already knows (session machineIds),
    *  zero storage. */

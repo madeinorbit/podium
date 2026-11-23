@@ -67,7 +67,7 @@ export interface SessionInit {
   agentKind: AgentKind
   cwd: string
   title: string
-  /** Resolved launch configuration, immutable for this session [spec:SP-dae6]. */
+  /** Resolved launch configuration, immutable for this session. */
   model?: string
   effort?: string
   /** The runtime request this session was rehydrated with (POD-3081). Set only
@@ -153,8 +153,7 @@ export interface SessionInit {
   refIssueId?: IssueId | null
   refLetter?: string | null
   refDraft?: number | null
-  /** OPTIONAL workflow pass-through metadata (#285 via #237 [spec:SP-34d7
-   *  cross-harness]): stamped at spawn, never interpreted here. */
+  /** OPTIONAL workflow pass-through metadata (#285 via #237): stamped at spawn, never interpreted here. */
   workflowRunId?: string
   workflowStepId?: string
   /** The agent profile this session started from (POD-6107); launch identity. */
@@ -279,7 +278,7 @@ export class Session {
    *  (`SESSION_IMMUTABLE_AFTER_CREATE`): nothing re-attributes a live session. */
   readonly delegation: import('@podium/model').SessionDelegation | undefined
   readonly createdBy: Attribution | undefined
-  /** Actual launch configuration captured once at spawn [spec:SP-dae6]. */
+  /** Actual launch configuration captured once at spawn. */
   readonly model: string | undefined
   readonly effort: string | undefined
   readonly accountId: AccountId | undefined
@@ -371,7 +370,7 @@ export class Session {
   archived = false
   /** Terminal-transition hook that re-arms unread; see {@link SessionInit.onUnreadRearm}. */
   private onUnreadRearm: (() => void) | undefined
-  /** Set only by the explicit stop lifecycle, not ordinary hibernation/exits. [spec:SP-6144] */
+  /** Set only by the explicit stop lifecycle, not ordinary hibernation/exits. */
   stoppedAt: string | undefined
   stopReason: 'self' | 'parent' | 'forced' | 'exited' | 'oom' | undefined
   /**
@@ -450,7 +449,7 @@ export class Session {
    * transcript tail after a restart.
    */
   contextUsagePercent: number | undefined = undefined
-  /** Transient UI overlay while the canonical row moves machines ([spec:SP-3f7a]). */
+  /** Transient UI overlay while the canonical row moves machines. */
   handoffTargetMachineId: MachineId | undefined
   /** Stable Podium conversation identity (conversation registry). Stamped by the
    *  registry when the linkage is learned (resume ref observed/rolled, boot
@@ -545,7 +544,7 @@ export class Session {
    */
   configureFields: readonly string[] | undefined = undefined
   attachKinds: readonly ('engine' | 'client')[] | undefined = undefined
-  /** Agent action offer [spec:SP-c7f1] — a freeform message + action buttons the
+  /** Agent action offer — a freeform message + action buttons the
    *  agent offers the user as next steps. Lives in its own `offers` table (not
    *  toRow()); the registry seeds it at load and on set/clear. undefined = none.
    *  Cleared on the next user-submitted turn (a button click counts). */
@@ -727,7 +726,6 @@ export class Session {
     // EVERY terminal transition stamps stop metadata and re-arms unread — a
     // daemon-observed death decays (and badges) exactly like an explicit stop.
     // The explicit-stop path may already have stamped a richer reason; keep it.
-    // [spec:SP-6144]
     d.stoppedAt ??= new Date().toISOString()
     // 'oom' when the supervisor saw the kernel kill something here moments ago
     // (POD-2413) — a stated cause beats a bare "exited" for the one death an
@@ -737,7 +735,7 @@ export class Session {
     // Re-arm unread for every reader (POD-1076): the registry owns the rows.
     this.onUnreadRearm?.()
     // Preserve the final turn diagnosis; lifecycle status owns liveness while
-    // the causal checkpoint remains inspectable [spec:SP-cdb2].
+    // the causal checkpoint remains inspectable.
     this.terminal.broadcast({ type: 'agentExit', sessionId: this.sessionId, code })
   }
 
@@ -758,7 +756,7 @@ export class Session {
     this.attachKinds = undefined
     d.spawnFailure = message.trim().slice(0, 2000) || 'unknown spawn error'
     d.agentState = undefined
-    // Terminal transition — same stop metadata as onExit [spec:SP-6144].
+    // Terminal transition — same stop metadata as onExit.
     d.stoppedAt ??= new Date().toISOString()
     d.stopReason ??= 'exited'
     // Re-arm unread for every reader (POD-1076): the registry owns the rows.
@@ -832,7 +830,7 @@ export class Session {
     return true
   }
 
-  /** Clear the agent action offer [spec:SP-c7f1]. Returns true if it actually
+  /** Clear the agent action offer. Returns true if it actually
    *  changed (lets the caller skip a redundant broadcast/persist). */
   clearOffer(d: SessionDurableFields = this): boolean {
     if (d.offer === undefined) return false

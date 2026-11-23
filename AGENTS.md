@@ -48,7 +48,7 @@ Work is tracked with Podium's issue tracker. Inside a Podium session, start with
 Work lands **locally**, onto the issue's **parent branch**: the `parentBranch` field from
 `podium issue show <id> --json`. Creation uses an explicit parent, then the operator's
 `gitWorkflow.defaultParentBranch`, then `main`; changing the default does not retarget existing
-issues. Landing never fetches, pulls or pushes [spec:SP-a69c].
+issues. Landing never fetches, pulls or pushes.
 
 Merge only after the user approves landing and closing. The merge action stops every session
 on the issue, so the runner must survive that shutdown: an operator, an authorized session

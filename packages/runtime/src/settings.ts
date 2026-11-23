@@ -298,7 +298,7 @@ export const PodiumSettings = z.object({
   gitWorkflow: GitWorkflowPolicy.default({}),
   issues: IssueAssistantPolicy.default({}),
   /** The steward: the orchestrator's trigger queue over the durable event log
-   *  (deterministic unblock nudges etc.). On by default (#470) [spec:SP-17db]:
+   *  (deterministic unblock nudges etc.). On by default (#470):
    *  the feature has been live long enough to be trusted, and the dark default
    *  only broke NEW installs — their Notification triggers silently never fired.
    *  Existing installs are unaffected (the persisted `meta` value wins). */
@@ -308,7 +308,7 @@ export const PodiumSettings = z.object({
    *  suppresses the one-time opt-in popup once the user has answered it. */
   autoContinue: AutoContinuePreferences.default({}),
   /**
-   * User toggles for experimental features [spec:SP-f4b9].
+   * User toggles for experimental features.
    *
    * Draft Sync v2 (POD-859) lives here under `'draft-sync'`; the legacy bespoke
    * `draftSync.enabled` key is migrated onto it by `normalizeSettings` and dropped.
@@ -411,7 +411,7 @@ function migrateRoles(raw: Record<string, unknown>): Roles | undefined {
   })
 }
 
-/** Legacy `draftSync.enabled` → the canonical experiments store [spec:SP-f4b9].
+/** Legacy `draftSync.enabled` → the canonical experiments store.
  *  Draft Sync v2 (POD-859) moved onto `experimental['draft-sync']`; carry a
  *  persisted opt-in forward so an upgrade doesn't silently disable it, then let
  *  `PodiumSettings.parse` drop the now-unknown `draftSync` key (one source of
@@ -560,7 +560,7 @@ export function resolveRole(settings: PodiumSettings, role: RoleName): ResolvedR
   }
   // A native account already names its harness; a stale explicit harness must not
   // override it and make that account's model/effort leak to another CLI
-  // [spec:SP-7ff1]. Managed credentials still need an explicit harness to choose
+  // Managed credentials still need an explicit harness to choose
   // which CLI receives the injected credential.
   const nativeAccount = accountId.startsWith(HARNESS_ACCOUNT)
   if (rb.harness && !nativeAccount) {

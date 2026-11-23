@@ -73,7 +73,7 @@ type GrokCausalOptions = Omit<GrokObservationLease, 'providerSessionId'> & {
 }
 
 export const grokStateProvider: AgentStateProvider = {
-  // [spec:SP-79c5] Grok personal hooks are installed globally and gated by this
+  // Grok personal hooks are installed globally and gated by this
   // session-only callback env. The file observer below remains the fallback.
   instrumentation({ endpointUrl }) {
     return { args: [], env: { [PODIUM_GROK_HOOK_URL_ENV]: endpointUrl } }
@@ -492,7 +492,7 @@ function tailGrokUpdates(
           for (const event of normalized) {
             // Background/tool-only records are activity inside an already-open
             // turn, never causal evidence that opens a new epoch. Likewise, a
-            // duplicate terminal after the epoch closed is inert. [spec:SP-cdb2]
+            // duplicate terminal after the epoch closed is inert.
             if (
               !observedWork &&
               (event.kind === 'activity' ||

@@ -23,7 +23,10 @@ const instanceService = (state: {
   telemetry?: { emitter: { buildUsageReport: () => unknown } } | undefined
   users?: InstanceAccountStore | undefined
   credentials?: import('../../identity/member-credentials').MemberCredentials | undefined
-  store?: { settings: import('../../store/settings').SettingsRepository }
+  store?: {
+    settings: import('../../store/settings').SettingsRepository
+    hostMachine?: import('../../host-machine').HostMachine
+  }
   loginRequired?: (() => boolean | Promise<boolean>) | undefined
   loginPolicy?: (() => Promise<import('./service').InstanceLoginPolicy>) | undefined
   hostLocalRequest?: boolean | undefined
@@ -50,6 +53,7 @@ const instanceService = (state: {
   new InstanceService({
     emitter: state.telemetry?.emitter as never,
     settings: state.store?.settings,
+    hostMachine: state.store?.hostMachine,
     onSettingsChanged: (previous, next) =>
       state.modules?.bus.emit('settings.changed', { previous, next }),
     users: state.users,
@@ -107,7 +111,7 @@ export const AUTH_PLAIN_FAMILY = definePlainFamily({
   commands: AUTH_COMMANDS_TRPC,
 })
 
-/** Telemetry [spec:SP-f933] — Settings → Privacy's backing surface.
+/** Telemetry — Settings → Privacy's backing surface.
  *  Reads/writes config.json (D8), NOT the settings blob, so the web toggles and
  *  `podium telemetry off` are the same switch. */
 export const TELEMETRY_PLAIN_FAMILY = definePlainFamily({

@@ -19,7 +19,7 @@ describe('MCP list_sessions while the machine link drops', () => {
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     try {
       await attachHostDaemon(registry)
-      const host = registry.sessionStore.hostMachineId
+      const host = registry.sessionStore.hostMachine!.id
       const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/p',

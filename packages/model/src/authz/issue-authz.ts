@@ -193,7 +193,7 @@ export interface Capability {
    *  end state `fields/attribution.ts` names. Reported, not papered over.
    *
    *  The pair is never collapsed into one field: "did a person or an agent do
-   *  this?" and "which person was it for?" are two questions ([spec:SP-eb60]
+   *  this?" and "which person was it for?" are two questions (
    *  nameSource, humanQuestionAskedBy).
    *
    *  `actorSessionId` above IS branded, and with the right brand: POD-362 typed
@@ -281,7 +281,7 @@ export function capabilityAttribution(cap: Capability): AttributionPair {
 // it. The identity half keeps its own name: `firstAdminMemberId()` (ADR 9 D1.5).
 
 // The per-procedure action/target tables (PROC_ACTION / SCOPED_TARGET) are GONE
-// (#248 [spec:SP-3fe2]): a command's required action and its target extractor
+// (#248): a command's required action and its target extractor
 // are declared ON its definition in the server's command registry
 // (apps/server/src/modules/issues/registry.ts), pinned to the canonical name
 // list in @podium/protocol — renaming a command moves its authz with it instead

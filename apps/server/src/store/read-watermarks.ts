@@ -1,6 +1,6 @@
 // workspace-scoped (POD-6959)
 /**
- * Recap watermarks aggregate (#237) [spec:SP-34d7 read-toolkit tier 3] — one
+ * Recap watermarks aggregate (#237) — one
  * row per (reader, target session): the transcript cursor the reader's last
  * `podium session recap` caught up to. Persisted so repeated check-ins pay
  * only for the delta, across restarts, without the caller threading --since.

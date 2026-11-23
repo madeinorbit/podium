@@ -18,8 +18,8 @@
   **ADR 9** (identity, ownership and sharing — POD-1070; **sole owner** of principal,
   visibility class, owner and grant vocabulary, which this amendment consumes and never
   defines)
-- **Specs:** [spec:SP-3fe2] (strangler rebuild), [spec:SP-0371] (hub deferred),
-  [spec:SP-4428] (drizzle-kit)
+- **Specs:** (strangler rebuild), (hub deferred),
+  (drizzle-kit)
 - **Base tip verified:** `2ddfec21` (issue/279-integration), 2026-07-29
 - **File discipline:** this amendment owns **only** this file plus a single "Amended by"
   line in `docs/adr/0002-sync-protocol.md`. No index edits (POD-359 owns

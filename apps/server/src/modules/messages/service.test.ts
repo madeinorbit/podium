@@ -1,7 +1,7 @@
 import { queryAttributionEnabled } from '@podium/runtime/query-attribution'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { statementBudget } from '../../test-support/statement-budget'
-// Unified agent messaging (#237) [spec:SP-34d7] — store CRUD, server-stamped
+// Unified agent messaging (#237) — store CRUD, server-stamped
 // sender, envelope rendering + spoof containment, the full delivery
 // state × axis table, clamp matrix, containment brakes (wake cooldown, spawn
 // budget, hop limit), pointer rendering, and the queued→delivered ledger.
@@ -240,7 +240,7 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
   const store = opts?.store ?? (await openTestStore(':memory:'))
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
-  await store.repos.addRepo('/r', store.hostMachineId)
+  await store.repos.addRepo('/r', store.hostMachine!.id)
   // Real rows so the legacy issue_messages mirror's FK holds.
   await store.issues.upsertIssue(
     fixtureWriteScope(),
@@ -808,7 +808,7 @@ describe('MessageDeliveryService.send', () => {
     expect(queued).toHaveLength(1)
     expect(queued[0]!.sessionId).toBe('s1')
     expect(sent).toHaveLength(0)
-    // Honest [spec:SP-cb9f]: handed on, not yet confirmed → 'queued'.
+    // Honest: handed on, not yet confirmed → 'queued'.
     expect(r.disposition).toBe('queued')
     expect(r.message.deliveryStatus).toBe('dispatched')
     expect(r.message.deliveredTo).toBe('s1')
@@ -977,7 +977,7 @@ describe('MessageDeliveryService.send', () => {
   })
 
   // [POD-1365] Routing by role must not reintroduce the POD-279 15× self-echo loop
-  // [spec:SP-a4ba]: a coordinator mailing its OWN issue is still excluded from its own
+  // a coordinator mailing its OWN issue is still excluded from its own
   // issue's recipient resolution, even though it is the designated coordinator.
   it('never routes a coordinator its own fyi mail to its own issue', async () => {
     const members = [
@@ -1393,7 +1393,7 @@ describe('dead-letter cause for injected-but-unconfirmed rows [POD-4704]', () =>
   })
 })
 
-describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
+describe('self-delivery suppression (§09-H)', () => {
   it('an agent mailing its own issue never gets its own message back', async () => {
     // s1 is the sole member of ISSUE and also the sender: the POD-279 self-echo.
     const { svc, sent, queued, store } = await harness([session({ sessionId: asSessionId('s1') })])
@@ -1430,7 +1430,7 @@ describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
     expect(queued).toHaveLength(1)
     expect(queued[0]!.sessionId).toBe('s2')
     // Pushed to s2, awaiting its echo (not the sender's own echo) [POD-834]; the
-    // honest send disposition is therefore 'queued' until that echo [spec:SP-cb9f].
+    // honest send disposition is therefore 'queued' until that echo.
     expect(r.disposition).toBe('queued')
     expect(r.message.deliveryStatus).toBe('dispatched')
     expect(r.message.deliveredTo).toBe('s2')
@@ -1476,7 +1476,7 @@ describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
   })
 })
 
-describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => {
+describe('delivery table (state × urgency × lifecycle)', () => {
   it('live target: fyi and next-turn ride the durable queue (queued until confirmed)', async () => {
     for (const urgency of ['fyi', 'next-turn'] as const) {
       const { svc, sent, queued, interrupted, store } = await harness([
@@ -1490,7 +1490,7 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
       expect(queued).toHaveLength(1)
       expect(sent).toHaveLength(0)
       expect(interrupted).toHaveLength(0)
-      // Honest disposition [spec:SP-cb9f, POD-854]: handed on, not yet observed —
+      // Honest disposition: handed on, not yet observed —
       // so the SEND returns 'queued', and the daemon's settlement, the echo or the
       // turn boundary confirms it later.
       expect(r.disposition).toBe('queued')
@@ -1602,7 +1602,7 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     expect(interrupted).toHaveLength(1)
     expect(queued).toHaveLength(0)
     // Injected via ESC now, but honestly 'queued' until the echo/boundary confirms
-    // it [spec:SP-cb9f]; the blocking gate is what waits for the upgrade to delivered.
+    // it; the blocking gate is what waits for the upgrade to delivered.
     expect(r.disposition).toBe('queued')
     expect(r.message.deliveryStatus).toBe('dispatched')
     expect(r.message.clampedFrom).toBeNull()
@@ -1620,7 +1620,7 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     expect(interrupted).toHaveLength(1)
     expect(sent).toHaveLength(0)
     expect(queued).toHaveLength(0)
-    // Honest [spec:SP-cb9f]: ESC-injected into the harness, not yet echoed → 'queued'.
+    // Honest: ESC-injected into the harness, not yet echoed → 'queued'.
     expect(r.disposition).toBe('queued')
     expect(r.message.deliveryStatus).toBe('dispatched')
   })
@@ -1997,7 +1997,7 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
   })
 })
 
-describe('clamp matrix (downgrade-never-reject, recorded) [spec:SP-34d7]', () => {
+describe('clamp matrix (downgrade-never-reject, recorded)', () => {
   it('peer interrupt is downgraded to next-turn and ledgered as clamped', async () => {
     const { svc, store, interrupted, queued } = await harness([
       session({ sessionId: asSessionId('s1'), agentState: WORKING }),
@@ -2080,7 +2080,7 @@ describe('clamp matrix (downgrade-never-reject, recorded) [spec:SP-34d7]', () =>
   })
 })
 
-describe('containment brakes [spec:SP-34d7]', () => {
+describe('containment brakes', () => {
   it('wake cooldown: the second wake within 10min per (sender, issue) degrades to wait', async () => {
     let clock = Date.parse('2026-07-13T00:00:00.000Z')
     const sessions = [
@@ -2222,7 +2222,7 @@ describe('containment brakes [spec:SP-34d7]', () => {
   })
 })
 
-describe('pointer renderings [spec:SP-34d7]', () => {
+describe('pointer renderings', () => {
   it('delivers each held fyi issue message on its own when a session arrives — no server batching [POD-4661]', async () => {
     const live: SessionMeta[] = []
     const { svc, queued, store } = await harness(live)
@@ -2328,7 +2328,7 @@ describe('pointer renderings [spec:SP-34d7]', () => {
   })
 })
 
-describe('server-owned delivery retry backstop [spec:SP-c29e]', () => {
+describe('server-owned delivery retry backstop', () => {
   it('does not expire queued rows because calendar ownership belongs to the janitor', async () => {
     let clock = '2026-07-13T00:00:00.000Z'
     const { svc, store } = await harness([], { now: () => clock })
@@ -2510,11 +2510,11 @@ describe('server-owned delivery retry backstop [spec:SP-c29e]', () => {
 })
 
 // The "migration 015 (issue_messages → messages one-shot copy)" test was removed
-// with the legacy migration chain [spec:SP-4428]: that one-shot backfill lived in
+// with the legacy migration chain: that one-shot backfill lived in
 // a deleted migration and no longer runs (the drizzle adoption stamps an existing
 // database at the baseline rather than re-applying legacy data migrations).
 
-// ---- phase 3: acks & deterministic fallback [spec:SP-34d7 acks] ----
+// ---- phase 3: acks & deterministic fallback ----
 
 describe('acks', () => {
   it('an ack sets acked_by on the original transactionally and inherits the thread', async () => {
@@ -3512,7 +3512,7 @@ describe('containment brakes survive a restart (durable derivation)', () => {
   })
 })
 
-describe('MessageGate.send authz (target-issue scope) [spec:SP-34d7 authz]', () => {
+describe('MessageGate.send authz (target-issue scope)', () => {
   function gateFor(svc: MessageDeliveryService, sessions: SessionMeta[] = []) {
     return new MessageGate({
       messages: svc,
@@ -4489,7 +4489,7 @@ describe('a composer draft never holds a send [POD-865 removed, POD-4775]', () =
   })
 })
 
-describe('event-driven delivery eligibility [POD-842] [spec:SP-c29e]', () => {
+describe('event-driven delivery eligibility [POD-842]', () => {
   it('hands mail to a starting session at once; its durable queue drains on bind', async () => {
     const sessions = [
       session({
@@ -4765,7 +4765,7 @@ function queuedDeliveryRow(
   }
 }
 
-describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () => {
+describe('event-driven delivery review boundaries [POD-842]', () => {
   it('continues the bounded backstop past 100 permanently ineligible rows', async () => {
     vi.useFakeTimers()
     try {

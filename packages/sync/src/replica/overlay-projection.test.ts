@@ -355,7 +355,7 @@ describe('provisional attribution for an optimistic create (readiness §3.1.3 A4
  *
  * The reducer here is deliberately CLOSER to the real one than the stub at the top
  * of this file: it reads the authored actor's KIND, because the arbitration
- * [spec:SP-eb60] governs turns on human-versus-agent and a reducer that could not
+ * governs turns on human-versus-agent and a reducer that could not
  * see that could never return `rejected` at all. That is the difference between a
  * member with a caller and a member with none.
  */

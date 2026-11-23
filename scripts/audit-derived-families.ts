@@ -188,7 +188,6 @@ const PRE_EXISTING_ARMS = new Set([
   'messages',
   'superagent',
   'fleet',
-  'specs',
   'settings',
   'automations',
   'lock',

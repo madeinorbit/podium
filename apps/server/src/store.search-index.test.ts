@@ -57,7 +57,7 @@ const conversation = (store: SessionStore, over: Record<string, unknown> = {}) =
   id: 'native-a',
   agentKind: 'claude-code',
   providerId: 'claude-code-jsonl',
-  machineId: store.hostMachineId,
+  machineId: store.hostMachine!.id,
   title: 'the flux capacitor rewrite',
   projectPath: '/repo',
   messageCount: 3,
@@ -114,7 +114,7 @@ describe('search index gate', () => {
     forceFeature('command-palette', true)
     const first = await open(path)
     await first.conversations.index.upsert(fixtureWriteScope(), [conversation(first)])
-    const machineId = first.hostMachineId
+    const machineId = first.hostMachine!.id
     await first.close()
     stores.pop()
 

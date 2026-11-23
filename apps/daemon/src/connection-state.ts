@@ -21,6 +21,7 @@ import {
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CAP_TERMINAL_PICTURE_V1,
   CAP_TOPICS_V1,
+  CAP_TRANSCRIPT_PATHS,
   createHandshakeDialer,
   DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES,
   DAEMON_WIRE_VERSION,
@@ -1159,6 +1160,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         // Managed installs §12 item 14: this daemon answers the machine menu's
         // "Uninstall Podium" (`machineUninstallRequest`).
         CAP_MACHINE_UNINSTALL,
+        CAP_TRANSCRIPT_PATHS,
       ],
       ...(reportUpdateIdentity ? { build: deps.build } : {}),
       claims: {

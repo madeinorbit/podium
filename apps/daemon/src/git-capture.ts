@@ -128,7 +128,7 @@ export function createGitCapture(opts: {
     onHookPayload(sessionId, fields) {
       if (!fields) return
       // Claude/Codex send snake_case; Grok Build native hooks use camelCase.
-      // Read both so Grok's Bash calls get the same commit attribution. [spec:SP-79c5]
+      // Read both so Grok's Bash calls get the same commit attribution.
       const event = hookEventName(fields)
       const cwd = typeof fields.cwd === 'string' && fields.cwd !== '' ? fields.cwd : null
       if (event === undefined || cwd === null) return

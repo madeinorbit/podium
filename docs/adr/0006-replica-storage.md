@@ -26,7 +26,7 @@ reload, backgrounding, and power loss.
 | Outbox still has a legacy localStorage key constant | `packages/client-core/src/outbox.ts` — `OUTBOX_LS_KEY = 'podium.outbox.v1'` |
 | Current replica adapter size (TanStack-backed) | `packages/client-core/src/replica/replica.ts` = **1145** lines (re-counted; POD-307’s “1,114” is stale) |
 | Replica entity kinds today | `ReplicaRows`: `sessions`, `issues`, `conversations`, `automations`, `automationRuns` |
-| Server SQLite is drizzle-kit schema-as-code; runtime repositories use typed async drizzle queries (D5.3) | `apps/server/src/migrations/schema.ts` (`[spec:SP-4428]`); applier `runDrizzleMigrations` in `apps/server/src/migrations/index.ts`; migrations under `apps/server/src/migrations/drizzle/` |
+| Server SQLite is drizzle-kit schema-as-code; runtime repositories use typed async drizzle queries (D5.3) | `apps/server/src/migrations/schema.ts` (); applier `runDrizzleMigrations` in `apps/server/src/migrations/index.ts`; migrations under `apps/server/src/migrations/drizzle/` |
 | Daemon has **no** drizzle dependency | `rg drizzle apps/daemon` → empty |
 | Daemon general state is JSON + in-memory; only SQLite is worker `discovery.db` | `apps/daemon/src/identity.ts` → `daemon.json`; `apps/daemon/src/discovery-worker.ts` owns `discovery.db` |
 | Codex retain-until-ack state under instance runtime namespace | `apps/daemon/src/binding-store.ts` — `SessionBinding.observations[].pendingServerAck`; the historical `runtime/codex-identity-receipts` directory is migration input only |
@@ -44,7 +44,7 @@ POD-359 item 6 and third-round review item 10 already **pre-decide** the platfor
 | Feed epoch, wire/replica **protocol** version, cursor vs revision, bootstrap/gap heal | **ADR 2** |
 | Outbox state machine, retry/age, dedupe horizon | **ADR 3** |
 | Field schemas / storage representation composition | **ADR 4** |
-| Server SQLite authoring (drizzle-kit) | **Fact** [spec:SP-4428] — named here only to separate journals |
+| Server SQLite authoring (drizzle-kit) | **Fact** — named here only to separate journals |
 | Plane classification of transcripts vs metadata | **ADR 7** |
 | Adapter package placement | **ADR 8** |
 | InstanceId brand vs runtime-only; build orchestration (tsgo/turbo) | **ADR 1 / ADR 8** (POD-359 drift items not about storage engines) |
@@ -166,7 +166,7 @@ Three version lines stay **strictly separate** (ADR 2 must also enforce the wire
 | Version line | Scope | Tooling |
 |---|---|---|
 | **Wire / replica protocol version** | Feed epoch, message schemas, negotiation | Protocol package; **ADR 2** |
-| **Server DB journal** | Authority SQLite | **drizzle-kit** [spec:SP-4428] — `schema.ts`, `runDrizzleMigrations`, `__drizzle_migrations` |
+| **Server DB journal** | Authority SQLite | **drizzle-kit** — `schema.ts`, `runDrizzleMigrations`, `__drizzle_migrations` |
 | **Per-store schema version** | Physical layout of a given replica or host store | **This ADR (D5)** |
 
 #### D5.1 Client replica stores — **not** drizzle-managed
@@ -232,7 +232,7 @@ Whole statements are confined to the search port and the marked SQLite UPDATE
 conflict-clause exception that the builder cannot express (POD-3221 spec §6 rule 1);
 identifiers are literal and runtime values are bound parameters.
 
-[spec:SP-4428]'s server schema-authoring and migration journal remain in force
+ server schema-authoring and migration journal remain in force
 (`runDrizzleMigrations`). This changes runtime querying, not the wire version or
 client replica schema version. Clients and the daemon binding store do not join the
 server journal; D5.1 and D5.2 remain unchanged. The design and remote acceptance scope

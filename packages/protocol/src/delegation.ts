@@ -2,13 +2,13 @@
  *  The coordinator tip and docs/agents/delegating.md use the same policy.
  *
  *  Why this text exists at all: Podium deliberately has no agent roles, no
- *  write-claim, and no activity-based auto-isolation [spec:SP-4ef9]. Placement
+ *  write-claim, and no activity-based auto-isolation. Placement
  *  rides the spawn decision and semantics ride the session title, so nothing about
  *  a delegate's behaviour is inferred by the system — the ONLY lever a coordinator
  *  has is what it TELLS the delegate. Guidance is therefore the feature.
  */
 
-/** Podium is the default for both tasks and agents. [spec:SP-f7a5] */
+/** Podium is the default for both tasks and agents. */
 export const DELEGATION_POLICY =
   'Instructions to use subtasks or subagents mean Podium sub-issues for task tracking and Podium sessions for delegated agents by default. ' +
   'Use native harness tools only when the user explicitly requests them for that work; that request permits both native task tracking and native subagents.'

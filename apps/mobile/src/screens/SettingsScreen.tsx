@@ -42,7 +42,7 @@ import {
 } from './settings-readers'
 
 function openDesktop() {
-  // The web shell is the default at / for every device now [spec:SP-902c]; /desktop is
+  // The web shell is the default at / for every device now; /desktop is
   // just a stable link back, no opt-out cookie involved.
   if (typeof window !== 'undefined') {
     window.location.assign(`/desktop${window.location.search}`)

@@ -1,5 +1,5 @@
 /**
- * The `messages` command surface (#237) [spec:SP-34d7 acks/read-toolkit]:
+ * The `messages` command surface (#237):
  * `podium mail send/inbox/show/reply`, `podium session ask` and the stop-hook's
  * pendingReminders, served to BOTH the daemon relay (agent capability) and the
  * tRPC router. Sender identity is stamped from the capability — client input
@@ -79,7 +79,7 @@ export interface MessageGateDeps {
    *  mail sent by or delivered to a session they own (POD-2143, POD-2146,
    *  POD-6284). Absent (tests) = no session end admits anyone. */
   sessionOwnerUserId?(sessionId: SessionId): Promise<UserId | undefined>
-  /** Cross-harness subagent spawn seam (#237 [spec:SP-34d7 cross-harness]) —
+  /** Cross-harness subagent spawn seam (#237) —
    *  SessionLifecycle.createSession, the one spawn path. Absent = spawn proc
    *  reports unwired (tests / partial deployments). */
   spawnSession?(input: {
@@ -93,7 +93,7 @@ export interface MessageGateDeps {
     issueId?: IssueId
     spawnedBy?: string
     machineId?: MachineId
-    /** Curated child session name (spawner-prescribed) [spec:SP-4ef9][spec:SP-eb60]. */
+    /** Curated child session name (spawner-prescribed). */
     name?: string
     workflowRunId?: string
     workflowStepId?: string
@@ -240,7 +240,7 @@ export interface MessageWire {
   /** Current 1-based position in the recipient session FIFO, read at projection time. */
   queuePosition?: number
   ackedBy: string | null
-  // Delivery-ledger fields (#237) [spec:SP-34d7 web] — additive, so the CLI
+  // Delivery-ledger fields (#237) — additive, so the CLI
   // renderers ignore them; the web ledger view answers "what happened to my
   // message / why didn't my wake fire" from these.
   deliveredAt: string | null

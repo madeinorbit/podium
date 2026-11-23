@@ -155,7 +155,7 @@ const serverBookkeeping = (
   writers: ['system'],
   replication: 'none',
   replicationNote:
-    'Never replicated and never projected onto the wire. It is in this matrix for its ADR 9 D4 visibility declaration, which every durable class owes whether or not it replicates (the `pspec-component` and `instance-id` precedent).',
+    'Never replicated and never projected onto the wire. It is in this matrix for its ADR 9 D4 visibility declaration, which every durable class owes whether or not it replicates (the `instance-id` precedent).',
   conflict: 'single-writer',
   conflictNote:
     'The Authority is the only writer, so there is no second copy to arbitrate against.',
@@ -620,14 +620,14 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     id: ROW.sessionLabels,
     section: 'sessions',
     title: 'User-authored labels (`name`/`nameSource`, user `title`, `archived`, `workState`)',
-    sites: ['packages/model/src/entities/session.ts', '[spec:SP-eb60]'],
+    sites: ['packages/model/src/entities/session.ts'],
     home: 'server',
     idMinting: 'n/a',
     writers: ['operator', 'agent-session'],
     replication: 'server-to-clients',
     conflict: 'field-LWW',
     conflictNote:
-      'AMENDED AGAIN by ADR 12 D3 (POD-6406): each label (`name`, `archived`, `workState`) is its own independent group at `field-LWW`, which is what their commands always did (they carried no revision); they are still SHARED SESSION FACTS, written once for every viewer. Clock: the Authority-assigned event time at commit. The lifecycle has its own row at exp-rev (session-desired-state), and a label edit never moves its spec revision. Before: AMENDED (Amendment 1 D10): `archived` and `workState` were `field-LWW` in the base matrix and became SHARED SESSION FACTS at `exp-rev`. `WorkState` is `planning|implementing|testing|done|icebox` — a statement about the WORK, identical for every viewer; a session that is `done` is not `done` only for me. `readAt` LEFT this group entirely and is per-user state. The `name`/`nameSource` rule survives unchanged: a human-set name is not agent-overwritable ([spec:SP-eb60]).',
+      'AMENDED AGAIN by ADR 12 D3 (POD-6406): each label (`name`, `archived`, `workState`) is its own independent group at `field-LWW`, which is what their commands always did (they carried no revision); they are still SHARED SESSION FACTS, written once for every viewer. Clock: the Authority-assigned event time at commit. The lifecycle has its own row at exp-rev (session-desired-state), and a label edit never moves its spec revision. Before: AMENDED (Amendment 1 D10): `archived` and `workState` were `field-LWW` in the base matrix and became SHARED SESSION FACTS at `exp-rev`. `WorkState` is `planning|implementing|testing|done|icebox` — a statement about the WORK, identical for every viewer; a session that is `done` is not `done` only for me. `readAt` LEFT this group entirely and is per-user state. The `name`/`nameSource` rule survives unchanged: a human-set name is not agent-overwritable.',
     tombstone: 'never-delete',
     tombstoneNote:
       'Archive is not delete — `archived` sits beside `deletedAt` on the shared row and means "retired".',
@@ -935,7 +935,7 @@ const SESSION_ROWS: readonly MatrixRow[] = [
   // POD-1211 — the session-adjacent half of POD-385's fourteen, plus the two
   // FILESYSTEM-BACKED session stores its method could not see at all. `uploads`
   // and `headless-turns` are directories under the state dir; no schema
-  // mentions them, exactly as no schema mentions pspec.
+  // mentions these directories.
   // -------------------------------------------------------------------------
   {
     id: ROW.offers,
@@ -945,7 +945,6 @@ const SESSION_ROWS: readonly MatrixRow[] = [
       '`offers` — keyed `session_id`, at most one live offer per session',
       'apps/server/src/store/sessions.ts',
       'apps/server/src/relay.ts',
-      '[spec:SP-c7f1]',
     ],
     home: 'server',
     idMinting: 'Key `session_id` — the session IS the id',
@@ -993,7 +992,6 @@ const SESSION_ROWS: readonly MatrixRow[] = [
       '`session_observation_rebinds` — keyed `session_id`, cascades from the checkpoint',
       '`session_terminal_candidates` — keyed `session_id`, cascades from the checkpoint',
       'apps/server/src/store/observation-checkpoints.ts',
-      '[spec:SP-cdb2]',
     ],
     idMinting: 'Key `session_id` in all three; the generation counters are server-allocated',
     writers: ['system', 'daemon'],
@@ -1020,7 +1018,7 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     writers: ['operator', 'agent-session'],
     replication: 'none',
     replicationNote:
-      'Bytes on the daemon’s disk, referenced by path from the agent’s prompt. Not a replicated aggregate — it is in this matrix for its ADR 9 D4 declaration, on the `pspec-component` precedent.',
+      'Bytes on the daemon’s disk, referenced by path from the agent’s prompt. Not a replicated aggregate — it is in this matrix for its ADR 9 D4 declaration.',
     conflict: 'n/a',
     conflictNote: 'Content-per-file with a minted id; two uploads are two files and never contend.',
     tombstone: 'hard-delete',
@@ -1754,86 +1752,6 @@ const REPO_ROWS: readonly MatrixRow[] = [
     openNote:
       'O1: "this worktree is in use" is an existence fact about someone else’s work. Marked, not resolved.',
   },
-  /**
-   * THE PROJECT SPEC (pspec v1), added by POD-385 because it was MISSING.
-   *
-   * The brief for the spec contracts said "check its ADR 1 matrix row rather
-   * than assuming `personal`". There was no row: `visibilityClassOf('pspec-component')`
-   * answered `personal` from D4's default-closed backstop, which is the backstop
-   * FIRING rather than a declaration, and the spec contracts would have carried a
-   * classification the matrix contradicted. ADR 9 D4 enforcement rule 1 is explicit
-   * that the declaration lands here, so it does.
-   *
-   * IT IS NOT `personal`, and that is the whole finding. A pspec component is one
-   * HTML file inside a registered repository's `pspec/` directory on the machine
-   * that hosts that repo — `[spec:SP-xxxx]` markers across the tracker join code to
-   * it, so it is a SHARED artefact, not one person's document. ADR 9 D3 rule 3
-   * decides it: facts about a machine (repos, prefixes, worktrees) inherit the
-   * machine's scoping and carry no visibility of their own, and a file inside a
-   * repo working tree is exactly such a fact. The row therefore mirrors
-   * {@link ROW.repoPrefix} — `owned-compute`, inheriting the machine, `see` to read
-   * the tree and `use` to write into it.
-   *
-   * The shipped service already behaves this way and that is the evidence, not the
-   * hope: `modules/specs/service.ts` gates every proc on `isAllowedRoot(repoRoots)`
-   * — the machine's repo registry, nothing else — and then requires the root to
-   * exist ON THIS HOST. There is no owner column anywhere in the store to hang a
-   * `personal` classification on.
-   */
-  {
-    id: ROW.pspecComponent,
-    section: 'repos-pins-tabs',
-    title: 'Project spec component (pspec v1)',
-    sites: [
-      '`<repo>/pspec/SP-xxxx.html` — files in the repo working tree, on the machine that hosts the repo',
-      '`apps/server/src/pspec.ts` (the pure file store); `apps/server/src/modules/specs/service.ts` (the repo-root gate)',
-    ],
-    home: 'server',
-    idMinting:
-      'Server-minted `SP-xxxx` (4 hex chars, retried on collision) at `createSpec`; the root is the fixed `SP-root`. The id is the stable join key `[spec:SP-xxxx]` code comments and `<a href="#spec:SP-xxxx">` interlinks resolve against, so it is never reassigned.',
-    writers: ['operator', 'agent-session'],
-    replication: 'none',
-    replicationNote:
-      'NOT a replicated aggregate. The bytes live in the repo working tree and are versioned by GIT, not by the change log — no table, no revision, no delta. It is in this matrix for its ADR 9 D4 visibility declaration (enforcement rule 1), which every entity class owes whether or not it replicates, exactly as `instance-id` is here with `replication: none`.',
-    conflict: 'n/a',
-    conflictNote:
-      'No arbitration rule, because there is no replicated copy to arbitrate against: two writers racing on one component is a working-tree write race that git resolves, the same way it resolves two edits to any other file in the repo. Declaring `field-LWW` or `exp-rev` here would claim a kernel behaviour that does not exist for this class.',
-    tombstone: 'hard-delete',
-    tombstoneNote:
-      '`removeSpec` unlinks the file and refuses a component that still has children, so the tree cannot be orphaned. Recovery is git, not a tombstone.',
-    offline: 'online-only',
-    secret: 'public',
-    owner: {
-      kind: 'inherits',
-      from: ROW.machine,
-      note: 'Amendment 1 D13.5 / ADR 9 D3 rule 3: a file in a repo working tree is a per-machine FACT and inherits the machine’s scoping. Giving spec components their own owners would produce the same incoherent state repo rows would — a spec visible to someone with no `see` on the machine holding the only copy.',
-    },
-    visibility: 'owned-compute',
-    grants: {
-      kind: 'inherits',
-      from: ROW.machine,
-      note: '`see` to read the spec tree, `use` to write into it — the same pair as the repo the files live in.',
-    },
-    attribution: {
-      actor: 'not-applicable',
-      onBehalfOf: 'not-applicable',
-      note: 'THE STORE RECORDS NEITHER HALF. A component file carries `id`, `title`, `parent`, `order`, `status` and `updatedAt` and no writer identity at all; authorship is git’s to answer. Said here rather than left blank so the gap is a declaration and not an omission — and note that the COMMAND contracts still stamp the pair from the transport principal (ADR 3 D7), because who was allowed to write is a different question from what the file remembers.',
-    },
-    systemWriter: 'never-writes',
-    inheritanceOnCreate: {
-      kind: 'parent',
-      from: ROW.machine,
-      note: 'A new component is reachable by exactly whoever could already reach the repo it was created in.',
-    },
-    visibilityMutability: {
-      mutable: true,
-      verbs: ['grant-see', 'grant-use', 'revoke', 'transfer-owner'],
-      note: 'PHASE 2 MUST HANDLE: like every per-machine fact, the whole spec tree appears or disappears with one machine grant — no per-component act changes who can see it.',
-    },
-    open: ['O1'],
-    openNote:
-      'O1: the component TREE is an existence surface — `podium spec tree` names every component of a project, so seeing the tree reveals what work exists even where a body is never opened. Marked, not resolved.',
-  },
   perUserState({
     id: ROW.pins,
     section: 'repos-pins-tabs',
@@ -2027,7 +1945,7 @@ const SETTINGS_ROWS: readonly MatrixRow[] = [
     sites: [
       'packages/model/src/settings/preferences.ts (`InstancePreferences`, POD-418)',
       'packages/runtime/src/settings.ts',
-      '[spec:SP-f4b9] `settings.experimental`',
+      '`settings.experimental`',
     ],
     home: 'server',
     idMinting: 'Settings singleton / keys',
@@ -2247,7 +2165,7 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     id: ROW.locks,
     section: 'coordination',
     title: 'Advisory locks (`locks`, `lock_waiters`)',
-    sites: ['`locks`', '`lock_waiters`', '[spec:SP-85d1]'],
+    sites: ['`locks`', '`lock_waiters`'],
     home: 'server',
     idMinting: 'Key `(repo_id, name)`',
     writers: ['operator', 'agent-session'],
@@ -2717,7 +2635,6 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
       '`maintenance_leases`',
       'apps/server/src/store/maintenance.ts',
       'packages/janitor/src/janitor.ts',
-      '[spec:SP-c29e]',
     ],
     idMinting: 'Key `name`; the holder is `(generation_id, fencing_token)`',
     conflict: 'cmd',
@@ -2730,7 +2647,7 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     id: ROW.maintenanceCommandReceipts,
     section: 'coordination',
     title: 'Janitor command receipts (`maintenance_commands`)',
-    sites: ['`maintenance_commands`', 'apps/server/src/store/maintenance.ts', '[spec:SP-c29e]'],
+    sites: ['`maintenance_commands`', 'apps/server/src/store/maintenance.ts'],
     idMinting: 'Key `(job_kind, run_key)`, with the fencing token of the holder that applied it',
     conflictNote:
       'Idempotency bookkeeping: the receipt IS the dedupe, so a second apply of the same run key finds the row and returns the recorded result rather than repeating the effect. The `applied-mutations` shape, one layer up.',
@@ -2751,7 +2668,6 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
       '`notification_facts`',
       'apps/server/src/store/notification-facts.ts',
       'apps/server/src/steward.ts',
-      '[spec:SP-ba61]',
     ],
     idMinting: 'Key `(fact_key, target)`; the target is a SESSION or a subscriber, not a user',
     conflictNote:
@@ -3069,7 +2985,6 @@ const SYNC_ROWS: readonly MatrixRow[] = [
     sites: [
       '`feed_identity` — packages/sync/src/adapters/sqlite/schema.ts',
       'ADR 2 D1',
-      '[spec:SP-4428]',
     ],
     idMinting:
       'One row, pinned by a constant primary key; `feedId` and `epoch` are minted with the log',

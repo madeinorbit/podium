@@ -180,7 +180,7 @@ export function parseSessionRef(s: string): SessionRef | null {
 /**
  * Resolve a session's internal UUID or permanent human-facing birth ref.
  *
- * [spec:SP-cdc1] Human-facing session refs are identifiers, not display-only
+ * Human-facing session refs are identifiers, not display-only
  * labels. Keep this lookup shared so server command targets and client
  * navigation cannot drift into supporting different identifier sets.
  */

@@ -550,6 +550,58 @@
       "encoded": "{\"type\":\"transcriptMirrorResult\",\"requestId\":\"requestId\",\"data\":\"data\",\"fileSize\":1,\"eof\":true,\"device\":\"device\",\"inode\":\"inode\",\"error\":\"error\"}"
     },
     {
+      "schema": "TranscriptPathsRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "transcriptPathsRequest",
+        "requestId": "requestId",
+        "paths": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"transcriptPathsRequest\",\"requestId\":\"requestId\",\"paths\":[]}"
+    },
+    {
+      "schema": "TranscriptPathsRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "transcriptPathsRequest",
+        "requestId": "requestId",
+        "paths": ["paths[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"transcriptPathsRequest\",\"requestId\":\"requestId\",\"paths\":[\"paths[0]\"]}"
+    },
+    {
+      "schema": "TranscriptPathsResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "transcriptPathsResult",
+        "requestId": "requestId",
+        "missingPaths": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"transcriptPathsResult\",\"requestId\":\"requestId\",\"missingPaths\":[]}"
+    },
+    {
+      "schema": "TranscriptPathsResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "transcriptPathsResult",
+        "requestId": "requestId",
+        "missingPaths": ["missingPaths[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"transcriptPathsResult\",\"requestId\":\"requestId\",\"missingPaths\":[\"missingPaths[0]\"]}"
+    },
+    {
       "schema": "TranscriptReadRequestMessage",
       "variant": "minimal",
       "wire": {

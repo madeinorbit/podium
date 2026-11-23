@@ -5,7 +5,7 @@
 import type { SessionId } from '@podium/model'
 import { asThreadId, BUILTIN_HARNESS_KINDS, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { assignHostMachine } from '../../test-support/host-daemon'
@@ -28,7 +28,7 @@ async function waitFor(cond: () => boolean, what: string, timeoutMs = 10_000): P
 async function onlineHarness() {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
-  const host = registry.sessionStore.hostMachineId
+  const host = registry.sessionStore.hostMachine!.id
   await assignHostMachine(registry.sessionStore)
   await (
     registry.sessionStore as unknown as {
@@ -88,6 +88,7 @@ async function onlineHarness() {
     inventory: {
       os: 'linux',
       arch: 'x64',
+      homePath: '/home/u',
       agents: BUILTIN_HARNESS_KINDS.map((kind) => ({
         kind,
         installed: true,
@@ -100,6 +101,10 @@ async function onlineHarness() {
     },
   })
   const repos = new RepoRegistry(registry, registry.sessionStore)
+  vi.spyOn(registry.modules.rpc, 'scanRepos').mockResolvedValue({
+    repositories: [],
+    diagnostics: [],
+  })
   await repos.add(repos.serverWriter, '/r', host)
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return { registry, repos, sa, frames, host, peer }

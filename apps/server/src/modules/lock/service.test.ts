@@ -4,7 +4,7 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { DEFAULT_LOCK_TTL_SECONDS, LockService, normalizeWorkspace } from './service'
 
 /**
- * LockService + LocksRepository semantics [spec:SP-85d1]: grant, same-session
+ * LockService + LocksRepository semantics: grant, same-session
  * renew, FIFO enqueue + position, release→advance (with dead-waiter pruning),
  * lazy expiry, steal, session-bound release, waiter dedup. Runs over a real
  * in-memory SessionStore so the store aggregate (migration 011) is exercised

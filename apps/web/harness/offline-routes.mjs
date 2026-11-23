@@ -102,7 +102,6 @@ try {
     'features/issues/IssuePage.tsx',
     'features/workflows/WorkflowsView.tsx',
     'features/automations/AutomationsView.tsx',
-    'features/specs/SpecsView.tsx',
   ]) {
     const chunks = Object.entries(graph.chunks)
       .filter(([, chunk]) => chunk.modules.includes(`apps/web/src/${source}`))

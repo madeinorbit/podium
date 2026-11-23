@@ -1,5 +1,5 @@
 /**
- * Doc-drift guard [spec:SP-f933]: CI fails if `docs/TELEMETRY.md` and the schema
+ * Doc-drift guard: CI fails if `docs/TELEMETRY.md` and the schema
  * module disagree.
  *
  * docs/TELEMETRY.md is a PROMISE — "if a field isn't in the tables above, it

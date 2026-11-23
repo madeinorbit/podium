@@ -7,7 +7,7 @@ import { type AnyLockCommandDef, guardLockCommand } from './registry'
 
 /**
  * Derive the `lock:` tRPC sub-router from the lock command registry
- * [spec:SP-85d1] — the small parallel of modules/issues/trpc.ts
+ * — the small parallel of modules/issues/trpc.ts
  * routerFromCommands (which is issues-specific: its guard needs the
  * IssueService for subtree resolution; locks are role-gated only). One
  * procedure per definition, resolver = the same dispatcher handler the daemon

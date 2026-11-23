@@ -484,7 +484,7 @@ describe('ISSUE_COMMANDS registry', () => {
         blocked: false,
         ready: true,
         omittedChildren: 0,
-        // Sibling sessions on the root issue [spec:SP-99d3]
+        // Sibling sessions on the root issue
         sessions: [
           {
             sessionId: asSessionId('sess-a'),
@@ -562,7 +562,7 @@ describe('ISSUE_COMMANDS registry', () => {
     const out = await cmd('tree').run(client, { id: '10' })
     expect(calls).toContainEqual({ path: 'tree', kind: 'query', input: { id: '10' } })
     const lines = out.text.split('\n')
-    // Behavioral guards (exact copy-string per-line pins dropped, POD-619 [spec:SP-0be7]):
+    // Behavioral guards (exact copy-string per-line pins dropped, POD-619):
     // the root renders, children indent under it, and the per-parent (+N more) omission,
     // needs-human question, waits-on and closed-state all surface.
     const root = lines.find((l) => l.includes('#10'))!
@@ -575,7 +575,7 @@ describe('ISSUE_COMMANDS registry', () => {
     expect(child).toContain('NEEDS HUMAN: which db?')
     expect(lines.some((l) => l.includes('(+3 more)'))).toBe(true)
     expect(lines.find((l) => l.includes('Done one'))).toContain('DONE')
-    // Sibling sessions appear under their issue with id/kind/model/state/coordinator [spec:SP-99d3]
+    // Sibling sessions appear under their issue with id/kind/model/state/coordinator
     const implLine = lines.find((l) => l.includes('POD-10-A'))!
     const revLine = lines.find((l) => l.includes('POD-10-B'))!
     const childSess = lines.find((l) => l.includes('POD-11-A'))!
@@ -708,7 +708,7 @@ describe('ISSUE_COMMANDS registry', () => {
     expect(capped.text).not.toContain('--limit') // not echoed when the user never set one
   })
 
-  it('show lists sessions with kind/model/state/coordinator [spec:SP-99d3]', async () => {
+  it('show lists sessions with kind/model/state/coordinator', async () => {
     const issue = {
       id: 'iss_1',
       seq: 7,
@@ -805,7 +805,7 @@ describe('ISSUE_COMMANDS registry', () => {
       kind: 'query',
       input: { since: 2, kinds: ['issue.closed', 'issue.ready'], limit: 10 },
     })
-    // One rendered line per event (exact copy-string pin relaxed, POD-619 [spec:SP-0be7]).
+    // One rendered line per event (exact copy-string pin relaxed, POD-619).
     const outLines = out.text.split('\n')
     expect(outLines).toHaveLength(2)
     expect(outLines[0]).toContain('issue.closed')

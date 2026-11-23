@@ -108,7 +108,7 @@ async function durableCounts(
   }
 }
 
-describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => {
+describe('isolated restart notification-storm acceptance', () => {
   it.each([
     ['claude-code', 'claude-terminal-fixture'],
     ['codex', 'codex-terminal-fixture'],
@@ -136,7 +136,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       const controls: ControlMessage[] = []
       const bindKnownSessions = async () => {
         for (const session of await store.sessions.loadSessions())
-          await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+          await registry.gateway.routeDaemonFrame(store.hostMachine!.id, {
             type: 'bind',
             sessionId: asSessionId(session.id),
             cmd: 'fixture',
@@ -194,7 +194,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         spawnedBy: `session:${parentId}`,
       })
       await bindKnownSessions()
-      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
         type: 'sessionResumeRef',
         sessionId: childId,
         resume: {
@@ -215,7 +215,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         return lease.observationGeneration
       }
       const deliver = (value: AgentObservation) =>
-        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
           type: 'agentObservation',
           observation: value,
         })
@@ -286,7 +286,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         if (kind === 'daemon-only') {
           // The server survives. Replacing the daemon forces a provider-history
           // fold against the durable checkpoint after the new lease is issued.
-          registry.gateway.detachDaemon(registry.sessionStore.hostMachineId)
+          registry.gateway.detachDaemon(registry.sessionStore.hostMachine!.id)
           await attach()
         } else {
           // Both server restart modes reopen the durable store. Their daemon
@@ -321,7 +321,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         })
         bootstrapSnapshots.push({ kind, generation })
         if ((await store.observationCheckpoints.getTerminalCandidate(childId))?.confirmedAt) {
-          await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+          await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
             type: 'agentFrameBatch',
             sessionId: childId,
             frames: [
@@ -423,7 +423,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       const terminalLease = await store.observationCheckpoints.get(childId)
       const terminalCursor = terminalLease?.checkpoint?.providerCursor
       if (!terminalLease || !terminalCursor) throw new Error('missing terminal checkpoint')
-      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
         type: 'agentObserverLiveConfirmation',
         sessionId: childId,
         provider,

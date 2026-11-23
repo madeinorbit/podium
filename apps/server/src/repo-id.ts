@@ -1,6 +1,4 @@
 import { createHash } from 'node:crypto'
-import { readFileSync, statSync } from 'node:fs'
-import { isAbsolute, join, resolve } from 'node:path'
 import { asRepoId, type MachineId, machinePathKey, type RepoId } from '@podium/model'
 
 /** Stable repo identity (#74). A repo's `repo_id` is derived from its normalized
@@ -91,51 +89,9 @@ export function isPathFallbackRepoId(
   machineId: MachineId,
   path: string,
 ): boolean {
-  return repoId == null || repoId === deriveRepoId({ machineId, path }) || repoId === asRepoId(`repo_${sha1_16(`path:${machineId}:${path}`)}`)
-}
-
-/**
- * Best-effort synchronous read of `<repoPath>/.git` → config → [remote "origin"] url.
- * Handles worktree/submodule `.git` files (`gitdir: …` indirection) and the
- * `commondir` hop back to the primary git dir. Returns null on any failure —
- * remote-machine paths simply don't exist locally and fall through here.
- */
-export function readLocalOriginUrl(repoPath: string): string | null {
-  try {
-    let gitDir = join(repoPath, '.git')
-    const st = statSync(gitDir)
-    if (st.isFile()) {
-      const m = readFileSync(gitDir, 'utf8').match(/^gitdir:\s*(.+)\s*$/m)
-      if (!m) return null
-      gitDir = isAbsolute(m[1]!) ? m[1]! : resolve(repoPath, m[1]!)
-    }
-    // Worktree git dirs keep the shared config next to `commondir`'s target.
-    try {
-      const common = readFileSync(join(gitDir, 'commondir'), 'utf8').trim()
-      if (common) gitDir = isAbsolute(common) ? common : resolve(gitDir, common)
-    } catch {
-      // no commondir — gitDir is already the primary git dir
-    }
-    return parseOriginUrlFromConfig(readFileSync(join(gitDir, 'config'), 'utf8'))
-  } catch {
-    return null
-  }
-}
-
-/** Minimal INI walk of a git config: url under `[remote "origin"]`. */
-function parseOriginUrlFromConfig(config: string): string | null {
-  let inOrigin = false
-  for (const rawLine of config.split(/\r?\n/)) {
-    const line = rawLine.trim()
-    if (!line || line.startsWith('#') || line.startsWith(';')) continue
-    const section = line.match(/^\[(.+)\]$/)
-    if (section) {
-      inOrigin = section[1]?.trim() === 'remote "origin"'
-      continue
-    }
-    if (!inOrigin) continue
-    const url = line.match(/^url\s*=\s*(.*)$/)
-    if (url) return url[1]?.trim() || null
-  }
-  return null
+  return (
+    repoId == null ||
+    repoId === deriveRepoId({ machineId, path }) ||
+    repoId === asRepoId(`repo_${sha1_16(`path:${machineId}:${path}`)}`)
+  )
 }

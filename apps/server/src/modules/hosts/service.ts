@@ -1,3 +1,4 @@
+import type { DriverFamily } from '@podium/harness/metadata'
 import { createLogger } from '@podium/logger'
 import type {
   AgentRuntimeState,
@@ -6,14 +7,18 @@ import type {
   MachineId,
   SessionId,
 } from '@podium/model'
-import type { DriverFamily } from '@podium/harness/metadata'
 import { CAP_TOPICS_V1, type LiveServerMessage, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { PodiumSettings } from '@podium/runtime'
 import { withReadScope } from '../../store/executor/read-scope'
 import type { EventBus } from '../bus'
 import { type DaemonRequestPort, daemonRequestKind } from '../daemon-request'
-import { buildShellLifetimeInputs, decideShellLifetime, shellQuietMs, ATTACH_TUI_WARM_TTL_MS } from '../sessions/terminal-lifetime'
+import {
+  ATTACH_TUI_WARM_TTL_MS,
+  buildShellLifetimeInputs,
+  decideShellLifetime,
+  shellQuietMs,
+} from '../sessions/terminal-lifetime'
 
 const log = createLogger('server:hosts')
 
@@ -379,7 +384,7 @@ export class HostsService {
     }
   }
 
-  /** Apply memory, load, and idle-count pressure independently [spec:SP-c29e].
+  /** Apply memory, load, and idle-count pressure independently.
    *
    *  Memory and load share one per-machine cooldown map (one resource park per
    *  cooldown window); count pressure keeps its own token bucket. Each branch
@@ -763,7 +768,11 @@ export class HostsService {
           session.status === 'live' &&
           session.purpose === 'attach-tui',
       )
-      .sort((a, b) => (a.lastUnwatchedAtMs ?? Number.POSITIVE_INFINITY) - (b.lastUnwatchedAtMs ?? Number.POSITIVE_INFINITY))
+      .sort(
+        (a, b) =>
+          (a.lastUnwatchedAtMs ?? Number.POSITIVE_INFINITY) -
+          (b.lastUnwatchedAtMs ?? Number.POSITIVE_INFINITY),
+      )
     const liveIds = new Set(live.map((session) => session.sessionId))
     for (const ordered of [...this.attachTuiParkOrdered]) {
       if (!liveIds.has(ordered)) this.attachTuiParkOrdered.delete(ordered)
@@ -820,7 +829,8 @@ export class HostsService {
   }
 
   /** Park one shell through the teardown verb, recording races. */
-  private async parkShell(sessionId: SessionId, failed: Set<string>): Promise<boolean> {    const result = await this.deps.parkShellSession({ sessionId })
+  private async parkShell(sessionId: SessionId, failed: Set<string>): Promise<boolean> {
+    const result = await this.deps.parkShellSession({ sessionId })
     if (!result.ok) {
       failed.add(sessionId)
       return false
@@ -879,7 +889,8 @@ export class HostsService {
         if (
           this.isUnobservedPhase(session) &&
           !this.isFullyQuietFor(session, this.unknownQuietWindowMs(backstopMinutes), now)
-        ) continue
+        )
+          continue
       }
       gated.push(session)
     }
@@ -890,9 +901,7 @@ export class HostsService {
     const unscheduled = gated.filter(
       (session) => session.agentKind === 'shell' || proofs.get(session.sessionId)?.ok === true,
     )
-    const target = unscheduled.sort(
-      (a, b) => this.quietSinceMs(a) - this.quietSinceMs(b),
-    )[0]
+    const target = unscheduled.sort((a, b) => this.quietSinceMs(a) - this.quietSinceMs(b))[0]
     if (!target) return
     // Shells at the backstop go through the same table (POD-4435): the
     // backstop's own selection IS the table's last-resort row, so the verdict
@@ -1249,7 +1258,10 @@ export class HostsService {
   /** Ask a daemon who owns the used memory. Resolves undefined when no daemon
    *  answers in time. `machineId` targets a specific machine (the one whose chip
    *  was clicked); omitted → the default online machine. */
-  async memoryBreakdown(roots: string[], machineId?: MachineId): Promise<MemoryBreakdown | undefined> {
+  async memoryBreakdown(
+    roots: string[],
+    machineId?: MachineId,
+  ): Promise<MemoryBreakdown | undefined> {
     return await this.deps.daemonRequest.request({
       kind: MEMORY_BREAKDOWN,
       timeoutMs: MEMORY_BREAKDOWN_TIMEOUT_MS,
@@ -1280,13 +1292,15 @@ export class HostsService {
     reclaimRoots: string[],
     machineId?: MachineId,
   ): Promise<ReclaimDiskEstimateState> {
-    if (roots.length === 0 || reclaimRoots.length === 0) {
+    // A workspace-wide inventory has paths from several machines. Measuring it
+    // requires a named machine; an implicit daemon would receive foreign paths.
+    if (machineId === undefined || roots.length === 0 || reclaimRoots.length === 0) {
       return { status: 'unknown', recoverableBytes: null, measuredAt: null }
     }
     const stableRoots = [...new Set(roots)].sort()
     const stableReclaimRoots = [...new Set(reclaimRoots)].sort()
     const fingerprint = JSON.stringify([stableRoots, stableReclaimRoots])
-    const key = machineId ?? '__default__'
+    const key = machineId
     const cached = this.reclaimDiskEstimateByMachine.get(key)
     if (cached?.fingerprint === fingerprint && cached.validUntilMs > Date.now()) {
       return cached.state

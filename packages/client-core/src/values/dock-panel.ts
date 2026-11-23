@@ -21,7 +21,7 @@ export interface FileTab {
    *  context (POD-149): the strip shows a tab only under its owning issue, so
    *  files opened under one issue no longer leak into every issue sharing the
    *  same checkout. Also keeps the dock's Issue panel on the artifact's issue
-   *  instead of resolving by cwd ([spec:SP-0fc9] #441). Absent = opened outside
+   *  instead of resolving by cwd (#441). Absent = opened outside
    *  any issue; the tab lives in the worktree-selected workspace only. */
   issueId?: IssueId
 }
@@ -52,7 +52,7 @@ export interface ActiveWorktree {
    *  session (paneA or the recency fallback) — lets the Issue tab fall back to
    *  that session's explicit issue attachment. Absent for file-tab resolution. */
   sessionId?: SessionId
-  /** Explicit issue carried from an artifact file tab ([spec:SP-0fc9] #441) —
+  /** Explicit issue carried from an artifact file tab (#441) —
    *  wins over cwd containment when the Issue tab resolves its issue. */
   issueId?: IssueId
 }
@@ -125,7 +125,7 @@ export function issueForCwd<T extends IssuePanelLike>(issues: T[], cwd: string):
  *  re-homed sessions resolve to THEIR issue, not the worktree owner's (#243).
  *  A known session WITHOUT an attached issue resolves to no issue at all —
  *  never guess by cwd containment (an issue whose worktreePath is a shared
- *  main checkout would swallow every unattached session, [spec:SP-595b] #582).
+ *  main checkout would swallow every unattached session, #582).
  *  Containment
  *  fallback applies only to file tabs / panes with no resolvable session. */
 export function issueForPanel<T extends IssuePanelLike>(args: {
@@ -133,7 +133,7 @@ export function issueForPanel<T extends IssuePanelLike>(args: {
   sessions: SessionView[]
   cwd: string
   sessionId?: SessionId
-  /** Explicit issue (artifact file tabs, [spec:SP-0fc9] #441; the dock's task
+  /** Explicit issue (artifact file tabs, #441; the dock's task
    *  panel) — beats both the session attachment and cwd containment
    *  whenever the id still names a task. */
   issueId?: IssueId
@@ -184,7 +184,7 @@ export function artifactKind(path: string): ArtifactKind {
 
 export { machinePathBasename as basename } from '@podium/model'
 
-/** URL for an issue-panel artifact's bytes ([spec:SP-0fc9] #441): snapshotted
+/** URL for an issue-panel artifact's bytes (#441): snapshotted
  *  entries (artifactId present) serve from the permanent store via
  *  /files/artifact — immutable, machine-offline-safe; legacy path-only entries
  *  fall back to the live /files/asset worktree route (null without a root). */

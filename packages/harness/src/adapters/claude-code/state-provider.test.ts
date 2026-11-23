@@ -36,7 +36,7 @@ describe('claude-code instrumentation', () => {
     expect(instr.file?.path).toBe('/tmp/podium/hooks/s1.json')
   })
 
-  it('seedTheme writes theme:auto into the per-session settings; off/absent leaves the key out [spec:SP-a04d]', () => {
+  it('seedTheme writes theme:auto into the per-session settings; off/absent leaves the key out', () => {
     const parse = (seedTheme?: boolean) =>
       JSON.parse(
         claudeCodeStateProvider.instrumentation({
@@ -608,7 +608,7 @@ describe('translateClaudeHookPayload', () => {
     expect(JSON.stringify(events)).not.toMatch(/forged|attacker|userId|owner|account/)
   })
 })
-describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
+describe('ClaudeCausalObserver', () => {
   const at = '2026-07-18T12:00:00.000Z'
   const idle = { phase: 'idle' as const, since: at, workingMsTotal: 0, nativeSubagentCount: 0 }
   const observer = (state: Parameters<typeof reduceAgentState>[0] = idle, generation = 7) =>

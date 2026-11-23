@@ -5,6 +5,7 @@ import { SessionRegistry } from '../../relay'
 import { appRouter } from '../../router'
 import { authoritySnapshot } from '../../test-support/authority-snapshot'
 import { OPERATOR } from '../../test-support/capabilities'
+import { TEST_MACHINE_ID } from '../../test-support/machine-id'
 import { openTestStore } from '../../test-support/open-test-store'
 import { seedRows } from '../../test-support/seed-rows'
 
@@ -14,24 +15,24 @@ afterEach(async () => {
 })
 
 async function fixture() {
-  const registry = await SessionRegistry.create(await openTestStore(':memory:'), undefined, {
-    instanceId: 'default',
-  })
+  const registry = await SessionRegistry.create(
+    await openTestStore(':memory:', TEST_MACHINE_ID),
+    undefined,
+    {
+      instanceId: 'default',
+    },
+  )
   registries.push(registry)
   await seedRows(
     registry.sessionStore,
-    async () =>
-      await registry.sessionStore.repos.addRepo(
-        '/report-fixture',
-        registry.sessionStore.hostMachineId,
-      ),
+    async () => await registry.sessionStore.repos.addRepo('/report-fixture', TEST_MACHINE_ID),
   )
   // This report-only fixture has no daemon to answer automatic base-branch probes.
   await seedRows(
     registry.sessionStore,
     async () =>
       await registry.sessionStore.repos.setRepoDefaultParentBranch(
-        registry.sessionStore.hostMachineId,
+        TEST_MACHINE_ID,
         '/report-fixture',
         'main',
       ),

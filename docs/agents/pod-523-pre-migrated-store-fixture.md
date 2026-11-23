@@ -93,7 +93,7 @@ were printing is most of what the cold log was.
 ### 2. The clone invalidates automatically
 
 The image's **filename is a SHA-256 over every migration's name and sql**, plus a format
-version (`schemaFingerprint`). Schema DDL lives only in `src/migrations/` [spec:SP-4428],
+version (`schemaFingerprint`). Schema DDL lives only in `src/migrations/`,
 so:
 
 > a schema change is a manifest change → a different digest → a different filename → a
@@ -174,7 +174,7 @@ a net loss. The migrator now lives in two sibling modules that run once, in the 
 process, and even there it is behind the cache-miss branch.
 
 **The cache is not in tmp**, deliberately. The hermetic setup repoints `TMPDIR` at a
-per-file container deleted when the fork exits [spec:SP-0be7], so a tmp cache would be
+per-file container deleted when the fork exits, so a tmp cache would be
 rebuilt ~291 times per run. It lives in `node_modules/.cache/podium-test-schema/` — the
 conventional home for a derived artifact, already ignored, wiped by a clean install.
 

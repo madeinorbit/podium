@@ -1,5 +1,5 @@
 /**
- * `podium telemetry` [spec:SP-f933] — the standing audit surface.
+ * `podium telemetry` — the standing audit surface.
  *
  * Design: docs/internal/superpowers/specs/2026-07-16-telemetry-design.md
  *

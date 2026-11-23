@@ -47,7 +47,7 @@ const QUARANTINABLE: Record<
   { key: string; element: z.ZodTypeAny; envelope?: z.ZodTypeAny }
 > = {
   hostMetricsChanged: { key: 'hosts', element: HostMetricsWire },
-  // Kind-tolerant ([spec:SP-3fe2] #258): unknown entity kinds PASS (the consumer
+  // Kind-tolerant (#258): unknown entity kinds PASS (the consumer
   // ignores the row but advances its cursor past it — a newer server must not
   // heal-loop an older client), while a kind this build HAS an arm for carrying
   // an invalid value is still quarantined.
@@ -60,7 +60,7 @@ const QUARANTINABLE: Record<
 }
 
 /** What {@link parseServerMessageLenient} yields: the strict union, except the
- *  change-carrying frames, whose rows are kind-tolerant ([spec:SP-3fe2] #258 — a
+ *  change-carrying frames, whose rows are kind-tolerant (#258 — a
  *  NEWER server may stream entity kinds this build doesn't know; consumers
  *  ignore those rows but must still see them to advance the cursor). */
 export type ServerMessageLenient =

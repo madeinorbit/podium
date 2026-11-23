@@ -40,7 +40,7 @@ type Oracle = Awaited<ReturnType<typeof makeOracle>>
 async function makeShellsOracle(): Promise<Oracle> {
   const o = await makeOracle()
   await o.store.machines.upsertMachine({
-    id: o.store.hostMachineId,
+    id: o.store.hostMachine!.id,
     name: 'test-host',
     hostname: 'test-host',
     tokenHash: 'test',
@@ -121,7 +121,7 @@ describe('shells.forWorktree', () => {
     const o = await makeShellsOracle()
     const onHost = await o.call.shells.forWorktree({
       worktreePath: '/r/.worktrees/a',
-      machineId: o.store.hostMachineId,
+      machineId: o.store.hostMachine!.id,
     })
     expect(onHost.created).toBe(true)
     await expect(

@@ -76,7 +76,7 @@ export type PanelSurface =
 export function panelSurface(input: {
   /** The session's wire status; `undefined` when no row has arrived yet. */
   readonly status: SessionStatus | undefined
-  /** The handover veil owns the pane ([spec:SP-3f7a]). */
+  /** The handover veil owns the pane. */
   readonly inTransit: boolean
   /** A structured transcript exists, so a read-only state can show it. */
   readonly chatCapable: boolean

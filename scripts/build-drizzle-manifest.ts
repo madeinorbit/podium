@@ -54,7 +54,7 @@ ${entries.join('\n')}
 /**
  * The baseline — the verbatim dump of the schema as it stood when drizzle was
  * adopted. On an existing (legacy) database this is STAMPED, not executed,
- * because the legacy chain already built that schema [spec:SP-4428].
+ * because the legacy chain already built that schema.
  */
 export const BASELINE_MIGRATION: DrizzleMigration = DRIZZLE_MIGRATIONS[0]!
 `,

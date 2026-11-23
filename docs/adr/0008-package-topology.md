@@ -6,19 +6,19 @@
 | **Date** | 2026-07-17 |
 | **Issue** | POD-754 (leaf of POD-359) |
 | **File** | `docs/adr/0008-package-topology.md` (this leaf owns **only** this file) |
-| **Related** | ADR 1–7 (forward refs); [spec:SP-3b58]; [spec:SP-3fe2]; [spec:SP-15aa]; POD-296, POD-299, POD-311, POD-325, POD-293/POD-331, POD-356, POD-712, POD-715, POD-746 |
+| **Related** | ADR 1–7 (forward refs); POD-296, POD-299, POD-311, POD-325, POD-293/POD-331, POD-356, POD-712, POD-715, POD-746 |
 | **Amended by** | [ADR 10 — harness adapter and driver boundary](0010-harness-adapter-and-driver-boundary.md) (2026-09-20, POD-4468): amends D4.3 only — per-harness transcript grammars (pure record→item mappers) move into `adapters/<harness>/transcript.ts`, consumed through the Store mechanism. The `transcript-core` rename stays declined and the slice/page core stays out of `model`. |
 
 ## Context
 
 The rewrite (POD-279) requires a **target package/app layout decided up front** so Phases 1–6 build toward one topology. POD-356 **verifies** the shipped result against this ADR; it does not invent names.
 
-Build orchestration has already landed on the integrated tree ([spec:SP-3b58]): **tsgo** as the typecheck compiler (`tsc` kept as `typecheck:tsc` where present), **Turborepo** as the `typecheck` scheduler/cache (`turbo run typecheck` at repo root; `turbo.json` `daemon: false`). SP-3b58 recorded an **interim** resolve-from-source decision and deferred project references (POD-712), flagging that **ADR 8 must ratify or overturn** that choice because rewrite packages bake it in.
+Build orchestration has already landed on the integrated tree: **tsgo** as the typecheck compiler (`tsc` kept as `typecheck:tsc` where present), **Turborepo** as the `typecheck` scheduler/cache (`turbo run typecheck` at repo root; `turbo.json` `daemon: false`). SP-3b58 recorded an **interim** resolve-from-source decision and deferred project references (POD-712), flagging that **ADR 8 must ratify or overturn** that choice because rewrite packages bake it in.
 
 ### Binding inputs (drift refreshes on POD-359)
 
 1. **Item 8 (description):** wire extraction; store/runtime split; terminal-ui; client-core→engine; node/host naming; neutral transcript-core placement (done / renamed / declined with rationale). POD-356 verifies.
-2. **DRIFT 1:** instance identity ([spec:SP-15aa], `packages/runtime/src/instance.ts`) — place in package topology (brand vs runtime concern is shared with ADR 1 / POD-645).
+2. **DRIFT 1:** instance identity (, `packages/runtime/src/instance.ts`) — place in package topology (brand vs runtime concern is shared with ADR 1 / POD-645).
 3. **DRIFT 2 (build orchestration):** DECIDE source-conditions vs project-references (mutually exclusive); mandate typecheck + `@podium/source` export + turbo membership for new packages; record that turbo does **not** fix worktree→MAIN `@podium/*` resolution and pin mitigation.
 4. **UPDATE:** turbo+tsgo fully landed (`25fe48d7..2f7b7620`); SP-3b58 interim = resolve-from-source stays; ADR 8 must ratify/overturn explicitly. Cold turbo ~30s, cached <1s (SP-3b58).
 
@@ -199,7 +199,7 @@ Same-layer allowlist migrates with renames (today’s declared set from the mani
 
 | Package | Owns |
 |---|---|
-| **`packages/runtime`** (L2, platform **neutral**) | Process/environment: instance resolution ([spec:SP-15aa] module stays here), config, boot, join/setup, hermetic env, connectivity, process-safety, sd-notify, run-registry, loop metrics/stall; isomorphic non-IO helpers |
+| **`packages/runtime`** (L2, platform **neutral**) | Process/environment: instance resolution (module stays here), config, boot, join/setup, hermetic env, connectivity, process-safety, sd-notify, run-registry, loop metrics/stall; isomorphic non-IO helpers |
 | **`packages/store`** (L2) | Persistence ports/adapters: SQLite open/transaction shims (today `runtime/sqlite`), generic sync-table adapters for the kernel, durable local stores that are not process identity (e.g. auth-store). Server-side adapters feed the **one** drizzle journal (SP-4428 / ADR 2); clients are **not** drizzle-managed (ADR 6) |
 
 **Rule of thumb:** durable file/DB handle or storage port for Authority/Replica/Outbox → **store**. How this process is configured/supervised → **runtime**.

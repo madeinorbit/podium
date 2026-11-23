@@ -1,5 +1,5 @@
 /**
- * Issue schema integrity [spec:SP-4428] — referential integrity + value
+ * Issue schema integrity — referential integrity + value
  * constraints on the issue tables (originally issue #164 step 2), verified
  * against a FRESH drizzle-built database: ON DELETE CASCADE onto child
  * tables, ON DELETE SET NULL for scalar back-references, and CHECKed
@@ -10,7 +10,7 @@
  * dropping mirrored parent-child dep rows, folding the retired `verifying`
  * stage back into `review`) tested one-time DATA heals that ran as part of
  * the now-deleted legacy migration chain. That chain — and the
- * `legacy-schema.fixture` it seeded — is gone [spec:SP-4428]. There is no
+ * `legacy-schema.fixture` it seeded — is gone. There is no
  * fresh-schema equivalent for those tests, so they are dropped, not adapted.
  */
 
@@ -31,7 +31,7 @@ function rawDb(s: SessionStore): {
  *  through a machine that reported it (2b803efb5). */
 async function storeWithRepo(): Promise<SessionStore> {
   const s = await openTestStore(':memory:')
-  await s.repos.addRepo('/r', s.hostMachineId)
+  await s.repos.addRepo('/r', s.hostMachine!.id)
   return s
 }
 

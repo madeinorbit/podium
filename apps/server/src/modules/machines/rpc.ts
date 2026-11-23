@@ -71,6 +71,7 @@ import type {
 } from '@podium/protocol'
 import {
   CAP_HARNESS_INSTALLS,
+  CAP_TRANSCRIPT_PATHS,
   type HarnessActionResult,
   type HarnessInstallAction,
   SERVER_TRANSFER_MAX_CHUNK_BYTES,
@@ -235,6 +236,7 @@ interface DaemonRpcDeps {
   resolveMachine(requested: string | undefined, cwd: string): string | Promise<string>
   daemonSupports?(machineId: MachineId, capability: string): boolean
   hasDaemon(machineId: MachineId): boolean
+  daemonSupports?(machineId: MachineId, capability: string): boolean
   machineName(id: MachineId): string | Promise<string>
   /** {@link machineName} for many machines in one read; every asked id gets an entry. */
   machineNames(ids: readonly MachineId[]): Promise<ReadonlyMap<string, string>>
@@ -261,6 +263,7 @@ type Payload<M extends { type: string; requestId: string }> = Omit<M, 'type' | '
  */
 const SCAN = daemonRequestKind<ScanResult>('r')
 const SCAN_REPOS = daemonRequestKind<ScanReposResult>('rr')
+const TRANSCRIPT_PATHS = daemonRequestKind<{ missingPaths: string[] }>('tp')
 const BROWSE_DIRS = daemonRequestKind<BrowseDirsResult>('bd')
 const DIR_OP = daemonRequestKind<DirOpResult>('dp')
 const GITHUB_CLI = daemonRequestKind<Payload<GitHubCliResultMessage>>('gh')
@@ -383,6 +386,8 @@ const payloadOf = <M extends { type: string; requestId: string }>(msg: M): Paylo
 type SettledFrameType = Exclude<RpcDaemonFrameType, 'oauthLoopbackCallback'>
 
 const RPC_REPLY_SETTLERS: { [K in SettledFrameType]: ReplySettler<K> } = {
+  transcriptPathsResult: (broker, machineId, msg) =>
+    void broker.settle(TRANSCRIPT_PATHS, msg.requestId, machineId, payloadOf(msg)),
   scanResult: (broker, machineId, msg) =>
     void broker.settle(SCAN, msg.requestId, machineId, {
       conversations: msg.conversations,
@@ -595,6 +600,32 @@ export class DaemonRpcService {
 
   // ---- requests ----
 
+  canCheckTranscriptPaths(machineId: MachineId): boolean {
+    return (
+      this.deps.hasDaemon(machineId) &&
+      this.deps.daemonSupports?.(machineId, CAP_TRANSCRIPT_PATHS) === true
+    )
+  }
+
+  /** One metadata batch; uncertainty always credits a registry path as recorded. */
+  async missingTranscriptPaths(machineId: MachineId, paths: string[]): Promise<string[]> {
+    if (paths.length === 0 || !this.canCheckTranscriptPaths(machineId)) return []
+    try {
+      return (
+        await this.request(
+          TRANSCRIPT_PATHS,
+          1_000,
+          () => ({ missingPaths: [] }),
+          (requestId) => ({ type: 'transcriptPathsRequest', requestId, paths }),
+          machineId,
+        )
+      ).missingPaths
+    } catch {
+      // The daemon can disconnect between the online check and the send.
+      return []
+    }
+  }
+
   async scan(): Promise<ScanResult> {
     return await this.request(
       SCAN,
@@ -630,7 +661,7 @@ export class DaemonRpcService {
     )
   }
 
-  /** One directory's sub-directories on `machineId`'s disk (POD-814) [spec:SP-3701]
+  /** One directory's sub-directories on `machineId`'s disk (POD-814)
    *  — the repo picker's browser. `path` omitted browses that machine's $HOME.
    *  A daemon-reported failure comes back in `error`, not as a rejection. */
   async browseDirs(
@@ -2047,7 +2078,7 @@ export class DaemonRpcService {
           machineId?: MachineId
           root: string
           path: string
-          /** Ranged pull ([spec:SP-0fc9]) — artifact snapshotting reads large files in chunks. */
+          /** Ranged pull — artifact snapshotting reads large files in chunks. */
           offset?: number
           length?: number
         },

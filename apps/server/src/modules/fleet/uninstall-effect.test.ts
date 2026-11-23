@@ -89,7 +89,9 @@ describe('machines.uninstall', () => {
 
   it('never uninstalls the machine this server runs on', async () => {
     const o = await oracle()
-    const host = o.store.hostMachineId
+    const host = o.store.hostMachine?.id
+    if (!host) throw new Error('the test server runs on a host machine')
+    if (!host) throw new Error('the test server runs on a host machine')
     vi.spyOn(o.reg.modules.machines, 'daemonSupports').mockReturnValue(true)
     const ask = vi.spyOn(o.reg.modules.rpc, 'machineUninstall')
     await expect(o.call.machines.uninstall({ id: host })).rejects.toThrow('runs the server')

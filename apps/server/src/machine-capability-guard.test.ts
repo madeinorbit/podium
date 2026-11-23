@@ -19,6 +19,7 @@
  * failure this work replaces.
  */
 import { asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { resolvePrincipal } from './command-principal'
 import { SuperagentService } from './modules/superagent'
@@ -51,8 +52,15 @@ async function fleet() {
   // A daemon attaching is what records the durable `daemon` component.
   // Held so a test can drop exactly this socket: `detach` ignores a send that is
   // not the registered one (a superseded socket must not evict a fresh one).
-  const laptopSocket = (): void => {}
+  const laptopMessages: ControlMessage[] = []
+  const laptopSocket = (message: ControlMessage): void => {
+    laptopMessages.push(message)
+  }
   await registry.gateway.attachDaemon(laptop, laptopSocket)
+  vi.spyOn(registry.modules.rpc, 'scanRepos').mockResolvedValue({
+    repositories: [],
+    diagnostics: [],
+  })
   const repos = new RepoRegistry(registry, store)
   const superagent = await SuperagentService.create(registry.modules, repos, store)
   return {
@@ -60,6 +68,7 @@ async function fleet() {
     repos,
     coordinator,
     laptop,
+    laptopMessages,
     /** Take the laptop's daemon offline WITHOUT retracting its component. */
     dropLaptopDaemon: (): void => {
       registry.modules.machines.detach(laptop, laptopSocket)
@@ -142,13 +151,83 @@ describe('repo actions refuse a machine that runs no daemon', () => {
   })
 
   it('repos.browse refuses the coordinator instead of timing out on a daemon that is not there', async () => {
-    const { call, coordinator } = await fleet()
+    const { call, coordinator, registry } = await fleet()
+    const browseDirs = vi.spyOn(registry.modules.rpc, 'browseDirs')
     try {
       await call.repos.browse({ machineId: coordinator })
       expect.unreachable('repos.browse walked a machine with no daemon')
     } catch (error) {
       expectNoDaemonRefusal(error, 'source')
+      expect(error).toMatchObject({ code: 'PRECONDITION_FAILED' })
     }
+    expect(browseDirs).not.toHaveBeenCalled()
+  })
+})
+
+describe('repos.browse requires a named machine', () => {
+  it.each([
+    undefined,
+    {},
+    { path: '/work/projects' },
+  ])('rejects input without machineId before any machine lookup or RPC: %j', async (input) => {
+    const { call, registry } = await fleet()
+    const requireCapability = vi.spyOn(registry.modules.machines, 'requireCapability')
+    const browseDirs = vi.spyOn(registry.modules.rpc, 'browseDirs')
+
+    // A cached client or a raw request can omit fields the current types require.
+    await expect(call.repos.browse(input as never)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      cause: { name: 'ZodError' },
+    })
+    expect(requireCapability).not.toHaveBeenCalled()
+    expect(browseDirs).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    {},
+    { path: '/work/projects', includeHidden: true },
+    { path: '~', includeHidden: false },
+  ])('gets the listing from the named machine daemon with the requested options: %j', async (options) => {
+    const { call, registry, laptop, laptopMessages } = await fleet()
+    const listing = {
+      path: '/work/projects',
+      homePath: '/work',
+      parentPath: '/work',
+      entries: [{ name: 'project', path: '/work/projects/project', isRepo: true }],
+      isRepo: false,
+    }
+    const browse = call.repos.browse({ machineId: laptop, ...options })
+    await expect
+      .poll(() => laptopMessages.some((message) => message.type === 'browseDirsRequest'))
+      .toBe(true)
+    const request = laptopMessages.find((message) => message.type === 'browseDirsRequest')
+    expect(request).toEqual({
+      type: 'browseDirsRequest',
+      requestId: expect.any(String),
+      ...options,
+    })
+    if (!request) throw new Error('the named machine did not receive the browse request')
+
+    await registry.gateway.routeDaemonFrame(laptop, {
+      type: 'browseDirsResult',
+      requestId: request.requestId,
+      listing,
+    })
+    await expect(browse).resolves.toEqual(listing)
+  })
+
+  it.each([
+    'could not open directory',
+    undefined,
+  ])('keeps the daemon failure as BAD_REQUEST: %j', async (error) => {
+    const { call, registry, laptop } = await fleet()
+    const browseDirs = vi.spyOn(registry.modules.rpc, 'browseDirs').mockResolvedValue({ error })
+
+    await expect(call.repos.browse({ machineId: laptop })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: error ?? 'directory browse failed',
+    })
+    expect(browseDirs).toHaveBeenCalledExactlyOnceWith(undefined, {}, laptop)
   })
 })
 

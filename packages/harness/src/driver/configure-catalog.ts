@@ -3,6 +3,7 @@
 
 import type { Declared } from '../manifest.js'
 import { canonicalDriverId, supported, unsupported } from '../manifest.js'
+import { harnessAdapterFor } from '../registry.js'
 import type { AttachCapability, ConfigureCapability, ConfigureRequest } from './capabilities.js'
 import { claudeSdkCapabilities } from './families/claude-sdk/capabilities.js'
 import { codexAppServerCapabilities } from './families/codex/capabilities.js'
@@ -17,15 +18,9 @@ import type { DriverId } from './families.js'
  * WHY A CLIENT NEEDS THIS AND CANNOT DERIVE IT
  * ---------------------------------------------------------------------------
  *
- * POD-3081 made model and effort really changeable on the three headless
- * drivers, and left the product unable to tell which sessions those are. The
- * nearest fact already on the wire is `Session.driverFamily`, and it is WRONG
- * for this question in a way that matters: `grok-acp` is family `server` and
- * declares `configure` for `permissionMode` ONLY — it sends no model on
- * `session/new` or on `session/prompt`, so there is nothing for a model change
- * to change. Gating a model picker on the family offers it on a session that can
- * only refuse, which is the same class of misreport the whole axis exists to
- * remove: a control that looks available and is not.
+ * Model controls follow the bound driver's declared fields. A family name
+ * cannot answer this: terminal drivers refuse configuration, and one-shot
+ * headless drivers depend on the harness's native selection support.
  *
  * ---------------------------------------------------------------------------
  * WHY IT IS DERIVED AND NOT WRITTEN DOWN
@@ -137,8 +132,17 @@ export function attachKindsForDriver(driverId: string): readonly ('engine' | 'cl
   return declared?.supported ? declared.value.kinds : []
 }
 
-export function configureFieldsForDriver(driverId: string): readonly (keyof ConfigureRequest)[] {
+export function configureFieldsForDriver(
+  driverId: string,
+  harness?: string,
+): readonly (keyof ConfigureRequest)[] {
   const lookup: Partial<Record<string, () => Declared<ConfigureCapability>>> = CONFIGURE_BY_DRIVER
   const declared = lookup[canonicalDriverId(driverId)]?.()
-  return declared?.supported ? declared.value.fields : []
+  const fields = declared?.supported ? declared.value.fields : []
+  if (canonicalDriverId(driverId) === 'headless' && harness !== undefined) {
+    const manifest = harnessAdapterFor(harness)
+    if (manifest?.capabilities.effortFlag === 'none')
+      return fields.filter((field) => field !== 'effort')
+  }
+  return fields
 }

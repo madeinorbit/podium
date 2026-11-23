@@ -92,10 +92,10 @@ export const RIGHT_PANELS: { id: RightPanelTab; label: string; icon: LucideIcon 
   { id: 'superagent', label: 'Superagent', icon: Sparkles },
   { id: 'git', label: 'Git', icon: GitBranch },
   { id: 'files', label: 'Files', icon: FolderTree },
-  // The dock hosts one persistent shell per worktree (#23) [spec:SP-75b1];
+  // The dock hosts one persistent shell per worktree (#23);
   // additional shells can also be opened as workspace tabs from the "+" menu.
   { id: 'shell', label: 'Shell', icon: SquareTerminal },
-  // The message ledger (#237) [spec:SP-34d7 web] — the active session's and
+  // The message ledger (#237) — the active session's and
   // its issue's delivery ledger ("what happened to my message").
   { id: 'mail', label: 'Messages', icon: Mail },
   { id: 'shipping', label: 'Shipping', icon: PerspectiveRoad },

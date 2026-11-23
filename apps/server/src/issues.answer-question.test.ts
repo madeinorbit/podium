@@ -1,14 +1,14 @@
 import { asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
-import { executionFactsOf } from './test-support/execution-facts'
 import { normalizeSettings } from '@podium/runtime'
 import { MutationLedger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
-
 import type { IssueCommandDeps } from './modules/issues/command-ctx'
 import { IssueCommandDispatcher } from './modules/issues/dispatcher'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { OPERATOR } from './test-support/capabilities'
+import { executionFactsOf } from './test-support/execution-facts'
+import { TEST_MACHINE_ID } from './test-support/machine-id'
 import { openTestStore } from './test-support/open-test-store'
 import { sessionReadPorts } from './test-support/session-facts'
 
@@ -23,10 +23,11 @@ async function harness(
   answerSessionQuestion?: IssueCommandDeps['answerSessionQuestion'],
   opts: { actorSessionId?: SessionId } = {},
 ) {
-  const store = await openTestStore(':memory:')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   // An issue is placed under a machine that REPORTED its repo (2b803efb5).
-  await store.repos.addRepo('/r', store.hostMachineId)
+  await store.repos.addRepo('/r', store.hostMachine!.id)
   const deps: IssueDeps = {
+    resolveMachine: async () => TEST_MACHINE_ID,
     store,
     ...sessionReadPorts(() => []),
     getSettings: async () =>
@@ -190,7 +191,11 @@ describe('issues.answerQuestion (issue #53)', () => {
     // execution of node-forwarded mutations) — see the deputy gate below for
     // why agents may not. A caller with an agent session is an agent, whatever
     // role it carries (POD-6288).
-    await call('setNeedsHuman', { id: a.id, question: 'merge?', askedBy: 'sess_other' }, { capability: OPERATOR })
+    await call(
+      'setNeedsHuman',
+      { id: a.id, question: 'merge?', askedBy: 'sess_other' },
+      { capability: OPERATOR },
+    )
     expect((await svc.reports.get(a.id))!.humanQuestionAskedBy).toBe('sess_other')
   })
 

@@ -18,9 +18,9 @@
   group, attribution pair, per-user state shape), ADR 5 (peer roles and auth strategies),
   ADR 6 (replica storage), ADR 7 (planes — presence/rooms amendment POD-1074), ADR 8
   (package placement of the identity brands)
-- **Specs:** [spec:SP-15aa] multi-instance isolation; [spec:SP-eb60] curated name vs live
-  title (human-set outranks agent-set); [spec:SP-5d81] messaging-app superagent bridge;
-  [spec:SP-edbb] approval broker; [spec:SP-3fe2] strangler rebuild / branded ids
+- **Specs:** multi-instance isolation; curated name vs live
+  title (human-set outranks agent-set); messaging-app superagent bridge;
+  approval broker; strangler rebuild / branded ids
 - **Base tip verified:** `2ddfec21` (issue/279-integration), 2026-07-29
 - **File discipline:** this ADR owns **only** `docs/adr/0009-identity-ownership-sharing.md`.
   It edits no other ADR and does not touch `docs/adr/README.md`; the pack index and the
@@ -56,7 +56,7 @@ shapes and the enforcement points; they point **here** for what the words mean.
 
 **Multi-user in one tenant lives *inside* one Authority.** **ADR 1 D5 is unaffected by this
 ADR.** `InstanceId` remains a **deployment partition** — two instances are two isolated
-product universes ([spec:SP-15aa]) — and it is emphatically **not** a row-level
+product universes — and it is emphatically **not** a row-level
 discriminator. Readiness §2 states this explicitly, and the clause in ADR 1 D5 reserving
 explicit columns "only if a future shared multi-tenant store is adopted" is **not triggered**
 by this requirement.
@@ -178,7 +178,7 @@ fifth kind is deliberate — it means the delegation rules in D5 apply to it unc
 | Alternative | Why rejected |
 |---|---|
 | Keep one shared password, add "profiles" chosen client-side | The choice would be payload identity, which ADR 3 D7 declares inert. Two people sharing one credential cannot be told apart by any server-side check, so ownership would be unenforceable and attribution would be a lie. |
-| Agents as a *role* on the human principal rather than their own kind | Loses the actor/on-behalf-of pair (D5/A3) that the product already depends on: human-set `name` outranks agent-set ([spec:SP-eb60]), and "did a person or an agent ask this?" must stay answerable via `humanQuestionAskedBy`. |
+| Agents as a *role* on the human principal rather than their own kind | Loses the actor/on-behalf-of pair (D5/A3) that the product already depends on: human-set `name` outranks agent-set, and "did a person or an agent ask this?" must stay answerable via `humanQuestionAskedBy`. |
 | A separate identity system for agents (own accounts, own credentials) | A second identity lifecycle to keep in sync, with its own revocation path to forget. D5/A5 reuses `SessionBinding` (POD-323) instead, so delegation is born and retired with the binding. |
 | Machine as a person-equivalent principal ("the machine may act as its owner") | A daemon token would become a credential for a human's whole account. The machine principal reports observations and executes already-authorized work; it must not be able to originate writes as a person. |
 | Model users as a variant of `Capability` | `Capability` is an authorization *decision input*, and `OPERATOR` is a constant. Identity needs its own aggregate; ADR 4 Amendment 1 D9 rejects the same conflation from the representation side. |
@@ -358,7 +358,7 @@ confirmation rules); `IssueScope.subtree` is already reserved and already enforc
 **A3 — Attribution is a pair, not a substitution.** Every write records **actor** (which agent)
 **and** **on-behalf-of** (which human). Both are stamped from the transport principal (ADR 3
 D7), never from payload. Collapsing them loses distinctions the product already ships:
-human-set `name` outranks agent-set (`nameSource`, [spec:SP-eb60]) and `humanQuestionAskedBy`
+human-set `name` outranks agent-set (`nameSource`) and `humanQuestionAskedBy`
 is server-authoritative precisely so "did a person or an agent ask this?" stays answerable.
 `Capability.actorSessionId` is the existing seam for the actor half; **the on-behalf-of half is
 new**. The field shapes are ADR 4 Amendment 1 D9.3.
@@ -390,7 +390,7 @@ instead of agent ownership that would need re-homing on retirement.
 |---|---|
 | Capability snapshot minted at spawn (a bearer capability) | Unattended agents outlive the decision that authorized them. Revoking a person would require finding and killing their agents — a reaper that will be written wrong or not at all. The failure is silent: the agent keeps working. |
 | Agent inherits its human's full scope by default | Least privilege matters *more* for unattended processes, not less. It is also not today's instinct: relayed agents already carry a constrained `Capability` while `OPERATOR` is `admin`/`all`. |
-| Attribution collapsed to a single "actor" id | Destroys the human-vs-agent distinction the product already depends on ([spec:SP-eb60] naming doctrine, `humanQuestionAskedBy`). A nullable second meaning on one field is exactly the drift the representation policy rejects. |
+| Attribution collapsed to a single "actor" id | Destroys the human-vs-agent distinction the product already depends on (naming doctrine, `humanQuestionAskedBy`). A nullable second meaning on one field is exactly the drift the representation policy rejects. |
 | Agent owns what it creates | Retiring an agent session orphans its issues, and your own agent's work would not appear on your sidebar — defeating the private-by-default product goal that motivated the whole decision. |
 | A separate agent-identity registry with its own lifecycle | A second set of aliases, history and revocation paths to keep consistent with `SessionBinding`. POD-323 is already designing the hard part (one-to-many alias history, crash recovery); delegation rides it. |
 | Sub-agents delegate directly from the root human | Would let a sub-agent exceed its parent, making the chain non-monotonic and the intersection meaningless. |
@@ -565,7 +565,7 @@ effectively *"whoever holds the bot is the operator"* — one chat id, one impli
 several people, an arriving message must resolve to a **user** *before anything acts on it*.
 Under ADR 3 D7 (principal from authenticated transport only) that requires a **real binding
 ceremony**: a claim code issued in the web UI and presented to the bot, the same shape as
-machine pairing ([spec:SP-5d81] adapter; `PairingManager` in `apps/server/src/hub/pairing.ts`
+machine pairing (adapter; `PairingManager` in `apps/server/src/hub/pairing.ts`
 is the precedent). **Unknown chats must fail closed** — never fall back to an operator
 identity. The work is small; the risk is that the feature already "works" single-user and the
 gap is invisible until the second person arrives.
@@ -761,7 +761,7 @@ Every factual claim in §1 and in the decision bodies, checked against tip `2ddf
 | Human decisions of 2026-07-28/29 and all section references | `docs/multi-user-readiness.md` header decision, §2, §3.1, §3.1.1–§3.1.6, §5 |
 | Sibling amendment ownership (ADR 1/2/3/7) | `podium issue tree 359` → POD-1071, POD-1072, POD-1073, POD-1074 |
 | `SessionBinding` lifecycle work is POD-323 (Phase 5) | `podium issue show 323` |
-| [spec:SP-eb60] naming doctrine; [spec:SP-5d81] messaging bridge | `podium spec show SP-eb60`, `podium spec show SP-5d81` |
+| naming doctrine; messaging bridge | `podium spec show SP-eb60`, `podium spec show SP-5d81` |
 
 ---
 
@@ -800,4 +800,3 @@ POD-359 tracker reconciliation.
 - `apps/server/src/migrations/schema.ts`, `packages/protocol/src/ids.ts`,
   `packages/protocol/src/messages/runtime-state.ts`,
   `packages/protocol/src/messages/terminal.ts`
-- Specs: [spec:SP-15aa], [spec:SP-eb60], [spec:SP-5d81], [spec:SP-edbb], [spec:SP-3fe2]

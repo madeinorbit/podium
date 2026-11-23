@@ -465,6 +465,16 @@ describe('JanitorReadsRepository: automations, steward, machines, admin', () => 
     ])
   })
 
+  it('excludes no machine when the server has no local machine', async () => {
+    const { seed, reads } = await open()
+    await seed.machine({ id: 'local', lastSeenAt: iso(5) })
+    await seed.machine({ id: 'remote', lastSeenAt: iso(3) })
+    expect(await reads.remoteMachines({ localMachineId: null, limit: 10 })).toEqual([
+      { id: 'local', lastSeenAt: iso(5) },
+      { id: 'remote', lastSeenAt: iso(3) },
+    ])
+  })
+
   it('names the earliest active admin, as the users repository does', async () => {
     // A workspace of its own: the SQLite fixture's `local` holds the install's admin.
     const { seed, reads } = await open('ws_people')

@@ -31,14 +31,14 @@ const newIssueId = () => mintDeviceId('iss_') as IssueId
 
 async function oracle(opts?: Parameters<typeof makeOracle>[0]): Promise<Oracle> {
   const o = await makeOracle(opts)
-  await o.store.repos.addRepo('/p', o.store.hostMachineId)
+  await o.store.repos.addRepo('/p', o.machineId)
   await reportInventory(o)
   return o
 }
 
 /** What the daemon can run: every built-in harness, installed and logged in. */
 async function reportInventory(o: Oracle): Promise<void> {
-  const machineId = o.reg.sessionStore.hostMachineId
+  const machineId = o.machineId
   await o.reg.gateway.routeDaemonFrame(machineId, {
     type: 'inventoryReport',
     machineId,
@@ -93,7 +93,7 @@ async function settled(o: Oracle, id: string) {
 
 /** The oracle's own daemon detached and back, as a fresh attach with its inventory. */
 async function reattach(o: Oracle): Promise<void> {
-  const machineId = o.reg.sessionStore.hostMachineId
+  const machineId = o.machineId
   o.reg.gateway.detachDaemon(machineId)
   await o.reg.gateway.attachDaemon(
     machineId,
@@ -192,7 +192,7 @@ describe('an issue.start effect', () => {
 
   it('waits pending with no daemon, runs on the attach, and a second attach never runs it again', async () => {
     const o = await oracle()
-    const host = o.reg.sessionStore.hostMachineId
+    const host = o.machineId
     o.reg.gateway.detachDaemon(host)
     const effectId = mintDeviceId('eff_')
     const issueId = newIssueId()
@@ -221,7 +221,7 @@ describe('an issue.start effect', () => {
 
   it('a writer who lost use of the machine before the attach files nothing and starts nothing', async () => {
     const o = await oracle()
-    const host = o.reg.sessionStore.hostMachineId
+    const host = o.machineId
     o.reg.gateway.detachDaemon(host)
     const effectId = mintDeviceId('eff_')
     const issueId = newIssueId()
@@ -270,14 +270,10 @@ describe('an issue.start effect', () => {
     )
     const parentId = newIssueId()
     // Each person starts on their own machine's native login.
-    await o.reg.modules.machines.transferMachineOwnership(
-      o.store.hostMachineId,
-      writer,
-      firstAdminMemberId(),
-    )
+    await o.reg.modules.machines.transferMachineOwnership(o.machineId, writer, firstAdminMemberId())
     await reportInventory(o)
     await o.call.issues.create({ id: parentId, repoPath: '/p', title: 'parent', startNow: false })
-    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
+    o.reg.gateway.detachDaemon(o.machineId)
     const effectId = mintDeviceId('eff_')
     const issueId = newIssueId()
     const sessionId = newSessionId()
@@ -316,11 +312,7 @@ describe('an issue.start effect', () => {
     const issueId = newIssueId()
     const sessionId = newSessionId()
     // Each person starts on their own machine's native login.
-    await o.reg.modules.machines.transferMachineOwnership(
-      o.store.hostMachineId,
-      writer,
-      firstAdminMemberId(),
-    )
+    await o.reg.modules.machines.transferMachineOwnership(o.machineId, writer, firstAdminMemberId())
     await reportInventory(o)
     const { reply } = await o.reg.modules.syncWrite.submitDetailed(
       startEnvelope(effectId, issueId, task(sessionId), 's-1'),
@@ -357,11 +349,7 @@ describe('an issue.start effect', () => {
     const effectId = mintDeviceId('eff_')
     const issueId = newIssueId()
     // Each person starts on their own machine's native login.
-    await o.reg.modules.machines.transferMachineOwnership(
-      o.store.hostMachineId,
-      writer,
-      firstAdminMemberId(),
-    )
+    await o.reg.modules.machines.transferMachineOwnership(o.machineId, writer, firstAdminMemberId())
     await reportInventory(o)
     const { reply } = await o.reg.modules.syncWrite.submitDetailed(
       startEnvelope(effectId, issueId, task(newSessionId(), { stage: 'planning' }), 's-1'),
@@ -400,7 +388,7 @@ describe('an issue.start effect', () => {
   it('a start whose machine stays away past its deadline expires and files nothing', async () => {
     let clock = Date.parse('2026-11-05T10:00:00.000Z')
     const o = await oracle({ now: () => clock })
-    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
+    o.reg.gateway.detachDaemon(o.machineId)
     const effectId = mintDeviceId('eff_')
     const issueId = newIssueId()
     appliedReply(await submit(o, startEnvelope(effectId, issueId, task(newSessionId()), 's-1')))

@@ -1,5 +1,5 @@
 /**
- * Emitter tests [spec:SP-f933].
+ * Emitter tests.
  *
  * The behaviors under test are the promises, not the plumbing: nothing is
  * collected while a tier is off, consent is re-read at flush (so `podium telemetry

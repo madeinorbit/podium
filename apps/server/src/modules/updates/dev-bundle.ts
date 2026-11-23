@@ -77,7 +77,7 @@ const log = createLogger('server:updates')
  *
  * The environment is passed EXPLICITLY rather than inherited. Bun's synchronous
  * spawns reuse the process-start environment while its asynchronous ones read
- * `process.env` live [spec:SP-3f93], so moving these calls off the loop would
+ * `process.env` live, so moving these calls off the loop would
  * otherwise change which environment `git` sees as an accident of the refactor.
  * Naming the map makes it a decision: git reads the LIVE environment, which is
  * what a test running under a temporary `$HOME` needs and what a runtime change
@@ -884,7 +884,7 @@ export interface DevBuildArtifactRequest {
   /**
    * Which platform this bundle is for, as a `bun build --compile` target.
    *
-   * Present for EVERY build, this host's own included [spec:SP-6144 section 8b]. The
+   * Present for EVERY build, this host's own included. The
    * development host and the release runner therefore take the same code path and
    * produce the same shape of bundle — which is the point: development use is the
    * continuous test of the release mechanism, and a path only production takes is a

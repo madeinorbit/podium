@@ -65,6 +65,7 @@ import { requestParentEnrollment } from '@podium/runtime/parent-control'
 import { TRPCError } from '@trpc/server'
 import type { DaemonLinkKind } from '../../gateway/daemon-link-kind'
 import type { DaemonControlPeer } from '../../gateway/daemon-ports'
+import type { HostMachine } from '../../host-machine'
 import type { MemberCredentials } from '../../identity/member-credentials'
 import { isPrivateOwner } from '../../private-resources'
 import { enrollSetupMachine, readSetupEnrollment } from '../../setup-enrollment'
@@ -376,8 +377,8 @@ export interface MachinesDeps {
   store: SessionStore
   /** Recovery transport must never refresh durable presence. */
   recoveryOnly?: boolean
-  /** Existing self-hosted identity for legacy readers; routing uses explicit placement or daemon availability. */
-  hostMachineId: MachineId
+  /** The server's own install, or null when it has no machine. */
+  hostMachine: HostMachine
   /** Hub-role inbound daemon pairing (injected from server assembly; see {@link PairingCodes}). */
   installationId?: string
   pairing?: PairingCodes
@@ -440,6 +441,23 @@ export function disclosedBindingFacts(
  */
 const log = createLogger('server:machines')
 
+export class MachineHomeUnavailableError extends TRPCError {
+  constructor(
+    readonly machineId: MachineId,
+    readonly machineName: string,
+    readonly reason: 'offline' | 'home-unreported',
+  ) {
+    super({
+      code: 'PRECONDITION_FAILED',
+      message:
+        reason === 'offline'
+          ? `machine '${machineName}' is offline — reconnect it and retry`
+          : `home directory is unknown — update the daemon on '${machineName}' and retry`,
+    })
+    this.name = 'MachineHomeUnavailableError'
+  }
+}
+
 export class MachinesService {
   private readonly spaceRequests = new UpdateSpaceRequests()
 
@@ -470,7 +488,7 @@ export class MachinesService {
   private observedAvailability(machineId: MachineId) {
     return {
       epoch: this.availabilityEpoch,
-      server: machineId === this.deps.hostMachineId,
+      server: machineId === this.deps.hostMachine?.id,
       daemon: this.daemons.has(machineId),
       supervisor: this.supervisors.has(machineId),
     }
@@ -686,9 +704,7 @@ export class MachinesService {
     return this.deps.instanceId
   }
 
-  /** This host's machine id — see {@link MachinesDeps.hostMachineId}. Exposed because
-   *  the handshake's machine directory has to name the machine the loopback bootstrap
-   *  secret belongs to, and taking it from here keeps ONE answer in the process. */
+  /** The installation's public identity, supplied by the composition root. */
   get installationId(): string | undefined {
     return this.deps.installationId
   }
@@ -702,8 +718,9 @@ export class MachinesService {
     return this.deps.store.machines.rotateCredential(machineId, rotation, transcript)
   }
 
-  get hostMachineId(): MachineId {
-    return this.deps.hostMachineId
+  /** This server's own fleet install, when it has one. */
+  get hostMachine(): HostMachine {
+    return this.deps.hostMachine
   }
 
   private get presenceReadOnly(): boolean {
@@ -1456,6 +1473,12 @@ export class MachinesService {
     agentExecution: boolean,
     passwordHash?: string,
   ): Promise<void> {
+    const host = this.deps.hostMachine
+    if (!host)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'Host machine enrollment is unavailable on this server.',
+      })
     const supervisor = loadSupervisorState(stateDir())
     const pending = supervisor.setupEnrollment
     const committed =
@@ -1471,7 +1494,7 @@ export class MachinesService {
         installationId: committed.installationId,
       })
     }
-    const existing = await this.deps.store.machines.getMachine(this.deps.hostMachineId)
+    const existing = await this.deps.store.machines.getMachine(host.id)
     // Reconfiguring an enrolled server never replaces its credential or personal grantee.
     if (existing) {
       if (existing.revokedAt)
@@ -1485,8 +1508,7 @@ export class MachinesService {
     if (!this.deps.installationId)
       throw new Error('setup enrollment requires installation identity')
     const request = await requestParentEnrollment({ action: 'prepare', agentExecution })
-    if (request.machineId !== this.deps.hostMachineId)
-      throw new Error('parent setup machine identity mismatch')
+    if (request.machineId !== host.id) throw new Error('parent setup machine identity mismatch')
     const receipt = await this.deps.store.transact(async () => {
       if (passwordHash) await this.setupPassword(actor, passwordHash)
       return enrollSetupMachine(this.deps.store, this.deps.installationId!, request, actor)
@@ -1501,20 +1523,30 @@ export class MachinesService {
   }
 
   async grantHostMachineIfUnowned(ownerUserId: UserId): Promise<boolean> {
-    const row = await this.deps.store.machines.getMachine(this.deps.hostMachineId)
-    if (
-      !row ||
-      row.revokedAt ||
-      (await this.deps.store.machines.custodian(this.deps.hostMachineId)) !== null
-    )
+    const host = this.deps.hostMachine
+    if (!host) return false
+    const row = await this.deps.store.machines.getMachine(host.id)
+    if (!row || row.revokedAt || (await this.deps.store.machines.custodian(host.id)) !== null)
       return false
-    await this.deps.store.machines.setMachineOwner(this.deps.hostMachineId, ownerUserId)
+    await this.deps.store.machines.setMachineOwner(host.id, ownerUserId)
     return true
   }
 
   /** Display name for a machineId (the machines table); falls back to the id. */
   async machineName(id: string): Promise<string> {
     return (await this.deps.store.machines.getMachine(id))?.name ?? id
+  }
+
+  /** A folderless launch needs a home reported by this live daemon connection. */
+  async machineHome(machineId: MachineId): Promise<string> {
+    const machine = await this.deps.store.machines.getMachine(machineId)
+    const name = machine?.name ?? machineId
+    if (!this.daemons.has(machineId)) {
+      throw new MachineHomeUnavailableError(machineId, name, 'offline')
+    }
+    const home = this.inventoryPending.has(machineId) ? undefined : machine?.inventory?.homePath
+    if (!home) throw new MachineHomeUnavailableError(machineId, name, 'home-unreported')
+    return home
   }
 
   /** {@link machineName} for many machines in one query; every asked id gets an entry. */
@@ -1922,12 +1954,15 @@ export class MachinesService {
         target = undefined
       }
       const facts = this.capabilityFacts(m)
-      const serverMoveEligibility = deriveServerMoveEligibility({
-        currentServer: m.id === this.deps.hostMachineId,
-        online: !m.revokedAt && this.daemons.has(m.id),
-        reportedWireSchemaDigest: m.wireSchemaDigest,
-        deliveryCaps: m.deliveryCaps,
-      })
+      const serverMoveEligibility =
+        this.deps.hostMachine === null
+          ? { eligible: false, reason: 'unsupported' as const }
+          : deriveServerMoveEligibility({
+              currentServer: m.id === this.deps.hostMachine?.id,
+              online: !m.revokedAt && this.daemons.has(m.id),
+              reportedWireSchemaDigest: m.wireSchemaDigest,
+              deliveryCaps: m.deliveryCaps,
+            })
       listings.push({
         ...(m.revokedAt ? { use: 'denied' as const } : use ? { use: use(m.id) } : {}),
         // POD-1495: same contract as `use` one line up — supplied means evaluated,
@@ -2026,6 +2061,9 @@ export class MachinesService {
   /** Capture the resolved deployment input at boot and on settings publication. */
   async storeRecordChannel(): Promise<boolean> {
     const channel = this.fleetChannel()
+    await this.deps.store.machines.recordContext.setServerMoveAvailable(
+      this.deps.hostMachine !== null,
+    )
     return await this.deps.store.machines.recordContext.setFleetChannel(channel)
   }
 
@@ -2501,7 +2539,13 @@ export class MachinesService {
     secret: string = randomUUID(),
     assignment?: MachineServiceAssignment,
   ): Promise<string> {
-    const id = this.deps.hostMachineId
+    const host = this.deps.hostMachine
+    if (!host)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'Host machine enrollment is unavailable on this server.',
+      })
+    const id = host.id
     const existing = await this.deps.store.machines.getMachine(id)
     const ownerUserId = await this.deps.store.machines.custodian(id)
     await this.deps.store.machines.upsertMachine({

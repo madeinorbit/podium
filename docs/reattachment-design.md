@@ -12,7 +12,7 @@ This is deliberately stronger than changing `size - 128 KiB` to EOF. EOF fixes t
 
 ## Scope and non-goals
 
-This proposal defines the causal state contract shared by Claude Code, Codex, and Grok, while leaving provider semantics inside each adapter as required by [spec:SP-8b0e]. It covers interactive sessions, daemon/server restart, hibernation/resume, side-effect gating, migration, and verification.
+This proposal defines the causal state contract shared by Claude Code, Codex, and Grok, while leaving provider semantics inside each adapter as required by. It covers interactive sessions, daemon/server restart, hibernation/resume, side-effect gating, migration, and verification.
 
 It does not:
 
@@ -98,7 +98,7 @@ The common checkpoint is specialized by a structured `ProviderCursor`; it is a s
 | Harness | Durable provider identity | Snapshot evidence | Minimal cursor/turn material |
 |---|---|---|---|
 | Claude Code | Exact `session_id`/resume value and transcript segment identity | Fold the exact located transcript through a captured record boundary; live state thereafter comes from hooks | Transcript file identity plus byte/record boundary; `prompt_id` when present; message/tool/agent native IDs used as hook dedupe keys; Podium epoch anchored to the accepted `UserPromptSubmit` when Claude supplies no ordered turn ID |
-| Codex | Exact native thread ID bound to the stable Podium session ID [spec:SP-fccf] | Fold the exact rollout through a captured EOF; reconcile native hook evidence without treating the rollout suffix as live | Rollout file identity plus record-boundary byte offset; native turn ID when present, otherwise Podium epoch anchored to the accepted `user_message`/`task_started`; hook-event identity as a second cursor component because hooks and rollout are two channels |
+| Codex | Exact native thread ID bound to the stable Podium session ID | Fold the exact rollout through a captured EOF; reconcile native hook evidence without treating the rollout suffix as live | Rollout file identity plus record-boundary byte offset; native turn ID when present, otherwise Podium epoch anchored to the accepted `user_message`/`task_started`; hook-event identity as a second cursor component because hooks and rollout are two channels |
 | Grok | Exact session directory ID/resume value | Fold `updates.jsonl` through captured EOF; consult the matching chat history only to classify the terminal verdict | Updates file identity plus record-boundary byte offset; native turn/prompt ID when present, otherwise epoch anchored to the accepted user-prompt update; normalized native timestamp retained as evidence, never used as the cursor |
 
 File identity is at least device/inode (or the platform equivalent), path hint, provider session ID, and segment identifier. Offset alone is unsafe after truncation, rotation, resume-to-new-segment, or path reuse. The cursor must name the last complete record; a torn final line is not included until completed.
@@ -296,7 +296,7 @@ Codex has two observation channels: native hooks and the rollout file. They must
 
 - `codexBootEvents` and rollout parsing fold the exact rollout through cursor `C` into one snapshot.
 - `observeCodexState` starts its live file reader at `C`, never `max(0, size - 128 KiB)`. The old tail may still be read for transcript/title/bootstrap classification, but cannot reach `onStateEvents` as live.
-- The stable Podium session ID remains the pane identity; exact hook/process binding supplies the native thread [spec:SP-fccf]. A heuristic binding cannot override an exact one or emit effects during conflict.
+- The stable Podium session ID remains the pane identity; exact hook/process binding supplies the native thread. A heuristic binding cannot override an exact one or emit effects during conflict.
 - Hook and rollout reports of the same prompt/terminal coalesce into one epoch/transition. Hooks remain the authority for permission waits; the rollout remains a fallback state source.
 - `task_complete`, `turn_aborted`, and native `Stop` close the current epoch. A trailing token/tool/agent message at the same turn cannot reopen it.
 - `/new` or a hook-reported new thread changes the provider binding/segment but does not imply working; the next causal prompt opens the epoch.
@@ -307,7 +307,7 @@ Codex has two observation channels: native hooks and the rollout file. They must
 - Persist the exact Grok session ID and updates file identity/offset. `chat_history.jsonl` supplies verdict text, not run-state ordering.
 - Accept native timestamps as ISO strings, numeric epoch seconds, or numeric epoch milliseconds. Normalize once, preserve the raw value in diagnostics, reject invalid values, and never fall back to receipt time for a historical record.
 - Scope `observedWork` to the durable turn epoch. `available_commands_update` may synthesize completion only for live work observed in that same open epoch; it resets neither on observer construction nor from bootstrap history.
-- Background task updates remain excluded from turn state. Native structured terminal errors settle the epoch as errored [spec:SP-8b0e].
+- Background task updates remain excluded from turn state. Native structured terminal errors settle the epoch as errored.
 - Rotation/new session follows the same proven-binding rule as Codex; path activity alone cannot select a sibling session.
 
 ## Compatibility and staged migration
@@ -325,7 +325,7 @@ During mixed deployment, an old daemon cannot provide the guarantee and should b
 
 ### Stop and resume composition
 
-- `podium session stop` and `podium issue stop` remain explicit lifecycle commands [spec:SP-9904]. They bypass semantic-done eligibility, cancel the observer lease, and retain the observation checkpoint with the resume identity and transcript.
+- `podium session stop` and `podium issue stop` remain explicit lifecycle commands. They bypass semantic-done eligibility, cancel the observer lease, and retain the observation checkpoint with the resume identity and transcript.
 - A hibernation/stop process exit must not erase the last terminal checkpoint. The public lifecycle changes to hibernated/exited while the final diagnosis remains inspectable.
 - Resume creates a new observer generation and performs one bootstrap reconcile. Resume itself does not create a turn; the next provider-confirmed prompt does.
 - POD-955 auto-reap consumes a stable causal checkpoint and POD-954's safe stop primitive. It must never be used to hide classifier churn. Dirty-work side-store policy remains POD-955's separate obligation.

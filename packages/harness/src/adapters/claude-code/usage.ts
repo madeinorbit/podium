@@ -70,7 +70,7 @@ function scopeMetadata(scope: unknown): { labels: string[]; keys: string[]; mode
     const identity = id ?? displayName
     if (identity) keys.push(`${keyPart(scopeKind)}:${keyPart(identity)}`)
     // A model scope is what makes a window fall-back-able rather than gating —
-    // the UI needs it named, not just folded into the label. [spec:SP-0610]
+    // the UI needs it named, not just folded into the label.
     if (scopeKind === 'model' && (displayName ?? id)) model = displayName ?? id
   }
   return { labels, keys, ...(model ? { model } : {}) }
@@ -97,7 +97,7 @@ function fallbackLimitLabel(kind: string | undefined, group: string | undefined)
 
 /** Parse Claude's current generic limits array. Labels and identities come from
  * upstream scope metadata, so model limits can appear/disappear without a
- * model-specific Podium mapping. [spec:SP-0610] */
+ * model-specific Podium mapping. */
 function parseGenericLimits(rawLimits: unknown): QuotaWindowWire[] {
   if (!Array.isArray(rawLimits)) return []
   const windows: QuotaWindowWire[] = []

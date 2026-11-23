@@ -1,5 +1,5 @@
 /**
- * THE AUTOMATION COMPOSER, AS DATA (POD-409) [spec:SP-17db].
+ * THE AUTOMATION COMPOSER, AS DATA (POD-409).
  *
  * `NewAutomationDialog` used to branch per trigger type inline: an `if (kind ===
  * 'schedule')` around one JSX tree, an `if (kind === 'reactive')` around another,
@@ -44,7 +44,7 @@ export type TriggerKind = 'schedule' | 'reactive'
 export type ReactiveTrigger = 'merge-main' | 'new-issue' | 'worktree-idle' | 'file-changed'
 
 /** Sentinel for the repo picker's "no repo" option: the automation runs in the home
- *  directory (repo_path NULL server-side) [spec:SP-17db]. */
+ *  directory (repo_path NULL server-side). */
 export const GLOBAL_TARGET = '__global__'
 
 // ---------------------------------------------------------------------------

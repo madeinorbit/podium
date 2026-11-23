@@ -1,3 +1,5 @@
+import { TEST_MACHINE_ID } from '../../../test-support/machine-id'
+
 /**
  * The full-truth reconcile reads its issues from the database (POD-6158;
  * design §6, D1g's boot step).
@@ -10,9 +12,9 @@
  * as it did when the issue map was the truth.
  */
 
-import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asSessionId, type IssueGitState } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../../store'
@@ -28,6 +30,7 @@ afterEach(async () => {
 
 async function serviceOver(store: SessionStore): Promise<IssueService> {
   return await IssueService.create({
+    resolveMachine: async () => TEST_MACHINE_ID,
     store,
     ...sessionReadPorts(() => []),
     getSettings: async () => normalizeSettings({}),
@@ -54,8 +57,15 @@ async function bootOrder(store: SessionStore): Promise<string[]> {
 describe('full-truth reconcile over the database', () => {
   it('over the edge fixtures', async () => {
     const live = (seq: number, patch: Partial<CorpusIssue> = {}): CorpusIssue => ({
-      id: `iss_${seq}`, seq, repoPath: '/a', worktreePath: null, parentId: null, stage: 'backlog',
-      archived: false, deletedAt: null, ...patch,
+      id: `iss_${seq}`,
+      seq,
+      repoPath: '/a',
+      worktreePath: null,
+      parentId: null,
+      stage: 'backlog',
+      archived: false,
+      deletedAt: null,
+      ...patch,
     })
     const rows: CorpusIssue[] = [
       live(3),
@@ -78,11 +88,20 @@ describe('full-truth reconcile over the database', () => {
     await rawSql(store, sql`DELETE FROM issues WHERE id = ${'iss_corrupt'}`)
     const svc = await serviceOver(store)
     const issues = svc.reports.store
-    for (const id of ['iss_1', 'iss_4', 'iss_b1', 'iss_b2', 'iss_missing']) await issues.setGitState(id, observed(id.length))
+    for (const id of ['iss_1', 'iss_4', 'iss_b1', 'iss_b2', 'iss_missing'])
+      await issues.setGitState(id, observed(id.length))
 
     const truth = await issues.allProjections()
     expect(truth?.map((entry) => entry.id)).toEqual(await bootOrder(store))
-    expect(truth?.map((entry) => entry.id)).toEqual(['iss_1', 'iss_2', 'iss_3', 'iss_4', '', 'iss_b1', 'iss_b2'])
+    expect(truth?.map((entry) => entry.id)).toEqual([
+      'iss_1',
+      'iss_2',
+      'iss_3',
+      'iss_4',
+      '',
+      'iss_b1',
+      'iss_b2',
+    ])
     // Both reconciles run over these rows, the empty id and the unknown
     // observation included.
 
@@ -93,14 +112,24 @@ describe('full-truth reconcile over the database', () => {
   })
 
   it('reads every issue a page at a time', async () => {
-    const rows = Array.from({ length: 1203 }, (_, index): CorpusIssue => ({
-      id: `iss_${String(index).padStart(5, '0')}`, seq: index + 1, repoPath: '/a', worktreePath: null,
-      parentId: null, stage: 'backlog', archived: false, deletedAt: null,
-    }))
+    const rows = Array.from(
+      { length: 1203 },
+      (_, index): CorpusIssue => ({
+        id: `iss_${String(index).padStart(5, '0')}`,
+        seq: index + 1,
+        repoPath: '/a',
+        worktreePath: null,
+        parentId: null,
+        stage: 'backlog',
+        archived: false,
+        deletedAt: null,
+      }),
+    )
     const store = await seededStore([], ['/a'])
     stores.push(store)
     await store.transact(async () => {
-      for (const row of rows) await store.issues.upsertIssue(fixtureWriteScope(), rowOf(row, '/a', store.hostMachineId))
+      for (const row of rows)
+        await store.issues.upsertIssue(fixtureWriteScope(), rowOf(row, '/a', TEST_MACHINE_ID))
     })
     const sizes: number[] = []
     for await (const page of store.issues.issueRowPages()) sizes.push(page.length)

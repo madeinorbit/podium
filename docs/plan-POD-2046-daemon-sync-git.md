@@ -161,7 +161,7 @@ Out of scope:
   `fetchArtifact` call that already receives `signal`, so the signal is in
   scope at the wiring site — thread it into `withGitBudget(runGit)` there.
 - **Pass an explicit `env`.** `runGit` passes none today. Per
-  `packages/pty/src/abduco.ts:290` [spec:SP-3f93], Bun's *sync* spawns reuse
+  `packages/pty/src/abduco.ts:290`, Bun's *sync* spawns reuse
   the process-start environment and ignore later `process.env` mutations; the
   async ones read the live map. Moving to async silently changes which
   environment git sees. Pass `{ ...process.env }` explicitly so the change is

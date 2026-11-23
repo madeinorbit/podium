@@ -58,7 +58,7 @@ async function fixture(size: number): Promise<Fixture> {
         lastResumedAt: null,
         archived: false,
         workState: null,
-        machineId: store.hostMachineId,
+        machineId: store.hostMachine!.id,
         headless: false,
         issueId: i % 5 === 0 ? ISSUE : null,
         stoppedAt: null,
@@ -175,7 +175,7 @@ describe('durable session records: constant statements', () => {
     await expectConstantStatements(
       pin(
         'records.onMachine',
-        (f) => f.records.onMachine(f.store.hostMachineId, 'pin'),
+        (f) => f.records.onMachine(f.store.hostMachine!.id, 'pin'),
         (size) => size,
       ),
       7,

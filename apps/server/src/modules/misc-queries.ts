@@ -1,6 +1,6 @@
 /**
  * THE SMALL READ-ONLY SURFACES (POD-314) — `search`, `git`, `usage`, `quota`,
- * `features`, and the remaining reads of `superagent`, `specs`, `settings` and
+ * `features`, and the remaining reads of `superagent`, `settings` and
  * `automations`.
  *
  * ONE FILE, and the grouping is by SHAPE rather than by feature: every table
@@ -34,12 +34,10 @@ import { loadConfig } from '@podium/runtime/config'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { getFeatureStates } from '../features'
-import { CostService } from './cost/service'
 import type { FamilyState } from './derived-family'
 import { assertReadableRoot } from './files/registry'
 import { defineQuery } from './query-table'
 import { QUOTA_HISTORY_DEFAULT_DAYS, recordQuotaSamples } from './quota-history/service'
-import { specsInputs } from './specs/service'
 import { readUsageSummary, UsageAttributionUnavailable } from './usage-summary'
 
 const q = defineQuery<FamilyState>()
@@ -193,12 +191,11 @@ export const COST_QUERIES = {
    *  Own and rollup are returned separately because the UI draws a labelled
    *  split and cannot derive one from the other.
    *
-   *  Tokens are priced through the shared model/cost-pricing table. A pure DB read: it opens no transcript, so a
-   *  panel can call it on first paint. */
+   *  Tokens are priced through the shared model/cost-pricing table. Transcript
+   *  presence is a bounded daemon metadata check; no transcript content is read. */
   task: q(
     z.object({ issueId: IssueIdField }),
-    async (s, input) =>
-      await ownSessionCostsOnly(s, await new CostService(s.store).task(input.issueId)),
+    async (s, input) => await ownSessionCostsOnly(s, await s.modules.costs.task(input.issueId)),
   ),
   /** One task total plus its all-time own-cost comparison, on request. */
   taskComparison: q(
@@ -207,10 +204,7 @@ export const COST_QUERIES = {
       includeSessions: z.boolean().optional(),
     }),
     async (s, input): Promise<TaskCostComparisonWire> => {
-      const comparison = await new CostService(s.store).taskComparison(
-        input.issueId,
-        input.includeSessions,
-      )
+      const comparison = await s.modules.costs.taskComparison(input.issueId, input.includeSessions)
       return { ...comparison, task: await ownSessionCostsOnly(s, comparison.task) }
     },
   ),
@@ -218,7 +212,7 @@ export const COST_QUERIES = {
    *  the "×median" rate is computed against. OWN cost per task, not rolled up:
    *  a rolled-up parent beside its own children counts the same money twice
    *  down one column. */
-  tasks: q(noInput, async (s) => await new CostService(s.store).tasks()),
+  tasks: q(noInput, async (s) => await s.modules.costs.tasks()),
 } as const
 
 /** The machines the caller looks after: their native logins are the caller's. */
@@ -278,7 +272,7 @@ export const QUOTA_QUERIES = {
 } as const
 
 export const FEATURE_QUERIES = {
-  /** Experimental feature flags [spec:SP-f4b9] — the CLI's read; the apps resolve flags from welcome and the instance record. */
+  /** Experimental feature flags — the CLI's read; the apps resolve flags from welcome and the instance record. */
   state: q(noInput, async (s) =>
     getFeatureStates(await s.modules.settings.getSettings(), loadConfig()),
   ),
@@ -296,15 +290,6 @@ export const SUPERAGENT_QUERIES = {
     z.object({ threadId: ThreadIdField.default(asThreadId('global')) }),
     async (s, input) => await s.superagent.history(asUserId(s.caller.userId), input.threadId),
   ),
-} as const
-
-/** POD-386 derived `create · save · remove`; these three reads carry no contract
- *  and are authorized by the identical `requireRepoRoot` call inside the
- *  service. */
-export const SPEC_QUERIES = {
-  list: q(specsInputs.list, (s, input) => s.modules.specs.list(input)),
-  get: q(specsInputs.get, (s, input) => s.modules.specs.get(input)),
-  search: q(specsInputs.search, (s, input) => s.modules.specs.search(input)),
 } as const
 
 /** POD-735 derived the four automation writes; these two reads stayed

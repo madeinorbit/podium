@@ -8,7 +8,7 @@ import {
   resolveMachinePath,
 } from '@podium/model'
 
-/** Where a directory sits in git's worktree layout [spec:SP-4ef9]:
+/** Where a directory sits in git's worktree layout:
  *  - `main`     — the repo's PRIMARY checkout. Never a workspace: agents step into
  *                 it to run one command (a merge, a fetch) and step back out.
  *  - `worktree` — a linked worktree (`git worktree add`). THE unit of workspace.
@@ -66,7 +66,7 @@ export function gitWorktree(cwd: string): Promise<WorktreeInfo | null> {
  *  `--git-common-dir`: still three lines, still exit 0, and the parse silently shifts —
  *  the compare then finds two different strings and reports EVERY MAIN CHECKOUT as a
  *  linked worktree. Main would be pinned AND adopted as an issue's workspace, which is
- *  the swallow-everything failure [spec:SP-595b] this whole change exists to prevent.
+ *  the swallow-everything failure this whole change exists to prevent.
  *  A line count cannot catch that (the echo lands in place); no path git prints here can
  *  begin with '-', so an echoed flag is unambiguous. Refuse the whole answer rather than
  *  believe a shifted one: null degrades to 'not a worktree', which pins and adopts
@@ -163,7 +163,7 @@ export interface SessionCwdTracker {
    *  its workspace, and no amount of later `cd` wandering can re-home it.
    *
    *  A launch in a MAIN checkout deliberately does NOT pin. Main is never a workspace
-   *  [spec:SP-4ef9], so there is nothing to pin to — and leaving such a session free
+   * , so there is nothing to pin to — and leaving such a session free
    *  to follow its hooks is exactly what lets podium adopt a worktree the harness
    *  later creates for itself (POD-664).
    *
@@ -178,7 +178,7 @@ export interface SessionCwdTracker {
    *  the grouping key to the root. Handoff needs the difference back: an agent working
    *  in `<worktree>/apps/web` should resume THERE on the target, not at the root
    *  (POD-741). Kept daemon-local on purpose — the server's view of a session's cwd is
-   *  its grouping key and must not start following `cd`s again [spec:SP-4ef9].
+   *  its grouping key and must not start following `cd`s again.
    *
    *  Undefined until a hook reports; callers fall back to the root. */
   rawCwd(sessionId: SessionId): string | undefined
@@ -249,11 +249,11 @@ export function createSessionCwdTracker(opts: {
       seq.set(sessionId, mySeq)
       const info = await opts.resolver.resolve(cwd)
       if (seq.get(sessionId) !== mySeq) return // a newer cwd superseded this one
-      // A repo's MAIN checkout NEVER captures a session [spec:SP-4ef9]: a cd into it
+      // A repo's MAIN checkout NEVER captures a session: a cd into it
       // is transient command-running by definition (`cd <main> && git merge …`), so
       // re-homing there would move the session out of the workspace it is actually
       // working in — and hand every unattached session to whatever issue happens to
-      // own main [spec:SP-595b]. The raw-cwd dedup above still holds, so a session
+      // own main. The raw-cwd dedup above still holds, so a session
       // parked in main doesn't re-resolve on every hook.
       if (info.kind === 'main') return
       if (lastSentRoot.get(sessionId) === info.root) return
@@ -300,7 +300,7 @@ export function createSessionCwdTracker(opts: {
       // ONLY a real worktree pins — and the `main` case is load-bearing, not an
       // oversight. Pinning a session launched in a main checkout would read as
       // correct (it IS where podium started it) and would quietly break adoption:
-      // main is never a workspace [spec:SP-4ef9], so such a session has no worktree
+      // main is never a workspace, so such a session has no worktree
       // yet, and staying unpinned is the only thing that lets it follow the harness
       // into the worktree the harness makes for itself and hand that to its issue
       // (POD-664). Pin it to main and the session can never move again. The two

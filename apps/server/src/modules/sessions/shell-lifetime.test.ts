@@ -34,7 +34,7 @@ afterEach(async () => {
 async function makeRegistry(): Promise<{ reg: SessionRegistry; daemon: ControlMessage[] }> {
   const store = await openTestStore(':memory:')
   await store.machines.upsertMachine({
-    id: store.hostMachineId,
+    id: store.hostMachine!.id,
     name: 'test-host',
     hostname: 'test-host',
     tokenHash: 'test',
@@ -47,7 +47,7 @@ async function makeRegistry(): Promise<{ reg: SessionRegistry; daemon: ControlMe
   await attachHostDaemon(reg, (m) => daemon.push(m))
   await reg.sessionStore.repos.addRepo(
     '/r',
-    reg.sessionStore.hostMachineId,
+    reg.sessionStore.hostMachine!.id,
     'git@github.com:example/r.git',
   )
   const rpc = (
@@ -170,12 +170,17 @@ describe('releaseShellTab (tab-release trigger)', () => {
 describe('stopSession shell upgrade (issue-close / worktree-free trigger)', () => {
   it('tombstones an untouched, unheld shell on a closed issue instead of parking it', async () => {
     const { reg } = await makeRegistry()
-    const issue = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
-      repoPath: '/r',
-      title: 'Closed work',
-      startNow: false,
+    const issue = await reg.modules.issues.crud.create(
+      reg.modules.issues.reports.store.serverWriter,
+      {
+        repoPath: '/r',
+        title: 'Closed work',
+        startNow: false,
+      },
+    )
+    await reg.modules.issues.crud.update(reg.modules.issues.reports.store.serverWriter, issue.id, {
+      stage: 'done',
     })
-    await reg.modules.issues.crud.update(reg.modules.issues.reports.store.serverWriter, issue.id, { stage: 'done' })
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r',
@@ -190,12 +195,17 @@ describe('stopSession shell upgrade (issue-close / worktree-free trigger)', () =
 
   it('still parks a touched shell on a closed issue', async () => {
     const { reg } = await makeRegistry()
-    const issue = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
-      repoPath: '/r',
-      title: 'Closed work',
-      startNow: false,
+    const issue = await reg.modules.issues.crud.create(
+      reg.modules.issues.reports.store.serverWriter,
+      {
+        repoPath: '/r',
+        title: 'Closed work',
+        startNow: false,
+      },
+    )
+    await reg.modules.issues.crud.update(reg.modules.issues.reports.store.serverWriter, issue.id, {
+      stage: 'done',
     })
-    await reg.modules.issues.crud.update(reg.modules.issues.reports.store.serverWriter, issue.id, { stage: 'done' })
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r',

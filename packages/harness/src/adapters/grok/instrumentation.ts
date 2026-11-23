@@ -305,7 +305,6 @@ export async function translateGrokUpdatePayload(
       // that must settle the phase — without it that trailing chunk (→ activity →
       // 'working') leaves the session stuck 'working' once the turn ends. This is
       // the provider owning its run-state verdict; the reducer only transports it.
-      // [spec:SP-8b0e]
       const classified =
         options.classifyIdleVerdict === false
           ? undefined
@@ -337,7 +336,7 @@ export async function translateGrokUpdatePayload(
 
 /** Grok writes both ISO strings and Unix epochs. Retain the provider's instant;
  * receipt time is never a substitute for missing or invalid source time.
- * [spec:SP-cdb2] */
+ */
 export function normalizeGrokProviderTimestamp(value: unknown): string | undefined {
   let epochMs: number
   if (typeof value === 'number') {
@@ -511,7 +510,7 @@ export function grokRoot(homeDir: string): string {
 
 /** Grok reports provider failures in retry_state and in the authoritative
  * turn_completed record. Keep the provider-specific vocabulary here and emit
- * only the normalized failure event to shared layers. [spec:SP-8b0e] */
+ * only the normalized failure event to shared layers. */
 export function classifyGrokProviderFailure(
   fields: Record<string, unknown>,
 ): Extract<AgentStateEvent, { kind: 'turn_failed' }> {

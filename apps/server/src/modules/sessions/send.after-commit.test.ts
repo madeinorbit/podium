@@ -41,7 +41,7 @@ async function liveSession(o: Oracle): Promise<SessionId> {
     agentKind: 'claude-code',
     cwd: '/w',
   })
-  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'bind',
     sessionId,
     cmd: 'claude',
@@ -49,7 +49,7 @@ async function liveSession(o: Oracle): Promise<SessionId> {
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
-  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'sessionResumeRef',
     sessionId: asSessionId(sessionId),
     resume: { kind: 'claude-session', value: 'native-1' },
@@ -223,7 +223,7 @@ describe('chat send delivers after the commit (POD-6349)', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    await regA.gateway.routeDaemonFrame(storeA.hostMachineId, bind(sessionId))
+    await regA.gateway.routeDaemonFrame(storeA.hostMachine!.id, bind(sessionId))
     // The crash: every piece of in-process work after the commit is lost —
     // the after-commit attempt and the delivery passes alike.
     const messagesA = regA.modules.messages as unknown as {
@@ -262,7 +262,7 @@ describe('chat send delivers after the commit (POD-6349)', () => {
     try {
       const daemonB: ControlMessage[] = []
       await attachHostDaemon(regB, (m) => daemonB.push(m))
-      await regB.gateway.routeDaemonFrame(storeB.hostMachineId, bind(sessionId))
+      await regB.gateway.routeDaemonFrame(storeB.hostMachine!.id, bind(sessionId))
 
       await vi.waitFor(
         () =>

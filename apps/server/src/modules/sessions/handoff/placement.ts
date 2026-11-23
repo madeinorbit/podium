@@ -97,7 +97,7 @@ export interface HandoffPlacement {
    *  machine-local worktree are read by the pre-flight and the transfer. */
   readonly issue: HandoffIssue | undefined
   /** The worktree to fall back to when `session.cwd` drifted to the repo root
-   *  ([spec:SP-3f7a]); undefined when the session's own cwd is the answer. */
+   * ; undefined when the session's own cwd is the answer. */
   readonly issueWorktree: string | undefined
   readonly targetMachine: HandoffMachine
 }
@@ -150,7 +150,7 @@ export async function resolveHandoffPlacement(
     throw new Error(
       `source repository is not registered (machine=${session.machineId}, anchors=${sourceAnchors.join(',')})`,
     )
-  // [spec:SP-3f7a] `session.cwd` drifts — the daemon follows the shell, so an
+  // `session.cwd` drifts — the daemon follows the shell, so an
   // agent that ran a command against the main checkout is stamped at the repo
   // root. Its issue's worktree is still its home, so offer that as a fallback
   // source instead of refusing. Restricted to this repo, so the package's repo

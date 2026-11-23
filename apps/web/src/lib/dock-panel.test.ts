@@ -80,7 +80,7 @@ describe('resolveActiveWorktree', () => {
     })
   })
 
-  it('carries issueId from an artifact file tab [spec:SP-0fc9]', () => {
+  it('carries issueId from an artifact file tab', () => {
     const tab: FileTab = {
       id: 'file:a:i9:art1:index.html',
       scope: { kind: 'artifact', issueId: asIssueId('i9'), artifactId: asArtifactId('art1') },
@@ -159,7 +159,7 @@ describe('issueForPanel', () => {
     ).toBe('i2')
   })
 
-  it('explicit issueId beats both the session attachment and containment [spec:SP-0fc9]', () => {
+  it('explicit issueId beats both the session attachment and containment', () => {
     const target = issue({ id: 'i9', worktreePath: null })
     const s = sess('s1', '/repo/.worktrees/issue-7', { issueId: asIssueId('i2') })
     expect(
@@ -318,7 +318,7 @@ describe('artifact helpers', () => {
       worktreeAssetUrl({ httpOrigin: 'http://x', root: '/w', path: 'p.png', workspace: 'second' }),
     ).toBe('http://x/files/asset?root=%2Fw&path=p.png&workspace=second')
   })
-  it('artifactUrl prefers the permanent-store route when artifactId is present [spec:SP-0fc9]', () => {
+  it('artifactUrl prefers the permanent-store route when artifactId is present', () => {
     expect(
       artifactUrl({
         httpOrigin: 'http://x/',

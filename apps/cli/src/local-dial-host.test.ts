@@ -38,11 +38,7 @@ describe('local dials follow PODIUM_HOST (POD-1607)', () => {
 
   it('the local daemon dials the bound interface over ws', () => {
     expect(
-      daemonOptionsForPlan(
-        { mode: 'all-in-one', showSetupHint: false },
-        23000,
-        asMachineId('mid'),
-      ),
+      daemonOptionsForPlan({ mode: 'all-in-one', showSetupHint: false }, 23000, asMachineId('mid')),
     ).toMatchObject({ serverUrl: `ws://${HOST}:23000` })
   })
 
@@ -71,7 +67,6 @@ describe('local dials follow PODIUM_HOST (POD-1607)', () => {
       'workflow-cli.ts',
       'lock-cli.ts',
       'mail-cli.ts',
-      'spec-cli.ts',
       'session-cli.ts',
       'cli.ts',
       'cli-spawn.ts',
@@ -86,11 +81,7 @@ describe('local dials follow PODIUM_HOST (POD-1607)', () => {
   it('an unset PODIUM_HOST leaves the ordinary single-machine install on loopback', () => {
     delete process.env.PODIUM_HOST
     expect(
-      daemonOptionsForPlan(
-        { mode: 'all-in-one', showSetupHint: false },
-        23000,
-        asMachineId('mid'),
-      ),
+      daemonOptionsForPlan({ mode: 'all-in-one', showSetupHint: false }, 23000, asMachineId('mid')),
     ).toMatchObject({ serverUrl: 'ws://localhost:23000' })
     expect(portInUseMessage(23000)).toContain('http://localhost:23000')
   })

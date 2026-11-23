@@ -18,9 +18,9 @@
 Podium already has a **command registry** for issues and locks
 (`apps/server/src/modules/issues/registry.ts`,
 `apps/server/src/modules/lock/registry.ts`) derived from a leaf contract type
-`CommandDef` in `packages/protocol/src/commands.ts` ([spec:SP-3fe2]). Four
+`CommandDef` in `packages/protocol/src/commands.ts`. Four
 surfaces share handlers today: HTTP tRPC, daemon agent relay
-([spec:SP-b85a]), in-process MCP, and CLI (presentation over the same table).
+, in-process MCP, and CLI (presentation over the same table).
 A generic mutation envelope was prototyped but never sent on the wire and has
 been deleted. The shipped sync outbox uses `OutboxCommand` and durable
 `OutboxRecord` values with stable `mutationId`s
@@ -87,7 +87,7 @@ Every contract **must** declare:
 | Field | Meaning |
 |---|---|
 | `name` | Stable dotted wire name (`issues.close`, `sessions.rename`). |
-| `version` | Positive integer; starts at `1`. Bumped when input or output schema breaks compatibility for that command. Independent of wire/replica protocol version (ADR 2) and of the server drizzle journal ([spec:SP-4428]). |
+| `version` | Positive integer; starts at `1`. Bumped when input or output schema breaks compatibility for that command. Independent of wire/replica protocol version (ADR 2) and of the server drizzle journal. |
 | `input` / `output` | Versioned schemas (zod or successor). Single validation source for every transport that exposes the command. |
 | `policy` | Resource/action policy (D2). |
 | `exposure` | Explicit opt-in set of transports (D3). **Default = empty = served nowhere.** |
@@ -130,7 +130,7 @@ Policy answers *what the caller may do*, given a transport-derived principal
 |---|---|
 | `issue` | Existing issue; subtree capability (today's `authorize` + `target` extractor) |
 | `repo` | Repo/worktree path capability |
-| `session` | Bound session identity (agent self-ops; rename/title doctrine [spec:SP-eb60]) |
+| `session` | Bound session identity (agent self-ops; rename/title doctrine) |
 | `machine` | Paired machine / host control surface |
 | `settings-domain` | Preference domain (client-safe; offline-eligible when delivery allows) |
 | `secret` | Server-owned secret material (POD-352) — forces online-only (D4) |
@@ -138,13 +138,13 @@ Policy answers *what the caller may do*, given a transport-derived principal
 | *(omit)* | Additive / self-addressed create-style ops — role-gated only |
 
 **Confirmation:** destructive or out-of-scope writes declare a confirmation
-rule (`none` | `confirm` | `broker` per [spec:SP-edbb] approval broker). The
+rule (`none` | `confirm` | `broker` per approval broker). The
 existing `--outside-scope` / `overrideScope` escape remains: scope miss without
 override → `confirm-required` (or hard deny for `manage` where override is
 disallowed). Brokered management ops are still commands; the broker is the
 confirmation executor, not a second registry.
 
-**Instance isolation** ([spec:SP-15aa]): a principal authenticated to instance
+**Instance isolation**: a principal authenticated to instance
 A cannot authorize commands that mutate instance B's stores, processes, or
 routing unless sharing is **explicitly** configured. Instance boundary is an
 authz hard wall, not a payload field.
@@ -159,7 +159,7 @@ transport tags:
 | `trpc` | Cookie-authenticated HTTP tRPC (operator / future user principal) |
 | `cli` | `podium` CLI (via relay or local in-process) |
 | `mcp` | In-process MCP tools |
-| `relay` | Daemon agent relay command channel ([spec:SP-b85a]) |
+| `relay` | Daemon agent relay command channel |
 | `outbox` | Client Outbox may enqueue this command (requires offline-eligible delivery) |
 | `peer` | Peer-framed control (daemon↔server role modules per ADR 5) when a command is intentionally peer-callable |
 
@@ -170,8 +170,8 @@ transport tags:
 2. `outbox` without an offline-eligible `delivery` class is a contract lint
    error.
 3. Host↔server traffic that is **not** the agent command channel stays off
-   `relay` (principle restated by [spec:SP-b85a], [spec:SP-fccf],
-   [spec:SP-a43e] — ADR 7 classifies the frames; this ADR forbids smuggling
+   `relay` (principle restated by,
+   — ADR 7 classifies the frames; this ADR forbids smuggling
    them through agent command exposure).
 4. Deriving tRPC/CLI/MCP/relay routers walks contracts filtered by exposure —
    no hand-written mutation procedures outside the registry (Phase 3 audit).
@@ -242,7 +242,7 @@ type OptimisticReducer = (args: {
   subordinate and discarded on definitive rejection.
 - Walking skeleton POD-351 establishes the reducer **port**; POD-372 consumes
   it; POD-311 populates reducers broadly. `session.rename` must model
-  accept vs reject-with-reason (human-vs-agent name doctrine [spec:SP-eb60]).
+  accept vs reject-with-reason (human-vs-agent name doctrine).
 
 **Rejected:** generic field-LWW optimistic merge; deriving optimistic effects
 from ownership-matrix annotations alone.
@@ -541,7 +541,7 @@ rejected for single-operator Podium:
 5. **No silent discard** of user-authored outbox work.
 6. **Receipt horizon dominates** client offline horizon.
 7. **Instance isolation** — cross-instance command routing denied by default
-   ([spec:SP-15aa]).
+  .
 8. **Agent channel ≠ host control channel** — relay exposure is not a back door
    for host frames (ADR 7).
 9. **Host-local agent scope is not adversarial containment** — co-resident
@@ -574,8 +574,8 @@ POD-359 agent comments (2026-07-16) bind the ADR pack. Explicit handling for
 
 | Drift item | ADR 3 impact |
 |---|---|
-| (1) drizzle-kit decided ([spec:SP-4428]) | **None on semantics.** Command `version` ≠ drizzle journal ≠ wire protocol version (stated in D1). Receipts/outbox tables remain feature/sync persistence; migration tool is ADR 2 / ADR 6. |
-| (2) Instance identity ([spec:SP-15aa]) | **Absorbed in D2 / property 7:** instance is an authz boundary for command application and routing. Brand vs runtime placement is ADR 1 / ADR 8; security rule does not wait on that packaging choice. |
+| (1) drizzle-kit decided | **None on semantics.** Command `version` ≠ drizzle journal ≠ wire protocol version (stated in D1). Receipts/outbox tables remain feature/sync persistence; migration tool is ADR 2 / ADR 6. |
+| (2) Instance identity | **Absorbed in D2 / property 7:** instance is an authz boundary for command application and routing. Brand vs runtime placement is ADR 1 / ADR 8; security rule does not wait on that packaging choice. |
 | (3) Plane inventory growth (handoff, messaging, workflows, browser-open, `sessionResumeRefAck`) | **Orthogonal classification** lives in ADR 7. This ADR requires: (a) any new control-plane **command-class** RPC that mutates durable state eventually gains a contract if it is a product write; (b) host↔server families stay off `relay` exposure (D3.3). Messaging remains bus/webhook (no tRPC mutations) — no forced outbox class. |
 | Build orchestration / tsgo / turbo / `@podium/source` | **None.** Package placement of contracts is ADR 8. |
 | Turbo worktree symlink hazard | **None.** |
@@ -667,5 +667,3 @@ descriptions when reconciled by POD-359.
 - `packages/runtime/src/session-token.ts`, `apps/cli/src/auth-cli.ts`
 - `packages/client-core/src/outbox.ts`
 - `apps/server/src/modules/sessions/service.ts` (`APPLIED_MUTATIONS_MAX_AGE_MS`)
-- Specs: [spec:SP-3fe2], [spec:SP-b85a], [spec:SP-edbb], [spec:SP-15aa],
-  [spec:SP-eb60], [spec:SP-fccf], [spec:SP-a43e], [spec:SP-4428]

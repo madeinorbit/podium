@@ -151,7 +151,7 @@ describe('composeResponders', () => {
   })
 })
 
-describe('ack reminder injector (#237) [spec:SP-34d7 acks]', () => {
+describe('ack reminder injector (#237)', () => {
   const reminders = (rows: unknown) => async () => ({ ok: true, result: rows })
 
   it('blocks ONCE with a per-message reply pointer', async () => {

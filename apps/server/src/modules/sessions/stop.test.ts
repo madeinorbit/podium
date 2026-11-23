@@ -1,6 +1,6 @@
 import { clientSessionViews } from '../../test-support/session-views'
 /**
- * session/issue stop [spec:SP-9904]: park process, free worktree keep branch,
+ * session/issue stop: park process, free worktree keep branch,
  * resume recreates worktree; unsaved guard + force.
  */
 
@@ -57,7 +57,7 @@ async function makeRegistry(
 }> {
   const store = await openTestStore(':memory:')
   await store.machines.upsertMachine({
-    id: store.hostMachineId,
+    id: store.hostMachine!.id,
     name: 'test-host',
     hostname: 'test-host',
     tokenHash: 'test',
@@ -74,7 +74,7 @@ async function makeRegistry(
   // its own registration.
   await reg.sessionStore.repos.addRepo(
     '/r',
-    reg.sessionStore.hostMachineId,
+    reg.sessionStore.hostMachine!.id,
     'git@github.com:example/r.git',
   )
   const repoOps: { op: string; cwd: string; args?: Record<string, string> }[] = []
@@ -153,7 +153,7 @@ async function bindLive(
   cwd: string,
   resumable = true,
 ): Promise<void> {
-  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
     type: 'bind',
     sessionId: asSessionId(sessionId),
     cmd: 'claude',
@@ -162,14 +162,14 @@ async function bindLive(
     geometry: { cols: 80, rows: 24 },
   })
   if (!resumable) return
-  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
     type: 'sessionResumeRef',
     sessionId: asSessionId(sessionId),
     resume: { kind: 'claude-session', value: 'native-1' },
   })
 }
 
-describe('stopSession [spec:SP-9904]', () => {
+describe('stopSession', () => {
   it.each(
     (['live', 'bootstrap'] as const).flatMap((provenance) =>
       (['hibernated', 'exited'] as const).map((status) => ({ provenance, status })),
@@ -198,7 +198,7 @@ describe('stopSession [spec:SP-9904]', () => {
       observerGeneration: 1,
       turnEpoch: 1,
     })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: 'working-before-stop',
@@ -241,7 +241,7 @@ describe('stopSession [spec:SP-9904]', () => {
 
     // The provider's timestamp is old; receipt and notification creation are fresh.
     clock = Date.parse('2026-09-30T15:14:56.000Z')
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: 'terminal-after-stop',
@@ -250,7 +250,7 @@ describe('stopSession [spec:SP-9904]', () => {
     // Repeated late frames must stay on the cheap rejection path. The old
     // ingress restored and immediately evicted the whole session each time.
     for (let i = 0; i < 20; i++) {
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'runtimeEvent',
         sessionId,
         event: delayed,
@@ -307,7 +307,7 @@ describe('stopSession [spec:SP-9904]', () => {
       observerGeneration: 1,
       turnEpoch: 0,
     }
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: 'before-stop',
@@ -321,7 +321,7 @@ describe('stopSession [spec:SP-9904]', () => {
     const materialize = vi.spyOn(reg.modules.sessions.residency, 'acquire')
     const recordFine = vi.spyOn(reg.modules.sessions.runtimeEventGate, 'record')
     const readFine = vi.spyOn(reg.sessionStore.sessions, 'loadSession')
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeFineEvent',
       sessionId,
       event: { ...item, item: { kind: 'delta', itemId: 'preview', textDelta: 'late fragment' } },
@@ -332,13 +332,13 @@ describe('stopSession [spec:SP-9904]', () => {
     readFine.mockRestore()
 
     for (let i = 0; i < 20; i++) {
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'runtimeEvent',
         sessionId,
         deliveryId: `duplicate-${i}`,
         event: item,
       })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'runtimeEvent',
         sessionId,
         deliveryId: `stale-${i}`,
@@ -376,7 +376,7 @@ describe('stopSession [spec:SP-9904]', () => {
         item: { id: 'after-stop', role: 'assistant', text: 'Late evidence', ts: item.at },
       },
     }
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: 'late-item',
@@ -391,7 +391,7 @@ describe('stopSession [spec:SP-9904]', () => {
     expect(materialize).toHaveBeenCalled()
     materialize.mockClear()
     reg.modules.sessions.residency.sweep()
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: 'late-item-replay',
@@ -417,7 +417,7 @@ describe('stopSession [spec:SP-9904]', () => {
       turnEpoch: 0,
     }
     reg.modules.sessions.residency.sweep()
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: 'late-exit',
@@ -431,7 +431,7 @@ describe('stopSession [spec:SP-9904]', () => {
     expect(await reg.sessionStore.events.listRuntimeEvents(sessionId)).toHaveLength(3)
     expect((await reg.modules.sessions.sessionById(sessionId))?.status).toBe('hibernated')
     materialize.mockClear()
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: 'late-exit-replay',
@@ -463,7 +463,7 @@ describe('stopSession [spec:SP-9904]', () => {
       payload: pending,
     })
     await reg.sessionStore.events.saveRuntimeEventCheckpoint({ ...head, cursor: pending.cursor })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: 'recover-projection',
@@ -479,7 +479,7 @@ describe('stopSession [spec:SP-9904]', () => {
       outcome: 'committed',
     })
     materialize.mockClear()
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: 'recovered-replay',
@@ -495,7 +495,7 @@ describe('stopSession [spec:SP-9904]', () => {
       cwd: '/r',
     })
     await bindLive(reg, sessionId, '/r')
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'agentState',
       sessionId,
       state: { phase: 'working', since: '2026-09-30T01:40:00.000Z', nativeSubagentCount: 0 },
@@ -520,7 +520,7 @@ describe('stopSession [spec:SP-9904]', () => {
     })
     const effects = vi.fn()
     reg.bus.on('session.stateChanged', effects)
-    const pending = reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    const pending = reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: 'stop-during-admission',
@@ -1016,6 +1016,70 @@ describe('stopSession [spec:SP-9904]', () => {
     })
   })
 
+  it.each([
+    [true, 'refs/heads/dev'],
+    [false, 'HEAD'],
+  ])('resurrects the same conversation on a fallback branch (parent available: %s)', async (parentAvailable, startPoint) => {
+    const { reg, daemon, repoOps, setRepoOp } = await makeRegistry()
+    const writer = reg.modules.issues.reports.store.serverWriter
+    const issue = await reg.modules.issues.crud.create(writer, {
+      repoPath: '/r',
+      title: 'Missing branch',
+      parentBranch: 'dev',
+      startNow: false,
+    })
+    const originalBranch = 'issue/1-missing-branch'
+    const originalPath = '/r/.worktrees/issue-1-missing-branch'
+    const fallbackBranch = 'resume/issue/1-missing-branch'
+    const fallbackPath = '/r/.worktrees/resume-issue-1-missing-branch'
+    await reg.modules.issues.crud.update(writer, issue.id, {
+      worktreePath: originalPath,
+      branch: originalBranch,
+    })
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: originalPath,
+      issueId: issue.id,
+    })
+    await bindLive(reg, sessionId, originalPath)
+    expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+    setRepoOp(async (op, cwd, args) => {
+      if (op === 'status' && cwd === originalPath) {
+        return { ok: false, output: `fatal: cannot change to '${cwd}': No such file or directory` }
+      }
+      if (op === 'worktreeAddExisting') {
+        return { ok: false, output: `fatal: invalid reference: ${args?.branch}` }
+      }
+      if (op === 'worktreeAdd' && args?.startPoint === 'refs/heads/dev' && !parentAvailable) {
+        return { ok: false, output: 'fatal: invalid reference: refs/heads/dev' }
+      }
+      return { ok: true, output: '' }
+    })
+
+    daemon.length = 0
+    expect(await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
+      ok: true,
+    })
+    expect(repoOps.filter((op) => op.op === 'worktreeAdd').at(-1)).toMatchObject({
+      cwd: '/r',
+      args: { path: fallbackPath, branch: fallbackBranch, startPoint },
+    })
+    expect(await reg.modules.issues.reports.get(issue.id)).toMatchObject({
+      branch: fallbackBranch,
+      worktreePath: fallbackPath,
+      parentBranch: 'dev',
+    })
+    expect(daemon.find((message) => message.type === 'spawn')).toMatchObject({
+      sessionId,
+      cwd: fallbackPath,
+      resume: { kind: 'claude-session', value: 'native-1' },
+    })
+    const note = (await reg.sessionStore.issues.listIssueComments(issue.id)).find(
+      (comment) => comment.author === 'system:resume',
+    )
+    expect(note?.body).toContain(fallbackBranch)
+  })
+
   it('resurrects an issue session that never owned a dedicated worktree', async () => {
     const { reg, daemon, repoOps } = await makeRegistry()
     const issue = await reg.modules.issues.crud.create(
@@ -1051,7 +1115,7 @@ describe('stopSession [spec:SP-9904]', () => {
   })
 })
 
-describe('stopIssue [spec:SP-9904]', () => {
+describe('stopIssue', () => {
   it('closing an issue dispatches the same no-force stop and frees its clean worktree', async () => {
     const { reg, daemon, repoOps } = await makeRegistry()
     const issue = await reg.modules.issues.crud.create(

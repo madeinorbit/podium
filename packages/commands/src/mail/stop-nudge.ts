@@ -1,6 +1,6 @@
 /**
  * The agent-facing mail nudges a turn-end hook returns as its block reason
- * [spec:SP-34d7] — the daemon builds them, and the transcript adapters match
+ * — the daemon builds them, and the transcript adapters match
  * them so the chat does not show them: the human sees the mail itself. One copy
  * here, so a rewording cannot leave the chat showing a nudge it no longer knows.
  */

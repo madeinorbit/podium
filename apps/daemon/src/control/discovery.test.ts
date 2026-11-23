@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { listDirectories, mapLimit } from './discovery'
 
-// The browse target is the DAEMON's disk (POD-814) [spec:SP-3701]: these exercise
+// The browse target is the DAEMON's disk (POD-814): these exercise
 // the real filesystem in a tmp tree rather than a mocked readdir, so the ~ / realpath
 // / hidden-filter behaviour is checked against the thing that actually decides.
 describe('listDirectories (daemon-side repo picker browse)', () => {
@@ -79,7 +79,7 @@ describe('listDirectories (daemon-side repo picker browse)', () => {
     await expect(listDirectories(join(home, 'nope'))).rejects.toThrow(/Could not open directory/)
   })
 
-  // Git-aware browse (POD-855) [spec:SP-5eb6]: the browser badges repo subfolders,
+  // Git-aware browse (POD-855): the browser badges repo subfolders,
   // and the current folder carries its own repo identity to gate + name "Add repo".
   describe('git awareness', () => {
     it('flags which subfolders are git repos, not the plain ones', async () => {

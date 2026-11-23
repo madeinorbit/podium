@@ -236,7 +236,7 @@ function makeService(
   const deps = {
     stateRoot: root,
     sourceInstanceId: 'instance-1',
-    sourceMachineId: asMachineId('source-1'),
+    hostMachine: { id: asMachineId('source-1') },
     sourceFeedIdentity: () => ({ feedId: 'feed-1', feedEpoch: 'epoch-1' }),
     sourceApplicationVersion: 'test',
     sourceSchemaVersion: async () => 'schema-1',
@@ -374,13 +374,17 @@ describe('ServerTransferService final-fence flow', () => {
   it('commits durably before acknowledging target retirement', async () => {
     let service!: ServerTransferService
     const demoteSource = vi.fn()
+    const afterJournalCommitted = vi.fn(() => {
+      expect(service.status()?.state).toBe('committed')
+    })
     const fake = fakeRpc({
       onAcknowledge: () => {
         expect(demoteSource).toHaveBeenCalledOnce()
+        expect(afterJournalCommitted).toHaveBeenCalledOnce()
         expect(service.status()?.state).toBe('committed')
       },
     })
-    service = makeService(fake.rpc, { demoteSource })
+    service = makeService(fake.rpc, { demoteSource, afterJournalCommitted })
 
     await expect(service.transfer(input, allow)).resolves.toMatchObject({
       ok: true,
@@ -755,7 +759,7 @@ describe('ServerTransferService vault key hand-over', () => {
           committed: { subscribe: () => () => {} },
         },
       } as unknown as MachinesDeps['store'],
-      hostMachineId: asMachineId('source-1'),
+      hostMachine: { id: asMachineId('source-1') },
     } satisfies MachinesDeps)
     const wire = new DaemonRpcService({
       toMachine: machines.toMachine,

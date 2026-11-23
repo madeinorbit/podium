@@ -71,6 +71,8 @@ export interface FakeGrokAcpServer {
   sessionNews: Record<string, unknown>[]
   /** Every `session/set_mode` request's params, in order. */
   setModes: Record<string, unknown>[]
+  setModels: Record<string, unknown>[]
+  lastTurnModel?: { model: string; effort?: string }
   /** The prompt Grok is running, by its `promptId`. */
   runningPromptId: string | undefined
   /** `session/cancel` notifications received. */
@@ -227,6 +229,21 @@ export function startFakeGrokAcpServer(
       : {}),
   })
 
+  const models = {
+    currentModelId: 'grok-4.5',
+    availableModels: ['grok-4.5', 'grok-4.6'].map((modelId) => ({
+      modelId,
+      name: modelId,
+      _meta: {
+        supportsReasoningEffort: true,
+        reasoningEfforts: ['low', 'medium', 'high', 'xhigh'].map((value) => ({
+          value,
+          default: value === 'high',
+        })),
+      },
+    })),
+  }
+  let currentEffort = 'high'
   const server: FakeGrokAcpServer = {
     transport: {
       write(line) {
@@ -243,11 +260,12 @@ export function startFakeGrokAcpServer(
               response(frame.id, {
                 protocolVersion: 1,
                 agentCapabilities: { loadSession: true },
+                _meta: { modelState: models },
               })
               return
             case 'session/new':
               server.sessionNews.push(frame.params ?? {})
-              response(frame.id, { sessionId })
+              response(frame.id, { sessionId, models })
               return
             case 'session/load': {
               /**
@@ -307,14 +325,32 @@ export function startFakeGrokAcpServer(
                   },
                 })
               }
-              response(frame.id, { sessionId })
+              response(frame.id, { sessionId, models })
               return
             }
             case 'session/set_mode':
               server.setModes.push(frame.params ?? {})
               response(frame.id, {})
               return
+            case 'session/set_model': {
+              server.setModels.push(frame.params ?? {})
+              const modelId = frame.params?.modelId as string
+              if (!models.availableModels.some((model) => model.modelId === modelId)) {
+                push({
+                  jsonrpc: '2.0',
+                  id: frame.id,
+                  error: { code: -32602, message: 'unknown model id' },
+                })
+                return
+              }
+              models.currentModelId = modelId
+              const meta = frame.params?._meta as { reasoningEffort?: string } | undefined
+              currentEffort = meta?.reasoningEffort ?? 'high'
+              response(frame.id, { _meta: { model: { Ok: modelId } } })
+              return
+            }
             case 'session/prompt': {
+              server.lastTurnModel = { model: models.currentModelId, effort: currentEffort }
               server.promptCount += 1
               server.prompts.push(frame.params ?? {})
               if (failNext) {
@@ -398,6 +434,7 @@ export function startFakeGrokAcpServer(
     promptCount: 0,
     prompts: [],
     sessionNews: [],
+    setModels: [],
     setModes: [],
     runningPromptId: undefined,
     cancels: 0,
@@ -525,12 +562,8 @@ export function startFakeGrokAcpServer(
         sessionUpdate: 'tool_call_update',
         toolCallId: input.toolCallId,
         status: input.status,
-        ...(Object.prototype.hasOwnProperty.call(input, 'content')
-          ? { content: input.content }
-          : {}),
-        ...(Object.prototype.hasOwnProperty.call(input, 'rawOutput')
-          ? { rawOutput: input.rawOutput }
-          : {}),
+        ...(Object.hasOwn(input, 'content') ? { content: input.content } : {}),
+        ...(Object.hasOwn(input, 'rawOutput') ? { rawOutput: input.rawOutput } : {}),
       })
     },
     completeTurn(stopReason = 'end_turn') {

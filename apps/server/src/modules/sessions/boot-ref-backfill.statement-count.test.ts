@@ -89,7 +89,7 @@ async function world(
   extra: (store: SessionStore) => Promise<void> = async () => {},
 ): Promise<World> {
   const store = await openTestStore(':memory:')
-  const host = store.hostMachineId
+  const host = store.hostMachine!.id
   await store.repos.addRepo(ROOT, host)
   await store.repos.addRepo(FAR_ROOT, FAR)
   await extra(store)
@@ -236,9 +236,9 @@ describe('boot ref backfill (POD-6222)', () => {
     // A removed repo keeps its prefix, and a prefix can be set on an unregistered
     // path: a session sitting exactly there derives that repo id and gets a draft.
     const orphans = async (store: SessionStore) => {
-      await store.repos.addRepo('/gone/w4', store.hostMachineId)
-      await store.repos.removeRepo('/gone/w4', store.hostMachineId)
-      await store.repos.setRepoPrefix(store.hostMachineId, '/gone/w13', 'LONE')
+      await store.repos.addRepo('/gone/w4', store.hostMachine!.id)
+      await store.repos.removeRepo('/gone/w4', store.hostMachine!.id)
+      await store.repos.setRepoPrefix(store.hostMachine!.id, '/gone/w13', 'LONE')
     }
     const before = await world(30, orphans)
     const after = await world(30, orphans)

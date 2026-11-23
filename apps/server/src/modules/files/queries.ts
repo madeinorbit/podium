@@ -45,7 +45,7 @@ export const FILE_QUERIES = {
       z.object({ machineId: MachineIdField.optional(), root: z.string(), path: z.string() }),
     ]),
     async (state, input): Promise<Omit<FileReadResultMessage, 'type' | 'requestId'>> => {
-      // Artifact snapshots ([spec:SP-0fc9] #441) serve from this workspace's
+      // Artifact snapshots (#441) serve from this workspace's
       // artifact store, the one `/files/artifact` streams from (POD-6963 design
       // 2.7) — no daemon round-trip, no root allowlist (there is no root), and
       // no baseHash: snapshots are immutable and writes against them are

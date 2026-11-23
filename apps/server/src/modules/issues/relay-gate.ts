@@ -26,17 +26,13 @@ export const RELAY_ALLOWED: Readonly<Record<string, ReadonlySet<string> | null>>
   // Read-only agent plan limits. This is the same global multi-machine summary
   // the operator sees in the top-bar panel; no provider credentials cross it.
   quota: new Set(['summary']),
-  // The living spec (pspec, #135): agents read/write pspec/ files they could
-  // touch with their own tools anyway — the specs router adds no privilege
-  // beyond its repo-root allowlist.
-  specs: null,
-  // status/read = read-toolkit tiers 1–2 (#237) [spec:SP-34d7] — structured
+  // status/read = read-toolkit tiers 1–2 (#237) — structured
   // status + bounded transcript window, scope-gated like the send ops and
   // event-logged per read.
   // title = the agent naming its OWN session (#490): it carries no sessionId, the
   // target is the CALLING session (bound from the capability), and the user's own
   // name always wins — so it grants no reach over any other session.
-  // stop = clean end + free worktree keep branch [spec:SP-9904]; self/subtree
+  // stop = clean end + free worktree keep branch; self/subtree
   // free, outside needs --outside-scope (gated in the dispatch arm).
   // handoff = move a LIVE session to another machine (POD-642), exposed to agents
   // by POD-1386/POD-1424. It is the one entry here that causes execution on a second
@@ -69,7 +65,7 @@ export const RELAY_ALLOWED: Readonly<Record<string, ReadonlySet<string> | null>>
   // recovery write: it reaches only an online machine with this caller's live use grant.
   machines: new Set(['list', 'listWithRepos', 'reprobe']),
   harnessInstalls: new Set(['action']),
-  // Unified messaging (#237) [spec:SP-34d7]: podium mail, cross-harness child
+  // Unified messaging (#237): podium mail, cross-harness child
   // spawn/bounded await, and the stop-hook's single-reminder query. Sender and
   // parent identity are stamped from the capability; MessageGate owns target-
   // issue authz, spawn budgeting, and parent-only await authority.
@@ -86,7 +82,7 @@ export const RELAY_ALLOWED: Readonly<Record<string, ReadonlySet<string> | null>>
     'spawnAgent',
     'awaitAgent',
   ]),
-  // Approval broker [spec:SP-edbb]: agents may REQUEST any management op (and
+  // Approval broker: agents may REQUEST any management op (and
   // poll its status); approve/deny/execution stay operator+daemon-side.
   approvals: new Set(['request', 'get']),
   // Instruction-first workflows: every procedure is schema-validated and
@@ -96,11 +92,11 @@ export const RELAY_ALLOWED: Readonly<Record<string, ReadonlySet<string> | null>>
   // session's working state on the CALLER's machine (scope-gated against the
   // target's issue in the dispatch arm); clean removes only what fetch made.
   workspace: new Set(['fetch', 'clean']),
-  // Advisory named lease locks [spec:SP-85d1] — coordination tokens agents
+  // Advisory named lease locks — coordination tokens agents
   // acquire/release via `podium lock`/`podium merge-lock`; role-gated by the
   // lock registry's guard, caller identity stamped from the relay capability.
   lock: null,
-  // Agent action offer [spec:SP-c7f1] — `podium offer` set/clear. Carries no
+  // Agent action offer — `podium offer` set/clear. Carries no
   // sessionId; the target is ALWAYS the CALLING session (bound from the
   // capability), so it grants no reach over any other session.
   offer: new Set(['set', 'clear']),
@@ -202,7 +198,7 @@ function submittedCommand(
 
 export interface AgentRelayGateDeps {
   /** Run one relayed op through the derived command surface (the registry
-   *  dispatcher for issues/repos, the specs module for specs) — router-equal
+   *  dispatcher for issues/repos) — router-equal
    *  guard + schema, no router involved.
    *
    *  NO SUCH PROCEDURE IS A VALUE, NOT AN ABSENCE. It resolves to
@@ -227,7 +223,7 @@ export interface AgentRelayGateDeps {
   toMachine(machineId: MachineId, msg: ControlMessage): void
   /**
    * After a successful agentRelayResult is on the wire. Used to arm self-stop
-   * kill only once the CLI has received the reply [spec:SP-9904] — never a
+   * kill only once the CLI has received the reply — never a
    * fixed timer inside the stop helper.
    */
   afterSuccessfulReply?(

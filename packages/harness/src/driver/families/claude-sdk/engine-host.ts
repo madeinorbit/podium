@@ -149,6 +149,8 @@ export interface ClaudeEngineJournalEntry {
   process: ProcessIdentity
   model?: string
   effort?: string
+  /** Arguments of the surviving process, separate from the next-turn policy. */
+  engineConfiguration?: { model?: string; effort?: string }
   env?: Record<string, string>
   /** What the next turn's engine spawn reads: instruction text and raw MCP
    *  config, so an adopted session's later turns keep their channel. */
@@ -249,6 +251,7 @@ interface HeldEngine {
   childPid: number | undefined
   exit: { code: number; signal: number } | undefined
   banner: string
+  configuration?: { model?: string; effort?: string }
 }
 
 type StartTurnInput = Parameters<ClaudeSdkRuntimeHost['startTurn']>[0]
@@ -425,7 +428,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     label: string,
     attachment: EngineAttachment,
   ): Promise<HeldEngine | undefined> {
-    let welcome
+    let welcome: Awaited<EngineAttachment['ready']>
     try {
       welcome = await attachment.ready
     } catch (err) {
@@ -581,7 +584,15 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     const workdir = sessionSpec.workdir
     const context = sessionSpec.harnessContext
     const held = engines.get(sessionId)
-    if (held && held.exit === undefined) return held
+    if (held && held.exit === undefined) {
+      if (held.configuration?.model === spec.model && held.configuration?.effort === spec.effort) {
+        return held
+      }
+      // Model and effort are process arguments. A later user line cannot
+      // change them: resume the same conversation in a new engine at this
+      // turn boundary, including when returning to the harness defaults.
+      await terminate(sessionId, false)
+    }
     if (held) engines.delete(sessionId)
 
     const label = claudeEngineProcessKey(deps.facts, sessionId)
@@ -601,6 +612,11 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
           (await owner.reattachEngine({ label, fromSeq: 'tail', sessionId })).attachment,
         )
         if (attached) {
+          const entry = records.recorded(sessionId)
+          attached.configuration = entry?.engineConfiguration ?? {
+            ...(entry?.model && entry.model !== 'auto' ? { model: entry.model } : {}),
+            ...(entry?.effort && entry.effort !== 'auto' ? { effort: entry.effort } : {}),
+          }
           try {
             await bindClient(sessionId, attached, spec)
           } catch (err) {
@@ -616,7 +632,13 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
             })
             throw new EngineBindUnrecoverable(sessionId, 'adopt', label, err)
           }
-          return attached
+          if (
+            attached.configuration.model === spec.model &&
+            attached.configuration.effort === spec.effort
+          ) {
+            return attached
+          }
+          await terminate(sessionId, false)
         }
       } catch (err) {
         if (err instanceof ClaudeEngineLeaseRefused) throw err
@@ -659,6 +681,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
       engines.delete(sessionId)
       throw new Error(`claude engine host for ${sessionId} never welcomed its spawn`)
     }
+    spawned.configuration = { model: spec.model, effort: spec.effort }
     if (process.platform !== 'linux') {
       log.warn('Claude stream session is running unscoped', { sessionId })
     }
@@ -889,8 +912,8 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
               ...(bound.childPid !== undefined ? { pid: bound.childPid } : {}),
               ...(scopeUnit ? { scopeUnit } : {}),
             },
-            ...(spec.model ? { model: spec.model } : {}),
-            ...(spec.effort ? { effort: spec.effort } : {}),
+            ...input.spec.model,
+            engineConfiguration: { model: spec.model, effort: spec.effort },
             ...(Object.keys(sessionEnv).length > 0 ? { env: sessionEnv } : {}),
             ...(spec.systemPrompt ? { instructions: spec.systemPrompt } : {}),
             ...(spec.mcpConfig ? { mcpConfig: spec.mcpConfig } : {}),

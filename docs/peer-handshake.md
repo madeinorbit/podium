@@ -39,7 +39,7 @@ server-side and never sent.
 | **machine (remote, reconnect)** (`/daemon`) | the long-lived **machine token** minted by the pairing branch | as above, with the owner and grants the directory returns | unknown, rotated or revoked token, with no peer-visible detail. A token with no machine hint fails closed rather than scanning |
 | **agent relay** (not a peer role — ADR 3 Am.1 D14) | a **server-minted delegation reference**, resolved live through `DelegationDirectory`. Never a free-string identity | its own scope **intersected with its human's current rights**, resolved at every apply (D16) — nothing is copied into the connection | unknown, revoked or unresolvable chain; no human at the root; more than one human; a widening sub-agent; a root human who is disabled or revoked |
 | **operator channel** (`cli`, in-process `mcp`) | direct CLI calls present a signed shared-identity bearer; agent calls use their scoped relay | the member or agent’s current authority | the protocol registry refuses person credentials; HTTP admission owns sign-in |
-| **node** | nothing. Reserved credential class, **no acceptor** ([spec:SP-0371]) | — | every connection: `role-not-implemented`, without crashing (D4.4) |
+| **node** | nothing. Reserved credential class, **no acceptor** | — | every connection: `role-not-implemented`, without crashing (D4.4) |
 | **system** (steward, expiry, boot reconcile, derived fields) | **in-process construction only** (D21.2) — there is no credential to steal | reads may cross owners; every write is attributed `system` and lands in the scope of what it acted on | every transport. It has **no** on-behalf-of and must never be assigned one |
 
 ## Two rules the strategies exist to enforce
@@ -97,4 +97,4 @@ token is refused even if a build lists it as supported.
   exists to resolve them against.
 - **The console strategy's production binding** (POD-1075), and the human half of
   attribution having a value to carry (POD-1075 + POD-323 for delegation lifecycle).
-- **A node acceptor**, and any hub behaviour ([spec:SP-0371], POD-353).
+- **A node acceptor**, and any hub behaviour (, POD-353).

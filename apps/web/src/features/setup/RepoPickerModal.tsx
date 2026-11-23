@@ -76,7 +76,7 @@ type RepoPickerMachine = Pick<
 >
 
 /**
- * Pick a repo on a machine (POD-814/POD-855) [spec:SP-5eb6]: choose a machine,
+ * Pick a repo on a machine (POD-814/POD-855): choose a machine,
  * browse ITS directories (through its daemon), and either add the folder you're
  * standing in — but only when it is a git repo — or scan for repos from here.
  *

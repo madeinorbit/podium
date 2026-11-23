@@ -18,11 +18,6 @@ const WorkflowsView = lazyScreen(
   () => import('@/features/workflows/WorkflowsView'),
   (module) => module.WorkflowsView,
 )
-const SpecsView = lazyScreen(
-  () => import('@/features/specs/SpecsView'),
-  (module) => module.SpecsView,
-)
-
 function ViewFallback(): JSX.Element {
   return <WaitingForServer className="flex min-h-0 min-w-0 flex-1" />
 }
@@ -51,7 +46,6 @@ export function MainViewOutlet({
   const storeView = useUiValue('view')
   const view = viewOverride ?? storeView
   const workflowsEnabled = useFeature('workflows')
-  const specsEnabled = useFeature('specs')
   const automationsEnabled = useFeature('automations')
   const issuesView = issues ?? lazyView(<IssuesView />)
   switch (view) {
@@ -66,9 +60,6 @@ export function MainViewOutlet({
       return workflowsEnabled ? lazyView(<WorkflowsView />) : <>{issuesView}</>
     case 'automations':
       return automationsEnabled ? lazyView(<AutomationsView />) : <>{issuesView}</>
-    case 'specs':
-      if (!specsEnabled) return <>{issuesView}</>
-      return lazyView(<SpecsView />)
     case 'workspace':
       return <>{workspace}</>
   }

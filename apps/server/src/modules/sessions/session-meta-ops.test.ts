@@ -35,7 +35,7 @@ async function fixture() {
     origin: { kind: 'spawn' },
     createdAt: stamp,
     geometry: { cols: 80, rows: 24 },
-    machineId: store.hostMachineId,
+    machineId: store.hostMachine!.id,
     durableLabel: 'offer-test',
     toDaemon: () => {},
   })
@@ -330,7 +330,7 @@ describe('continueSession contract routing', () => {
     expect(await ops.continueSession(messageTestWriter(), { sessionId })).toEqual({ ok: true })
     expect(ports.sendContinue).not.toHaveBeenCalled()
     expect(ports.toPtyInput).toHaveBeenCalledWith(
-      store.hostMachineId,
+      store.hostMachine!.id,
       expect.objectContaining({
         sessionId,
         inputOrigin: 'auto_continue',

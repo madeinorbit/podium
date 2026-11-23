@@ -62,7 +62,12 @@ export const UPDATE_PLAIN_HANDLERS = {
   repairPayload: async (ctx, input) => {
     assertMayUpdate(ctx)
     const state = familyState(ctx)
-    const machineId = input?.id ? asMachineId(input.id) : state.store.hostMachineId
+    const machineId = input?.id ? asMachineId(input.id) : state.store.hostMachine?.id
+    if (!machineId)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'This server has no host machine to repair. Name a machine to repair its payload.',
+      })
     const outcome = await state.modules.updates.repairMachine(machineId, {
       initiator: { kind: 'operator-repair' },
       eligibility: "a person asked for this machine's payload to be re-delivered",

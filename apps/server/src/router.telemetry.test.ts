@@ -1,5 +1,5 @@
 /**
- * `telemetry.*` tRPC tests [spec:SP-f933].
+ * `telemetry.*` tRPC tests.
  *
  * The property worth pinning: this router is the SAME switch as `podium
  * telemetry` operator overrides remain above the database settings row. UI

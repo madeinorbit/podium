@@ -1,4 +1,6 @@
 import '@/test-support/mock-core-store-handle'
+import { RESUME_WAIT_MS, useSessionTransition } from '@podium/client-core/react'
+import type { SessionView } from '@podium/client-core/session-values'
 import { asSessionId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -90,6 +92,69 @@ describe('the exited bar', () => {
 
 describe('the lifecycle transition bar (POD-6399)', () => {
   const id = asSessionId('s1')
+
+  function ResumeState({
+    session,
+  }: {
+    session: Pick<SessionView, 'sessionId' | 'status'> & Partial<SessionView>
+  }) {
+    const { transition, waking } = useSessionTransition(session)
+    return (
+      <>
+        {transition && <LifecycleTransitionBar session={session} transition={transition} />}
+        <HibernatedBanner sessionId={session.sessionId} waking={waking} />
+      </>
+    )
+  }
+
+  it('shows a refused resume and stops waking even while a message is queued', () => {
+    act(() => {
+      root.render(
+        <ResumeState
+          session={{
+            sessionId: id,
+            status: 'hibernated',
+            desired: 'running',
+            revision: 2,
+            observedRevision: 2,
+            queuedMessageCount: 1,
+            lifecycleFailure: { revision: 2, reason: 'the issue branch is missing' },
+          }}
+        />,
+      )
+    })
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Couldn't resume — the issue branch is missing",
+    )
+    expect(container.querySelector('[data-testid="lifecycle-retry"]')).not.toBeNull()
+    expect(container.querySelector('.pane-state-bar-waking')).toBeNull()
+  })
+
+  it('ends the spinner at the deadline and resets it for the next revision', () => {
+    vi.useFakeTimers()
+    try {
+      const session = {
+        sessionId: id,
+        status: 'hibernated' as const,
+        desired: 'running' as const,
+        revision: 2,
+        observedRevision: 1,
+        queuedMessageCount: 1,
+      }
+      act(() => root.render(<ResumeState session={session} />))
+      expect(container.querySelector('.pane-state-bar-waking')).not.toBeNull()
+      act(() => vi.advanceTimersByTime(RESUME_WAIT_MS))
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain('Resume timed out')
+      expect(container.querySelector('[data-testid="lifecycle-retry"]')).not.toBeNull()
+      expect(container.querySelector('.pane-state-bar-waking')).toBeNull()
+
+      act(() => root.render(<ResumeState session={{ ...session, revision: 3 }} />))
+      expect(container.querySelector('[role="alert"]')).toBeNull()
+      expect(container.querySelector('.pane-state-bar-waking')).not.toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 
   it('shows nothing for a session nobody has edited', () => {
     act(() => {

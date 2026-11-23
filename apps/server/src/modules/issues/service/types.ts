@@ -35,7 +35,7 @@ export interface IssueFunnel {
   run<T>(op: { authorize?: () => Promise<void>; write: () => Promise<T> }): Promise<T>
 }
 
-/** The write-seam change log face ([spec:SP-3fe2] #255): `commit` binds an
+/** The write-seam change log face (#255): `commit` binds an
  *  issue write and its declared change rows into one transaction; `reconcile`
  *  diffs the full wire truth (including removes) for the derived-ripple and
  *  boot paths. Structurally satisfied by {@link @podium/sync.Ledger}; narrow
@@ -74,7 +74,7 @@ export type IssuePanelOp =
       itemId?: string
       path: string
       title?: string
-      /** Permanent-store snapshot fields ([spec:SP-0fc9]) — set by panelArtifactAdd
+      /** Permanent-store snapshot fields — set by panelArtifactAdd
        *  after the pull succeeded; a bare artifact-add stays a legacy path entry. */
       artifactId?: ArtifactId
       entry?: string
@@ -119,7 +119,7 @@ export interface DepReportEntry {
 }
 
 /**
- * Compact session row on an issue-tree node [spec:SP-99d3]. Enough for an agent
+ * Compact session row on an issue-tree node. Enough for an agent
  * to see sibling sessions before spawn — not a full SessionMeta.
  */
 /** Inventory §2.1 #19: the definition moved to `@podium/model`
@@ -227,7 +227,7 @@ export interface IssueDeps {
    *  resolved inside createSession), which is the race-free way to start the work.
    *  `spawnedBy` records provenance (issue #60): issue workflow calls preserve
    *  their exact initiating session/operator when known, with `issue:<id>` as the
-   *  legacy direct-service fallback. [spec:SP-ccb2] */
+   *  legacy direct-service fallback. */
   spawnSession(o: {
     sessionId?: SessionId
     cwd: string
@@ -238,7 +238,7 @@ export interface IssueDeps {
     model?: string
     effort?: string
     accountId?: AccountId
-    /** Deliberately spawn with a model slug the live catalog doesn't list [spec:SP-cc60]. */
+    /** Deliberately spawn with a model slug the live catalog doesn't list. */
     forceUnknownModel?: boolean
     initialPrompt?: string
     spawnedBy?: string
@@ -273,10 +273,10 @@ export interface IssueDeps {
    * Resolve the target an unpinned machine operation would choose for cwd.
    *
    * Worktree writers call this before their first operation, persist the result,
-   * and pass that same id to the operation. Optional only for the existing unit
-   * fixtures; production injects the daemon router's exact resolver.
+   * and pass that same id to the operation. Undefined means no available machine;
+   * production injects the daemon router's exact resolver.
    */
-  resolveMachine?(requested: string | undefined, cwd: string): Promise<MachineId>
+  resolveMachine(requested: string | undefined, cwd: string): Promise<MachineId | undefined>
   /** Pre-flight for an explicit machine pin: throws (actionable message) when the
    *  machine is offline or lacks the repo. Injected by the relay; optional so
    *  existing test deps literals stay valid. */
@@ -320,6 +320,14 @@ export interface IssueDeps {
    * as the refusal. Optional so existing test deps literals stay valid.
    */
   findRepoOnMachine?(repoPath: string, machineId: MachineId): Promise<string | null>
+  /** Recover the exact issue branch from its recorded home. Returns the verified target commit. */
+  recoverIssueBranch?(input: {
+    sourceRepoPath: string
+    sourceMachineId: MachineId
+    targetRepoPath: string
+    targetMachineId: MachineId
+    branch: string
+  }): Promise<string>
   /**
    * Agent profiles (POD-6107): `find` turns `--profile <name>` into an id, and
    * `launch` is the one resolver (profile, issue fields on top, first usable
@@ -333,7 +341,7 @@ export interface IssueDeps {
   /** THE write funnel (modules/funnel): every mutation's store write + fan-out
    *  runs through it, so "durable before fan-out" holds by construction. */
   funnel: IssueFunnel
-  /** The write-seam change log ([spec:SP-3fe2] #255): issue writes commit their
+  /** The write-seam change log (#255): issue writes commit their
    *  change rows atomically with the row write; derived ripples reconcile. */
   /**
    * The issues service's OWN writer, a `server` origin (`issues.server`): the
@@ -366,14 +374,14 @@ export interface IssueDeps {
     sessionId: SessionId,
     archived: boolean,
   ): void | Promise<void>
-  /** Clear a session's agent action offer [spec:SP-c7f1]. Injected by the relay;
+  /** Clear a session's agent action offer. Injected by the relay;
    *  optional so existing test deps literals stay valid. Used to retire pending
    *  decisions when an issue closes (POD-290) so a delegate offer cannot keep
    *  demanding attention after the work is finished elsewhere. */
   clearSessionOffer?(writer: IssueWriter, sessionId: SessionId): Promise<void>
   /** Fired after a worktree is successfully created (POD-665) so connected clients
    *  can re-fetch repos — otherwise a freshly-started issue's worktree is invisible
-   *  in every menu until reload. [spec:SP-4ef9] worktree is a per-(branch,machine)
+   *  in every menu until reload. worktree is a per-(branch,machine)
    *  materialization the client has no other way to learn about live. Injected by
    *  the relay; optional so existing test deps literals stay valid. */
   onWorktreesChanged?(repoPath: string, machineId?: MachineId): void
@@ -459,7 +467,7 @@ export interface IssueDeps {
     park(sessionId: SessionId): Promise<{ ok: boolean; reason?: string }>
     kill(sessionId: SessionId): Promise<void>
   }
-  /** Permanent artifact snapshot store ([spec:SP-0fc9] #441) — the server-pull
+  /** Permanent artifact snapshot store (#441) — the server-pull
    *  snapshotter panelArtifactAdd/Remove ride. Optional so existing test deps
    *  literals stay valid; absent ⇒ legacy path-only artifact entries. */
   artifacts?: {

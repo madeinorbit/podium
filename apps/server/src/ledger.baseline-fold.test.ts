@@ -56,7 +56,7 @@ describe('dedup follows the outermost commit (POD-3328)', () => {
           ledger.modelOperation({
             write: async () => {
               await store.conversations.index.upsert(fixtureWriteScope(), [
-                { ...conversationRow('c-rolled-back'), machineId: store.hostMachineId },
+                { ...conversationRow('c-rolled-back'), machineId: store.hostMachine!.id },
               ])
             },
             rows: () => [
@@ -138,7 +138,7 @@ describe('dedup follows the outermost commit (POD-3328)', () => {
         ledger.modelOperation({
           write: async () => {
             await store.conversations.index.upsert(fixtureWriteScope(), [
-              { ...conversationRow('c-kept'), machineId: store.hostMachineId },
+              { ...conversationRow('c-kept'), machineId: store.hostMachine!.id },
             ])
           },
           rows: () => [

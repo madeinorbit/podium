@@ -147,9 +147,13 @@ function useFreshMachines(): void {
 
 /** The source store, serving, with the target enrolled in it. */
 async function openSource(): Promise<{ source: SessionStore; owner: UserId }> {
-  const source = await SessionStore.open(join(sourceRoot, 'podium.db'), SOURCE, {
-    vaultKeyFile: sourceKeyPath,
-  })
+  const source = await SessionStore.open(
+    join(sourceRoot, 'podium.db'),
+    { id: SOURCE },
+    {
+      vaultKeyFile: sourceKeyPath,
+    },
+  )
   primeFirstAdminMember(await firstAdminMemberId(source))
   const owner = await firstAdminMemberId(source)
   // The enrolments are setup, not the write under test. The store opens as a
@@ -201,7 +205,7 @@ async function moveServer(source: SessionStore) {
   const service = new ServerTransferService({
     stateRoot: sourceRoot,
     sourceInstanceId: 'source-instance',
-    sourceMachineId: SOURCE,
+    hostMachine: { id: SOURCE },
     sourceFeedIdentity: readFeed,
     sourceApplicationVersion: 'test',
     sourceSchemaVersion: () => source.schemaVersionForTransfer(),
@@ -276,9 +280,13 @@ describe('server transfer moves the vault key', () => {
     } finally {
       installed.close()
     }
-    const target = await SessionStore.open(join(targetRoot, 'podium.db'), TARGET, {
-      vaultKeyFile: targetKeyPath,
-    })
+    const target = await SessionStore.open(
+      join(targetRoot, 'podium.db'),
+      { id: TARGET },
+      {
+        vaultKeyFile: targetKeyPath,
+      },
+    )
     try {
       expect(target.vault.state()).toBe('ready')
       expect(await withSecret(target, credential.id, async (secret) => secret)).toBe(SECRET)
@@ -322,9 +330,13 @@ describe('server transfer moves the vault key', () => {
     await source.close()
     expect(existsSync(targetKeyPath)).toBe(false)
 
-    const target = await SessionStore.open(join(targetRoot, 'podium.db'), TARGET, {
-      vaultKeyFile: targetKeyPath,
-    })
+    const target = await SessionStore.open(
+      join(targetRoot, 'podium.db'),
+      { id: TARGET },
+      {
+        vaultKeyFile: targetKeyPath,
+      },
+    )
     try {
       expect(target.vault.state()).toBe('empty')
       const credential = await target.credentials.insert({

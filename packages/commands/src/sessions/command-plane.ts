@@ -484,7 +484,7 @@ const continueSession: CommandDef = {
 }
 
 /**
- * CLEAN END [spec:SP-9904] — stop the process, free the worktree, keep the branch.
+ * CLEAN END — stop the process, free the worktree, keep the branch.
  *
  * MIGRATED BY POD-382 FOR THE OPERATOR PATH ONLY, and the boundary is deliberate.
  * `sessions.stop` had two hand-written implementations that differed in ways

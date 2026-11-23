@@ -1,3 +1,4 @@
+import { TEST_MACHINE_ID } from '../../../test-support/machine-id'
 /**
  * THE ISSUE REGISTRY'S MUTABLE-STATE MODEL [POD-3259, spec §3.6 model (b)].
  *
@@ -27,10 +28,10 @@ import { runAtRoot } from '../../../store/executor/context'
 import { applyAfterCommit, spanOpen } from '../../../store/executor/executor'
 import { StaleIssueRevisionError } from '../../../store/issue-revision'
 import { openTestStore } from '../../../test-support/open-test-store'
+import { testStoreEngine } from '../../../test-support/pg-test-database'
+import { sessionReadPorts } from '../../../test-support/session-facts'
 import { type IssueDeps, IssueService } from '../service'
 import { issueTestPlumbing } from './test-plumbing'
-import { sessionReadPorts } from '../../../test-support/session-facts'
-import { testStoreEngine } from '../../../test-support/pg-test-database'
 
 interface Harness {
   store: SessionStore
@@ -50,10 +51,10 @@ interface Harness {
 }
 
 const open = async (): Promise<Harness> => {
-  const store = await openTestStore(':memory:')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   // An issue's repo resolves only through a machine that reported it (2b803efb5),
   // so the fixture repo is reported by the host machine.
-  await store.repos.addRepo('/repo', store.hostMachineId)
+  await store.repos.addRepo('/repo', TEST_MACHINE_ID)
   let during: { fn: () => Promise<void>; when: 'before' | 'after' } | null = null
   let fail = false
   // The span is the store's REAL transaction, and installs wait for the
@@ -83,6 +84,7 @@ const open = async (): Promise<Harness> => {
     })
   }
   const deps: IssueDeps = {
+    resolveMachine: async () => TEST_MACHINE_ID,
     store,
     ...sessionReadPorts(() => []),
     getSettings: async () =>
@@ -93,7 +95,10 @@ const open = async (): Promise<Harness> => {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({
+      sessionId: asSessionId('s1'),
+      machine: 'machine-under-test',
+    })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(() => {}, { transact, store }),
     setSessionArchived: vi.fn(),
@@ -124,16 +129,22 @@ describe('draft-then-install: two updates to the same issue', () => {
     // told they succeeded.
     harness = await open()
     const { svc } = harness
-    const id = (await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'one', startNow: false })).id
+    const id = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'one',
+        startNow: false,
+      })
+    ).id
 
     // The second update runs INSIDE the first one's write span, so it reads the
     // row at the revision the first update was cut from and commits first.
     harness.duringNextWrite(async () => {
       await svc.crud.update(svc.reports.store.serverWriter, id, { title: 'from the inner write' })
     })
-    await expect(svc.crud.update(svc.reports.store.serverWriter, id, { title: 'from the outer write' })).rejects.toThrow(
-      StaleIssueRevisionError,
-    )
+    await expect(
+      svc.crud.update(svc.reports.store.serverWriter, id, { title: 'from the outer write' }),
+    ).rejects.toThrow(StaleIssueRevisionError)
 
     // The winner's row survives intact: the loser never touched it, and its
     // title is not half-applied over the winner's.
@@ -150,7 +161,13 @@ describe('draft-then-install: two updates to the same issue', () => {
     // answered only after the rollback, with the settled row.
     harness = await open()
     const { svc } = harness
-    const id = (await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'settled', startNow: false })).id
+    const id = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'settled',
+        startNow: false,
+      })
+    ).id
     const before = await svc.reports.get(id)
 
     let answeredWhileOpen = true
@@ -166,7 +183,9 @@ describe('draft-then-install: two updates to the same issue', () => {
       answeredWhileOpen = answered
     }, 'after')
     harness.failNextWrite()
-    await expect(svc.crud.update(svc.reports.store.serverWriter, id, { title: 'never committed' })).rejects.toThrow('commit failed')
+    await expect(
+      svc.crud.update(svc.reports.store.serverWriter, id, { title: 'never committed' }),
+    ).rejects.toThrow('commit failed')
 
     expect(answeredWhileOpen, 'the outside reader waits for the save').toBe(false)
     expect(await outside, 'no reader sees the uncommitted title').toBe('settled')
@@ -181,12 +200,20 @@ describe('draft-then-install: a rollback racing a successful update', () => {
     // to put the pre-write field set back over the winner's committed row.
     harness = await open()
     const { svc } = harness
-    const id = (await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'base', startNow: false })).id
+    const id = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'base',
+        startNow: false,
+      })
+    ).id
 
     harness.duringNextWrite(async () => {
       await svc.crud.update(svc.reports.store.serverWriter, id, { title: 'winner' })
     })
-    await expect(svc.crud.update(svc.reports.store.serverWriter, id, { title: 'loser' })).rejects.toThrow(StaleIssueRevisionError)
+    await expect(
+      svc.crud.update(svc.reports.store.serverWriter, id, { title: 'loser' }),
+    ).rejects.toThrow(StaleIssueRevisionError)
 
     expect((await svc.reports.get(id))?.title).toBe('winner')
     // The map serves what the store committed, not merely something plausible.
@@ -203,7 +230,13 @@ describe('draft-then-install: a read while a write is open', () => {
     // write, with no special case (design §2, one way to read a fact).
     harness = await open()
     const { svc } = harness
-    const id = (await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'committed', startNow: false })).id
+    const id = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'committed',
+        startNow: false,
+      })
+    ).id
 
     let answeredWhileOpen = true
     const inside: (string | undefined)[] = []
@@ -230,12 +263,16 @@ describe('draft-then-install: a read while a write is open', () => {
       // outside reader never waits, and never sees the save's draft. What it reads while
       // the save is open is the row as last committed; a read after the commit, the new one.
       const titles = await outside
-      if (answeredWhileOpen) expect(titles, 'reads while open see the committed row').toEqual(['committed', 'committed'])
+      if (answeredWhileOpen)
+        expect(titles, 'reads while open see the committed row').toEqual(['committed', 'committed'])
       else for (const title of titles ?? []) expect(['committed', 'in flight']).toContain(title)
     } else {
       // SQLite's one connection: the outside reader waits behind the open write.
       expect(answeredWhileOpen, 'the outside reader waits for the save').toBe(false)
-      expect(await outside, 'both read paths see the committed value').toEqual(['in flight', 'in flight'])
+      expect(await outside, 'both read paths see the committed value').toEqual([
+        'in flight',
+        'in flight',
+      ])
     }
     expect((await svc.reports.get(id))?.title).toBe('in flight')
   })

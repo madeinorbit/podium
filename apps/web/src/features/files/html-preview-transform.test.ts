@@ -64,7 +64,7 @@ describe('buildStaticHtmlPreview', () => {
   })
 })
 
-/** Artifact scope ([spec:SP-0fc9]) — agent-authored prototypes are meant to be clickable,
+/** Artifact scope — agent-authored prototypes are meant to be clickable,
  *  so scripts survive and the iframe grants allow-scripts. Every other scope stays static. */
 describe('buildStaticHtmlPreview with allowScripts', () => {
   const build = (html: string): string =>

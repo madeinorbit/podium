@@ -58,7 +58,7 @@ export function formatActiveIssues(issues: IssueReport[]): string {
     review: 1,
     planning: 2,
     backlog: 3,
-    proposed: 4, // unapproved proposals sort below real work [spec:SP-6144]
+    proposed: 4, // unapproved proposals sort below real work
     done: 5,
   }
   open.sort((a, b) => {
@@ -153,7 +153,7 @@ function listedIssues(issues: IssueReport[], mode: string | undefined): IssueRep
         review: 1,
         planning: 2,
         backlog: 3,
-        proposed: 4, // unapproved proposals sort below real work [spec:SP-6144]
+        proposed: 4, // unapproved proposals sort below real work
         done: 5,
       }
       open.sort((a, b) => {

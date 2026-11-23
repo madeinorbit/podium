@@ -1,26 +1,26 @@
-import { asMachineId, firstAdminMemberId, type AgentKind } from '@podium/model'
+import { type AgentKind, asMachineId, firstAdminMemberId } from '@podium/model'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ModelCatalogSnapshot } from './model-catalog'
+import { MODEL_CATALOG_VERSION } from './model-catalog'
 import {
   assertModelSelectionValid,
   formatModelValidationProblem,
+  type LaunchSelectionSource,
   ModelValidationError,
+  resolveLaunchSelection,
   validateModelSelection,
   vetLaunchSelection,
-  resolveLaunchSelection,
-  type LaunchSelectionSource,
 } from './model-validation'
-import { MODEL_CATALOG_VERSION } from './model-catalog'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionRegistry } from './relay'
 import { decideApproval, fileApproval } from './test-support/approvals'
-import { attachHostDaemon } from './test-support/host-daemon'
 import { fixtureInventory } from './test-support/daemon-inventory'
+import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 import { sessionReadPorts } from './test-support/session-facts'
-import type { ControlMessage } from '@podium/protocol/daemon'
 
 const catalog: ModelCatalogSnapshot = {
   machineId: asMachineId('test-machine'),
@@ -277,7 +277,9 @@ describe('spawn-time Settings defaults (POD-3911)', () => {
   ) => {
     const { reg, machineMessaging } = await launchHarness(coding)
     await reg.modules.sessions.createSession({
-      agentKind: 'claude-code', cwd: '/proj', ...explicit,
+      agentKind: 'claude-code',
+      cwd: '/proj',
+      ...explicit,
       // This old case represents a caller's already-accepted deliberate model.
       ...(explicit ? { forceUnknownModel: true } : {}),
     })
@@ -295,7 +297,10 @@ describe('spawn-time Settings defaults (POD-3911)', () => {
   })
 
   it("passes the caller's own values through untouched", async () => {
-    const launch = await launchFrame({ model: 'Codex', effort: 'auto' }, { model: 'claude-opus-9-preview' })
+    const launch = await launchFrame(
+      { model: 'Codex', effort: 'auto' },
+      { model: 'claude-opus-9-preview' },
+    )
     expect(launch.model).toBe('claude-opus-9-preview')
   })
 })
@@ -307,17 +312,21 @@ afterEach(async () => {
 
 async function launchHarness(coding: { model: string; effort: string }) {
   const store = await openTestStore(':memory:')
-  await store.settings.setSettings(normalizeSettings({
-    roles: { coding: { accountId: 'native:claude-code', ...coding } },
-  }))
+  await store.settings.setSettings(
+    normalizeSettings({
+      roles: { coding: { accountId: 'native:claude-code', ...coding } },
+    }),
+  )
   await store.settings.setModelCatalog({
-    ...catalog, machineId: store.hostMachineId, version: MODEL_CATALOG_VERSION,
+    ...catalog,
+    machineId: store.hostMachine!.id,
+    version: MODEL_CATALOG_VERSION,
   })
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const machineMessaging = vi.fn<(message: ControlMessage) => void>()
   await attachHostDaemon(reg, machineMessaging, { repos: ['/r'] })
-  await reg.modules.machines.recordInventory(store.hostMachineId, fixtureInventory())
+  await reg.modules.machines.recordInventory(store.hostMachine!.id, fixtureInventory())
   machineMessaging.mockClear()
   return { reg, store, machineMessaging }
 }
@@ -329,54 +338,149 @@ describe('resolveLaunchSelection — independent field precedence', () => {
   for (const field of ['model', 'effort'] as const) {
     const known = field === 'model' ? 'gpt-5.6' : 'high'
     const unknown = field === 'model' ? 'gpt-5.6-so' : 'banana'
-    const refusal = field === 'model' ? /Did you mean "gpt-5.6-sol"/ : /Valid efforts.*"low", "medium", "high"/s
+    const refusal =
+      field === 'model' ? /Did you mean "gpt-5.6-sol"/ : /Valid efforts.*"low", "medium", "high"/s
     const rows: Array<{
-      name: string; explicit?: string; issue?: string; setting?: string;
-      codingHarness?: string; force?: boolean; result?: string;
-      source?: LaunchSelectionSource; dropped?: boolean; forced?: boolean; refusal?: RegExp;
+      name: string
+      explicit?: string
+      issue?: string
+      setting?: string
+      codingHarness?: string
+      force?: boolean
+      result?: string
+      source?: LaunchSelectionSource
+      dropped?: boolean
+      forced?: boolean
+      refusal?: RegExp
     }> = [
-      { name: 'explicit known wins', explicit: known, issue: unknown, setting: unknown, result: known, source: 'explicit' },
+      {
+        name: 'explicit known wins',
+        explicit: known,
+        issue: unknown,
+        setting: unknown,
+        result: known,
+        source: 'explicit',
+      },
       { name: 'explicit unknown refused', explicit: unknown, refusal },
-      { name: 'force only bypasses unknown model', explicit: unknown, force: true,
-        ...(field === 'model' ? { result: unknown, source: 'explicit' as const, forced: true } : { refusal }) },
-      { name: 'known under force is not forced', explicit: known, force: true, result: known, source: 'explicit' },
-      { name: 'issue known wins', explicit: 'auto', issue: known, setting: unknown, result: known, source: 'issue' },
-      { name: 'issue unknown drops without falling through', issue: unknown, setting: known, result: 'auto', source: 'auto', dropped: true },
-      { name: 'issue auto inherits Settings', explicit: 'auto', issue: 'auto', setting: known, result: known, source: 'settings' },
-      { name: 'Settings unknown drops', issue: 'auto', setting: unknown, result: 'auto', source: 'auto', dropped: true },
-      { name: 'another coding harness never supplies Settings', setting: known, codingHarness: 'claude-code', result: 'auto', source: 'auto' },
-      { name: 'issue pick survives matching another harness Settings', issue: known, setting: known, codingHarness: 'claude-code', result: known, source: 'issue' },
-      { name: 'all auto', explicit: 'auto', issue: 'auto', setting: 'auto', result: 'auto', source: 'auto' },
+      {
+        name: 'force only bypasses unknown model',
+        explicit: unknown,
+        force: true,
+        ...(field === 'model'
+          ? { result: unknown, source: 'explicit' as const, forced: true }
+          : { refusal }),
+      },
+      {
+        name: 'known under force is not forced',
+        explicit: known,
+        force: true,
+        result: known,
+        source: 'explicit',
+      },
+      {
+        name: 'issue known wins',
+        explicit: 'auto',
+        issue: known,
+        setting: unknown,
+        result: known,
+        source: 'issue',
+      },
+      {
+        name: 'issue unknown drops without falling through',
+        issue: unknown,
+        setting: known,
+        result: 'auto',
+        source: 'auto',
+        dropped: true,
+      },
+      {
+        name: 'issue auto inherits Settings',
+        explicit: 'auto',
+        issue: 'auto',
+        setting: known,
+        result: known,
+        source: 'settings',
+      },
+      {
+        name: 'Settings unknown drops',
+        issue: 'auto',
+        setting: unknown,
+        result: 'auto',
+        source: 'auto',
+        dropped: true,
+      },
+      {
+        name: 'another coding harness never supplies Settings',
+        setting: known,
+        codingHarness: 'claude-code',
+        result: 'auto',
+        source: 'auto',
+      },
+      {
+        name: 'issue pick survives matching another harness Settings',
+        issue: known,
+        setting: known,
+        codingHarness: 'claude-code',
+        result: known,
+        source: 'issue',
+      },
+      {
+        name: 'all auto',
+        explicit: 'auto',
+        issue: 'auto',
+        setting: 'auto',
+        result: 'auto',
+        source: 'auto',
+      },
       { name: 'omitted fields mean auto', result: 'auto', source: 'auto' },
-      { name: 'legacy empty fields mean auto', explicit: '', issue: '', setting: '', result: 'auto', source: 'auto' },
+      {
+        name: 'legacy empty fields mean auto',
+        explicit: '',
+        issue: '',
+        setting: '',
+        result: 'auto',
+        source: 'auto',
+      },
     ]
     it.each(rows)(`${field}: $name`, (row) => {
       const other = field === 'model' ? 'effort' : 'model'
-      const resolve = () => resolveLaunchSelection({
-        agentKind: 'codex', catalog,
-        explicit: { [field]: row.explicit },
-        issueProfile: { agentKind: 'codex', [field]: row.issue },
-        settings: settingsFor({ [field]: row.setting }, row.codingHarness),
-        force: row.force,
-      })
+      const resolve = () =>
+        resolveLaunchSelection({
+          agentKind: 'codex',
+          catalog,
+          explicit: { [field]: row.explicit },
+          issueProfile: { agentKind: 'codex', [field]: row.issue },
+          settings: settingsFor({ [field]: row.setting }, row.codingHarness),
+          force: row.force,
+        })
       if (row.refusal) expect(resolve).toThrow(row.refusal)
-      else expect(resolve()).toEqual({
-        [field]: row.result, [other]: 'auto', forced: row.forced ?? false,
-        dropped: row.dropped ? [field] : [],
-        source: { [field]: row.source, [other]: 'auto' },
-      })
+      else
+        expect(resolve()).toEqual({
+          [field]: row.result,
+          [other]: 'auto',
+          forced: row.forced ?? false,
+          dropped: row.dropped ? [field] : [],
+          source: { [field]: row.source, [other]: 'auto' },
+        })
     })
   }
 
   const missingCatalogs: Array<ModelCatalogSnapshot | null | undefined> = [
-    undefined, null, { ...catalog, byAgent: {} }, { ...catalog, byAgent: { codex: [] } },
+    undefined,
+    null,
+    { ...catalog, byAgent: {} },
+    { ...catalog, byAgent: { codex: [] } },
   ]
   for (const field of ['model', 'effort'] as const) {
     for (const source of ['explicit', 'issue', 'settings'] as const) {
-      it.each(missingCatalogs)(`${field}: ${source} is kept unchecked with absent/empty catalog %j`, (absent) => {
+      it.each(
+        missingCatalogs,
+      )(`${field}: ${source} is kept unchecked with absent/empty catalog %j`, (absent) => {
         const values = { [field]: 'unlisted-value' }
         const result = resolveLaunchSelection({
-          agentKind: 'codex', catalog: absent, force: true,
+          agentKind: 'codex',
+          catalog: absent,
+          force: true,
           explicit: source === 'explicit' ? values : undefined,
           issueProfile: source === 'issue' ? { agentKind: 'codex', ...values } : undefined,
           settings: settingsFor(source === 'settings' ? values : {}),
@@ -390,93 +494,175 @@ describe('resolveLaunchSelection — independent field precedence', () => {
   }
 
   it.each([
-    { explicit: { model: 'gpt-5.6' }, issue: { effort: 'high' }, source: { model: 'explicit', effort: 'issue' } },
-    { explicit: { effort: 'high' }, issue: { model: 'gpt-5.6' }, source: { model: 'issue', effort: 'explicit' } },
-    { explicit: { model: 'gpt-5.6' }, issue: {}, source: { model: 'explicit', effort: 'settings' } },
+    {
+      explicit: { model: 'gpt-5.6' },
+      issue: { effort: 'high' },
+      source: { model: 'explicit', effort: 'issue' },
+    },
+    {
+      explicit: { effort: 'high' },
+      issue: { model: 'gpt-5.6' },
+      source: { model: 'issue', effort: 'explicit' },
+    },
+    {
+      explicit: { model: 'gpt-5.6' },
+      issue: {},
+      source: { model: 'explicit', effort: 'settings' },
+    },
     { explicit: { effort: 'high' }, issue: {}, source: { model: 'settings', effort: 'explicit' } },
   ])('mixes independent sources $source', ({ explicit, issue, source }) => {
-    expect(resolveLaunchSelection({
-      agentKind: 'codex', catalog, explicit,
-      issueProfile: { agentKind: 'codex', ...issue },
-      settings: settingsFor({ model: 'gpt-5.6', effort: 'high' }),
-    })).toEqual({ model: 'gpt-5.6', effort: 'high', forced: false, dropped: [], source })
+    expect(
+      resolveLaunchSelection({
+        agentKind: 'codex',
+        catalog,
+        explicit,
+        issueProfile: { agentKind: 'codex', ...issue },
+        settings: settingsFor({ model: 'gpt-5.6', effort: 'high' }),
+      }),
+    ).toEqual({ model: 'gpt-5.6', effort: 'high', forced: false, dropped: [], source })
   })
 
   it('discards the profile when switching harnesses', () => {
-    expect(resolveLaunchSelection({
-      agentKind: 'codex', catalog,
-      issueProfile: { agentKind: 'claude-code', model: 'claude-opus-4-8', effort: 'high' },
-      settings: settingsFor(),
-    })).toEqual({ model: 'auto', effort: 'auto', forced: false, dropped: [], source: { model: 'auto', effort: 'auto' } })
+    expect(
+      resolveLaunchSelection({
+        agentKind: 'codex',
+        catalog,
+        issueProfile: { agentKind: 'claude-code', model: 'claude-opus-4-8', effort: 'high' },
+        settings: settingsFor(),
+      }),
+    ).toEqual({
+      model: 'auto',
+      effort: 'auto',
+      forced: false,
+      dropped: [],
+      source: { model: 'auto', effort: 'auto' },
+    })
   })
 
-  it.each(['issue', 'settings'] as const)('drops %s effort against the surviving explicit model', (source) => {
-    expect(resolveLaunchSelection({
-      agentKind: 'claude-code', catalog, explicit: { model: 'claude-haiku-4-5' },
-      issueProfile: { agentKind: 'claude-code', effort: source === 'issue' ? 'high' : 'auto' },
-      settings: settingsFor({ effort: source === 'settings' ? 'high' : 'auto' }, 'claude-code'),
-    })).toEqual({ model: 'claude-haiku-4-5', effort: 'auto', forced: false, dropped: ['effort'], source: { model: 'explicit', effort: 'auto' } })
+  it.each([
+    'issue',
+    'settings',
+  ] as const)('drops %s effort against the surviving explicit model', (source) => {
+    expect(
+      resolveLaunchSelection({
+        agentKind: 'claude-code',
+        catalog,
+        explicit: { model: 'claude-haiku-4-5' },
+        issueProfile: { agentKind: 'claude-code', effort: source === 'issue' ? 'high' : 'auto' },
+        settings: settingsFor({ effort: source === 'settings' ? 'high' : 'auto' }, 'claude-code'),
+      }),
+    ).toEqual({
+      model: 'claude-haiku-4-5',
+      effort: 'auto',
+      forced: false,
+      dropped: ['effort'],
+      source: { model: 'explicit', effort: 'auto' },
+    })
   })
 
-  it.each(['issue', 'settings'] as const)('force keeps unknown %s model but still drops its unknown effort', (source) => {
+  it.each([
+    'issue',
+    'settings',
+  ] as const)('force keeps unknown %s model but still drops its unknown effort', (source) => {
     const values = { model: 'gpt-preview', effort: 'banana' }
-    expect(resolveLaunchSelection({
-      agentKind: 'codex', catalog, force: true,
-      issueProfile: source === 'issue' ? { agentKind: 'codex', ...values } : undefined,
-      settings: settingsFor(source === 'settings' ? values : {}),
-    })).toEqual({ model: 'gpt-preview', effort: 'auto', forced: true, dropped: ['effort'], source: { model: source, effort: 'auto' } })
+    expect(
+      resolveLaunchSelection({
+        agentKind: 'codex',
+        catalog,
+        force: true,
+        issueProfile: source === 'issue' ? { agentKind: 'codex', ...values } : undefined,
+        settings: settingsFor(source === 'settings' ? values : {}),
+      }),
+    ).toEqual({
+      model: 'gpt-preview',
+      effort: 'auto',
+      forced: true,
+      dropped: ['effort'],
+      source: { model: source, effort: 'auto' },
+    })
   })
 
   it('refuses an unknown effort even beside a forced unlisted model', () => {
-    expect(() => resolveLaunchSelection({
-      agentKind: 'codex', catalog, settings: settingsFor(),
-      explicit: { model: 'gpt-preview', effort: 'banana' }, force: true,
-    })).toThrow(/Valid efforts.*"low", "medium", "high"/s)
+    expect(() =>
+      resolveLaunchSelection({
+        agentKind: 'codex',
+        catalog,
+        settings: settingsFor(),
+        explicit: { model: 'gpt-preview', effort: 'banana' },
+        force: true,
+      }),
+    ).toThrow(/Valid efforts.*"low", "medium", "high"/s)
   })
 })
 
 describe('launch selection travels in the spawn call — no machine round trip', () => {
   it('session start sends exactly one message: spawn with the resolved pair', async () => {
-    const { reg, machineMessaging } = await launchHarness({ model: 'claude-opus-4-8', effort: 'high' })
+    const { reg, machineMessaging } = await launchHarness({
+      model: 'claude-opus-4-8',
+      effort: 'high',
+    })
     await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' })
     expect(machineMessaging).toHaveBeenCalledTimes(1)
-    expect(machineMessaging).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'spawn', model: 'claude-opus-4-8', effort: 'high',
-    }))
+    expect(machineMessaging).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'spawn',
+        model: 'claude-opus-4-8',
+        effort: 'high',
+      }),
+    )
   })
 
   it('issue create keeps auto; start and add-session use current Settings in one spawn frame', async () => {
-    const { reg, store, machineMessaging } = await launchHarness({ model: 'claude-haiku-4-5', effort: 'auto' })
+    const { reg, store, machineMessaging } = await launchHarness({
+      model: 'claude-haiku-4-5',
+      effort: 'auto',
+    })
     const deps: IssueDeps = {
-      store, ...sessionReadPorts(() => []),
+      store,
+      ...sessionReadPorts(() => []),
       getSettings: () => store.settings.getSettingsFor(firstAdminMemberId()),
-      spawnSession: (input) => reg.modules.sessions.createSession({
-        ...input, agentKind: input.agentKind as AgentKind,
-        launchSelection: {
-          model: input.model ?? 'auto', effort: input.effort ?? 'auto',
-          forced: input.forceUnknownModel === true,
-        },
-      }),
+      spawnSession: (input) =>
+        reg.modules.sessions.createSession({
+          ...input,
+          agentKind: input.agentKind as AgentKind,
+          launchSelection: {
+            model: input.model ?? 'auto',
+            effort: input.effort ?? 'auto',
+            forced: input.forceUnknownModel === true,
+          },
+        }),
       // Worktree I/O is unrelated to selection; no daemon transport is needed.
       repoOp: async () => ({ ok: true, output: '' }),
-      resolveMachine: async () => store.hostMachineId,
+      resolveMachine: async () => store.hostMachine!.id,
       ...issueTestPlumbing(() => {}, { store }),
     }
     const issues = await IssueService.create(deps)
-    const issue = await issues.crud.create(issues.reports.store.serverWriter, { repoPath: '/r', title: 'Live defaults', startNow: false })
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Live defaults',
+      startNow: false,
+    })
     expect(issue.defaultModel).toBe('auto')
     expect(issue.defaultEffort).toBe('auto')
-    await store.settings.setSettings(normalizeSettings({
-      roles: { coding: { accountId: 'native:claude-code', model: 'claude-opus-4-8', effort: 'high' } },
-    }))
+    await store.settings.setSettings(
+      normalizeSettings({
+        roles: {
+          coding: { accountId: 'native:claude-code', model: 'claude-opus-4-8', effort: 'high' },
+        },
+      }),
+    )
     machineMessaging.mockClear()
     await issues.gitWorkflow.start(issue.id)
     expect(machineMessaging).toHaveBeenCalledTimes(1)
-    expect(machineMessaging).toHaveBeenCalledWith(expect.objectContaining({ type: 'spawn', model: 'claude-opus-4-8', effort: 'high' }))
+    expect(machineMessaging).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'spawn', model: 'claude-opus-4-8', effort: 'high' }),
+    )
     expect((await issues.reports.get(issue.id))?.defaultModel).toBe('auto')
     expect((await issues.reports.get(issue.id))?.defaultEffort).toBe('auto')
     // A resolved drop must not go back through Settings downstream.
-    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { defaultModel: 'retired-issue-model' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, {
+      defaultModel: 'retired-issue-model',
+    })
     machineMessaging.mockClear()
     await issues.gitWorkflow.addSession(issue.id)
     expect(machineMessaging).toHaveBeenCalledTimes(1)
@@ -486,23 +672,52 @@ describe('launch selection travels in the spawn call — no machine round trip',
   })
 })
 
-
 describe('scheduled one-off selection stays equivalent', () => {
   it.each([
-    { name: 'omitted picks snapshot coding Settings', pick: {}, expected: { agentKind: 'claude-code', model: 'claude-opus-4-8', effort: 'high' } },
-    { name: 'explicit auto remains auto', pick: { model: 'auto', effort: 'auto' }, expected: { agentKind: 'claude-code', model: 'auto', effort: 'auto' } },
-    { name: 'another harness receives no coding defaults', pick: { agentKind: 'codex' }, expected: { agentKind: 'codex', model: 'auto', effort: 'auto' } },
-    { name: 'explicit pair wins', pick: { agentKind: 'codex', model: 'gpt-5.6', effort: 'low' }, expected: { agentKind: 'codex', model: 'gpt-5.6', effort: 'low' } },
-    { name: 'model auto leaves effort snapshot independent', pick: { model: 'auto' }, expected: { agentKind: 'claude-code', model: 'auto', effort: 'high' } },
-    { name: 'effort auto leaves model snapshot independent', pick: { effort: 'auto' }, expected: { agentKind: 'claude-code', model: 'claude-opus-4-8', effort: 'auto' } },
+    {
+      name: 'omitted picks snapshot coding Settings',
+      pick: {},
+      expected: { agentKind: 'claude-code', model: 'claude-opus-4-8', effort: 'high' },
+    },
+    {
+      name: 'explicit auto remains auto',
+      pick: { model: 'auto', effort: 'auto' },
+      expected: { agentKind: 'claude-code', model: 'auto', effort: 'auto' },
+    },
+    {
+      name: 'another harness receives no coding defaults',
+      pick: { agentKind: 'codex' },
+      expected: { agentKind: 'codex', model: 'auto', effort: 'auto' },
+    },
+    {
+      name: 'explicit pair wins',
+      pick: { agentKind: 'codex', model: 'gpt-5.6', effort: 'low' },
+      expected: { agentKind: 'codex', model: 'gpt-5.6', effort: 'low' },
+    },
+    {
+      name: 'model auto leaves effort snapshot independent',
+      pick: { model: 'auto' },
+      expected: { agentKind: 'claude-code', model: 'auto', effort: 'high' },
+    },
+    {
+      name: 'effort auto leaves model snapshot independent',
+      pick: { effort: 'auto' },
+      expected: { agentKind: 'claude-code', model: 'claude-opus-4-8', effort: 'auto' },
+    },
   ])('$name', async ({ pick, expected }) => {
     const { reg, store } = await launchHarness({ model: 'claude-opus-4-8', effort: 'high' })
-    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r' })
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/r',
+    })
     const request = await fileApproval(reg, {
-      sessionId, machineId: store.hostMachineId,
+      sessionId,
+      machineId: store.hostMachine!.id,
       op: {
-        kind: 'automation-schedule', name: 'Selection compatibility',
-        runAt: '2099-07-17T02:00:00.000Z', prompt: 'Continue the task.',
+        kind: 'automation-schedule',
+        name: 'Selection compatibility',
+        runAt: '2099-07-17T02:00:00.000Z',
+        prompt: 'Continue the task.',
         target: { kind: 'fresh', repoPath: '/r', ...pick },
       },
     })

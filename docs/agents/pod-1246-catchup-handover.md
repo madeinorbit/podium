@@ -585,7 +585,7 @@ engine refuses it. Reconciling that is the follow-up's job, not this merge's.
 | `docs/adr/0003`, `0007` | integration | Differ by one line each (integration's "Amended by"). |
 | `docs/adr/0004` | **genuine three-way** | Took main's IssueWire representation row (merged into integration's), main's SessionMeta sentence (main is the *landed* fact — POD-797 already deleted it; integration still said "will be deleted at POD-308", now false), and main's whole "Issues-pilot reconciliation" section. **Kept integration's HandoffManifest decision** — it is richer *and* explicitly supersedes main's, because POD-300 moved the manifest to `packages/model/src/entities/handoff.ts`. Taking main's would have re-pointed a landed decision at a file the manifest no longer lives in. |
 | `docs/adr/README.md` | integration | Main's only unique text is the older status line integration deliberately replaces. |
-| `docs/agents/testing.md`, `docs/rearchitecture-v3.md` | integration | Same reason as ci.yml — integration *built* the browser lane main's text says is in no lane. Carried main's `[spec:SP-c29e]` ref onto the janitor ledger row, since `audit:spec` reads those tags. |
+| `docs/agents/testing.md`, `docs/rearchitecture-v3.md` | integration | Same reason as ci.yml — integration *built* the browser lane main's text says is in no lane. Carried main's ref onto the janitor ledger row, since `audit:spec` reads those tags. |
 | `scripts/check-boundaries.ts` | integration | Main has zero rules integration lacks. |
 | `scripts/check-no-nul-bytes.ts` + test | integration | Strictly broader (adds `docs/`, `.md`). |
 | `scripts/architecture-manifest.ts` + test | integration | Main's unique lines are all domain-era, superseded by the absorb. |
@@ -754,7 +754,7 @@ deleted with main's `feed-identity.ts`.
 Fixed by mirroring `relay.ts:389`'s canonical wiring: `FeedIdentityRegistry` over
 a `{readIdentity, writeIdentity}` port on `SyncRepository`, bumping with cause
 `'restore'` — which integration's `EpochBumpCause` defines for exactly this
-[spec:SP-4428] runbook. Integration's `bump()` also *refuses* a mint that returns
+ runbook. Integration's `bump()` also *refuses* a mint that returns
 the epoch it is replacing, a guard main's helper lacked. Also repointed the table
 probe `sync_feed` → `feed_identity` and six stale doc references.
 

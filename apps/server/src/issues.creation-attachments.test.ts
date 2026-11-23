@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import type { SessionStore } from './store'
+import { TEST_MACHINE_ID } from './test-support/machine-id'
 import { openTestStore } from './test-support/open-test-store'
 import { sessionReadPorts } from './test-support/session-facts'
 
@@ -15,8 +16,8 @@ describe('creation attachments at review', () => {
   })
 
   async function harness() {
-    store = await openTestStore(':memory:')
-    await store.repos.addRepo('/r', store.hostMachineId)
+    store = await openTestStore(':memory:', TEST_MACHINE_ID)
+    await store.repos.addRepo('/r', store.hostMachine!.id)
     let nextArtifact = 0
     const upload = vi.fn(async ({ filename }: { filename: string }) => ({
       artifactId: asArtifactId(`creation-${++nextArtifact}`),
@@ -25,6 +26,7 @@ describe('creation attachments at review', () => {
     }))
     const remove = vi.fn(async () => {})
     const deps: IssueDeps = {
+      resolveMachine: async () => TEST_MACHINE_ID,
       store,
       ...sessionReadPorts(() => []),
       ...issueTestPlumbing(undefined, { store }),
@@ -40,7 +42,11 @@ describe('creation attachments at review', () => {
       },
     }
     const svc = await IssueService.create(deps)
-    const issue = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Coordinator', startNow: false })
+    const issue = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Coordinator',
+      startNow: false,
+    })
     return { svc, issue, upload, remove }
   }
 
@@ -53,7 +59,9 @@ describe('creation attachments at review', () => {
         dataBase64: 'aW1n',
       })
     }
-    const reviewed = await svc.crud.update(svc.reports.store.serverWriter, issue.id, { stage: 'review' })
+    const reviewed = await svc.crud.update(svc.reports.store.serverWriter, issue.id, {
+      stage: 'review',
+    })
     expect(reviewed.stage).toBe('review')
     expect(reviewed.worktreePath).toBeUndefined()
     // The panel lives in its own records, not on the issue row (POD-6764).
@@ -69,7 +77,11 @@ describe('creation attachments at review', () => {
     const { svc, issue, remove } = await harness()
     const input = { id: 'att-1', filename: 'image.png', dataBase64: 'aW1n' }
     await svc.crud.panelArtifactUpload(svc.reports.store.serverWriter, issue.id, input)
-    const updated = await svc.crud.panelArtifactUpload(svc.reports.store.serverWriter, issue.id, input)
+    const updated = await svc.crud.panelArtifactUpload(
+      svc.reports.store.serverWriter,
+      issue.id,
+      input,
+    )
     expect(updated.panel?.artifacts).toEqual([
       expect.objectContaining({
         path: 'attachments/att-1/image.png',
@@ -87,13 +99,16 @@ describe('creation attachments at review', () => {
       filename: 'image.png',
       dataBase64: 'aW1n',
     })
-    await svc.crud.panelApply(svc.reports.store.serverWriter, issue.id, { op: 'artifact-add', path: '/tmp/review.png' })
-    await expect(svc.crud.update(svc.reports.store.serverWriter, issue.id, { stage: 'review' })).rejects.toThrow(
-      /no owning worktree/,
-    )
+    await svc.crud.panelApply(svc.reports.store.serverWriter, issue.id, {
+      op: 'artifact-add',
+      path: '/tmp/review.png',
+    })
+    await expect(
+      svc.crud.update(svc.reports.store.serverWriter, issue.id, { stage: 'review' }),
+    ).rejects.toThrow(/no owning worktree/)
     await svc.crud.update(svc.reports.store.serverWriter, issue.id, { worktreePath: '/wt/issue-1' })
-    await expect(svc.crud.update(svc.reports.store.serverWriter, issue.id, { stage: 'review' })).rejects.toThrow(
-      /outside the owning issue worktree/,
-    )
+    await expect(
+      svc.crud.update(svc.reports.store.serverWriter, issue.id, { stage: 'review' }),
+    ).rejects.toThrow(/outside the owning issue worktree/)
   })
 })

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { ISSUE_COMMANDS } from './commands.js'
 import { LOCK_COMMANDS } from './lock-commands.js'
-import { SPEC_COMMANDS } from './spec-commands.js'
 
 /**
  * THE STRICTNESS TRIPWIRE (POD-3836, contract POD-339).
@@ -61,7 +60,6 @@ function rejectsUnknownKeys(schema: z.ZodType): boolean {
 
 const REGISTRIES = [
   ['ISSUE_COMMANDS', ISSUE_COMMANDS],
-  ['SPEC_COMMANDS', SPEC_COMMANDS],
   ['LOCK_COMMANDS', LOCK_COMMANDS],
 ] as const
 

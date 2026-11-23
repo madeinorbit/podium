@@ -14,7 +14,7 @@ export interface MaintenanceLeaseRow {
   updatedAt: string
 }
 
-/** Server-owned durable fence and maintenance idempotency ledger [spec:SP-c29e]. */
+/** Server-owned durable fence and maintenance idempotency ledger. */
 // Every query this repository runs, prepared once per store [POD-6147].
 //
 // TWO KINDS OF ROW (POD-6959 design 2.1). The lease is the installation's (an

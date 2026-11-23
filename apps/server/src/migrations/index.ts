@@ -1,7 +1,7 @@
 import { bootStage } from '../boot-timing'
 
 /**
- * Schema migration runtime [spec:SP-4428].
+ * Schema migration runtime.
  *
  * drizzle-kit AUTHORS migrations (schema-as-code in schema.ts → `drizzle-kit
  * generate` → the drizzle/ folders, bundled into drizzle-manifest.generated.ts);

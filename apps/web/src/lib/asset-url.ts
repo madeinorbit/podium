@@ -41,7 +41,7 @@ export function scopedAssetUrl(args: {
   if (scope.kind === 'artifact') {
     // The Artifacts index's sentinel names no stored artifact (POD-2078).
     if (isArtifactsTabScope(scope)) return null
-    // Artifact snapshots ([spec:SP-0fc9] #441): resolve inside the artifact dir
+    // Artifact snapshots (#441): resolve inside the artifact dir
     // and serve from the permanent /files/artifact store. Escapes (`..` above
     // the artifact root) are refused, mirroring the server's traversal guard.
     const rel = resolveArtifactRel(fileDir, src)

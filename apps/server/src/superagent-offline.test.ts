@@ -21,7 +21,7 @@ afterEach(async () => {
 async function offlineHarness() {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
-  const host = registry.sessionStore.hostMachineId
+  const host = registry.sessionStore.hostMachine!.id
   await assignHostMachine(registry.sessionStore)
   await (
     registry.sessionStore as unknown as {
@@ -94,6 +94,7 @@ async function offlineHarness() {
     inventory: {
       os: 'linux',
       arch: 'x64',
+      homePath: '/home/u',
       agents: BUILTIN_HARNESS_KINDS.map((kind) => ({
         kind,
         installed: true,
@@ -103,6 +104,10 @@ async function offlineHarness() {
     },
   })
   const repos = new RepoRegistry(registry, registry.sessionStore)
+  vi.spyOn(registry.modules.rpc, 'scanRepos').mockResolvedValue({
+    repositories: [],
+    diagnostics: [],
+  })
   await repos.add(repos.serverWriter, '/r', host)
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   attachTestClient(registry.clientGateway, () => {})

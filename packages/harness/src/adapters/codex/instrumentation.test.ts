@@ -30,7 +30,7 @@ import {
 /** No account folders exist: the payloads below name everything they need. */
 const NO_ACCOUNT = testAccount('codex', '/nonexistent-podium-home')
 
-// POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
+// POD-518: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
 const tmpDirs: string[] = []
 function trackTmp(prefix: string): string {

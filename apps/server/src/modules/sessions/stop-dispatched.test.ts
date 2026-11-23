@@ -37,7 +37,7 @@ afterEach(async () => {
 async function makeRegistry() {
   const store = await openTestStore(':memory:')
   await store.machines.upsertMachine({
-    id: store.hostMachineId,
+    id: store.hostMachine!.id,
     name: 'test-host',
     hostname: 'test-host',
     tokenHash: 'test',
@@ -50,7 +50,7 @@ async function makeRegistry() {
   await attachHostDaemon(reg, (m) => toDaemon.push(m))
   await reg.sessionStore.repos.addRepo(
     '/r',
-    reg.sessionStore.hostMachineId,
+    reg.sessionStore.hostMachine!.id,
     'git@github.com:example/r.git',
   )
   const rpc = (
@@ -72,7 +72,7 @@ async function makeRegistry() {
 }
 
 async function bindLiveNoResume(reg: SessionRegistry, sessionId: string) {
-  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
     type: 'bind',
     sessionId: asSessionId(sessionId),
     cmd: 'claude',
@@ -85,7 +85,7 @@ async function bindLiveNoResume(reg: SessionRegistry, sessionId: string) {
 }
 
 async function bindLiveResumable(reg: SessionRegistry, sessionId: string) {
-  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
     type: 'bind',
     sessionId: asSessionId(sessionId),
     cmd: 'claude',
@@ -93,7 +93,7 @@ async function bindLiveResumable(reg: SessionRegistry, sessionId: string) {
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
-  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
     type: 'sessionResumeRef',
     sessionId: asSessionId(sessionId),
     resume: { kind: 'claude-session', value: 'native-1' },
@@ -198,7 +198,7 @@ describe('POD-5284: stopping an unresumable session settles its dispatched mail'
     // harness delivery-queue.ts), so this is where `dispatched` ends.
     const resurrected = await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })
     expect(resurrected.ok).toBe(true)
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId: asSessionId(sessionId),
       cmd: 'claude',
@@ -214,7 +214,7 @@ describe('POD-5284: stopping an unresumable session settles its dispatched mail'
 
     // What the real daemon files for that recovery (unverified write): the
     // row settles `unknown`, honestly, instead of reading as sent forever.
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       sessionId,
       deliveryId: `delivery-${sent.message.id}`,

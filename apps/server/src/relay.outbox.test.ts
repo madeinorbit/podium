@@ -67,8 +67,8 @@ async function hibernatedSession(reg: SessionRegistry): Promise<string> {
     agentKind: 'claude-code',
     cwd: '/w',
   })
-  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bind(sessionId))
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
     type: 'sessionResumeRef',
     sessionId,
     resume: { kind: 'claude-session', value: 'abc-123' },
@@ -82,7 +82,7 @@ async function hibernatedSession(reg: SessionRegistry): Promise<string> {
 async function settle(reg: SessionRegistry, sessionId: string): Promise<void> {
   let seq = 0
   for (let i = 0; i < 5; i += 1) {
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'agentFrame',
       sessionId: asSessionId(sessionId),
       seq: seq++,
@@ -96,7 +96,7 @@ async function settle(reg: SessionRegistry, sessionId: string): Promise<void> {
   // this fixture exercises the delivery path rather than the silent-CLI grace
   // period.
   const observedAt = new Date().toISOString()
-  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
     type: 'agentState',
     sessionId: asSessionId(sessionId),
     state: {
@@ -145,7 +145,7 @@ const freshSends = (daemon: ControlMessage[], sessionId: string): DurableSendReq
 
 /** The daemon takes custody of one durable send (`queued`), as a real one does. Not delivery. */
 const grantCustody = async (reg: SessionRegistry, send: DurableSendRequest): Promise<void> =>
-  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
     type: 'runtimeSendResult',
     requestId: send.requestId,
     sessionId: send.sessionId,
@@ -191,7 +191,7 @@ async function deliverRows(
 ): Promise<void> {
   const observerGeneration = currentGeneration(daemon, sessionId)
   const cursor = (seq: number) => ({ segmentId: `delivery-${sessionId}`, components: { seq } })
-  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
     type: 'runtimeEvent',
     deliveryId: `bootstrap-${sessionId}-${observerGeneration}`,
     sessionId: asSessionId(sessionId),
@@ -209,7 +209,7 @@ async function deliverRows(
     },
   })
   for (const [index, rowId] of rowIds.entries()) {
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       deliveryId: `delivery-${rowId}`,
       sessionId: asSessionId(sessionId),
@@ -250,7 +250,7 @@ describe('queueText (durable outbox sends)', () => {
       await attachHostDaemon(reg, (message) => {
         daemon.push(message)
         if (message.type === 'runtimeInterruptRequest' && message.cancelRowId !== undefined) {
-          void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+          void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
             type: 'runtimeLifecycleResult',
             requestId: message.requestId,
             sessionId: message.sessionId,
@@ -272,8 +272,8 @@ describe('queueText (durable outbox sends)', () => {
           spawnedBy: `session:${source}`,
         })
       ).sessionId
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(target))
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bind(target))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'sessionResumeRef',
         sessionId: target,
         resume: { kind: 'claude-session', value: 'revocation-proof' },
@@ -324,7 +324,7 @@ describe('queueText (durable outbox sends)', () => {
         (message) =>
           message.type === 'runtimeDurableSendRequest' && message.rowId === 'revoke-before-drain',
       ).length
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(target))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bind(target))
       await settle(reg, target)
 
       // The drain asked the daemon to give the row back...
@@ -390,7 +390,7 @@ describe('queueText (durable outbox sends)', () => {
       ).toBe(1)
 
       await reg.gateway.routeDaemonFrame(
-        reg.sessionStore.hostMachineId,
+        reg.sessionStore.hostMachine!.id,
         bind(asSessionId(sessionId)),
       )
       await vi.waitFor(() => expect(durableSends(daemon, sessionId).length).toBeGreaterThan(0))
@@ -438,8 +438,8 @@ describe('queueText (durable outbox sends)', () => {
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, bind(sessionId))
-      await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, {
+      await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachine!.id, bind(sessionId))
+      await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachine!.id, {
         type: 'sessionResumeRef',
         sessionId,
         resume: { kind: 'claude-session', value: 'abc-123' },
@@ -452,7 +452,7 @@ describe('queueText (durable outbox sends)', () => {
           mutationId: asMutationId('restart-wake'),
         }),
       ).toEqual({ ok: true, queued: true })
-      await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, {
+      await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachine!.id, {
         type: 'agentExit',
         sessionId: asSessionId(sessionId),
         code: 137,
@@ -471,7 +471,7 @@ describe('queueText (durable outbox sends)', () => {
         ),
       ).toMatchObject({ status: 'exited', queuedMessageCount: 1 })
 
-      await regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, {
+      await regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachine!.id, {
         type: 'reattachFailed',
         sessionId: asSessionId(sessionId),
         reason: 'process gone',
@@ -481,7 +481,7 @@ describe('queueText (durable outbox sends)', () => {
       )
 
       await regB.gateway.routeDaemonFrame(
-        regB.sessionStore.hostMachineId,
+        regB.sessionStore.hostMachine!.id,
         bind(asSessionId(sessionId)),
       )
       await vi.waitFor(() => expect(durableSends(daemon, sessionId).length).toBeGreaterThan(0))
@@ -543,7 +543,7 @@ describe('queueText (durable outbox sends)', () => {
       )
 
       await reg.gateway.routeDaemonFrame(
-        reg.sessionStore.hostMachineId,
+        reg.sessionStore.hostMachine!.id,
         bind(asSessionId(sessionId)),
       )
       await vi.waitFor(() => expect(freshSends(daemon, sessionId)).toHaveLength(1))
@@ -583,8 +583,8 @@ describe('queueText (durable outbox sends)', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'agentExit',
       sessionId,
       code: 1,
@@ -648,7 +648,7 @@ describe('queueText (durable outbox sends)', () => {
       const daemonB: ControlMessage[] = []
       await attachHostDaemon(regB, custodyGranting(regB, daemonB))
       await regB.gateway.routeDaemonFrame(
-        regB.sessionStore.hostMachineId,
+        regB.sessionStore.hostMachine!.id,
         bind(asSessionId(sessionId)),
       )
       await vi.waitFor(() => expect(durableSends(daemonB, sessionId).length).toBeGreaterThan(0))
@@ -690,7 +690,7 @@ describe('queueText (durable outbox sends)', () => {
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bind(sessionId))
 
       await reg.modules.sessions.queueText({
         writer: reg.modules.sessions.serverWriter,
@@ -771,7 +771,7 @@ describe('queueText (durable outbox sends)', () => {
 
       // The PTY finally binds: the new owner gets the same row as a recovery.
       const before = durableSends(daemon, sessionId).length
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bind(sessionId))
       await vi.waitFor(() => expect(durableSends(daemon, sessionId).length).toBeGreaterThan(before))
       expect(durableSends(daemon, sessionId).slice(before)).toEqual([
         expect.objectContaining({
@@ -943,12 +943,12 @@ describe('framework idempotency (modules.mutations)', () => {
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bind(sessionId))
       const { sessionId: shell } = await reg.modules.sessions.createSession({
         agentKind: 'shell',
         cwd: '/w',
       })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         ...bind(shell),
         cmd: 'bash',
         agentKind: 'shell',

@@ -1661,7 +1661,7 @@ export function createOpencodeRuntime(
       url.pathname = path
       return url.href
     }
-    const model = modelFor(session.spec, input)
+    const model = await modelFor(session, input)
     const effort = effortFor(session.spec, input)
     // The session's instructions ride every prompt as opencode's own `system`
     // field (POD-5814): v1 takes it per prompt, and the v2 client keeps it as
@@ -1698,7 +1698,7 @@ export function createOpencodeRuntime(
       // the one field where the difference is invisible in the transcript.
       // POD-3081 made the sticky half real, which makes the two halves of the
       // precedence rule worth stating identically.
-      ...(effort ? { variant: effort } : {}),
+      variant: effort ?? '',
       ...(system ? { system } : {}),
     })
     /**
@@ -1784,13 +1784,18 @@ export function createOpencodeRuntime(
    * NOTE THE KEY NAME: `modelID` on a prompt, `id` on a session. opencode is
    * asymmetric here and a 400 from getting it wrong names neither field.
    */
-  function modelFor(
-    spec: EngineSessionSpec,
+  async function modelFor(
+    session: DriverSession,
     input: TurnInput,
-  ): { providerID: string; modelID: string } | undefined {
+  ): Promise<{ providerID: string; modelID: string } | undefined> {
     const override = input.overrides?.supported ? input.overrides.value.model : undefined
-    const raw = override ?? spec.model.model
-    if (!raw || raw === 'auto') return undefined
+    const raw = override ?? session.spec.model.model
+    if (raw === 'auto') {
+      const model = await session.client.defaultModel?.()
+      if (!model) throw new Error('OpenCode has not reported a default model for this session')
+      return model
+    }
+    if (!raw) return undefined
     const slash = raw.indexOf('/')
     // `provider/model` is how every Podium surface names an opencode model, and
     // it is what the manifest's `-m` flag already takes. A bare id has no

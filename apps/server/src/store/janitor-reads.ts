@@ -35,19 +35,7 @@ import type {
   WorktreeGcRow,
 } from '@podium/janitor'
 import type { WorkspaceId } from '@podium/model'
-import {
-  and,
-  asc,
-  type Column,
-  desc,
-  eq,
-  isNotNull,
-  isNull,
-  lte,
-  ne,
-  type SQL,
-  sql,
-} from 'drizzle-orm'
+import { and, asc, type Column, desc, eq, isNotNull, isNull, lte, type SQL, sql } from 'drizzle-orm'
 import { LIST_WORKSPACES_WITH_FEED } from './cross-workspace-allowlist'
 import { dialectOf } from './executor/dialect-prepared'
 import type {
@@ -599,7 +587,12 @@ const remoteMachinesOf = prepared((db, t) =>
   db
     .select({ id: t.machines.id, lastSeenAt: t.machines.lastSeenAt })
     .from(t.machines)
-    .where(inWorkspace(t.machines, ne(t.machines.id, param(t.machines.id, 'localMachineId'))))
+    .where(
+      inWorkspace(
+        t.machines,
+        sql`(CAST(${sql.placeholder('localMachineId')} AS TEXT) IS NULL OR ${t.machines.id} <> ${sql.placeholder('localMachineId')})`,
+      ),
+    )
     .orderBy(desc(t.machines.lastSeenAt), asc(t.machines.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
@@ -770,7 +763,10 @@ export class JanitorReadsRepository implements JanitorReads {
     return (await maxEventIdOf(this.db).get())?.max ?? 0
   }
 
-  async remoteMachines(input: { localMachineId: string; limit: number }): Promise<MachineRow[]> {
+  async remoteMachines(input: {
+    localMachineId: string | null
+    limit: number
+  }): Promise<MachineRow[]> {
     return await remoteMachinesOf(this.db).all(input)
   }
 }

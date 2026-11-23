@@ -102,7 +102,7 @@ async function fixture(
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const admin = await firstAdminMemberId(store)
-  const machineId = store.hostMachineId
+  const machineId = store.hostMachine!.id
   const daemon: ControlMessage[] = []
   const script: DaemonScript = {}
   const route = (frame: Parameters<typeof reg.gateway.routeDaemonFrame>[1]) =>

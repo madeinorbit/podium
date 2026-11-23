@@ -306,7 +306,7 @@ export async function buildSuperagentTools(
           agentKind,
           cwd,
           ...(title ? { title } : {}),
-          // Cross-harness spawn parity (#237) [spec:SP-34d7 cross-harness]:
+          // Cross-harness spawn parity (#237):
           // per-spawn model/effort overrides ride the same spawn path.
           ...(str(args.model) ? { model: str(args.model)! } : {}),
           ...(str(args.effort) ? { effort: str(args.effort)! } : {}),
@@ -347,7 +347,7 @@ export async function buildSuperagentTools(
       run: async (args) => {
         const refused = await unknownUnlessOwned(sessionIdArg(args.sessionId))
         if (refused) return refused
-        // Unified substrate (#237) [spec:SP-34d7]: the superagent is its OWN
+        // Unified substrate (#237): the superagent is its OWN
         // principal (never the operator) — the message is ledgered and lands
         // enveloped, so the receiver sees who is speaking.
         if (!ownerUserId) return 'unknown superagent thread'
@@ -721,7 +721,6 @@ export async function buildSuperagentTools(
       },
       // Watermark reader identity is thread-scoped when known, so parallel
       // superagent threads each keep their own catch-up point (#237)
-      // [spec:SP-34d7 read-toolkit].
       run: async (args) => {
         const refused = await unknownUnlessOwned(sessionIdArg(args.sessionId))
         if (refused) return refused

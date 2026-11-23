@@ -12,6 +12,14 @@ import { MachineRecordWrites } from './machine-record-writes'
 // installation, workspace-manifest.ts INSTALL_META_KEYS), so every definition here is global.
 const FLEET_CHANNEL = 'machines.fleet-channel.v1'
 const UPDATE_EXECUTION = 'updates.execution.v1'
+const SERVER_MOVE_AVAILABLE = 'machines.server-move.v1'
+const serverMoveRow = preparedGlobal((db, t) =>
+  db
+    .select({ value: t.meta.value })
+    .from(t.meta)
+    .where(eq(t.meta.key, SERVER_MOVE_AVAILABLE))
+    .prepare(),
+)
 const channelRow = preparedGlobal((db, t) =>
   db.select({ value: t.meta.value }).from(t.meta).where(eq(t.meta.key, FLEET_CHANNEL)).prepare(),
 )
@@ -19,7 +27,7 @@ const contextRows = preparedGlobal((db, t) =>
   db
     .select({ key: t.meta.key, value: t.meta.value })
     .from(t.meta)
-    .where(inArray(t.meta.key, [FLEET_CHANNEL, UPDATE_EXECUTION]))
+    .where(inArray(t.meta.key, [FLEET_CHANNEL, UPDATE_EXECUTION, SERVER_MOVE_AVAILABLE]))
     .prepare(),
 )
 const setChannel = preparedGlobal((db, t) =>
@@ -27,6 +35,20 @@ const setChannel = preparedGlobal((db, t) =>
     db
       .insert(t.meta)
       .values({ key: FLEET_CHANNEL, value: sql.placeholder('channel') })
+      .onConflictDoUpdate({
+        target: t.meta.key,
+        set: { value: sql`excluded.value` },
+        setWhere: sql`${t.meta.value} <> excluded.value`,
+      })
+      .returning({ key: t.meta.key }),
+  ).prepare(),
+)
+
+const setServerMove = preparedGlobal((db, t) =>
+  captureWrite(
+    db
+      .insert(t.meta)
+      .values({ key: SERVER_MOVE_AVAILABLE, value: sql.placeholder('available') })
       .onConflictDoUpdate({
         target: t.meta.key,
         set: { value: sql`excluded.value` },
@@ -80,8 +102,21 @@ export class MachineRecordContextRepository {
     return (await this.saveFleetChannel(channel, async () => undefined)).changed
   }
 
+  /** An install capability shared with record readers in the sync worker. */
+  async setServerMoveAvailable(available: boolean): Promise<boolean> {
+    return await this.queries.createOrJoinTransaction(async () => {
+      const current = (await serverMoveRow(this.db).get())?.value !== 'false'
+      if (current === available) return false
+      return await this.records.compare(
+        async () =>
+          (await setServerMove(this.db).get({ available: String(available) })) !== undefined,
+      )
+    })
+  }
+
   async read(): Promise<{
     fleetChannel: UpdateChannel
+    serverMoveAvailable: boolean
     targets: ReadonlyMap<UpdateChannel, { version: string }>
   }> {
     const rows = new Map((await contextRows(this.db).all()).map(({ key, value }) => [key, value]))
@@ -94,6 +129,10 @@ export class MachineRecordContextRepository {
       const stored = StoredTargets.parse(JSON.parse(bytes))
       for (const [channel, target] of stored.targets) targets.set(channel, target)
     }
-    return { fleetChannel, targets }
+    return {
+      fleetChannel,
+      targets,
+      serverMoveAvailable: rows.get(SERVER_MOVE_AVAILABLE) !== 'false',
+    }
   }
 }

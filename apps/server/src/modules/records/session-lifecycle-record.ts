@@ -171,7 +171,7 @@ export function registerSessionLifecycleRecord(
         if (edited !== undefined && touchesLifecycle(edited)) return undefined
         return await labelTarget(deps.modules(), id as SessionId, principal, labels, edited)
       }
-      // A session may always stop itself [spec:SP-9904] (POD-6422): its agent's
+      // A session may always stop itself (POD-6422): its agent's
       // own stop needs no scope, as the relay's self-stop never did. This kind
       // is not on the relay, so only the server's own adapters write it as an
       // agent (the relay's stop arm, `finishSelfStop`).

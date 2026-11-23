@@ -36,7 +36,7 @@ function createPriorityLimiter(
       const next = queue.shift()
       if (!next) continue
       // Cross a macrotask boundary before the next allocation/parse unit so
-      // watchdog timers can run during a large reconnect burst. [spec:SP-c29e]
+      // watchdog timers can run during a large reconnect burst.
       active++
       setTimeout(() => {
         active--

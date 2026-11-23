@@ -67,6 +67,7 @@ export const ScopedChatComposer = observer(function ScopedChatComposer({
   surfaceRef,
   issueClosed,
   active,
+  resumeTimedOut,
 }: {
   sessionId: SessionId
   superThread: SuperThreadRef | undefined
@@ -79,6 +80,7 @@ export const ScopedChatComposer = observer(function ScopedChatComposer({
   issueClosed: boolean
   /** This chat is the one on screen. */
   active: boolean
+  resumeTimedOut?: boolean
 }): JSX.Element {
   const draft = chat.view.draft
   const setDraft = chat.setDraft
@@ -215,7 +217,9 @@ export const ScopedChatComposer = observer(function ScopedChatComposer({
             ? `Reply to ${principalShortName(reply.target?.from ?? '')}…`
             : issueClosed
               ? issueClosedPlaceholder(chat.view.composer)
-              : chat.view.composer.placeholder
+              : resumeTimedOut
+                ? 'Message the agent…'
+                : chat.view.composer.placeholder
         }
         compact={compact}
         isMobile={chat.isMobile}
@@ -271,6 +275,7 @@ type ChatViewProps = {
   onLeave?: (sessionId: SessionId) => void
   /** How the session's issue ended, closing the transcript (POD-2151). */
   outcome?: SessionIssueOutcome | null
+  resumeTimedOut?: boolean
 }
 
 export function ChatView(props: ChatViewProps): JSX.Element {
@@ -298,6 +303,7 @@ const ConversationChatView = observer(function ConversationChatView({
   deferInitialTranscript = false,
   onLeave,
   outcome = null,
+  resumeTimedOut = false,
 }: {
   conversation: WebConversation
   sessionId: SessionId
@@ -326,6 +332,7 @@ const ConversationChatView = observer(function ConversationChatView({
    *  deletion affordance. */
   onLeave?: (sessionId: SessionId) => void
   outcome?: SessionIssueOutcome | null
+  resumeTimedOut?: boolean
 }): JSX.Element {
   const chat = useChatLayout({
     conversation,
@@ -463,6 +470,7 @@ const ConversationChatView = observer(function ConversationChatView({
             sessionId={sessionId}
             onQuote={quoteIntoDraft}
             outcome={outcome}
+            resumeTimedOut={resumeTimedOut}
           />
         </Suspense>
         {/* The reading rail. Its map covers the RENDERED window (visibleRows), so
@@ -510,6 +518,7 @@ const ConversationChatView = observer(function ConversationChatView({
         surfaceRef={surfaceRef}
         issueClosed={outcome !== null}
         active={active}
+        resumeTimedOut={resumeTimedOut}
       />
       <ImageLightbox src={chat.lightbox} onClose={() => chat.setLightbox(null)} />
     </div>
@@ -521,15 +530,18 @@ const ConversationTranscript = observer(function ConversationTranscript({
   sessionId,
   onQuote,
   outcome,
+  resumeTimedOut,
 }: {
   chat: ChatSurface
   sessionId: SessionId
   onQuote: (quote: QuoteInput) => void
   outcome: SessionIssueOutcome | null
+  resumeTimedOut: boolean
 }) {
   return (
     <TranscriptFeedBoundary
       chat={chat}
+      resumeTimedOut={resumeTimedOut}
       setScrollerRef={chat.scroll.setScrollerRef}
       setContentRef={chat.scroll.setContentRef}
       onScroll={chat.scroll.onScroll}

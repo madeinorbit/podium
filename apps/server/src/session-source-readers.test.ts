@@ -191,7 +191,7 @@ describe('S4 server consumers', () => {
 
   it('the wired toolkit observes prefix and machine renames from source while old records remain intact', async () => {
     const o = await makeOracle()
-    const machineId = o.store.hostMachineId
+    const machineId = o.store.hostMachine!.id
     const repos = new RepoRegistry(o.reg, o.store)
     await o.store.repos.addRepo('/source', machineId)
     await repos.setPrefix(repos.serverWriter, '/source', 'SRC', machineId)

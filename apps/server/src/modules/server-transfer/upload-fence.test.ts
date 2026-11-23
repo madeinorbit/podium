@@ -28,7 +28,7 @@ describe('portable upload fence', () => {
       cwd: '/workspace',
     })
     let request: Extract<ControlMessage, { type: 'imageUploadRequest' }> | undefined
-    oracle.reg.gateway.attachDaemon(oracle.store.hostMachineId, (message) => {
+    oracle.reg.gateway.attachDaemon(oracle.store.hostMachine!.id, (message) => {
       if (message.type === 'imageUploadRequest') request = message
     })
 
@@ -56,7 +56,7 @@ describe('portable upload fence', () => {
       }),
     ).rejects.toThrow('portable state is fenced for server transfer')
 
-    oracle.reg.gateway.routeDaemonFrame(oracle.store.hostMachineId, {
+    oracle.reg.gateway.routeDaemonFrame(oracle.store.hostMachine!.id, {
       type: 'imageUploadResult',
       requestId: request?.requestId ?? '',
       path: '/state/uploads/session/first.png',

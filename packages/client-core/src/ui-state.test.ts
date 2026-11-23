@@ -12,14 +12,21 @@ import {
   FLIGHT_DECK_FULL_EXPANDED_WIDTH_KEY,
   FLIGHT_DECK_FULL_WIDTH_KEY,
   type LayoutKeyPort,
+  parseRoute,
   readFileScrollPosition,
   readStoredDensity,
+  readStoredView,
   requireReplicatedLayoutKey,
   SHELL_DENSITY_KEY,
   UI_STATE_KEYS,
   uiStateRoute,
   writeFileScrollPosition,
 } from './ui-state'
+
+it('rejects the removed specs route and falls back from a stored specs view', () => {
+  expect(parseRoute('/specs', '')).toBeNull()
+  expect(readStoredView({ get: () => 'specs' })).toBe('workspace')
+})
 
 function memoryUi(seed: Record<string, string> = {}): UiState & { data: Map<string, string> } {
   const data = new Map(Object.entries(seed))

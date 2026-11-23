@@ -31,6 +31,7 @@ import {
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CAP_TERMINAL_PICTURE_V1,
   CAP_TOPICS_V1,
+  CAP_TRANSCRIPT_PATHS,
   type CapabilityRef,
   createDefaultAuthRegistry,
   createHandshakeAcceptor,
@@ -156,6 +157,7 @@ const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): Handsha
       // Managed installs §12 item 14: this server asks a daemon that accepted
       // this to uninstall Podium from its machine (the machine menu).
       CAP_MACHINE_UNINSTALL,
+      CAP_TRANSCRIPT_PATHS,
     ],
     transport: {
       endpoint: '/daemon',

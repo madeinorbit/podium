@@ -4,7 +4,7 @@ import { pairNativeDesktop } from '@/app/native-pairing'
 import { Button } from '@/components/ui/button'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 
-/** State + action shared by the standalone card and the inline row button. [spec:SP-3701] */
+/** State + action shared by the standalone card and the inline row button. */
 export interface EnableHosting {
   busy: boolean
   error: string | null
@@ -12,7 +12,7 @@ export interface EnableHosting {
 }
 
 /**
- * [spec:SP-3701] The one-click "host sessions on this device" flow: mint a pairing code on
+ * The one-click "host sessions on this device" flow: mint a pairing code on
  * this hub, hand it to the shell (which flips the local config to daemon mode), restart.
  * Returns null outside a client-mode desktop shell — the only place hosting can be enabled.
  */
@@ -42,7 +42,7 @@ export function useEnableHosting(trpc: import('@/app/trpc').Trpc): EnableHosting
 }
 
 /**
- * [spec:SP-3701] Standalone hosting card, shown ONLY when this device never paired before —
+ * Standalone hosting card, shown ONLY when this device never paired before —
  * a previously-paired device gets the inline "Enable" action on its machine row instead.
  */
 export function HostThisDeviceCard({ hosting }: { hosting: EnableHosting }): JSX.Element {

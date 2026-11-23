@@ -44,7 +44,7 @@ export function isGenericClaudeTitle(title: string): boolean {
  *  first-prompt fallback also LOCKS the title, it sticks for the life of the
  *  session. Such a turn is not a prompt and can never be a title: skip it and wait
  *  for the first real one. Same rule the discovery providers already apply when
- *  parsing transcripts from disk (adapters/claude-code/discovery.ts). [spec:SP-eb60] */
+ *  parsing transcripts from disk (adapters/claude-code/discovery.ts). */
 export function isCommandWrapperText(text: string): boolean {
   return text.trim().startsWith('<')
 }

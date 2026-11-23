@@ -853,6 +853,16 @@ export interface HeadlessExecOptions {
 }
 
 export interface HarnessHeadless {
+  /** Resolve native model variants and Auto picks before resuming a CLI.
+   * This is metadata only, never a turn. */
+  resolveSelection?(input: {
+    model?: string
+    effort?: string
+    cwd: string
+    toolPolicy?: 'none'
+    installation: HarnessContext['installation']
+    env: Readonly<Record<string, string>>
+  }): Promise<{ model?: string; effort?: string }>
   /**
    * Which daemon driver runs a turn:
    *   'claude-sdk'  — the Claude Agent SDK (in-process query, partial events);
@@ -966,7 +976,7 @@ export interface HarnessObserveInput {
   /** Recorded segment evidence (reattach): absolute transcript path, checked
    *  before any cwd-derived location (conversation registry §3.3). */
   pathHint?: string
-  /** Durable causal observer lease and last accepted checkpoint [spec:SP-cdb2]. */
+  /** Durable causal observer lease and last accepted checkpoint. */
   observationLease?: HarnessObservationLease
 }
 
@@ -1157,7 +1167,7 @@ export interface InstrumentationDestination {
   endpointUrl: string
   /** Instance-scoped stable socket, when the harness's hook command posts over one. */
   socketPath?: string
-  /** Seed the harness theme to follow terminal colors [spec:SP-a04d]. */
+  /** Seed the harness theme to follow terminal colors. */
   seedTheme?: boolean
   /** Directory holding the per-session settings file the install writes. */
   settingsDir: string
@@ -1823,7 +1833,7 @@ export function selectRuntimeDriver(
 
 // ---------------------------------------------------------------------------
 // Browser-open classification — harness-specific intent, ahead of the daemon's
-// generic redirect_uri fallback. [spec:SP-a43e]
+// generic redirect_uri fallback.
 // ---------------------------------------------------------------------------
 
 /** An adapter's verdict on a forwarded browser-open URL: 'login' keeps the

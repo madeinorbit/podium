@@ -1,7 +1,7 @@
 /**
  * Headless release helper.
  *
- * ONE LINUX JOB BUILDS ALL FOUR PLATFORMS [spec:SP-6144 section 8b]. `--prepare-cross`
+ * ONE LINUX JOB BUILDS ALL FOUR PLATFORMS. `--prepare-cross`
  * cross-compiles linux-x86_64, linux-aarch64, darwin-aarch64 and darwin-x86_64 from a
  * single Linux runner (see scripts/build-bun.ts), then one publisher job runs
  * `--publish-dir <dir>` over the prepared set. Keeping the publish step singular avoids

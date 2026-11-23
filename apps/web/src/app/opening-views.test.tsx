@@ -1,22 +1,21 @@
 // @vitest-environment happy-dom
 import { gcAndSweep, releaseWeakRefs } from 'bun:jsc'
-import { useOpeningView } from '@podium/client-graph/react'
-import { createIssuePageViews } from '@podium/client-graph/issue-page'
-import { createSettingsViews } from '@podium/client-graph/settings-views'
 import { createAutomationViews } from '@podium/client-graph/automation-views'
+import { createIssuePageViews } from '@podium/client-graph/issue-page'
 import { MobxPool } from '@podium/client-graph/pool'
-import { createSettingsMachineReaders as webMachines } from '../features/settings/settings-machine-readers'
-import { createSettingsMachineReaders as phoneMachines } from '../../../mobile/src/screens/settings-machine-readers'
-import { act, createContext, useContext, StrictMode } from 'react'
+import { useOpeningView } from '@podium/client-graph/react'
+import { createSettingsViews } from '@podium/client-graph/settings-views'
+import { act, createContext, StrictMode, useContext } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
-
+import { createSettingsMachineReaders as phoneMachines } from '../../../mobile/src/screens/settings-machine-readers'
+import { createSettingsMachineReaders as webMachines } from '../features/settings/settings-machine-readers'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const factories = [
   ['issue detail, menu and sheet', createIssuePageViews],
   ['settings and setup', createSettingsViews],
-  ['automations, dialog and specs', createAutomationViews],
+  ['automations and dialog', createAutomationViews],
   ['web settings machines', webMachines],
   ['phone settings machines', phoneMachines],
 ] as const
@@ -78,14 +77,16 @@ async function exerciseOpenings(pool: MobxPool, factory: (typeof factories)[numb
       )
       // Use a separate task: even a synchronous helper can leave its matcher
       // arguments in the suspended async caller's native frame in JSC.
-      await new Promise<void>((resolve, reject) => setTimeout(() => {
-        try {
-          checkOpen()
-          resolve()
-        } catch (error) {
-          reject(error)
-        }
-      }, 0))
+      await new Promise<void>((resolve, reject) =>
+        setTimeout(() => {
+          try {
+            checkOpen()
+            resolve()
+          } catch (error) {
+            reject(error)
+          }
+        }, 0),
+      )
       await act(() =>
         root.render(
           <StrictMode>
@@ -114,15 +115,20 @@ for (const [name, factory] of factories) {
       const refs = await exerciseOpenings(pool, factory)
       for (let turn = 0; turn < 3; turn++) {
         // Collect from a separate task while the assertion frame is suspended.
-        await new Promise<void>((resolve) => setTimeout(() => {
-          releaseWeakRefs()
-          gcAndSweep()
-          resolve()
-        }, 0))
+        await new Promise<void>((resolve) =>
+          setTimeout(() => {
+            releaseWeakRefs()
+            gcAndSweep()
+            resolve()
+          }, 0),
+        )
       }
-      const retained = refs.flatMap((ref, index) => ref.deref() === undefined ? [] : [index])
+      const retained = refs.flatMap((ref, index) => (ref.deref() === undefined ? [] : [index]))
       const reachable = retained.length
-      console.info('React opening reachability', JSON.stringify({ name, openings: 50, created: refs.length, retained, reachable }))
+      console.info(
+        'React opening reachability',
+        JSON.stringify({ name, openings: 50, created: refs.length, retained, reachable }),
+      )
       expect(reachable).toBe(0)
     } finally {
       pool.dispose()

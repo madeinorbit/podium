@@ -273,7 +273,7 @@ export function agentErrorRecoveryInstruction(error: Pick<AgentError, 'class'>):
 
 /** One live native harness subagent (Claude Task/Agent tool, etc.).
  *  Identity rides on the hook channel (`agent_id` / `agent_type` on SubagentStart
- *  / SubagentStop); optional so older daemons omit it. [spec:SP-dae6] */
+ *  / SubagentStop); optional so older daemons omit it. */
 export const NativeSubagent = z.object({
   /** UNBRANDED: a HARNESS-minted `agent_id` off the hook channel. Deliberately
    *  NOT a {@link SessionId} and NOT an {@link AgentIdentityId} — those two
@@ -457,7 +457,7 @@ export type SessionOrigin = z.infer<typeof SessionOrigin>
 export const WorkState = z.enum(['planning', 'implementing', 'testing', 'done', 'icebox'])
 export type WorkState = z.infer<typeof WorkState>
 
-/** Agent action offer [spec:SP-c7f1] — a freeform message plus zero..N action
+/** Agent action offer — a freeform message plus zero..N action
  *  buttons an agent offers the user as suggested next actions. */
 export const SessionOffer = z.object({
   message: z.string(),
@@ -521,7 +521,7 @@ export const SessionMetaEntity = z.object({
   title: z.string(),
   /** Curated name. Wins over `title` (the live terminal title) wherever shown. */
   name: z.string().optional(),
-  /** Resolved launch configuration captured at spawn [spec:SP-dae6]. */
+  /** Resolved launch configuration captured at spawn. */
   model: z.string().optional(),
   effort: z.string().optional(),
   // LEGACY(remove-after: 2027-02): reads account ids written before credentials existed; removing it stops old spellings from resolving
@@ -560,7 +560,7 @@ export const SessionMetaEntity = z.object({
   origin: SessionOrigin,
   agentState: AgentRuntimeState.optional(),
   archived: z.boolean(),
-  /** Durable terminal-transition metadata for completion decay. [spec:SP-6144] */
+  /** Durable terminal-transition metadata for completion decay. */
   stoppedAt: z.string().optional(),
   stopReason: z.enum(['self', 'parent', 'forced', 'exited', 'oom']).optional(),
   /**
@@ -715,7 +715,7 @@ export const SessionMetaEntity = z.object({
    *  draftUpdatedAt this is pending USER intent, orthogonal to the
    *  agent's phase; it drives the chat "queued" state on every client. */
   queuedMessageCount: z.number().int().positive().optional(),
-  /** Agent action offer [spec:SP-c7f1]. Session-scoped channel for an agent to
+  /** Agent action offer. Session-scoped channel for an agent to
    *  suggest next actions the user can pick — a freeform message plus zero..N
    *  buttons, each carrying an agent-authored prompt injected as a normal turn
    *  on click. Like draftUpdatedAt it is a derived overlay merged
@@ -753,7 +753,7 @@ export const SessionMetaEntity = z.object({
    *  the union's arms, not a second value appended to this string. */
   spawnedBy: z.string().optional(),
   /** OPTIONAL workflow-coordination pass-through metadata (#285 via #237
-   *  [spec:SP-34d7 cross-harness]). Stamped at spawn/assignment by an external
+   * ). Stamped at spawn/assignment by an external
    *  coordinator; the substrate never interprets them. Parent linkage rides
    *  spawnedBy ('session:<id>'), deliberately not duplicated.
    *

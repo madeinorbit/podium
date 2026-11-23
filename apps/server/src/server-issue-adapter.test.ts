@@ -18,7 +18,7 @@ async function client() {
   registries.push(registry)
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
-  await registry.sessionStore.repos.addRepo('/r', registry.sessionStore.hostMachineId)
+  await registry.sessionStore.repos.addRepo('/r', registry.sessionStore.hostMachine!.id)
   return registry.issueCommands.asIssueTrpc(OPERATOR)
 }
 
@@ -41,7 +41,7 @@ describe('IssueCommandDispatcher.asIssueTrpc (in-process MCP client)', () => {
     expect(list).toHaveLength(1)
   })
 
-  it('panelApply artifact-add pulls a snapshot — errors cleanly with no owning worktree ([spec:SP-0fc9])', async () => {
+  it('panelApply artifact-add pulls a snapshot — errors cleanly with no owning worktree', async () => {
     const c = await client()
     const created = (await c.issues.create.mutate({
       repoPath: '/r',
@@ -62,6 +62,6 @@ describe('IssueCommandDispatcher.asIssueTrpc (in-process MCP client)', () => {
 
   it('an unknown router/proc throws the historical "no such issue procedure"', async () => {
     const c = await client()
-    expect(() => c.specs.list.query({})).toThrow(/no such issue procedure: specs\.list/)
+    expect(() => c.lock.status.query({})).toThrow(/no such issue procedure: lock\.status/)
   })
 })

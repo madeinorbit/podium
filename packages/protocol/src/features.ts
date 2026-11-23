@@ -1,5 +1,5 @@
 /**
- * Labs feature-flag registry + pure resolver [spec:SP-f4b9].
+ * Labs feature-flag registry + pure resolver.
  *
  * Shared by server and web. Visibility controls where a flag appears in
  * Settings → Labs; enablement always defaults off unless config or
@@ -30,12 +30,6 @@ export const FEATURES = [
     id: 'automations',
     name: 'Automations',
     description: 'Scheduled and triggered agent runs.',
-    visibility: 'edge',
-  },
-  {
-    id: 'specs',
-    name: 'Specs',
-    description: 'Long-lived documents agents plan against.',
     visibility: 'edge',
   },
   {
@@ -142,7 +136,7 @@ export interface FeatureState {
 }
 
 /**
- * Pure feature resolve rules [spec:SP-f4b9]:
+ * Pure feature resolve rules:
  * - source dev lists all; development requires its audience; stable lists all
  *   releases; edge requires the edge channel
  * - configValue present → enabled/source/locked from config (force on or off)

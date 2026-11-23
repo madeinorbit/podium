@@ -41,7 +41,7 @@ export function hookBoolean(
  * camelCase (Grok Build native) spelling. The daemon's generic hook consumers
  * (`onHookPayload`, git-capture) route by these core fields — reading only
  * snake_case silently drops Grok's payloads, leaving Grok on its polling
- * observer instead of the hook channel. [spec:SP-79c5]
+ * observer instead of the hook channel.
  */
 export function hookString(
   payload: unknown,

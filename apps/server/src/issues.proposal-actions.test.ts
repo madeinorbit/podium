@@ -48,7 +48,7 @@ const asWire = (v: unknown): IssueReport => v as IssueReport
 /** A mission with one task, and an agent working that task that files a proposal. */
 async function setup() {
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-  await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
+  await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachine!.id)
   const op = ctx(reg, OPERATOR)
   const root = await op.issues.create({
     repoPath: '/r',
@@ -145,7 +145,10 @@ describe('proposal actions stay operator decisions', () => {
   it('an agent may not promote, dismiss or start a proposal', async () => {
     const { reg, proposal } = await setup()
     try {
-      await reg.sessionStore.machines.addMachineComponent(reg.sessionStore.hostMachineId, 'daemon')
+      await reg.sessionStore.machines.addMachineComponent(
+        reg.sessionStore.hostMachine!.id,
+        'daemon',
+      )
       await attachHostDaemon(reg)
       const actor = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',

@@ -1,5 +1,5 @@
 /**
- * End-to-end [spec:SP-f933]: a real HTTP server standing in for the relay, the
+ * End-to-end: a real HTTP server standing in for the relay, the
  * real emitter, the real queue, the real config file.
  *
  * The assertion that matters: the bytes on the wire are BYTE-IDENTICAL to what

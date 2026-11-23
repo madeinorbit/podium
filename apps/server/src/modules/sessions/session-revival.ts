@@ -290,7 +290,7 @@ export class SessionRevival {
   }
 
   /**
-   * Move one resumable worktree session to another machine ([spec:SP-3f7a]).
+   * Move one resumable worktree session to another machine.
    *
    * THE COMPOSITION ROOT for the `sessions.handoff` command (POD-642). The
    * choreography, the `use`-verb gate on both machines, the apply-time
@@ -416,7 +416,7 @@ export class SessionRevival {
 
   /** Wake a hibernated session: respawn under the same id with its resume ref.
    *  If stop freed the worktree, recreates it from the preserved branch first
-   *  [spec:SP-9904]. */
+   */
   async resurrectSession(
     input: {
       sessionId: SessionId
@@ -524,10 +524,7 @@ export class SessionRevival {
     // target path. The issue is deliberately rehomed only after this spawn
     // succeeds, so consulting its still-source-machine worktree here would
     // mistake the ordered handoff transition for stale resume state.
-    const ensured = adoptedBinding
-      ? Promise.resolve({ ok: true, cwd: session.cwd })
-      : Promise.resolve(this.ports.workspace.ensureSessionWorktree(session, issues))
-    const resurrection = ensured
+    const resurrection = this.prepareResumeWorkspace(session, issues, adoptedBinding)
       .then(
         async (result) => await this.finishResurrect(session, result, adoptedBinding, selection),
       )
@@ -536,6 +533,31 @@ export class SessionRevival {
       })
     this.pendingResurrections.set(sessionId, resurrection)
     return await resurrection
+  }
+
+  private async prepareResumeWorkspace(
+    session: Session,
+    issues: SessionIssueWorkflowPort,
+    adoptedBinding?: SessionBindingAdoptLaunchInstruction,
+  ): Promise<{ ok: boolean; reason?: string; cwd?: string }> {
+    if (adoptedBinding) return { ok: true, cwd: session.cwd }
+    // Daemon RPCs have individual deadlines. A cross-machine repair can make
+    // several requests, so bound the full preparation too. A late Git result
+    // can leave a worktree for the next retry to adopt; it cannot launch the agent.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([
+        this.ports.workspace.ensureSessionWorktree(session, issues),
+        new Promise<{ ok: false; reason: string }>((resolve) => {
+          timer = setTimeout(
+            () => resolve({ ok: false, reason: 'timed out preparing the workspace for resume' }),
+            90_000,
+          )
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   async finishResurrect(

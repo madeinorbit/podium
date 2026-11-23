@@ -194,7 +194,11 @@ export class CollectionServer implements AuthorityReadPort {
     return { feedId: this.feedId, epoch: this.epoch, seq }
   }
 
-  async changesRange(cursor: Cursor): Promise<AsyncIterable<DeltaFrame> | BootstrapRequired> {
+  async changesRange(
+    cursor: Cursor,
+    _signal?: AbortSignal,
+    _onTarget?: Parameters<AuthorityReadPort['changesRange']>[2],
+  ): Promise<AsyncIterable<DeltaFrame> | BootstrapRequired> {
     if (cursor.seq < this.minAvailableSeq)
       return { kind: 'bootstrap-required', reason: 'compacted' }
     const frame = cursor.seq < this.head ? this.frameSince(cursor.seq) : undefined

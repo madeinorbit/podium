@@ -46,7 +46,7 @@ export type PinKind = ModelPinKind
 /** sessionId → snooze deadline. `null` = until next message; ISO = timed. */
 export type SnoozeMap = Record<string, string | null>
 
-/** One agent action offer [spec:SP-c7f1] — decoded from the `offers` row. */
+/** One agent action offer — decoded from the `offers` row. */
 export interface OfferRecord {
   message: string
   actions: { label: string; prompt: string; input?: boolean }[]
@@ -154,7 +154,7 @@ export interface SessionRow {
   /** Immutable human owner; optional only at legacy adapter boundaries. */
   ownerUserId?: UserId
   agentKind: string
-  /** Resolved launch configuration captured on the session at spawn [spec:SP-dae6]. */
+  /** Resolved launch configuration captured on the session at spawn. */
   model?: string | null
   effort?: string | null
   /** The model/effort last asked for at RUNTIME through `sessions.configure`
@@ -287,7 +287,7 @@ export interface SessionRow {
   refLetter?: string | null
   /** Per-repo DRAFT ordinal for a truly issueless session (`POD-DRAFT-3`). */
   refDraft?: number | null
-  /** Durable terminal-transition metadata for completion decay. [spec:SP-6144] */
+  /** Durable terminal-transition metadata for completion decay. */
   stoppedAt?: string | null
   /** The four-value column vocabulary. `oom` is NOT one of them — it is derived
    *  from {@link SessionRow.oomKilledAt} on the way back in, because widening
@@ -303,7 +303,7 @@ export interface SessionRow {
    */
   lifecycle?: SessionLifecycleRow
   /** OPTIONAL workflow-coordination pass-through metadata (#285 via #237
-   *  [spec:SP-34d7 cross-harness]): stamped at spawn/assignment by an external
+   * ): stamped at spawn/assignment by an external
    *  coordinator, never interpreted by the substrate. Parent linkage rides
    *  spawnedBy ('session:<id>') — deliberately NOT duplicated here. */
   workflowRunId?: string | null
@@ -431,7 +431,7 @@ export interface IssueRow {
   seq: number
   title: string
   description: string
-  /** Agent-facing technical handoff, separate from the human summary. [spec:SP-6144] */
+  /** Agent-facing technical handoff, separate from the human summary. */
   brief?: string | null
   stage: string
   worktreePath: string | null
@@ -482,7 +482,7 @@ export interface IssueRow {
   dueAt: string | null
   deferUntil: string | null
   closedReason: string | null
-  /** When the closed-predicate last flipped true; null while open. [spec:SP-6144] */
+  /** When the closed-predicate last flipped true; null while open. */
   closedAt: string | null
   /** The member whose close this is (POD-6287); see the column. Storage-only. */
   closedByUserId?: UserId | null
@@ -624,7 +624,7 @@ export interface IssueMessageRow {
   claimedAt: string | null
 }
 
-// ---- unified agent messaging (#237) [spec:SP-34d7] ----
+// ---- unified agent messaging (#237) ----
 
 export type MessageFromKind = 'operator' | 'superagent' | 'agent' | 'system'
 export type MessageToKind = 'issue' | 'session' | 'operator'
@@ -697,7 +697,7 @@ export interface MessageRow {
   deadLetteredAt?: string | null
   /** Ack message id (denormalized for the steward's suppression check). */
   ackedBy: string | null
-  /** Chain-depth counter [spec:SP-34d7 brakes]: messages sent from a
+  /** Chain-depth counter: messages sent from a
    *  message-triggered turn carry trigger.hop + 1; past 5 lifecycle clamps to wait. */
   hop: number
   /** JSON record of the sender's REQUESTED axes when a clamp/brake downgraded
@@ -705,7 +705,7 @@ export interface MessageRow {
   clampedFrom: string | null
   /** When the stop-hook's ONE unacked-message reminder was issued (never repeats). */
   remindedAt: string | null
-  /** Notification-arbiter identity [spec:SP-ba61]. Reading or dismissing a
+  /** Notification-arbiter identity. Reading or dismissing a
    *  message with both fields retires its live fact; ordinary messages are null. */
   factKey?: string | null
   factTarget?: string | null

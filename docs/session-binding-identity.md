@@ -137,7 +137,7 @@ They share a record and a lifecycle. No field of one is ever derived from the ot
 **W1 — `SessionId` is the only pane identity.** Every generic surface (tabs, sidebar, home
 board, work items, issue counts, notifications, attribution) keys on `SessionId` and
 nothing else. Already shipped doctrine: `packages/model/src/identity/session-identity.ts`
-(`51b136fe`, [spec:SP-fccf]) keeps any resume-ref group touching a live row visible *in
+(`51b136fe`) keeps any resume-ref group touching a live row visible *in
 full*, precisely so native metadata cannot make a live row participate in native-id
 identity.
 
@@ -165,7 +165,7 @@ reconnect. The generation contract is unchanged by this doc; **attempt id is the
 POD-415 adds**.
 
 **W4 — Native-artifact observations are evidence with history, never identity.**
-Normative rules, generalizing [spec:SP-fccf]:
+Normative rules, generalizing:
 
 1. Observations are **keyed by the immutable `SessionId`**, never the reverse. A native id
    is never a primary key of a session.
@@ -208,8 +208,8 @@ authority**: the binding, the generation, the delegation, the ref to pin, the at
 reattach, the adopt instruction. Binding updates ride the **control plane**.
 
 **W8 — Binding traffic is host↔server control traffic, not the agent command relay.**
-ADR 5 D7 and ADR 7 D2 already decide this, re-derived in [spec:SP-fccf] and
-[spec:SP-a43e]: the relay bakes session identity into its URL path, so multiplexing
+ADR 5 D7 and ADR 7 D2 already decide this, re-derived in and
+: the relay bakes session identity into its URL path, so multiplexing
 resume-ref and `sessionResumeRefAck` over it re-homes identity and breaks
 `PODIUM_NO_RELAY` hermetic tests. POD-415 must not "save a port".
 
@@ -549,7 +549,7 @@ never be given an `onBehalfOf`.
 
 **P8 — Attribution is a pair.** Every write records **actor** and **on-behalf-of**, both
 from the transport principal (ADR 9 D5/A3). Collapsing them destroys shipped distinctions:
-human-set `name` outranks agent-set (`nameSource`, [spec:SP-eb60]) and
+human-set `name` outranks agent-set (`nameSource`) and
 `humanQuestionAskedBy` is server-authoritative so "person or agent?" stays answerable.
 `Capability.actorSessionId` is the actor seam; **the on-behalf-of half is new**. This
 replaces the freeform `spawnedBy` string (§3.4.1).
@@ -1159,8 +1159,8 @@ That release unblocked POD-415, POD-416, POD-417, POD-644 and POD-737.
   identity discipline, the transcript locator
 - POD-364 `docs/rearch-field-schema-inventory.md` (`1475c062`, merged) — the 28
   session representations and the field→meaning map behind §3.4 and §10
-- [spec:SP-fccf] Codex session identity · [spec:SP-15aa] instance runtime namespace
-  (`c28463a6`) · [spec:SP-3f7a] portable session package · [spec:SP-eb60] naming doctrine
+- Codex session identity · instance runtime namespace
+  (`c28463a6`) · portable session package · naming doctrine
 - Code: `packages/model/src/identity/session-identity.ts` (`51b136fe`) ·
   `apps/daemon/src/binding-store.ts` · `apps/daemon/src/session-binding.ts` ·
   `apps/daemon/src/identity.ts` · `apps/server/src/modules/sessions/session-binding.ts`

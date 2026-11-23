@@ -15,7 +15,7 @@ const registries: SessionRegistry[] = []
  *  implicit placement), so the host machine reports the fixture repo. */
 async function newRegistry(): Promise<SessionRegistry> {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-  await registry.sessionStore.repos.addRepo('/r', registry.sessionStore.hostMachineId)
+  await registry.sessionStore.repos.addRepo('/r', registry.sessionStore.hostMachine!.id)
   return registry
 }
 
@@ -32,7 +32,7 @@ async function caller(rawCapability: Capability, shared?: SessionRegistry) {
           actorUser: rawCapability.actorUser ?? firstAdminMemberId(),
           onBehalfOf: rawCapability.onBehalfOf ?? firstAdminMemberId(),
         }
-  const registry = shared ?? await newRegistry() // in-memory :memory: store
+  const registry = shared ?? (await newRegistry()) // in-memory :memory: store
   if (!shared) registries.push(registry)
   return appRouter.createCaller({
     registry,
@@ -87,7 +87,10 @@ describe('issues.* capability gate', () => {
     })
     const outsider = await op.issues.create({ repoPath: '/r', title: 'Outside', startNow: false })
 
-    const scoped = await caller({ role: 'worker', scope: { kind: 'subtree', rootId: epic.id } }, registry)
+    const scoped = await caller(
+      { role: 'worker', scope: { kind: 'subtree', rootId: epic.id } },
+      registry,
+    )
     // In-subtree child: clears BOTH gates (role + scope) with no --outside-scope override.
     // Past the gate, start hits real git plumbing ('/r' is not a repo) — any failure there
     // must NOT be an authz denial. (Mirrors the "passes the gate, then errors on other

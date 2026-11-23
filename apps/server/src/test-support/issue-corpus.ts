@@ -133,7 +133,7 @@ export async function seededStore(
   const store = await openTestStore(':memory:')
   await store.transact(async () => {
     for (const [index, path] of repos.entries()) {
-      await store.repos.addRepo(path, store.hostMachineId, undefined, prefixOf(index))
+      await store.repos.addRepo(path, store.hostMachine!.id, undefined, prefixOf(index))
     }
   })
   for (let start = 0; start < issues.length; start += 500) {
@@ -141,7 +141,7 @@ export async function seededStore(
       for (const issue of issues.slice(start, start + 500)) {
         await store.issues.upsertIssue(
           fixtureWriteScope(),
-          rowOf({ ...issue, parentId: null }, issue.repoPath ?? repos[0]!, store.hostMachineId),
+          rowOf({ ...issue, parentId: null }, issue.repoPath ?? repos[0]!, store.hostMachine!.id),
         )
       }
     })

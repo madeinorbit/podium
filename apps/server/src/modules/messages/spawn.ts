@@ -1,5 +1,5 @@
 /**
- * Spawn-on-wake wiring (#237) [spec:SP-34d7 decision 4]: a wake-class message
+ * Spawn-on-wake wiring (#237): a wake-class message
  * addressed to an issue with nothing resumable spawns a FRESH agent on that
  * issue via the existing session-spawn machinery (SessionLifecycle.createSession
  * — the same path issue_start / start_agent ride; no second spawn path). The

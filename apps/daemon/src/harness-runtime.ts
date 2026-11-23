@@ -29,7 +29,7 @@ export interface HarnessRuntimeOptions {
   buildSnapshot?: (generation: number) => Promise<ResolvedHarnessInventory>
 }
 
-/** Owns the immutable command/inventory snapshot used by a daemon generation. [spec:SP-58fa] */
+/** Owns the immutable command/inventory snapshot used by a daemon generation. */
 export class DaemonHarnessRuntime {
   private generation = 0
   private revision = 0

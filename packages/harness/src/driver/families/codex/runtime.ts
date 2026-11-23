@@ -96,7 +96,12 @@ import type {
 } from '../../capabilities.js'
 import { type ConfigureValueChecks, decideConfigure, noWhitespaceCheck } from '../../configure.js'
 import type { AgentSessionHandle, RuntimeDriver } from '../../driver.js'
-import { DeliveryUnprovenError, type ProcessEvent, wasNeverSent } from '../../errors.js'
+import {
+  DeliveryUnprovenError,
+  DriverRefusalError,
+  type ProcessEvent,
+  wasNeverSent,
+} from '../../errors.js'
 import {
   createRuntimeEventStream,
   type EventStreamStart,
@@ -582,6 +587,11 @@ interface CodexConnection {
 }
 
 interface DriverSession {
+  modelDefaults?: Promise<{
+    model?: string
+    effort?: string
+    models: { model: string; defaultReasoningEffort?: string; isDefault?: boolean }[]
+  }>
   sessionId: SessionId
   spec: EngineSessionSpec
   endpoint: CodexServerEndpoint
@@ -1552,8 +1562,33 @@ export function createCodexRuntime(
   }> {
     const origin = options.origin ?? 'human'
     const overrides = input.overrides?.supported ? input.overrides.value : undefined
-    const model = overrides?.model ?? modelOf(session.spec)
-    const effort = overrides?.effort ?? session.spec.model.effort
+    const policy = { ...session.spec.model, ...overrides }
+    let model = policy.model && policy.model !== 'auto' ? policy.model : undefined
+    let effort = policy.effort && policy.effort !== 'auto' ? policy.effort : undefined
+    // turn/start persists overrides in Codex. Omitting Auto (or an unset
+    // sticky field after a one-turn override) would keep the previous choice.
+    if (model === undefined || effort === undefined) {
+      const defaults = await codexModelDefaults(session)
+      model ??= defaults.model
+      effort ??=
+        defaults.effort ??
+        defaults.models.find((entry) => entry.model === model)?.defaultReasoningEffort
+      if (policy.model === 'auto' && !model) {
+        throw new DriverRefusalError(
+          { reason: 'invalid_value', detail: 'Codex did not report its default model' },
+          'Codex model configuration',
+        )
+      }
+      if (policy.effort === 'auto' && !effort) {
+        throw new DriverRefusalError(
+          {
+            reason: 'invalid_value',
+            detail: 'Codex did not report the default effort for this model',
+          },
+          'Codex model configuration',
+        )
+      }
+    }
     // The turn open when Codex's answer is READ, not when this function
     // resumes: our own turn's `turn/started` follows the answer and may be
     // dispatched in between.
@@ -1659,6 +1694,27 @@ export function createCodexRuntime(
 
   /** The session's sticky model, if it names one. `auto` means Codex's own
    *  default, which is not ours to override. */
+  function codexModelDefaults(session: DriverSession) {
+    session.modelDefaults ??= (async () => {
+      const { config } = await session.client.call<{
+        config: { model?: string | null; model_reasoning_effort?: string | null }
+      }>(CODEX_METHODS.configRead, { cwd: session.spec.workdir, includeLayers: false })
+      const { data } = await session.client.call<{
+        data: { model: string; defaultReasoningEffort?: string; isDefault?: boolean }[]
+      }>(CODEX_METHODS.modelList, {})
+      const model = config.model ?? data.find((entry) => entry.isDefault)?.model
+      return {
+        ...(model ? { model } : {}),
+        ...(config.model_reasoning_effort ? { effort: config.model_reasoning_effort } : {}),
+        models: data,
+      }
+    })().catch((error) => {
+      session.modelDefaults = undefined
+      throw error
+    })
+    return session.modelDefaults
+  }
+
   function modelOf(spec: EngineSessionSpec): string | undefined {
     const raw = spec.model.model
     return raw && raw !== 'auto' ? raw : undefined

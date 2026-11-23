@@ -75,10 +75,28 @@ type BindReq = Extract<ControlMessage, { type: 'reattach' }> & { resumeValue?: s
 type TurnAck = Extract<ControlMessage, { type: 'headlessTurnAck' }>
 type SpawnMsg = Extract<ControlMessage, { type: 'spawn' }>
 
+async function reportInventory(registry: SessionRegistry) {
+  await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
+    type: 'inventoryReport',
+    machineId: registry.sessionStore.hostMachine!.id,
+    inventory: {
+      os: 'linux',
+      arch: 'x64',
+      homePath: '/home/u',
+      agents: BUILTIN_HARNESS_KINDS.map((kind) => ({
+        kind,
+        installed: true,
+        login: { state: 'in' as const },
+      })),
+      tools: [],
+    },
+  })
+}
+
 async function harness() {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
-  const host = registry.sessionStore.hostMachineId
+  const host = registry.sessionStore.hostMachine!.id
   await (
     registry.sessionStore as unknown as {
       machines: {
@@ -158,7 +176,7 @@ async function harness() {
     if (m.type === 'runtimeInterruptRequest') {
       interrupts.push(m.sessionId)
       queueMicrotask(() =>
-        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
           type: 'runtimeLifecycleResult',
           requestId: m.requestId,
           sessionId: m.sessionId,
@@ -173,7 +191,7 @@ async function harness() {
       // refuse so a regressed sender goes red on its output assertion below.
       runtimeHistoryReqs.push(m.sessionId)
       queueMicrotask(() =>
-        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
           type: 'runtimeHistoryResult',
           requestId: m.requestId,
           sessionId: m.sessionId,
@@ -185,7 +203,7 @@ async function harness() {
     if (m.type === 'runtimeSnapshotRequest') {
       const pending = pendingResults.get(m.sessionId)
       queueMicrotask(() =>
-        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
           type: 'runtimeSnapshotResult',
           requestId: m.requestId,
           sessionId: m.sessionId,
@@ -217,7 +235,7 @@ async function harness() {
     }
     if (m.type === 'repoOpRequest') {
       queueMicrotask(() =>
-        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
           type: 'repoOpResult',
           requestId: m.requestId,
           ok: true,
@@ -231,7 +249,7 @@ async function harness() {
       const pending = pendingResults.get(m.sessionId)
       const output = pending?.output
       queueMicrotask(() =>
-        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
           type: 'transcriptReadResult',
           requestId: m.requestId,
           sessionId: m.sessionId,
@@ -245,22 +263,13 @@ async function harness() {
   })
   // Awaited: the report seeds the superagent's default harness (POD-1313), and
   // a real daemon's report lands long before anyone's first turn.
-  await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
-    type: 'inventoryReport',
-    machineId: registry.sessionStore.hostMachineId,
-    inventory: {
-      os: 'linux',
-      arch: 'x64',
-      agents: BUILTIN_HARNESS_KINDS.map((kind) => ({
-        kind,
-        installed: true,
-        login: { state: 'in' as const },
-      })),
-      tools: [],
-    },
-  })
+  await reportInventory(registry)
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  await repos.add(repos.serverWriter, '/r', registry.sessionStore.hostMachineId)
+  vi.spyOn(registry.modules.rpc, 'scanRepos').mockResolvedValue({
+    repositories: [],
+    diagnostics: [],
+  })
+  await repos.add(repos.serverWriter, '/r', registry.sessionStore.hostMachine!.id)
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   // A connected web client, to observe headlessActivity broadcasts.
   const clientMsgs: ServerMessage[] = []
@@ -278,7 +287,7 @@ async function harness() {
     // Receipt first (accepted with epoch), then the causal terminal events.
     // Events go straight through the gateway (not the mux) so the test does
     // not depend on daemon-frame routing for the contract stream.
-    void registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    void registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
       type: 'runtimeSendResult',
       requestId: req.requestId,
       sessionId: req.sessionId as never,
@@ -292,7 +301,7 @@ async function harness() {
     })
     const at = new Date().toISOString()
     const gateway = registry.modules.sessions.runtimeGateway
-    const host = registry.sessionStore.hostMachineId
+    const host = registry.sessionStore.hostMachine!.id
     void (async () => {
       await gateway.record(host, {
         sessionId: req.sessionId as never,
@@ -452,7 +461,7 @@ describe('managed credential on headless turns (two members)', () => {
         ownerUserId: owner,
         agentKind: 'claude-code',
         cwd: '/r',
-        machineId: h.registry.sessionStore.hostMachineId,
+        machineId: h.registry.sessionStore.hostMachine!.id,
         accountId: asAccountId(accountId),
       },
     )
@@ -642,7 +651,7 @@ describe('managed credential on headless turns (two members)', () => {
     // The machine Bob sent his key to, as the one-time move allowed it.
     await h.registry.sessionStore.credentials.allowMachine(
       bobKey,
-      h.registry.sessionStore.hostMachineId,
+      h.registry.sessionStore.hostMachine!.id,
       BOB,
     )
     await useAccount(BOB, 'managed:anthropic')
@@ -758,7 +767,7 @@ describe('native superagent on a machine someone else looks after (two members)'
 
   it('refuses Bob’s native superagent on Alice’s machine; Alice’s own still runs', async () => {
     const h = await harness()
-    const host = h.registry.sessionStore.hostMachineId
+    const host = h.registry.sessionStore.hostMachine!.id
     expect(await h.registry.sessionStore.machines.custodian(host)).toBe(ALICE)
 
     // Bob, native, on Alice's machine: refused with the fix, and no harness runs.
@@ -782,7 +791,7 @@ describe('native superagent on a machine someone else looks after (two members)'
 
   it('runs Bob’s superagent on Alice’s machine with his own managed key sent there', async () => {
     const h = await harness()
-    const host = h.registry.sessionStore.hostMachineId
+    const host = h.registry.sessionStore.hostMachine!.id
     // Bob's key as the one-time move left it: his credential, sent to the host.
     const bobKey = await seedLegacyKeyCredential(h.registry.sessionStore, {
       owner: BOB,
@@ -814,7 +823,7 @@ describe('bounded headless session identity', () => {
       sessionId,
       agentKind: 'claude-code' as const,
       cwd: '/r',
-      machineId: h.registry.sessionStore.hostMachineId,
+      machineId: h.registry.sessionStore.hostMachine!.id,
       ownerUserId: firstAdminMemberId(),
       createdBy,
       issueId,
@@ -995,7 +1004,7 @@ describe('headless turn refusal surfacing (POD-4409)', () => {
     req: TurnReq,
     refusal: { reason: 'invalid_value' | 'not_running' | 'unsupported'; detail?: string },
   ) => {
-    const host = h.registry.sessionStore.hostMachineId
+    const host = h.registry.sessionStore.hostMachine!.id
     void h.registry.gateway.routeDaemonFrame(host, {
       type: 'runtimeSendResult',
       requestId: req.requestId,
@@ -1099,7 +1108,7 @@ describe('headless turn refusal surfacing (POD-4409)', () => {
   it('ends an unverified direct relay as unknown without authorizing a resend', async () => {
     const h = await harness()
     const { turn, req } = await startProbeTurn(h, 'turn:unverified-probe')
-    await h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+    await h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachine!.id, {
       type: 'runtimeSendResult',
       requestId: req.requestId,
       sessionId: asSessionId(req.sessionId),
@@ -1147,7 +1156,7 @@ describe('headless turn refusal surfacing (POD-4409)', () => {
     const { turn, req } = await startProbeTurn(h, 'turn:timeout-probe')
     vi.useFakeTimers()
     try {
-      await h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+      await h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachine!.id, {
         type: 'runtimeSendResult',
         requestId: req.requestId,
         sessionId: asSessionId(req.sessionId),
@@ -1185,7 +1194,7 @@ describe('headless turn refusal surfacing (POD-4409)', () => {
     const req = await h.turnReq(0)
     vi.useFakeTimers()
     try {
-      await h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
+      await h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachine!.id, {
         type: 'runtimeSendResult',
         requestId: req.requestId,
         sessionId: asSessionId(req.sessionId),
@@ -1704,26 +1713,29 @@ describe('sendTurn (headless harness turns)', () => {
       text: 'hi',
     })
     const req = await h.turnReq(0)
-    await h.registry.modules.sessions.runtimeGateway.record(h.registry.sessionStore.hostMachineId, {
-      sessionId: podiumSessionId as never,
-      event: {
-        t: 'item',
-        item: {
-          kind: 'partial',
+    await h.registry.modules.sessions.runtimeGateway.record(
+      h.registry.sessionStore.hostMachine!.id,
+      {
+        sessionId: podiumSessionId as never,
+        event: {
+          t: 'item',
           item: {
-            id: `headless:${req.turnId}:text`,
-            role: 'assistant',
-            text: 'thinking…',
-            ts: new Date().toISOString(),
+            kind: 'partial',
+            item: {
+              id: `headless:${req.turnId}:text`,
+              role: 'assistant',
+              text: 'thinking…',
+              ts: new Date().toISOString(),
+            },
           },
-        },
-        cursor: { segmentId: 's', components: { seq: 99 } },
-        observerGeneration: 1,
-        turnEpoch: 1,
-        provenance: 'live',
-        at: new Date().toISOString(),
-      } as never,
-    })
+          cursor: { segmentId: 's', components: { seq: 99 } },
+          observerGeneration: 1,
+          turnEpoch: 1,
+          provenance: 'live',
+          at: new Date().toISOString(),
+        } as never,
+      },
+    )
     h.resolveTurn(req, { harnessSessionId: 'h1' })
     await h.settle()
     const events = h.activity().map((m) => m.event)
@@ -2290,6 +2302,7 @@ describe('boot reconciliation for headless sessions', () => {
         })
       }
     })
+    await reportInventory(reborn)
     const repos = new RepoRegistry(reborn, store)
     const superagent = await SuperagentService.create(reborn.modules, repos, store)
     await superagent.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'fresh-token')
@@ -2351,6 +2364,7 @@ describe('boot reconciliation for headless sessions', () => {
         })
       }
     })
+    await reportInventory(reborn)
     const repos = new RepoRegistry(reborn, store)
     const superagent = await SuperagentService.create(reborn.modules, repos, store)
     await superagent.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'fresh-token')
@@ -2411,7 +2425,7 @@ describe('boot reconciliation for headless sessions', () => {
       if (message.type === 'headlessTurnAck') acknowledgements.push(message)
       if (message.type === 'runtimeHistoryRequest') {
         queueMicrotask(() =>
-          reborn.gateway.routeDaemonFrame(reborn.sessionStore.hostMachineId, {
+          reborn.gateway.routeDaemonFrame(reborn.sessionStore.hostMachine!.id, {
             type: 'runtimeHistoryResult',
             requestId: message.requestId,
             sessionId: message.sessionId,
@@ -2423,7 +2437,7 @@ describe('boot reconciliation for headless sessions', () => {
       if (message.type === 'transcriptRead') {
         const pending = rebornPending.get(message.sessionId)
         queueMicrotask(() =>
-          reborn.gateway.routeDaemonFrame(reborn.sessionStore.hostMachineId, {
+          reborn.gateway.routeDaemonFrame(reborn.sessionStore.hostMachine!.id, {
             type: 'transcriptReadResult',
             requestId: message.requestId,
             sessionId: message.sessionId,
@@ -2445,7 +2459,7 @@ describe('boot reconciliation for headless sessions', () => {
       if (message.type === 'runtimeSnapshotRequest') {
         const pending = rebornPending.get(message.sessionId)
         queueMicrotask(() =>
-          reborn.gateway.routeDaemonFrame(reborn.sessionStore.hostMachineId, {
+          reborn.gateway.routeDaemonFrame(reborn.sessionStore.hostMachine!.id, {
             type: 'runtimeSnapshotResult',
             requestId: message.requestId,
             sessionId: message.sessionId,
@@ -2476,6 +2490,7 @@ describe('boot reconciliation for headless sessions', () => {
         return
       }
     })
+    await reportInventory(reborn)
     const repos = new RepoRegistry(reborn, store)
     const superagent = await SuperagentService.create(reborn.modules, repos, store)
     await superagent.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'fresh-token')
@@ -2494,7 +2509,7 @@ describe('boot reconciliation for headless sessions', () => {
     // Same turnId replayed after restart (no rerun identity fork).
     rebornPending.set(replay.sessionId, { harnessSessionId: 'recovered-harness', output: 'done' })
     const epoch = rebornEpochs.get(replay.sessionId) ?? 1
-    await reborn.gateway.routeDaemonFrame(reborn.sessionStore.hostMachineId, {
+    await reborn.gateway.routeDaemonFrame(reborn.sessionStore.hostMachine!.id, {
       type: 'runtimeSendResult',
       requestId: replay.requestId,
       sessionId: replay.sessionId as never,
@@ -2508,7 +2523,7 @@ describe('boot reconciliation for headless sessions', () => {
     })
     const at = new Date().toISOString()
     const gateway = reborn.modules.sessions.runtimeGateway
-    const host = reborn.sessionStore.hostMachineId
+    const host = reborn.sessionStore.hostMachine!.id
     await gateway.record(host, {
       sessionId: replay.sessionId as never,
       event: {
@@ -2946,7 +2961,7 @@ it.each([
     sessionId,
     agentKind: 'claude-code' as const,
     cwd,
-    machineId: h.registry.sessionStore.hostMachineId,
+    machineId: h.registry.sessionStore.hostMachine!.id,
     ownerUserId: firstAdminMemberId(),
   }
   await h.registry.modules.sessions.headless.createHeadlessSession(

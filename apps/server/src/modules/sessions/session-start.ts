@@ -437,7 +437,7 @@ export class SessionStart {
       }
     }
     // Reject an explicit model/effort the live catalog doesn't list BEFORE any
-    // spawn side effect [spec:SP-cc60].
+    // spawn side effect.
     const selection =
       input.launchSelection ??
       resolveLaunchSelection({
@@ -564,7 +564,7 @@ export class SessionStart {
       }
     }
     // Fire-and-forget notification (post-spawn, so subscribers observe the new
-    // world). Its telemetry consumer reads the harness kind [spec:SP-f933]. The
+    // world). Its telemetry consumer reads the harness kind. The
     // issue id is also the lifecycle fact used to establish the first eligible
     // issue agent as its default coordinator; no cwd or prompt crosses this seam.
     this.ports.emitSessionCreated({
@@ -573,7 +573,7 @@ export class SessionStart {
       ...(issueId ? { issueId } : {}),
     })
     // Forcing an unlisted model is a deliberate override — make it durable and
-    // observable across every spawn path [spec:SP-cc60].
+    // observable across every spawn path.
     if (forced) {
       await this.ports.store.events.appendEvent({
         ts: new Date(this.ports.now()).toISOString(),

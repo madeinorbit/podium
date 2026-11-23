@@ -24,6 +24,7 @@ import {
 import type { SessionStore } from './store'
 import { NotificationArbiter } from './store/notification-facts'
 import { captureLogs } from './test-support/capture-logs'
+import { TEST_MACHINE_ID } from './test-support/machine-id'
 import { openTestStore } from './test-support/open-test-store'
 import { seedRows } from './test-support/seed-rows'
 import { sessionReadPorts } from './test-support/session-facts'
@@ -44,10 +45,10 @@ const AS_OPERATOR = userCommandPrincipal(firstAdminMemberId(), 'admin')
 async function harness(
   opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor?: boolean } = {},
 ) {
-  const store = await openTestStore(':memory:')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
-  await store.repos.addRepo('/r', store.hostMachineId)
+  await store.repos.addRepo('/r', store.hostMachine!.id)
   // Most tests want the events they emit consumed — pin the cursor to the log
   // start, as if the steward had been enabled since boot. First-enable seeding
   // tests pass seedCursor: false to exercise the absent-row path.
@@ -66,6 +67,7 @@ async function harness(
     clockMs += ms
   }
   const issueDeps: IssueDeps = {
+    resolveMachine: async () => TEST_MACHINE_ID,
     store,
     ...sessionReadPorts(() => sessions),
     getSettings: async () => settings,
@@ -79,7 +81,7 @@ async function harness(
   }
   const issues = await IssueService.create(issueDeps)
   const sendNotice = vi.fn()
-  // The external-notification seam (#470) [spec:SP-17db] — injected, so the unit
+  // The external-notification seam (#470) — injected, so the unit
   // tests assert the call without ever reaching ntfy/Telegram.
   const notify = vi.fn()
   const deps: StewardDeps = {
@@ -211,7 +213,7 @@ describe('TRIGGER_RULES', () => {
   })
 })
 
-describe('Steward causal terminal gate [spec:SP-cdb2]', () => {
+describe('Steward causal terminal gate', () => {
   const baseEvent = {
     id: 1,
     ts: T,
@@ -1661,7 +1663,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       lastResumedAt: null,
       archived: false,
       workState: null,
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
       headless: false,
       issueId: epic.id,
       stoppedAt: null,
@@ -1881,7 +1883,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
   })
 })
 
-describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
+describe('StewardService ack fallback (#237)', () => {
   it('maps settled session.phase events to ackfallback + sessionparentnudge (finished + errored only)', () => {
     const e = { id: 1, ts: T, kind: 'session.phase', subject: 's9', repoPath: null, payload: {} }
     expect(
@@ -2023,7 +2025,7 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
   })
 })
 
-describe('StewardService notification fact retirement [spec:SP-ba61]', () => {
+describe('StewardService notification fact retirement', () => {
   it('retires facts scoped to an issue when issue.closed is consumed', async () => {
     const h = await harness()
     const issue = await h.issues.crud.create(h.issues.reports.store.serverWriter, {

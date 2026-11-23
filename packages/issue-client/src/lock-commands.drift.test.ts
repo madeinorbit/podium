@@ -4,7 +4,7 @@ import type { IssueTrpc } from './client.js'
 import { LOCK_COMMANDS, parseDurationSeconds, parseTtl } from './lock-commands.js'
 
 /**
- * Lock CLI-table drift pins [spec:SP-85d1] — the `podium lock` command table is
+ * Lock CLI-table drift pins — the `podium lock` command table is
  * presentation over the protocol's canonical LOCK_COMMAND_NAMES (the same union
  * the server's lock registry is satisfies-checked against). Mirrors
  * commands.drift.test.ts.

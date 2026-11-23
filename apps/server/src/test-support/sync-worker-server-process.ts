@@ -50,4 +50,4 @@ process.on('message', (message) => {
 process.on('SIGTERM', () => {
   void close()
 })
-process.send?.({ port: server.port, owner, cookie, machineId: store.hostMachineId })
+process.send?.({ port: server.port, owner, cookie, machineId: store.hostMachine!.id })

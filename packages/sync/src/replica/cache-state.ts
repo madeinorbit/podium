@@ -27,6 +27,8 @@ import {
 export interface ScopedCacheCursor extends Cursor {
   readonly kindTokens?: KindTokens
   readonly kindReloadVersion?: number
+  readonly retainedKinds?: readonly string[]
+  readonly cacheGeneration?: string
 }
 
 /** Keep adapter-private metadata out of the feed cursor port. */
@@ -361,11 +363,17 @@ export function nextCacheMeta(
     const kindTokens = mutation.kindTokens ?? (sameFeed ? meta.cursor?.kindTokens : undefined)
     const kindReloadVersion =
       mutation.kindReloadVersion ?? (sameFeed ? meta.cursor?.kindReloadVersion : undefined)
+    const retainedKinds =
+      mutation.retainedKinds ?? (sameFeed ? meta.cursor?.retainedKinds : undefined)
+    const cacheGeneration =
+      mutation.cacheGeneration ?? (sameFeed ? meta.cursor?.cacheGeneration : undefined)
     const triple = cursorTriple(mutation.cursor) as Cursor
     cursor = {
       ...triple,
       ...(kindTokens === undefined ? {} : { kindTokens: { ...kindTokens } }),
       ...(kindReloadVersion === undefined ? {} : { kindReloadVersion }),
+      ...(retainedKinds === undefined ? {} : { retainedKinds }),
+      ...(cacheGeneration === undefined ? {} : { cacheGeneration }),
     }
     writes.push({ kind: 'put', key: CURSOR_META_KEY, value: cursor })
   }

@@ -1,6 +1,7 @@
 import { rmSync } from 'node:fs'
 import { actorUser, asMutationId, asUserId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
+import { expectNewlySupportedKindAfterUpgrade } from '../../conformance/retained-kind-upgrade'
 import type { OutboxRecord } from '../../outbox/records'
 import { Replica } from '../../replica/replica'
 import type { EntityRecord } from '../../replica/types'
@@ -46,6 +47,17 @@ const queued: OutboxRecord = {
 }
 
 describe('native SQLite optional entity retention', () => {
+  it('device reload audit backfills a newly supported kind when only the phone app updates', async () => {
+    const factory = freshFactory()
+    await expectNewlySupportedKindAfterUpgrade((retainEntity) =>
+      open({
+        factory,
+        ...(retainEntity === undefined ? {} : { retainEntity }),
+        onDegraded: () => {},
+      }),
+    )
+  })
+
   it('keeps every kind unless the caller opts out', async () => {
     const factory = freshFactory()
     const store = await open({ factory, onDegraded: () => {} })

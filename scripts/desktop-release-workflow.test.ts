@@ -480,7 +480,7 @@ describe('desktop release workflow', () => {
   })
 
   it('releases only from a deliberate act, never from pushing a branch', () => {
-    // [spec:SP-7f2c] desktop artifacts are never built for every push to main. A version tag is a
+    // desktop artifacts are never built for every push to main. A version tag is a
     // deliberate cut and does release; a branch push must never reach this workflow.
     const parsed = Bun.YAML.parse(desktopWorkflow) as {
       on?: { push?: { branches?: string[] } }

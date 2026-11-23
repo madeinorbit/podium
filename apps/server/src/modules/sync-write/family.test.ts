@@ -119,7 +119,7 @@ describe('the sync families on the entry point', () => {
 
   it('conversations.setMeta writes the conversation row with provenance', async () => {
     const o = await makeOracle()
-    const machineId = o.store.hostMachineId
+    const machineId = o.store.hostMachine!.id
     await o.reg.gateway.routeDaemonFrame(machineId, {
       type: 'conversationsChanged',
       conversations: [{ id: 'conv-6412', agentKind: 'claude-code', providerId: 'p' } as never],

@@ -188,7 +188,7 @@ async function plant(store: SessionStore): Promise<void> {
     const id = asSessionId(planted.id)
     await store.sessions.upsertSession(
       fixtureWriteScope(),
-      sessionRow(planted, owner, asMachineId(store.hostMachineId)),
+      sessionRow(planted, owner, asMachineId(store.hostMachine!.id)),
     )
     if (planted.offerAt) {
       await store.sessions.setOffer(fixtureWriteScope(), id, {

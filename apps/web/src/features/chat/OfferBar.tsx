@@ -156,7 +156,7 @@ function OfferAge({ since }: { since: string }): JSX.Element | null {
 }
 
 /**
- * Agent action offer [spec:SP-c7f1]. THE ONE PLACE "NEEDS YOU" IS SAID
+ * Agent action offer. THE ONE PLACE "NEEDS YOU" IS SAID
  * (POD-2076): a card whose header reads "Needs your decision · 8h", then the
  * headline, the body, the evidence, and every action in one row — the
  * recommendation filled, the alternatives outlined. The chevron collapses the

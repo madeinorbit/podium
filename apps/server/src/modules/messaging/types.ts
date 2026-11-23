@@ -2,7 +2,7 @@ import type { SessionId } from '@podium/model'
 import type { TelegramConfig } from '../../notify'
 
 /**
- * Messaging-app bridge seam [spec:SP-5d81]. One normalized shape for "a human
+ * Messaging-app bridge seam. One normalized shape for "a human
  * said something in an external chat app" plus a thin per-platform adapter —
  * everything protocol-agnostic (thread mapping, per-thread queueing, reply
  * relay) lives in MessagingService, so a new app (Slack, WhatsApp, …) only

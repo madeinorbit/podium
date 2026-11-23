@@ -15,8 +15,8 @@
   `expectedRevision`), ADR 4 + its Amendment 1 (representation shapes for owner /
   attribution / per-user state), ADR 7 (planes; presence), ADR 9 (identity, ownership and
   sharing — owns the taxonomy this amendment consumes)
-- **Specs:** [spec:SP-15aa] multi-instance isolation; [spec:SP-0371] hub/node federation
-  deferred; [spec:SP-eb60] curated name vs live title; [spec:SP-85d1] advisory locks
+- **Specs:** multi-instance isolation; hub/node federation
+  deferred; curated name vs live title; advisory locks
 - **Base tip verified:** `2ddfec21` (issue/279-integration), 2026-07-29
 - **File discipline:** this amendment owns **only** this file plus a single "Amended by"
   line in `docs/adr/0001-authority-ownership.md`. No index edits, no ledger edits, no
@@ -350,7 +350,7 @@ either document alone.
 |---|---|
 | Adopt a CRDT (Yjs/Automerge) for the named text fields now | Solves a problem nobody has yet — offline concurrent editing — at the cost of a library, a second convergence model, and a persistence format inside the entity. Authority-sequenced ops converge for the online case, which is the case that exists, and leave the CRDT swap available. |
 | Say nothing and let the future co-editing feature decide | That is the status quo, and readiness §4 explains why it fails: D1's sentence is already there, and it will be cited. Silence resolves to "blocked by D1". |
-| Broaden `op-stream` to any user-authored text field | Turns a carve-out into the default and undermines D2 for issue titles, comments and names — fields with invariants, provenance rules ([spec:SP-eb60] name-vs-title) and append semantics that work today. A small named set is auditable; "text fields" is not. |
+| Broaden `op-stream` to any user-authored text field | Turns a carve-out into the default and undermines D2 for issue titles, comments and names — fields with invariants, provenance rules (name-vs-title) and append semantics that work today. A small named set is auditable; "text fields" is not. |
 | Model collaborative text as `field-LWW` with a shorter window | Whole-body LWW is the data-loss bug; a shorter window makes it less frequent and no less silent. |
 | Apply `op-stream` to PTY input for shared terminals | Terminal input is not a document: order is not the only constraint, and interleaving two people's keystrokes produces commands neither typed. Control transfer already exists and is the correct model. |
 | Build ops now and defer materialization/compaction | Directly breaks ADR 2 D5's contiguity/positive-state proof, which is a correctness property of the whole sync kernel — not a document-feature detail. Part 3 exists to make this non-optional. |
@@ -437,7 +437,7 @@ removes the columns.
 |---|---|
 | Say nothing, since D5 is unchanged | Silence is what allows the misreading. Readiness §2 flags it specifically: "worth restating so nobody confuses multi-user with multi-tenant and starts adding `instance_id` columns." |
 | Add `instance_id` now "since we are touching every table anyway" | Every row would carry one constant under per-DB isolation — D5's own rejected-alternatives row, unchanged. Sharing a store across instances is a different decision that would need its own ADR and its own authorization story. |
-| Model users as tenants (one user = one instance) | Defeats the requirement: sharing between people inside one workspace is the feature. It would also multiply daemons, ports, systemd units and state roots per person ([spec:SP-15aa]). |
+| Model users as tenants (one user = one instance) | Defeats the requirement: sharing between people inside one workspace is the feature. It would also multiply daemons, ports, systemd units and state roots per person. |
 
 ### Decision D15 — D6 unchanged; secrets management is admin-grade
 

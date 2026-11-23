@@ -9,7 +9,7 @@ import { attentionGroup } from '../focus'
  * The Tray's whole contract (.design/specs/engraved-column.md §2.3-v3 + §5):
  * the ONLY things it ever shows are items that need a HUMAN's ATTENTION — an
  * agent's question (`needsHuman`), an agent's action offer (SessionOffer
- * [spec:SP-c7f1], which is how review-ready work announces itself richly), or
+ *, which is how review-ready work announces itself richly), or
  * a deterministic review backstop for stage=review issues with no live offer
  * [POD-118]. Finished/done issues never appear [POD-198]: archive cleanup is
  * not attention (archiving lives on the board/sidebar). Working/status rows
@@ -69,7 +69,7 @@ export function deriveTrayItems(
         since: issue.updatedAt,
       })
     }
-    // Agent action offers [spec:SP-c7f1]: a live session's suggested next
+    // Agent action offers: a live session's suggested next
     // actions are exactly "an item that needs a human" — the same dynamic
     // offer channel the chat composer bar and native PTY bar render, surfaced
     // here so the tray is action-complete. This replaced the old hardcoded

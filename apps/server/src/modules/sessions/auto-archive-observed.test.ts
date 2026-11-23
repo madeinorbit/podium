@@ -46,7 +46,7 @@ async function stoppedAndRead(bindTo?: (reg: SessionRegistry) => Promise<IssueId
     (msg) => {
       if (msg.type !== 'repoOpRequest') return
       queueMicrotask(() =>
-        reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
           type: 'repoOpResult',
           requestId: msg.requestId,
           ok: true,
@@ -91,7 +91,7 @@ describe('a member’s own read retires their session, not the first admin’s (
     await attachHostDaemon(reg, (msg) => {
       if (msg.type !== 'repoOpRequest') return
       queueMicrotask(() =>
-        reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
           type: 'repoOpResult',
           requestId: msg.requestId,
           ok: true,
@@ -114,7 +114,11 @@ describe('a member’s own read retires their session, not the first admin’s (
       ownerUserId: bob,
     })
     await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
-    await reg.modules.sessions.markSessionRead(reg.issues.reports.store.serverWriter, bob, sessionId)
+    await reg.modules.sessions.markSessionRead(
+      reg.issues.reports.store.serverWriter,
+      bob,
+      sessionId,
+    )
     const stoppedAt = (await reg.sessionStore.sessions.getSession(sessionId))?.stoppedAt ?? ''
     const later = Date.parse(stoppedAt) + 8 * DAY_MS
     // The first admin cannot read Bob's session, so their read means nothing.

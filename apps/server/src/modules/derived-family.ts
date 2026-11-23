@@ -22,7 +22,7 @@ import { syncFeedPrincipal } from '../sync/route-support'
  * Nothing below invents a rule. Every claim it makes is one an existing family
  * already makes in its own words:
  *
- *  - exposure is default-closed and checked at MODULE LOAD (`modules/specs/trpc.ts`)
+ *  - exposure is default-closed and checked at MODULE LOAD (`modules/workflows/trpc.ts`)
  *  - membership is checked in BOTH directions against the object that will
  *    actually be served, so an EMPTY surface fails rather than passes
  *    (`modules/settings/trpc.ts`, POD-732's "an empty router satisfies every
@@ -94,7 +94,7 @@ export interface FamilyState {
   readonly modules: RegistryModules
   readonly repos: RepoRegistry
   /**
-   * The opt-in telemetry emitter [spec:SP-f933], present only when the server was
+   * The opt-in telemetry emitter, present only when the server was
    * assembled with one. On the bundle for the same reason as `repos`: exactly one
    * family (`telemetry.preview`) needs it, and naming it here is a smaller claim
    * than widening `RegistryModules`. Optional, so contexts without one — tests,
@@ -521,7 +521,7 @@ export function derivedFamilyProcedures<Svc, Q extends Record<string, AnyDerived
  * A QUERY-ONLY SURFACE — the same builder over the state bundle itself.
  *
  * Most of what `router.ts` still declares is reads: routers whose writes another
- * issue already derived (`superagent`, `specs`, `settings`, `automations`,
+ * issue already derived (`superagent`, `settings`, `automations`,
  * `repos`, `discovery`), and routers that only ever had reads (`search`, `git`,
  * `usage`, `quota`, `features`, `sync`). They go through the SAME code path as
  * every derived family — same state bundle, same both-directions membership

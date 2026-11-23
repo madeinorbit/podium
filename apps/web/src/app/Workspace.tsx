@@ -857,7 +857,7 @@ export function Workspace({
       .map((t) => t.id),
   )
 
-  // Warm panels span issue switches [POD-782] [spec:SP-0b2e]: issues are the MAIN
+  // Warm panels span issue switches [POD-782]: issues are the MAIN
   // way to own sessions, so the deck of mounted panels is the current workspace's
   // tabs UNION the most-recently-viewed sessions from previously-viewed issues,
   // kept warm up to an LRU cap (3 desktop / 2 mobile). Feeding the warm set the
@@ -1098,7 +1098,7 @@ export function Workspace({
           splitting, resizing and dragging a tab across panes are pure layout
           changes and never reparent — so never remount — a live terminal. */}
         <div className="relative min-h-0 min-w-0 flex-1">
-          {/* The panel deck [POD-782] [spec:SP-0b2e]: the current workspace's tabs
+          {/* The panel deck [POD-782]: the current workspace's tabs
               plus the foreign warm sessions carried over from previously-viewed
               issues — all mounted, only the on-screen panes visible (display:none
               for the rest). */}

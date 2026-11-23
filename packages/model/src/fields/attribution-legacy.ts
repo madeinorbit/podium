@@ -144,7 +144,7 @@ export const LEGACY_ATTRIBUTION_SITES: readonly LegacyAttributionSite[] = [
     legacyField: "nameSource: 'user' | 'agent'",
     whyNotAPerson:
       'A ROLE CLASS, not a person — it is the input to the human-outranks-agent naming rule ' +
-      '([spec:SP-eb60]) and answers "what kind of writer set this", never "which one".',
+      ' and answers "what kind of writer set this", never "which one".',
     carriedBy: 'SessionNaming (fields/session.ts)',
     schema: SessionNaming,
     pairAt: 'namedBy',

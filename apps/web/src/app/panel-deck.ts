@@ -11,7 +11,7 @@ import { paneOfTab } from '@podium/client-core/values'
 import type { CSSProperties } from 'react'
 import type { FileTab } from './store'
 
-// The rendered panel deck [POD-782] [spec:SP-0b2e]: issues are the MAIN way to
+// The rendered panel deck [POD-782]: issues are the MAIN way to
 // own sessions, so the primary navigation gesture is the ISSUE switch. To make
 // that switch instant, the deck of mounted AgentPanels spans issue/worktree
 // switches — it is the union of the CURRENT workspace's tabs and the

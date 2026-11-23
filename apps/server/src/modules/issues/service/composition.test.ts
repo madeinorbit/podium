@@ -3,22 +3,24 @@ import { types } from 'node:util'
 import { asSessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
+import { TEST_MACHINE_ID } from '../../../test-support/machine-id'
 import { openTestStore } from '../../../test-support/open-test-store'
+import { sessionReadPorts } from '../../../test-support/session-facts'
 import { type IssueDeps, IssueService } from '.'
 import { DEFAULT_ISSUE_REPORT_VISIBILITY } from './reads'
 import { issueTestPlumbing } from './test-plumbing'
-import { sessionReadPorts } from '../../../test-support/session-facts'
 
 const source = (relative: string): string =>
   readFileSync(new URL(relative, import.meta.url), 'utf8')
 
 describe('issue tracker capability composition', () => {
   it('exposes all capability interfaces over the same live store', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     // An issue's repo resolves only through a machine that reported it (2b803efb5),
     // so the fixture repo is reported by the host machine.
-    await store.repos.addRepo('/repo', store.hostMachineId)
+    await store.repos.addRepo('/repo', TEST_MACHINE_ID)
     const deps: IssueDeps = {
+      resolveMachine: async () => TEST_MACHINE_ID,
       store,
       ...sessionReadPorts(() => []),
       getSettings: async () =>
@@ -52,7 +54,11 @@ describe('issue tracker capability composition', () => {
     expect(new Set(capabilities.map((capability) => capability.store)).size).toBe(1)
 
     expect(await tracker.reports.list()).toEqual([])
-    const created = await tracker.crud.create(tracker.reports.store.serverWriter, { repoPath: '/repo', title: 'one store', startNow: false })
+    const created = await tracker.crud.create(tracker.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'one store',
+      startNow: false,
+    })
     expect((await tracker.reports.get(created.id))?.title).toBe('one store')
     await deps.store.close()
   })

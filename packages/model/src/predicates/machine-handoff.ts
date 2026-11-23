@@ -35,7 +35,7 @@ export interface HandoffRepo extends RepoMachines {
 
 export interface HandoffSourceRef<R extends HandoffRepo> {
   repo: R
-  /** The worktree to move — never a main checkout ([spec:SP-3f7a]). */
+  /** The worktree to move — never a main checkout. */
   worktreePath: string
   /** Where the agent sits inside it (`''` = its root); the resumed agent lands there. */
   subpath: string
@@ -45,7 +45,7 @@ export interface HandoffSourceRef<R extends HandoffRepo> {
 
 /**
  * The worktree a session would hand off, and where inside it the agent sits
- * ([spec:SP-3f7a]).
+ *
  *
  * `session.cwd` is the shell's MOMENTARY cwd — the daemon restamps it as the
  * agent moves — so requiring it to equal a worktree path is not a workable gate:
@@ -132,7 +132,7 @@ export interface HandoffAvailability<M> {
 /**
  * The full handoff picture for a session: whether it can move at all, and every
  * other machine that holds its repo WITH the reason each is or isn't a valid
- * target ([spec:SP-3f7a]).
+ * target.
  *
  * Returns reasons rather than a filtered list because the menu states its case
  * instead of vanishing (POD-821): a silently-hidden Handoff item is
@@ -170,7 +170,7 @@ export function handoffAvailability<M extends HandoffMachine>(
   return { candidates }
 }
 
-/** Eligible move targets for a handoff-capable session ([spec:SP-3f7a]). */
+/** Eligible move targets for a handoff-capable session. */
 export function handoffTargets<M extends HandoffMachine>(
   session: HandoffSession,
   repos: HandoffRepo[],

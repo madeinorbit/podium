@@ -54,7 +54,7 @@ describe('store file operations behind transactions', () => {
     const entered = barrier()
     try {
       const write = store.transact(async () => {
-        await store.repos.addRepo('/fence/committed', store.hostMachineId)
+        await store.repos.addRepo('/fence/committed', store.hostMachine!.id)
         entered.release()
         await held.wait()
       })
@@ -68,14 +68,14 @@ describe('store file operations behind transactions', () => {
       held.release()
       await Promise.all([write, fence])
       await expect(
-        store.repos.addRepo('/fence/refused', store.hostMachineId).catch((error: unknown) => {
+        store.repos.addRepo('/fence/refused', store.hostMachine!.id).catch((error: unknown) => {
           let cause = error
           while (cause instanceof Error && cause.cause !== undefined) cause = cause.cause
           throw cause
         }),
       ).rejects.toThrow(/readonly/i)
       await store.endTransferFence()
-      await store.repos.addRepo('/fence/reopened', store.hostMachineId)
+      await store.repos.addRepo('/fence/reopened', store.hostMachine!.id)
       expect(await store.repos.listRepoPaths()).toEqual(['/fence/committed', '/fence/reopened'])
     } finally {
       held.release()
@@ -98,7 +98,7 @@ describe('snapshot proof stays off the exclusive lane (rule 67)', () => {
       expect(store.discoverDatabaseSnapshots()).toBe(true)
       await entered.wait()
       await notBlocked(
-        store.repos.addRepo('/during-boot-proof', store.hostMachineId),
+        store.repos.addRepo('/during-boot-proof', store.hostMachine!.id),
         'addRepo during background verification',
       )
       expect(await store.repos.listRepoPaths()).toEqual(['/during-boot-proof'])

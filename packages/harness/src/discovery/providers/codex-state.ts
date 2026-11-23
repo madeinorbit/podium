@@ -284,7 +284,7 @@ export function createSharedCodexStateMetadataReaders(
  * coalescing prevents the daemon shared tick from materializing the same multi-MB
  * threads table once per observer. The last observer releases the cached reader.
  * Shared metadata rows are readonly; all consumers treat result maps as read-only.
- * [spec:SP-c29e] */
+ */
 export const sharedCodexStateMetadataReaders = createSharedCodexStateMetadataReaders()
 
 /**

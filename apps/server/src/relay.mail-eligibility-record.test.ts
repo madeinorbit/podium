@@ -41,7 +41,7 @@ async function heldIssueMail(dropped?: MetadataChange['entity']) {
     agentKind: 'claude-code',
     cwd: WORKTREE,
   })
-  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
     type: 'bind',
     sessionId,
     cmd: 'claude',

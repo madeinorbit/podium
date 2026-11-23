@@ -629,7 +629,7 @@ describe('test lane configuration', () => {
     // `vitest run` and the footer, the resolution check and this guard all vanish
     // together, which is precisely the state POD-2728 was filed about.
     expect(pkg.scripts.test).toBe(
-      'bun run typecheck && bun run lint:span-effects && bun run lint:interaction-scans && bun run lint:mobx-private && bun run lint:untracked-reads && bun run lint:clock-reads && bun run lint:harness-ambient && bun run lint:public-emails && bun scripts/test-lean.ts',
+      'bun run typecheck && bun run lint:span-effects && bun run lint:interaction-scans && bun run lint:mobx-private && bun run lint:untracked-reads && bun run lint:clock-reads && bun run lint:server-host-access && bun run lint:harness-ambient && bun run lint:public-emails && bun scripts/test-lean.ts',
     )
     expect(pkg.scripts.test).not.toContain('scripts/test.ts')
     // THE SPAN-EFFECT GATE IS PART OF THE DEFAULT LANE [POD-3821]. It is in the
@@ -644,6 +644,12 @@ describe('test lane configuration', () => {
     // The repository is public: committed captures once carried an account address.
     // The text scan costs about two seconds, so it runs on every default gate.
     expect(pkg.scripts['lint:public-emails']).toBe('bun scripts/check-public-emails.ts')
+    expect(pkg.scripts['lint:server-host-access']).toBe('bun scripts/check-server-host-access.ts')
+    expect(pkg.scripts.lint).toContain(
+      'bun run lint:clock-reads && bun run lint:server-host-access',
+    )
+    const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+    expect(ci).toMatch(/name: server host access\s+run: bun run lint:server-host-access/)
   })
 
   it('collects the worklist baseline files in the scheduled package lane [POD-2185]', () => {
@@ -1806,7 +1812,7 @@ describe('test lane configuration', () => {
     expect(oracleJob).not.toMatch(/^\s*continue-on-error:/m)
   })
 
-  it('runs every vitest invocation under the Bun runtime [spec:SP-3f93]', () => {
+  it('runs every vitest invocation under the Bun runtime', () => {
     // The suite must exercise bun:sqlite and Bun process semantics, so a bare `vitest run`
     // (Node runtime) in any script is doctrine drift — POD-622 caught test:multi-instance
     // regressing this way. `bun --bun vitest` (the bin) silently comes up on real

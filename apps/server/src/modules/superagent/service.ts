@@ -17,7 +17,6 @@ import { eventsForMember } from '../issues/event-visibility'
  */
 
 import { randomUUID } from 'node:crypto'
-import { homedir } from 'node:os'
 import type { SuperagentUserFocus } from '@podium/commands'
 import { createLogger, describeError } from '@podium/logger'
 import {
@@ -986,30 +985,27 @@ export class SuperagentService {
     )
   }
 
-  /** The harness, cwd and machine a thread's headless row launches with. The
-   *  machine probe is the offline-tolerant legacy resolution, never the
-   *  capability gate: a refused box must still reach `requireOnlineSession`'s
-   *  actionable refusal, not die here. */
+  /** Resolve the destination and its cwd together, before creating any row. */
   private async headlessLaunchFor(thread: SuperagentThreadRow): Promise<HeadlessLaunch> {
     const agent = HarnessAgent.safeParse(thread.agentKind)
     const harness = agent.success
       ? agent.data
       : superagentHarnessAgent(await this.store.settings.getSettingsFor(thread.ownerUserId))
-    const cwd = await this.threadCwd(thread)
-    const machineId = await this.modules.machines.resolveMachine(undefined, cwd)
+    const { cwd, machineId } = await this.threadCwd(thread, harness)
     return { harness, cwd, machineId }
   }
 
   private async mintHeadlessSession(
     writer: SessionWriter,
     thread: SuperagentThreadRow,
-    { harness, cwd }: HeadlessLaunch,
+    { harness, cwd, machineId }: HeadlessLaunch,
     accountId: AccountId,
   ): Promise<SessionId> {
     const { sessionId } = await this.modules.headless.createHeadlessSession(writer, {
       ownerUserId: thread.ownerUserId,
       agentKind: harness,
       cwd,
+      machineId,
       title: thread.title ?? thread.id,
       spawnedBy: spawnedByTag({ kind: 'superagent', threadId: asThreadId(thread.id) }),
       accountId,
@@ -1122,7 +1118,6 @@ export class SuperagentService {
     } else {
       agent = frozen.data
     }
-    const cwd = await this.threadCwd(thread)
     // Ensure the headless Podium session (recreate if the row was deleted). A
     // queued send may already have minted it — `ensureHeadlessSession` is the one
     // place that decides, so the two paths cannot mint two sessions for one
@@ -1139,6 +1134,7 @@ export class SuperagentService {
     // user's message is already gone from the queue. Name the machine and
     // say to retry, before anything durable moves.
     await this.requireOnlineSession(sessionId)
+    const { cwd } = await this.threadCwd({ ...thread, podiumSessionId: sessionId }, agent)
     // First HARNESS turn = no harness session yet. A legacy thread (buffered
     // messages, no harness session) re-primes through the seed the same way.
     const firstTurn = !thread.harnessSessionId
@@ -1489,7 +1485,7 @@ export class SuperagentService {
       // the next server instead of starting detached preparation behind it.
       if (!this.disposed) await this.pump(pending.threadId)
       // After turnInFlight is released so a subscriber can immediately dispatch
-      // the thread's next turn [spec:SP-5d81].
+      // the thread's next turn.
       this.modules.bus.emit('superagent.turnEnded', {
         ownerUserId: pending.ownerUserId,
         threadId: pending.threadId,
@@ -1651,6 +1647,7 @@ export class SuperagentService {
       )
     }
     const resume = { kind: harnessResumeKind(agent.data), value: harnessSessionId }
+    const { cwd, machineId } = await this.threadCwd(thread, agent.data)
     // THE TERMINAL'S ID IS DECIDED IN THE WRITE, the spawn happens after it
     // (POD-6419). Re-opening while an earlier terminal attachment is still
     // live just focuses it: the row that holds the conversation keeps its id
@@ -1660,13 +1657,13 @@ export class SuperagentService {
     await this.store.superagent.updateSuperagentThreadBinding(threadId, {
       terminalSessionId: sessionId,
     })
-    const cwd = await this.threadCwd(thread)
     let opened = { sessionId }
     await afterCommitOrNow(async () => {
       const resumed = await this.modules.issueSessionLifecycle.resumeSession({
         ownerUserId,
         agentKind: agent.data,
         cwd,
+        machineId,
         resume,
         conversationId: harnessSessionId,
         ...(thread.title ? { title: thread.title } : {}),
@@ -1798,19 +1795,27 @@ export class SuperagentService {
     return await this.modules.sessions.sessionById(sessionId as SessionId)
   }
 
-  /** Where a thread's harness session runs: the repo for concierge threads, the
-   *  origin session's cwd for btw threads, the home directory for the global
-   *  thread (the old buffered path never set a cwd — the daemon ran harnessExec
-   *  from its own default; home is that, made explicit). */
-  private async threadCwd(thread: SuperagentThreadRow): Promise<string> {
-    if (thread.kind === 'concierge') {
-      return thread.repoPath ?? conciergeRepoPath(asThreadId(thread.id)) ?? homedir()
-    }
-    if (thread.kind === 'btw' && thread.originSessionId) {
-      const origin = await this.sessionById(thread.originSessionId)
-      return origin?.cwd ?? homedir()
-    }
-    return homedir()
+  /** Repo/origin paths stay on their machine; folderless threads use its reported home. */
+  private async threadCwd(
+    thread: SuperagentThreadRow,
+    agent: HarnessAgentKind,
+  ): Promise<{ cwd: string; machineId: MachineId }> {
+    const origin =
+      thread.kind === 'btw' && thread.originSessionId
+        ? await this.sessionById(thread.originSessionId)
+        : undefined
+    const bound = thread.podiumSessionId
+      ? await this.sessionById(asSessionId(thread.podiumSessionId))
+      : undefined
+    const cwd =
+      thread.kind === 'concierge'
+        ? (thread.repoPath ?? conciergeRepoPath(asThreadId(thread.id)))
+        : origin?.cwd
+    const requested = origin?.machineId ?? bound?.machineId
+    const machineId = cwd
+      ? await this.modules.machines.resolveMachineForAgent(requested, cwd, agent)
+      : (requested ?? (await this.modules.machines.defaultMachine()))
+    return { machineId, cwd: cwd ?? (await this.modules.machines.machineHome(machineId)) }
   }
 
   /** One-writer lock, terminal side: while the thread's "open in terminal"

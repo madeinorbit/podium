@@ -36,14 +36,14 @@ describe('host sweep over dormant rows', () => {
         const { sessionId } = await reg.modules.sessions.createSession({
           agentKind: 'shell',
           cwd: `/w${i}`,
-          machineId: store.hostMachineId,
+          machineId: store.hostMachine!.id,
         })
         if (i === 0) liveId = sessionId
       }
       if (!liveId) throw new Error('no session created')
       // Only the first session binds: it alone is live, the rest stay
       // `starting` — dormant rows the sweep must skip.
-      await reg.gateway.routeDaemonFrame(asMachineId(store.hostMachineId), {
+      await reg.gateway.routeDaemonFrame(asMachineId(store.hostMachine!.id), {
         type: 'bind',
         sessionId: liveId,
         cmd: 'sh',
@@ -66,7 +66,7 @@ describe('host sweep over dormant rows', () => {
       live.terminal.inputAtMs_ = oldMs
       live.terminal.outputAtMs_ = oldMs
 
-      await reg.modules.hosts.onHostMetrics(store.hostMachineId, {
+      await reg.modules.hosts.onHostMetrics(store.hostMachine!.id, {
         hostname: 'test',
         sampledAt: new Date().toISOString(),
         memory: {
@@ -86,7 +86,9 @@ describe('host sweep over dormant rows', () => {
       const remaining = await store.sessions.loadSessions()
       expect(remaining).toHaveLength(DORMANT - 1)
       expect(
-        daemon.filter((m) => m.type === 'kill' && (m as { sessionId?: unknown }).sessionId !== liveId),
+        daemon.filter(
+          (m) => m.type === 'kill' && (m as { sessionId?: unknown }).sessionId !== liveId,
+        ),
       ).toEqual([])
     } finally {
       await reg.dispose()

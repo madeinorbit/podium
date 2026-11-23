@@ -19,7 +19,7 @@
  * which is how the three copies that preceded this could have drifted.
  */
 
-/** Every platform a headless release publishes a bundle for [spec:SP-6144 section 8b]. */
+/** Every platform a headless release publishes a bundle for. */
 export const HEADLESS_PLATFORMS = [
   'linux-x86_64',
   'linux-aarch64',

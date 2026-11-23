@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { reviveCompatibilityBlockedJanitor } from './podium-update'
 
-describe('janitor compatibility revival [spec:SP-c29e]', () => {
+describe('janitor compatibility revival', () => {
   it('resets and starts only the instance janitor stopped on compatibility exit 78', () => {
     const calls: string[][] = []
     const exec = (_command: string, args: string[]): string => {

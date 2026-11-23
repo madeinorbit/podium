@@ -15,7 +15,7 @@ afterEach(async () => {
 
 it('a source rename compares its records without reading the stored sync copy', async () => {
   const o = await makeOracle()
-  const id = o.store.hostMachineId
+  const id = o.store.hostMachine!.id
   const before = await o.store.sync.maxChangeSeq()
 
   await o.store.machines.renameMachine(id, 'Renamed')
@@ -34,7 +34,7 @@ it('a source rename compares its records without reading the stored sync copy', 
 
 it('custody writes publish each final record once across their several grant writes', async () => {
   const o = await makeOracle()
-  const id = o.store.hostMachineId
+  const id = o.store.hostMachine!.id
   await memberFacts(o.store).create(
     { id: MEMBER, displayName: 'Reader', role: 'member', createdAt: AT, disabledAt: null },
     'hash',
@@ -59,7 +59,7 @@ it('custody writes publish each final record once across their several grant wri
 
 it('credential adoption compares the assignment stored with the credential', async () => {
   const o = await makeOracle()
-  const id = o.store.hostMachineId
+  const id = o.store.hostMachine!.id
   const before = await o.store.sync.maxChangeSeq()
   expect(
     await o.store.machines.adoptLegacyHostCredential(
@@ -91,7 +91,7 @@ it('member creation, disablement, enablement and role changes compare the member
     tokenHash: 'hash',
     ownerUserId: owner,
   })
-  const ids = [o.store.hostMachineId, other].map((id) => machineAccessRowId(MEMBER, id)).sort()
+  const ids = [o.store.hostMachine!.id, other].map((id) => machineAccessRowId(MEMBER, id)).sort()
   let before = await o.store.sync.maxChangeSeq()
   await memberFacts(o.store).create(
     { id: MEMBER, displayName: 'Reader', role: 'admin', createdAt: AT, disabledAt: null },
@@ -117,7 +117,7 @@ it('member creation, disablement, enablement and role changes compare the member
 
 it('target publication, withdrawal and fleet-channel settings carry the display change in their write', async () => {
   const o = await makeOracle()
-  const id = o.store.hostMachineId
+  const id = o.store.hostMachine!.id
   await o.store.machines.setUpdateChannel(id, null)
   const settings = await o.store.settings.getSettings()
   await o.store.settings.setSettings({

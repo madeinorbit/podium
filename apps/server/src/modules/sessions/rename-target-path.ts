@@ -260,7 +260,7 @@ export async function renameOnTargetPath(
 }
 
 /**
- * The write itself, and the WRITER-ARBITRATION branch [spec:SP-eb60].
+ * The write itself, and the WRITER-ARBITRATION branch.
  *
  * `nameSource` is decided from the ON-BEHALF-OF structure of the principal, not
  * from which transport was used and never from payload: an agent acting for a

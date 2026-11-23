@@ -13,16 +13,16 @@
  */
 import { asIssueId, asSessionId, type Capability, firstAdminMemberId } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
-
 import { SessionRegistry } from '../../relay'
 import { OPERATOR } from '../../test-support/capabilities'
+import { TEST_MACHINE_ID } from '../../test-support/machine-id'
 
 const registries: SessionRegistry[] = []
 const fresh = async (): Promise<SessionRegistry> => {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
   // Issues are placed under a machine that REPORTED their repo (2b803efb5).
-  await registry.sessionStore.repos.addRepo('/r', registry.sessionStore.hostMachineId)
+  await registry.sessionStore.repos.addRepo('/r', TEST_MACHINE_ID)
   return registry
 }
 afterAll(async () => {
@@ -32,7 +32,11 @@ afterAll(async () => {
 /** origin + the work an agent filed under it, as a sub-issue. */
 async function discovered() {
   const registry = await fresh()
-  const origin = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/r', title: 'Origin', startNow: false })
+  const origin = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+    repoPath: '/r',
+    title: 'Origin',
+    startNow: false,
+  })
   const found = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
     repoPath: '/r',
     title: 'Found while working',
@@ -43,7 +47,9 @@ async function discovered() {
 }
 
 const depsOf = async (registry: SessionRegistry, id: string, type: string): Promise<string[]> =>
-  ((await registry.issues.reports.get(id))?.deps ?? []).filter((dep) => dep.type === type).map((dep) => dep.id)
+  ((await registry.issues.reports.get(id))?.deps ?? [])
+    .filter((dep) => dep.type === type)
+    .map((dep) => dep.id)
 
 describe('issues.setPlacement', () => {
   it('sends a sub-task out on its own — top level, with the way back intact', async () => {
@@ -84,12 +90,20 @@ describe('issues.setPlacement', () => {
 
   it('leaves an unrelated provenance edge alone', async () => {
     const { registry, origin, found, client } = await discovered()
-    const elsewhere = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
-      repoPath: '/r',
-      title: 'Somewhere else',
-      startNow: false,
-    })
-    await registry.issues.hierarchy.addDep(registry.issues.reports.store.serverWriter, found.id, elsewhere.id, 'discovered-from')
+    const elsewhere = await registry.issues.crud.create(
+      registry.issues.reports.store.serverWriter,
+      {
+        repoPath: '/r',
+        title: 'Somewhere else',
+        startNow: false,
+      },
+    )
+    await registry.issues.hierarchy.addDep(
+      registry.issues.reports.store.serverWriter,
+      found.id,
+      elsewhere.id,
+      'discovered-from',
+    )
 
     await client.issues.setPlacement.mutate({
       id: found.id,

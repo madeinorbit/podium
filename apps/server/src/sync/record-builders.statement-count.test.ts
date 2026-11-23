@@ -86,7 +86,7 @@ function row(seq: number, patch: Partial<IssueRow> = {}): IssueRow {
 
 async function world(size: number): Promise<Fixture> {
   const store = await openTestStore(':memory:')
-  await store.repos.addRepo('/repo', store.hostMachineId, undefined, 'POD')
+  await store.repos.addRepo('/repo', store.hostMachine!.id, undefined, 'POD')
   const ids: string[] = []
   for (let i = 1; i <= size; i++) {
     const id = asIssueId(`iss_${i}`)
@@ -117,7 +117,7 @@ async function world(size: number): Promise<Fixture> {
     })
   }
   await store.conversations.registry.ensureMany(
-    store.hostMachineId,
+    store.hostMachine!.id,
     ids.map((id) => ({ nativeId: id, providerId: 'claude-code' })),
   )
   await store.conversations.index.upsert(
@@ -126,7 +126,7 @@ async function world(size: number): Promise<Fixture> {
       id,
       agentKind: 'claude-code',
       providerId: 'claude-code',
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
     })),
   )
   const depIds: string[] = []

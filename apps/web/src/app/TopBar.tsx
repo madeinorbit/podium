@@ -2,7 +2,6 @@ import { createLogger } from '@podium/logger'
 import {
   BarChart3,
   CalendarClock,
-  FileText,
   LayoutPanelLeft,
   Minus,
   Settings,
@@ -30,7 +29,7 @@ const log = createLogger('web:desktop-window')
  *
  *   mark │ mode tabs │ ─ │ mode-contextual slot │ ⇠gap⇢ │ instrument well │ ─ │ utilities
  *
- * The zones are fixed; only the slot's contents change. [spec:SP-3834] The same
+ * The zones are fixed; only the slot's contents change. The same
  * header becomes the native app's integrated title bar.
  *
  * WHY IT LOOKS LIKE THIS. The bar previously read as a marketing-site header —
@@ -64,7 +63,6 @@ export function TopBar({
   const view = useHeaderView()
   const { setView } = useHeaderActions()
   const workflowsEnabled = useFeature('workflows')
-  const specsEnabled = useFeature('specs')
   const automationsEnabled = useFeature('automations')
   const slotFilled = useToolbarSlotFilled()
 
@@ -119,9 +117,6 @@ export function TopBar({
             onSelect={setView}
             icon={Workflow}
           />
-        )}
-        {specsEnabled && (
-          <ModeTab label="Specs" target="specs" view={view} onSelect={setView} icon={FileText} />
         )}
         {automationsEnabled && (
           <ModeTab

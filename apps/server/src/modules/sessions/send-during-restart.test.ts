@@ -9,8 +9,9 @@
  * daemon is detached must NOT come back dead_letter; it must leave a durable
  * row that is forwarded when the daemon re-attaches.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+
 import { MESSAGE_PENDING } from '@podium/model'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MessageRow } from '../../store/types'
 import { disposeOracles, makeOracle } from './oracle-support'
 
@@ -27,7 +28,7 @@ describe('pod-4800: send queued across daemon restart', () => {
   it('sendText to a reconnecting session queues durably instead of dead-lettering', async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -35,10 +36,10 @@ describe('pod-4800: send queued across daemon restart', () => {
       agentKind: 'claude-code',
       geometry: { cols: 80, rows: 24 },
     })
-    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
+    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachine!.id)
     // Reconnecting is the machine's link (ADR 12 D1): the row stays live.
     expect((await o.meta(sessionId)).status).toBe('live')
-    expect(o.reg.modules.machines.hasDaemon(o.reg.sessionStore.hostMachineId)).toBe(false)
+    expect(o.reg.modules.machines.hasDaemon(o.reg.sessionStore.hostMachine!.id)).toBe(false)
     o.daemon.length = 0
 
     const sent = await o.call.sessions.sendText({ sessionId, text: 'are you there' })
@@ -58,7 +59,8 @@ describe('pod-4800: send queued across daemon restart', () => {
     expect(queued[0]?.text).toBe('are you there')
 
     // The ledger row stays queued (not dead-lettered) for the same send.
-    const messageId = (sent as { message?: { id?: string } }).message?.id ?? (sent as { id?: string }).id
+    const messageId =
+      (sent as { message?: { id?: string } }).message?.id ?? (sent as { id?: string }).id
     if (typeof messageId === 'string') {
       expect(pending(statusOf(await o.store.messages.getMessage(messageId)))).toBe(true)
     }
@@ -67,7 +69,7 @@ describe('pod-4800: send queued across daemon restart', () => {
   it('resumeAndSend to a reconnecting session also queues instead of dead-lettering', async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -75,10 +77,10 @@ describe('pod-4800: send queued across daemon restart', () => {
       agentKind: 'claude-code',
       geometry: { cols: 80, rows: 24 },
     })
-    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
+    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachine!.id)
     // Reconnecting is the machine's link (ADR 12 D1): the row stays live.
     expect((await o.meta(sessionId)).status).toBe('live')
-    expect(o.reg.modules.machines.hasDaemon(o.reg.sessionStore.hostMachineId)).toBe(false)
+    expect(o.reg.modules.machines.hasDaemon(o.reg.sessionStore.hostMachine!.id)).toBe(false)
 
     const woken = await o.call.sessions.resumeAndSend({ sessionId, text: 'wake up' })
     expect(woken.disposition).not.toBe('failed')

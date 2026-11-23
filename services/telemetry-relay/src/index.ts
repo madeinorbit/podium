@@ -1,5 +1,5 @@
 /**
- * The Podium telemetry relay [spec:SP-f933].
+ * The Podium telemetry relay.
  *
  * A Cloudflare Worker deployed in podium cloud. Its whole job is three steps:
  *

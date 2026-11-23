@@ -41,7 +41,7 @@ async function sourceKnownShas(cwd: string, shas: string[]): Promise<string[]> {
 
 /**
  * Snapshot the CURRENT working tree (dirty + untracked, gitignore respected)
- * and stage a thin bundle for transfer. Fully lazy [spec:SP-6d57]: the snapshot ref
+ * and stage a thin bundle for transfer. Fully lazy: the snapshot ref
  * is created and deleted inside this call — nothing survives but the staged
  * archive, which the chunk reader deletes at EOF. The worktree and any live
  * session in it are untouched (temp index, no checkout, no kill). This is COPY

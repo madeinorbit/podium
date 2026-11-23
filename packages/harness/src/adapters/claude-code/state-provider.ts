@@ -179,7 +179,6 @@ const EPOCH_REVIVING_HOOKS = new Set([
  * closes it absorbingly except for matching child-stop bookkeeping. An epoch the
  * observer never saw open is recovered from in-flight evidence — see
  * {@link EPOCH_REVIVING_HOOKS}.
- * [spec:SP-cdb2]
  */
 export class ClaudeCausalObserver {
   private segmentId: string

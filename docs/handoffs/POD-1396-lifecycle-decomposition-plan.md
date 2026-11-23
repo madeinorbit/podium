@@ -149,7 +149,7 @@ tombstone commits FIRST, live teardown after. A commit throw must leave the
 session fully alive — still in the map, clients attached, PTY not signalled —
 and propagate to the caller, rather than tearing down live state for a row the
 rolled-back transaction still holds. The remove change also commits in the SAME
-transaction as the tombstone ([spec:SP-3fe2]) so the durable change log can
+transaction as the tombstone so the durable change log can
 never say something the sessions table does not. Reversing either is invisible
 to types and to a passing build.
 

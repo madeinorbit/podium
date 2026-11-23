@@ -7,7 +7,7 @@
  * ADR 2 D1 requires the authority to mint a NEW epoch whenever it cannot
  * guarantee its `seq` sequence continues the one clients hold — and restore from
  * backup is the headline case, because it is the SANCTIONED rollback path
- * ([spec:SP-4428] mandates the pre-migration backup precisely because drizzle
+ * (mandates the pre-migration backup precisely because drizzle
  * has no down migrations).
  *
  * The trap the epoch exists to catch:
@@ -201,7 +201,7 @@ export async function restoreDatabase(opts: RestoreOptions): Promise<RestoreRepo
  *
  * ## Why the missing identity is the NORMAL case, not an edge case
  *
- * The feed-identity migration's own [spec:SP-4428] pre-migration backup is taken
+ * The feed-identity migration's own pre-migration backup is taken
  * BEFORE that migration runs — so the canonical artifact for rolling THIS change
  * back is a database with no `feed_identity` table at all. A restore path that only
  * handles post-migration backups fails exactly when the rollback it exists for is
@@ -297,7 +297,7 @@ async function remintRestoredEpoch(
  *    (safety copy #2 evicts the oldest file in the pool — which is it); and
  *  - two restores evict every pre-migration backup, i.e. the restore command
  *    eats the very artifacts that ARE the sanctioned rollback path
- *    ([spec:SP-4428]), which is the exact opposite of its job.
+ *   , which is the exact opposite of its job.
  *
  * So the replaced database lands OUTSIDE that pool, under `.replaced-`, where
  * `isBackupMain` cannot see it: it neither prunes nor is pruned. It therefore

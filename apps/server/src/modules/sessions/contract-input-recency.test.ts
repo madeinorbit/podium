@@ -9,8 +9,8 @@
  * the server has to honour it for recency.
  */
 
-import { describe, expect, it } from 'vitest'
 import type { SessionId } from '@podium/model'
+import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 
@@ -25,7 +25,7 @@ async function seedContractSession() {
     agentKind: 'claude-code',
     cwd: '/p',
   })
-  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
     type: 'bind',
     sessionId,
     cmd: 'claude',
@@ -75,7 +75,7 @@ describe('contract input recency (POD-3995)', () => {
       expect(terminalOf(reg, sessionId).lastUserInputAtMs).toBe(0)
 
       await reg.gateway.routeDaemonFrame(
-        reg.sessionStore.hostMachineId,
+        reg.sessionStore.hostMachine!.id,
         turnStarted(sessionId, 'recency-human', HUMAN_TURN_AT, 'human', 1, 1),
       )
       await reg.modules.sessions.runtimeEventGate.replayBoardProjection()
@@ -91,12 +91,12 @@ describe('contract input recency (POD-3995)', () => {
     const { reg, sessionId } = await seedContractSession()
     try {
       await reg.gateway.routeDaemonFrame(
-        reg.sessionStore.hostMachineId,
+        reg.sessionStore.hostMachine!.id,
         turnStarted(sessionId, 'recency-human', HUMAN_TURN_AT, 'human', 1, 1),
       )
       await reg.modules.sessions.runtimeEventGate.replayBoardProjection()
       await reg.gateway.routeDaemonFrame(
-        reg.sessionStore.hostMachineId,
+        reg.sessionStore.hostMachine!.id,
         turnStarted(sessionId, 'recency-system', SYSTEM_TURN_AT, 'system', 2, 2),
       )
       await reg.modules.sessions.runtimeEventGate.replayBoardProjection()

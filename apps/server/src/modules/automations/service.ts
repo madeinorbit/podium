@@ -1,5 +1,5 @@
 /**
- * Scheduled automations (#470) [spec:SP-17db] — the service half.
+ * Scheduled automations (#470) — the service half.
  *
  * Owns the CRUD surface the Automations tab drives (list/create/update/remove/
  * setEnabled/runs) and the tick that turns a due automation into a real agent
@@ -12,10 +12,9 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { homedir } from 'node:os'
 import { assertScheduleFloor, nextAfter, nextRunAfter, parseCron } from '@podium/commands'
 import { createLogger, describeError } from '@podium/logger'
-import type { AutomationId, IssueId, SessionId } from '@podium/model'
+import type { AutomationId, IssueId, MachineId, SessionId } from '@podium/model'
 import {
   type AgentKind,
   AUTOMATION_RUN_RESERVED,
@@ -36,6 +35,7 @@ import type {
   AutomationRunRow,
   AutomationsRepository,
 } from '../../store/automations'
+import type { MachinesService } from '../machines/service'
 import { type AutomationDecision, decideTick, type Schedulable } from './decide'
 import type { DeliverAutomationPrompt } from './prompt'
 
@@ -46,6 +46,7 @@ export type AutomationCommandWriter = Pick<LedgerWriter, 'commit'>
 
 export interface AutomationsDeps {
   store: AutomationsRepository
+  machines: Pick<MachinesService, 'defaultMachine' | 'resolveMachineForAgent' | 'machineHome'>
   /**
    * The scheduler's own writer, a `server` origin (`automations.schedule`): the
    * runs it records and the re-arms. Never a command's: the
@@ -57,6 +58,7 @@ export interface AutomationsDeps {
    *  NOT the `sessions.create` tRPC procedure — that stamps spawnedBy 'user'. */
   createSession(input: {
     cwd: string
+    machineId: MachineId
     agentKind?: AgentKind
     model?: string
     effort?: string
@@ -73,6 +75,7 @@ export interface AutomationsDeps {
   /** A fresh run owns a fresh issue (a plain task since POD-6106) and attached session. */
   createIssue(input: {
     repoPath: string
+    machineId: MachineId
     title: string
     description: string
     defaultAgent: string
@@ -98,13 +101,11 @@ export interface AutomationsDeps {
    */
   sessionOwnerUserId?(sessionId: SessionId): Promise<UserId | undefined>
   now(): Date
-  /** Where a GLOBAL (repo-less) automation runs. Injected for the tests. */
-  homeDir?(): string
 }
 
 export interface AutomationInput {
   name: string
-  /** null/absent = GLOBAL: the session runs in the home directory [spec:SP-17db]. */
+  /** null/absent = GLOBAL: the session runs in the home directory. */
   repoPath?: string | null
   scheduleKind?: AutomationScheduleKind
   cron?: string | null
@@ -155,10 +156,6 @@ export class AutomationsService {
 
   private now(): Date {
     return this.deps.now()
-  }
-
-  private homeDir(): string {
-    return this.deps.homeDir ? this.deps.homeDir() : homedir()
   }
 
   /** The armed time for an automation, or null when it is disabled (or a cron can
@@ -271,7 +268,7 @@ export class AutomationsService {
   }
 
   /** Create an automation. Validation happens before persistence, including the
-   *  explicit one-minute floor [spec:SP-17db]. */
+   *  explicit one-minute floor. */
   async create(
     writer: AutomationCommandWriter,
     input: AutomationInput,
@@ -618,7 +615,7 @@ export class AutomationsService {
   }
 
   /**
-   * Delivers the run into the selected conversation mode [spec:SP-17db].
+   * Delivers the run into the selected conversation mode.
    *
    * Resume mode reuses the last successful session. If that durable reference has
    * disappeared or never became resumable, the run safely falls back to a fresh
@@ -688,9 +685,13 @@ export class AutomationsService {
         null,
       )
     }
-    const cwd = automation.repoPath ?? this.homeDir()
+    const machineId = automation.repoPath
+      ? await this.deps.machines.resolveMachineForAgent(undefined, automation.repoPath, agentKind)
+      : await this.deps.machines.defaultMachine()
+    const cwd = automation.repoPath ?? (await this.deps.machines.machineHome(machineId))
     const issue = await this.deps.createIssue({
       repoPath: cwd,
+      machineId,
       title: automation.name,
       description: automation.prompt,
       defaultAgent: automation.agentKind,
@@ -703,6 +704,7 @@ export class AutomationsService {
     })
     const { sessionId } = await this.deps.createSession({
       cwd,
+      machineId,
       agentKind,
       model: automation.model,
       effort: automation.effort,

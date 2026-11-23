@@ -24,6 +24,7 @@ import { createLogger } from '@podium/logger'
 import { asUserId, type UserId, type UserRole } from '@podium/model'
 import { type HttpsRequiredRefusal, httpsRequiredRefusal, signInHttpsUrl } from '@podium/protocol'
 import { type UserCommandPrincipal, userCommandPrincipal } from '../command-principal'
+import type { HostMachine } from '../host-machine'
 import { isHostLocalRequest } from '../readiness-boundary'
 import { clientAddressForRequest, isSecureRequest } from '../request-scheme'
 
@@ -148,6 +149,8 @@ export function createMemberOfRequest(deps: {
   users: { get(id: UserId): Promise<{ role: UserRole } | undefined> }
   /** Reverse-proxy hops whose forwarding values the operator declared trusted. */
   trustedProxyHops: number
+  /** Omitted only by legacy fixtures; null disables same-machine trust. */
+  hostMachine?: HostMachine
   /** The server's advertised address, read per refusal so tunnel changes take effect. */
   publicUrl?: () => string | undefined
 }): MemberOfRequest {
@@ -167,7 +170,7 @@ export function createMemberOfRequest(deps: {
     )
   }
   const factsOf = (request: Request): ConnectionFacts => {
-    const sameMachine = isHostLocalRequest(request)
+    const sameMachine = deps.hostMachine !== null && isHostLocalRequest(request)
     return {
       scheme: isSecureRequest(
         request.url,

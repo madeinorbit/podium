@@ -121,7 +121,7 @@ afterAll(async () => {
 describe.each([
   ['local disk', 'local'],
   ['object store', 'memory'],
-] as const)('IssueArtifactStore on %s [spec:SP-0fc9, POD-7054]', (_label, backend) => {
+] as const)('IssueArtifactStore on %s', (_label, backend) => {
   let base: string
   let files: BlobStore
   beforeEach(() => {

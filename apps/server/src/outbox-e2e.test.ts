@@ -49,7 +49,7 @@ describe('outbox write path e2e (live server)', () => {
 
     // The machine accepted the spawn but disappeared before binding it.
     // Creation itself requires an available execution machine.
-    await server.registry.gateway.detachDaemon(server.registry.sessionStore.hostMachineId)
+    await server.registry.gateway.detachDaemon(server.registry.sessionStore.hostMachine!.id)
 
     // No daemon → the session never binds; the send goes to the durable queue.
     const first = await trpc.sessions.resumeAndSend.mutate({
@@ -113,7 +113,7 @@ describe('outbox write path e2e (live server)', () => {
       }),
     ])
 
-    await server.registry.gateway.routeDaemonFrame(server.registry.sessionStore.hostMachineId, {
+    await server.registry.gateway.routeDaemonFrame(server.registry.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'sh',

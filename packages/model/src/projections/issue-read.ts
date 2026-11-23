@@ -106,7 +106,7 @@ export interface IssueTreeNode<S = IssueTreeSession> {
   closed: boolean
   blocked: boolean
   ready: boolean
-  /** Sessions currently on this issue (siblings), compact [spec:SP-99d3].
+  /** Sessions currently on this issue (siblings), compact.
    *  THE EMBED — see this file's header for why it is still here. */
   sessions: S[]
   children: IssueTreeNode<S>[]
@@ -153,6 +153,6 @@ export interface IssueShowWire<S = IssueTreeSession> {
   machineId?: MachineId | null
   /** Designated coordinator session id (bare). */
   coordinatorSessionId?: SessionId | null
-  /** Member sessions currently on this issue [spec:SP-99d3]. */
+  /** Member sessions currently on this issue. */
   sessions?: S[]
 }

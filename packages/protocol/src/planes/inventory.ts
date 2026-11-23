@@ -130,7 +130,7 @@ export const NON_WS_SURFACE_INVENTORY = [
 /**
  * OUTSIDE the three peer planes, stated so the inventory is honest about it
  * (D6.7): external chat adapters sit on the in-process bus plus webhook/long-poll
- * ([spec:SP-5d81]), with NO tRPC on the external edge, and the in-process
+ *, with NO tRPC on the external edge, and the in-process
  * `EventBus` is not a wire plane at all — features translate bus → plane sends.
  */
 export const OUTSIDE_THE_PLANES = [

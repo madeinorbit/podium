@@ -277,7 +277,7 @@ describe.skipIf(disabled)('state cannot cross test cases [POD-523]', () => {
   it('gives every store an independent database', async () => {
     installPreMigratedStoreFixture()
     const first = await openTestStore(':memory:')
-    await first.repos.addRepo('/only-in-first', first.hostMachineId)
+    await first.repos.addRepo('/only-in-first', first.hostMachine!.id)
     const second = await openTestStore(':memory:')
     expect(await second.repos.listRepoPaths()).toEqual([])
     expect(await first.repos.listRepoPaths()).toEqual(['/only-in-first'])
@@ -294,7 +294,7 @@ describe.skipIf(disabled)('state cannot cross test cases [POD-523]', () => {
     raw(store).exec('CREATE TABLE zz_growth (x TEXT)')
     const insert = raw(store).prepare('INSERT INTO zz_growth VALUES (?)')
     for (let i = 0; i < 20_000; i++) insert.run('x'.repeat(200))
-    await store.repos.addRepo('/written', store.hostMachineId)
+    await store.repos.addRepo('/written', store.hostMachine!.id)
     await store.close()
     expect(Buffer.from(currentSchemaImage()).toString('base64')).toBe(before)
     // And the next clone still sees an empty database.

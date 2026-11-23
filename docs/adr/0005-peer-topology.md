@@ -4,7 +4,7 @@
 - **Date:** 2026-07-17
 - **Deciders:** architecture rewrite ADR pack (POD-359); human sign-off before Phase 1
 - **Issue:** POD-751 (leaf of POD-359 item 5)
-- **Spec:** [spec:SP-0371] Hub/node federation: deferred (parent [spec:SP-3fe2])
+- **Spec:** Hub/node federation: deferred (parent)
 - **Consumers:** POD-317 (gateway: common framing + role auth), POD-309 (retire upstream; prove seam), POD-327 (daemon-side gateway contract mirror), POD-308 (version negotiation permanence)
 - **Deferred product work:** POD-353 (full hub/node federation design + product justification)
 - **Related ADRs (forward refs only):** ADR 1 (ownership), ADR 2 (sync protocol), ADR 3 (command security), ADR 4 (representation), ADR 6 (replica storage), ADR 7 (plane inventory), ADR 8 (package topology)
@@ -19,7 +19,7 @@ almost entirely **local topology**: console clients and N machine daemons dial *
 server**, which is the sole home authority for the deployment.
 
 A second hop shape — **node ↔ hub federation** — was half-built and then **deferred**
-([spec:SP-0371], user decision 2026-07-13, confirmed same day): finished federation
+(, user decision 2026-07-13, confirmed same day): finished federation
 does not justify the rewrite cost, but the rewrite **must not** make choices that
 prevent a future hub.
 
@@ -36,13 +36,13 @@ Verified on the integrated tree at this writing:
 | Pairing codes | `apps/server/src/hub/pairing.ts`: `PairingManager` — single-use, default TTL 600_000 ms, in-memory |
 | Durable write identity | `packages/sync/src/outbox/records.ts`: `OutboxRecord.mutationId`, `command`, and transport-derived `attribution` |
 | Half-built federation to retire | `packages/sync/src/upstream.ts` (`UpstreamSync`, 501 lines) + `packages/sync/src/upstream-forwarder.ts` (`UpstreamForwarder`, 324 lines); cookie name shared via `packages/protocol/src/session-cookie.ts` `SESSION_COOKIE = 'podium_session'` |
-| Instance isolation | `packages/runtime/src/instance.ts` + [spec:SP-15aa]: `INSTANCE_ID_PATTERN`, per-instance state/ports/units |
-| Ledger adopted decisions | `docs/rearchitecture-v3.md` §1: “Two processes, one peer protocol”; “HUB DEFERRED” per [spec:SP-0371] |
+| Instance isolation | `packages/runtime/src/instance.ts` +: `INSTANCE_ID_PATTERN`, per-instance state/ports/units |
+| Ledger adopted decisions | `docs/rearchitecture-v3.md` §1: “Two processes, one peer protocol”; “HUB DEFERRED” per |
 
 The 2026-07-10 first-principles proposal (plan source named in `docs/rearchitecture-v3.md`)
 and the older `docs/offline-sync-architecture.md` §3 “hub and nodes” sketch describe
 aspirational multi-authority deployment. Where they conflict with this ADR or
-[spec:SP-0371], **this ADR wins for rewrite scope**.
+, **this ADR wins for rewrite scope**.
 
 This ADR is the binding peer-topology decision for Phase 1+ (gateway, kernel ports,
 retirement). POD-359 owns the pack index and human sign-off.
@@ -90,7 +90,7 @@ Clauses owned entirely by other ADRs are acknowledged and **not re-decided here*
 worded as if H2 exists. Seam checklist items (H2-preserving structure) must not be
 mistaken for shipped federation features.
 
-**Rationale.** [spec:SP-0371] freezes product scope while requiring structural
+**Rationale.** freezes product scope while requiring structural
 non-prevention. Conflating the two horizons is how half-built hub code and local fleet
 features got tangled.
 
@@ -98,7 +98,7 @@ features got tangled.
 
 | Alternative | Why rejected |
 |-------------|--------------|
-| Ship finished node↔hub in the rewrite | Explicit user deferral; value does not justify work ([spec:SP-0371]). |
+| Ship finished node↔hub in the rewrite | Explicit user deferral; value does not justify work. |
 | Delete all multi-authority vocabulary now | Would force a flag day later; violates “must not prevent a future hub.” |
 | Treat remote daemons as “proto-nodes” | Daemons are executors, not authorities; muddies ADR 1 ownership. |
 
@@ -143,7 +143,7 @@ daemons; desktop server + phone PWA + remote daemon; multiple **named instances*
 host (isolation per D6, not node↔hub).
 
 **Rationale.** Matches shipped endpoints and auth paths; matches
-`docs/rearchitecture-v3.md` (“two processes, one peer protocol”) and [spec:SP-34d7]
+`docs/rearchitecture-v3.md` (“two processes, one peer protocol”) and
 (server owns message substrate; daemons are executors).
 
 **Rejected alternatives.**
@@ -231,7 +231,7 @@ future node peer can declare itself without a flag day.
 4. **Conformance:** POD-309 (or gateway tests under POD-317) inject reserved caps and
    assert the authority neither crashes nor grants rights.
 
-**Rationale.** Seam requirement from [spec:SP-0371] and POD-309: “peer capability
+**Rationale.** Seam requirement from and POD-309: “peer capability
 negotiation with reserved fields for a node peer.”
 
 **Rejected alternatives.**
@@ -280,7 +280,7 @@ pair/hello) so POD-317 can extract modules without inventing policy.
 ### D6 — Instance boundary is a hard mesh boundary
 
 **Decision.** Peer identity, pairing, daemon secrets, client sessions, machine rows, and
-endpoints are **per Podium `InstanceId`** ([spec:SP-15aa],
+endpoints are **per Podium `InstanceId`** (,
 `packages/runtime/src/instance.ts`). A second concurrent instance on one host is a
 **separate H1 mesh**, not H2 federation. Crossing instances requires explicit operator
 action (e.g. `PODIUM_NO_RELAY=1` with a selected instance command) — never ambient
@@ -345,7 +345,7 @@ forbidden. **Daemon pairing is unaffected.**
 kernel ports and run the parameterized suite — no product surface, config flag, or fleet
 UX. That proof is the rewrite’s commitment to future federation; it is not a hub.
 
-**Rationale.** [spec:SP-0371] in-scope seam list; POD-309 acceptance; adversarial-review
+**Rationale.** in-scope seam list; POD-309 acceptance; adversarial-review
 disposition on POD-279.
 
 **Rejected alternatives.**
@@ -373,7 +373,7 @@ disposition on POD-279.
 | Cap `peerRole:node` | Reserved, inert | Implemented |
 | Soak | Local fleet / remote-daemon soaks | Federated soak |
 
-**Messaging ([spec:SP-34d7]):** durable agent messages are owned by the **server**;
+**Messaging:** durable agent messages are owned by the **server**;
 daemons execute when the target session lives on them. That is an H1 authority rule,
 not a hub.
 
@@ -397,7 +397,7 @@ not a hub.
   `docs/offline-sync-architecture.md` hub chapter remains aspirational until then.
 - Reserved fields and port abstractions carry a small ongoing design tax.
 - Dual vocabulary risk (“hub” in older docs vs H1 **server**) — mitigated by H1/H2
-  tables and [spec:SP-0371].
+  tables and.
 
 ### Implementation binding
 
@@ -426,13 +426,13 @@ not a hub.
 
 ## References
 
-- [spec:SP-0371] Hub/node federation: deferred  
-- [spec:SP-3fe2] Architecture: strangler rebuild  
-- [spec:SP-15aa] Multi-instance runtime isolation  
-- [spec:SP-34d7] Agent messaging (server-owned substrate; daemons as executors)  
-- [spec:SP-b85a] Agent session relay naming/inheritance  
-- [spec:SP-fccf] Codex session identity (host↔server control ≠ agent relay)  
-- [spec:SP-a43e] Remote browser-open forwarding  
+- Hub/node federation: deferred
+- Architecture: strangler rebuild
+- Multi-instance runtime isolation
+- Agent messaging (server-owned substrate; daemons as executors)
+- Agent session relay naming/inheritance
+- Codex session identity (host↔server control ≠ agent relay)
+- Remote browser-open forwarding
 - `docs/rearchitecture-v3.md` — adopted decisions (peer protocol; hub deferred)  
 - `docs/offline-sync-architecture.md` — historical hub/node sketch (aspirational H2)  
 - `docs/spec/node-hub-sync.md`, `docs/spec/node-hub-issues.md` — prior P7 designs; implementation retired, intent informs POD-353  

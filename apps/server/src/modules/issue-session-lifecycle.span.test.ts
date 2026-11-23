@@ -3,10 +3,11 @@ import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../relay'
 import { captureLogs } from '../test-support/capture-logs'
+import { TEST_MACHINE_ID } from '../test-support/machine-id'
 import { openTestStore } from '../test-support/open-test-store'
+import { sessionReadPorts } from '../test-support/session-facts'
 import { type IssueDeps, IssueService } from './issues/service'
 import { issueTestPlumbing } from './issues/service/test-plumbing'
-import { sessionReadPorts } from '../test-support/session-facts'
 
 /**
  * `onIssueClosed` (crud.ts) reaches `IssueSessionLifecycle.stopClosedIssue`,
@@ -22,20 +23,27 @@ import { sessionReadPorts } from '../test-support/session-facts'
  */
 describe('closed-issue cleanup under the async store (POD-3806)', () => {
   it('a close inside a span neither breaks the span nor strands the cleanup', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     // Issues are placed under a machine that REPORTED their repo (2b803efb5).
-    await store.repos.addRepo('/repo', store.hostMachineId)
+    await store.repos.addRepo('/repo', store.hostMachine!.id)
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const logs = captureLogs()
     try {
-      const issue = await registry.modules.issues.crud.create(registry.modules.issues.reports.store.serverWriter, {
-        repoPath: '/repo',
-        title: 'closes inside a span',
-        startNow: false,
-      })
+      const issue = await registry.modules.issues.crud.create(
+        registry.modules.issues.reports.store.serverWriter,
+        {
+          repoPath: '/repo',
+          title: 'closes inside a span',
+          startNow: false,
+        },
+      )
 
       await store.transact(async () => {
-        await registry.modules.issues.crud.close(registry.modules.issues.reports.store.serverWriter, issue.id, 'done')
+        await registry.modules.issues.crud.close(
+          registry.modules.issues.reports.store.serverWriter,
+          issue.id,
+          'done',
+        )
         // The statement the lock bug died on: same span, after the cleanup fired.
         await store.issues.getIssue(asIssueId('iss_after'))
       })
@@ -64,10 +72,11 @@ describe('closed-issue cleanup under the async store (POD-3806)', () => {
  */
 describe('IssueService.onIssueClosed under the async store (POD-3820)', () => {
   it('a close awaits a hook that opens its own transaction, and the span survives it', async () => {
-    const store = await openTestStore(':memory:')
-    await store.repos.addRepo('/repo', store.hostMachineId)
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
+    await store.repos.addRepo('/repo', store.hostMachine!.id)
     const closed: string[] = []
     const deps: IssueDeps = {
+      resolveMachine: async () => TEST_MACHINE_ID,
       store,
       ...sessionReadPorts(() => []),
       getSettings: async () =>
@@ -95,7 +104,11 @@ describe('IssueService.onIssueClosed under the async store (POD-3820)', () => {
     }
     const issues = await IssueService.create(deps)
     try {
-      const issue = await issues.crud.create(issues.reports.store.serverWriter, { repoPath: '/repo', title: 'closes', startNow: false })
+      const issue = await issues.crud.create(issues.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'closes',
+        startNow: false,
+      })
 
       await store.transact(async () => {
         await issues.crud.close(issues.reports.store.serverWriter, issue.id, 'done')

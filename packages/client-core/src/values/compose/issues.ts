@@ -321,7 +321,7 @@ export function isEmptyDraftVessel(
 // ---------------------------------------------------------------------------
 
 /** When the issue finished: closedAt when stamped (stable — moves only on
- *  closed-predicate flips), else updatedAt for legacy rows. [spec:SP-6144]
+ *  closed-predicate flips), else updatedAt for legacy rows.
  *
  *  Published (not private, as it was inside derive.ts) because the worklist's
  *  closed fold and waiting-age stamp both anchor on it. */

@@ -509,7 +509,7 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
     file: 'apps/server/src/migrations/schema.ts',
     kind: 'declaration-table',
     budget: 1600,
-    review: 'POD-1385 / [spec:SP-4428]',
+    review: 'POD-1385',
     table: 'sessions',
     argument:
       'The server schema as drizzle-kit schema-as-code: 65 table declarations, no classes, no state, no control flow at all. It is the declared source of truth for `drizzle-kit generate` and `check`, which resolve ONE schema entry point — splitting it would either break that contract or require a barrel that re-exports every table, moving the same 65 declarations behind an extra hop. Its length is the number of tables the product has.',
@@ -592,7 +592,7 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
     budget: 750,
     review: 'POD-1606 / POD-1379 (per-reader ledger) / POD-1385',
     argument:
-      'The messages aggregate: the unified `messages` table [spec:SP-34d7] plus `message_reads`, its per-reader satellite, behind 33 query methods and zero mutable fields (`db` is injected; the one static readonly is a shared SQL predicate string, not state). It crossed the 600-line screen at the main reconciliation, and the growth is one coherent addition rather than a second job: POD-1379 / [spec:SP-b11e] added the per-READER ledger because `messages.status` is the DELIVERY pipeline shared by every session on an issue, so one agent reading an issue mailbox consumed the unread status for all of them. `message_reads` cannot be owned elsewhere — `countPendingForSession` and `listPendingSendersForSession` join it against `messages` inside a single SQL predicate (`PENDING_FOR_SESSION`), so separating it would split one query across two repositories. Its length is the number of questions the aggregate answers, and with no state between the methods no subset of them can be lifted out and mean anything alone.',
+      'The messages aggregate: the unified `messages` table plus `message_reads`, its per-reader satellite, behind 33 query methods and zero mutable fields (`db` is injected; the one static readonly is a shared SQL predicate string, not state). It crossed the 600-line screen at the main reconciliation, and the growth is one coherent addition rather than a second job: POD-1379 added the per-READER ledger because `messages.status` is the DELIVERY pipeline shared by every session on an issue, so one agent reading an issue mailbox consumed the unread status for all of them. `message_reads` cannot be owned elsewhere — `countPendingForSession` and `listPendingSendersForSession` join it against `messages` inside a single SQL predicate (`PENDING_FOR_SESSION`), so separating it would split one query across two repositories. Its length is the number of questions the aggregate answers, and with no state between the methods no subset of them can be lifted out and mean anything alone.',
   },
   {
     file: 'apps/server/src/store/sessions.ts',
@@ -762,7 +762,7 @@ export const GOD_OBJECT_LEDGER: readonly LedgerEntry[] = [
     file: 'apps/server/src/modules/messaging/service.ts',
     kind: 'cohesive-owner',
     budget: 950,
-    review: 'POD-1385 / [spec:SP-5d81] / [spec:SP-62c3]',
+    review: 'POD-1385',
     protectedState: [
       'adapter',
       'adapterKey',

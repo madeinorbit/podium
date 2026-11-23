@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Authors a new migration with drizzle-kit, in BOTH chains [spec:SP-4428, POD-6981].
+ * Authors a new migration with drizzle-kit, in BOTH chains.
  *
  *   1. Edit apps/server/src/migrations/schema.ts — the schema is the source of truth —
  *      and its Postgres twin, apps/server/src/migrations/pg/schema.ts

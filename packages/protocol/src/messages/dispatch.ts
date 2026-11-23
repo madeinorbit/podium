@@ -1,5 +1,5 @@
 /**
- * Total, type-exhaustive message dispatch [spec:SP-3fe2] — the shared
+ * Total, type-exhaustive message dispatch — the shared
  * replacement for hand-written if-ladders (terminal-client connection.ts)
  * and switches (SessionsService), generalizing the handler-registry pattern
  * of apps/daemon/src/control/registry.ts: the mapped type over `M['type']`

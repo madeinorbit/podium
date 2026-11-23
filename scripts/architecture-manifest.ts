@@ -486,7 +486,7 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
       'packages/logger',
     ],
   },
-  // Opt-in telemetry [spec:SP-f933]. NEUTRAL for the same reason as runtime,
+  // Opt-in telemetry. NEUTRAL for the same reason as runtime,
   // and by the same construction: the barrel and the pure slices (schema,
   // example, scrub) are browser-safe — apps/web imports './example' for its
   // privacy/setup copy — while node-only concerns (consent's node:crypto,

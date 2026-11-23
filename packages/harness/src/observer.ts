@@ -39,7 +39,6 @@ export type CursorOrder = 'after' | 'same_or_before' | 'incomparable'
  * Compare positions without inventing an order across provider segments or
  * channels. A successor is accepted only when it names the current segment as
  * its predecessor; within a segment every known vector component is monotonic.
- * [spec:SP-cdb2]
  */
 export function compareProviderCursor(
   current: ProviderCursor | null,
@@ -52,7 +51,7 @@ export function compareProviderCursor(
   // A path replacement or file-identity change cannot inherit ordering merely
   // because an adapter reused its segment label. It must mint a successor that
   // explicitly names the delivered predecessor checkpoint. Timestamps never
-  // participate in succession. [spec:SP-cdb2]
+  // participate in succession.
   for (const key of ['pathHint', 'device', 'inode'] as const) {
     if (current[key] !== next[key]) return 'incomparable'
   }
@@ -388,7 +387,7 @@ function withSubagents(list: NonNullable<AgentRuntimeState['nativeSubagents']> |
  *
  * The rebuild keeps its phase, with one exception: idle. A parent whose children
  * are live is not idle — that is the hold `turn_completed` already applies while
- * the count is positive [spec:SP-dae6], restated here because a rebuild reaches
+ * the count is positive, restated here because a rebuild reaches
  * idle without the reducer ever seeing the count (the classifier resolves the
  * turn from the transcript, and often resolves no verdict at all). Leaving the
  * idle in place is the other half of the reported symptom: the parent reads idle
@@ -614,7 +613,7 @@ function reduceAgentPhase(
       // nativeSubagentCount is the live native-subagent count (Task hooks),
       // NOT open todos — the reducer has no openTodoCount. A positive count
       // means the parent is still effectively working: hold idle and mark
-      // awaitingSubagents so a later task_delta→0 can settle. [spec:SP-dae6]
+      // awaitingSubagents so a later task_delta→0 can settle.
       if (prev.nativeSubagentCount > 0) {
         return { phase: 'working', ...base, awaitingSubagents: true }
       }

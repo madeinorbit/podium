@@ -12,6 +12,7 @@ import {
   useHttpOrigin,
   useReplica,
   useRequestClient,
+  useSessionTransition,
 } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -21,7 +22,7 @@ import {
   matchesQuestionInteraction,
   OPTIMISTIC_SEND_CEILING_MS,
   pendingAskFromState,
-  sessionTransition,
+  type SessionTransition,
   sessionTransitionLabel,
 } from '@podium/client-core/values'
 import { here } from '@podium/client-graph/lookup'
@@ -445,6 +446,10 @@ const SessionConversationBody = observer(function SessionConversationBody({
   }, [requestedRef, referencedIssue, onOpenTerminalRef])
   const machine = useSessionContextMachine(session.machineId)
   const sessionId = session.sessionId
+  const { transition } = useSessionTransition(session)
+  const resumeTimedOut = transition?.kind === 'resume-timeout'
+  const resumeFailed =
+    resumeTimedOut || (transition?.kind === 'refused' && transition.desired === 'running')
   const homeName = useSessionContextMachineHome(session.machineId)
   // Offline predicate on LIVE presence, display name on the REPLICATED home
   // (POD-5661; POD-4830's desktop banner reads the same server truth from its
@@ -607,9 +612,9 @@ const SessionConversationBody = observer(function SessionConversationBody({
   // decision". Leaving it would put the transcript's last line back on the
   // question the operator just answered, which is the same stale claim the
   // hidden card was.
-  const activity = conversation.activity
+  const activity = resumeTimedOut ? null : conversation.activity
   // A newly spawned process is working before its first agent-state frame.
-  const warming = session.status === 'starting' || activity?.tone === 'working'
+  const warming = !resumeTimedOut && (session.status === 'starting' || activity?.tone === 'working')
   // A parked or ended session is present but has no process. It gets the
   // recovery banner; when there is also no conversation to show, the banner is
   // the WHOLE screen rather than a header over an empty transcript [POD-1758].
@@ -746,13 +751,15 @@ const SessionConversationBody = observer(function SessionConversationBody({
 
   return (
     <View style={styles.flex}>
-      <MobileSessionLifecycle
-        installRecovery={<PhoneInstallCurrentHarness sessionId={session.sessionId} />}
-        session={session}
-        hasTranscript={hasTranscript}
-        onResume={store.resurrectSession}
-        onRemove={store.killSession}
-      />
+      {!resumeFailed && (
+        <MobileSessionLifecycle
+          installRecovery={<PhoneInstallCurrentHarness sessionId={session.sessionId} />}
+          session={session}
+          hasTranscript={hasTranscript}
+          onResume={store.resurrectSession}
+          onRemove={store.killSession}
+        />
+      )}
       {conversation.session ? (
         <MobileInterruptStuck
           session={conversation.session}
@@ -760,12 +767,15 @@ const SessionConversationBody = observer(function SessionConversationBody({
           onDismiss={(id) => void store.dismissEffect(id)}
         />
       ) : null}
-      <MobileLifecycleTransition
-        session={session}
-        onEndAnyway={(id) => void store.endSession(id, { force: true })}
-        onResume={(id) => void store.resurrectSession(id)}
-        onHibernate={(id) => void store.hibernateSession(id)}
-      />
+      {transition && (
+        <MobileLifecycleTransition
+          sessionId={sessionId}
+          transition={transition}
+          onEndAnyway={(id) => void store.endSession(id, { force: true })}
+          onResume={(id) => void store.resurrectSession(id)}
+          onHibernate={(id) => void store.hibernateSession(id)}
+        />
+      )}
       {offlineMachineName ? (
         <View
           style={styles.offlineBanner}
@@ -845,7 +855,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
           ) : null}
           <SessionComposer
             conversation={model}
-            placeholder={composer.placeholder}
+            placeholder={resumeTimedOut ? 'Message the agent…' : composer.placeholder}
             onSend={send}
             caption={composerCaption}
             captionTone={captionTone}
@@ -1018,37 +1028,39 @@ const MobileInterruptStuck = observer(function MobileInterruptStuck({
 })
 
 function MobileLifecycleTransition({
-  session,
+  sessionId,
+  transition,
   onEndAnyway,
   onResume,
   onHibernate,
 }: {
-  session: Pick<
-    SessionView,
-    'sessionId' | 'desired' | 'revision' | 'observedRevision' | 'lifecycleFailure'
-  >
+  sessionId: SessionView['sessionId']
+  transition: SessionTransition
   onEndAnyway(sessionId: SessionView['sessionId']): void
   onResume(sessionId: SessionView['sessionId']): void
   onHibernate(sessionId: SessionView['sessionId']): void
 }) {
-  const transition = sessionTransition(session)
-  if (transition === undefined) return null
-  const refused = transition.kind === 'refused'
-  const retry = !refused
-    ? undefined
-    : transition.desired === 'stopped'
-      ? { label: 'End anyway', run: () => onEndAnyway(session.sessionId) }
-      : transition.desired === 'running'
-        ? { label: 'Try again', run: () => onResume(session.sessionId) }
-        : { label: 'Try again', run: () => onHibernate(session.sessionId) }
+  const failed = transition.kind === 'refused' || transition.kind === 'resume-timeout'
+  const retry =
+    transition.kind === 'resume-timeout'
+      ? transition.retryable
+        ? { label: 'Try again', run: () => onResume(sessionId) }
+        : undefined
+      : transition.kind !== 'refused'
+        ? undefined
+        : transition.desired === 'stopped'
+          ? { label: 'End anyway', run: () => onEndAnyway(sessionId) }
+          : transition.desired === 'running'
+            ? { label: 'Try again', run: () => onResume(sessionId) }
+            : { label: 'Try again', run: () => onHibernate(sessionId) }
   return (
     <View
-      style={refused ? styles.offlineBanner : styles.transitionBanner}
-      testID={refused ? 'lifecycle-refused' : 'lifecycle-transition'}
-      accessibilityRole={refused ? 'alert' : 'text'}
+      style={failed ? styles.offlineBanner : styles.transitionBanner}
+      testID={failed ? 'lifecycle-refused' : 'lifecycle-transition'}
+      accessibilityRole={failed ? 'alert' : 'text'}
       accessibilityLiveRegion="polite"
     >
-      <Text style={refused ? styles.offlineText : styles.transitionText}>
+      <Text style={failed ? styles.offlineText : styles.transitionText}>
         {sessionTransitionLabel(transition)}
       </Text>
       {retry ? (

@@ -23,7 +23,7 @@ async function makeRegistry(
 ): Promise<{ reg: SessionRegistry; daemon: ControlMessage[] }> {
   const store = await openTestStore(':memory:')
   await store.machines.upsertMachine({
-    id: store.hostMachineId,
+    id: store.hostMachine!.id,
     name: 'test-host',
     hostname: 'test-host',
     tokenHash: 'test',
@@ -36,7 +36,7 @@ async function makeRegistry(
   await attachHostDaemon(reg, (m) => {
     daemon.push(m)
     if (m.type === 'runtimeLifecycleRequest')
-      void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'runtimeLifecycleResult',
         requestId: m.requestId,
         sessionId: m.sessionId,
@@ -52,7 +52,7 @@ async function bindLive(
   cwd: string,
   opts: { resume?: boolean } = {},
 ): Promise<void> {
-  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
     type: 'bind',
     sessionId,
     cmd: 'claude',
@@ -61,7 +61,7 @@ async function bindLive(
     geometry: { cols: 80, rows: 24 },
   })
   if (opts.resume !== false) {
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-1' },
@@ -217,7 +217,7 @@ describe('archive parks the session process [POD-108]', () => {
       daemon.push(m)
       reattached.push(m)
       if (m.type === 'runtimeLifecycleRequest')
-        void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
           type: 'runtimeLifecycleResult',
           requestId: m.requestId,
           sessionId: m.sessionId,

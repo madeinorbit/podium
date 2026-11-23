@@ -12,18 +12,20 @@ import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { SessionStore } from './store'
 import { PostCommitError } from './store/executor'
 import { attachHostDaemon } from './test-support/host-daemon'
+import { TEST_MACHINE_ID } from './test-support/machine-id'
 import { openTestStore } from './test-support/open-test-store'
 import { OPERATOR_PLANNER_STATISTICS } from './test-support/operator-planner-statistics'
 import { seedRows } from './test-support/seed-rows'
 import { sessionReadPorts } from './test-support/session-facts'
 
 async function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> = {}) {
-  const store = await openTestStore(':memory:')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
-  await store.repos.addRepo('/r', store.hostMachineId)
+  await store.repos.addRepo('/r', store.hostMachine!.id)
   const broadcast = vi.fn()
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
+    resolveMachine: async () => TEST_MACHINE_ID,
     store,
     ...sessionReadPorts(() => sessions),
     getSettings: async () =>
@@ -68,7 +70,7 @@ function withOperatorEventStatistics(db: ReturnType<typeof openDatabase>): void 
 
 describe('SessionStore event log', () => {
   it('appends a diagnostic once per kind and subject, atomically and after commit', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     const announced = vi.fn()
     await store.events.onAppend(announced)
     const diagnostic = {
@@ -108,7 +110,7 @@ describe('SessionStore event log', () => {
   })
 
   it('appendEvent/listEventsSince round-trips payloads and returns ascending ids', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     const id1 = await store.events.appendEvent({
       ts: 't1',
       kind: 'a',
@@ -135,7 +137,7 @@ describe('SessionStore event log', () => {
   })
 
   it('since-cursor returns only events after the cursor', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     const id1 = await store.events.appendEvent({ ts: 't1', kind: 'a', subject: 's' })
     const id2 = await store.events.appendEvent({ ts: 't2', kind: 'a', subject: 's' })
     expect((await store.events.listEventsSince(id1)).map((e) => e.id)).toEqual([id2])
@@ -143,7 +145,7 @@ describe('SessionStore event log', () => {
   })
 
   it('filters by kind list, repoPath, and honors limit', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     await store.events.appendEvent({ ts: 't', kind: 'a', subject: 's', repoPath: '/r1' })
     await store.events.appendEvent({ ts: 't', kind: 'b', subject: 's', repoPath: '/r2' })
     await store.events.appendEvent({ ts: 't', kind: 'c', subject: 's', repoPath: '/r1' })
@@ -159,7 +161,7 @@ describe('SessionStore event log', () => {
   // POD-532: the per-issue activity feed used to drain the whole repo log and
   // filter on `subject` in the browser. The filter belongs here.
   it('narrows to one subject, and returns every subject when omitted', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     await store.events.appendEvent({
       ts: 't1',
       kind: 'issue.created',
@@ -228,7 +230,7 @@ describe('SessionStore event log', () => {
   // POD-5832: a view that shows the last few things pages BACKWARD from the
   // newest row, one bounded page at a time, instead of draining from id 0.
   it('pages one subject newest first below a cursor, without bookkeeping kinds', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     const ids: number[] = []
     for (let n = 0; n < 7; n++)
       ids.push(
@@ -280,7 +282,7 @@ describe('SessionStore event log', () => {
   })
 
   it('reads a kind window with the last prior value for step-function consumers', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     await store.events.appendEvent({
       ts: '2026-08-06T09:00:00.000Z',
       kind: 'fleet',
@@ -323,7 +325,7 @@ describe('SessionStore event log', () => {
    * because the bound is the reason those rows are left alone.
    */
   it('scopes the per-subject window to one kind and carries in at most one prior row', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     const since = '2026-08-31T12:00:00.000Z'
     for (const row of [
       // Two candidates for the carried-in slot — only the newest may come back.
@@ -363,7 +365,7 @@ describe('SessionStore grouped event appends (POD-6233)', () => {
   })
 
   it('writes the appends of one moment in one commit, in call order, announced after it', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     // What the log holds when each row is announced. An autocommit append is
     // announced right after its own insert, before the next one exists.
     const visibleAtAnnouncement: number[] = []
@@ -388,7 +390,7 @@ describe('SessionStore grouped event appends (POD-6233)', () => {
   })
 
   it('joins an open span instead of grouping, so a rollback discards the row', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     await expect(
       store.transact(async () => {
         await store.events.appendEventGrouped(row('s1'))
@@ -401,7 +403,7 @@ describe('SessionStore grouped event appends (POD-6233)', () => {
   })
 
   it('rejects every append of a group that fails, and writes the next group', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     const failed = await Promise.allSettled([
       store.events.appendEventGrouped(row('s1')),
       // Not serializable: the group's transaction rolls back.
@@ -415,7 +417,7 @@ describe('SessionStore grouped event appends (POD-6233)', () => {
   })
 
   it('is not stalled by a test that fakes timers', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     vi.useFakeTimers()
     try {
       expect(await store.events.appendEventGrouped(row('s1'))).toBeTypeOf('number')
@@ -426,7 +428,7 @@ describe('SessionStore grouped event appends (POD-6233)', () => {
   })
 
   it('writes a pending group before the store closes', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     const appended = store.events.appendEventGrouped(row('s1'))
     await store.events.settleGroupedAppends()
     expect(await appended).toBeTypeOf('number')
@@ -452,7 +454,7 @@ describe('SessionStore event log retention', () => {
   }
 
   it('deletes rows older than maxAgeDays and returns the deleted count', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     await store.events.appendEvent({ ts: daysAgo(30), kind: 'old', subject: 's' })
     await store.events.appendEvent({ ts: daysAgo(20), kind: 'old', subject: 's' })
     const keep = await store.events.appendEvent({ ts: daysAgo(1), kind: 'new', subject: 's' })
@@ -461,7 +463,7 @@ describe('SessionStore event log retention', () => {
   })
 
   it('row cap deletes the oldest rows beyond maxRows even when young', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     const ids: number[] = []
     for (let i = 0; i < 5; i++) {
       ids.push(await store.events.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' }))
@@ -471,7 +473,7 @@ describe('SessionStore event log retention', () => {
   })
 
   it('bounds each delete unit before the retention owner starts another', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     for (let i = 0; i < 5; i++) {
       await store.events.appendEvent({ ts: daysAgo(30), kind: 'old', subject: 's' })
     }
@@ -483,7 +485,7 @@ describe('SessionStore event log retention', () => {
   })
 
   it('a cursor pointing into a pruned range still works — returns only retained rows', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     const id1 = await store.events.appendEvent({ ts: daysAgo(30), kind: 'k', subject: 's' })
     const id2 = await store.events.appendEvent({ ts: daysAgo(30), kind: 'k', subject: 's' })
     const id3 = await store.events.appendEvent({ ts: daysAgo(1), kind: 'k', subject: 's' })
@@ -497,7 +499,7 @@ describe('SessionStore event log retention', () => {
   })
 
   it('maxEventId tracks the newest retained row; ids never rewind after a full prune', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     await store.events.appendEvent({ ts: daysAgo(30), kind: 'k', subject: 's' })
     const top = await store.events.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' })
     await pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100 })
@@ -511,7 +513,7 @@ describe('SessionStore event log retention', () => {
   })
 
   it('returns 0 when nothing qualifies for pruning', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     await store.events.appendEvent({ ts: daysAgo(1), kind: 'k', subject: 's' })
     expect(await pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100 })).toBe(0)
   })
@@ -998,7 +1000,7 @@ describe('SessionRegistry session.phase events', () => {
     ({ phase, since: 't', nativeSubagentCount: 0, ...(idle ? { idle } : {}) }) as never
 
   it('skips the prev-undefined seed and logs only real phase transitions', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     try {
       await attachHostDaemon(reg, () => {})
@@ -1007,7 +1009,7 @@ describe('SessionRegistry session.phase events', () => {
         cwd: '/proj',
       })
       // First state after boot/spawn: prev is undefined → no phantom row.
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'agentState',
         sessionId,
         state: st('working'),
@@ -1015,13 +1017,13 @@ describe('SessionRegistry session.phase events', () => {
       // The phase rows are written in a group after the frame (POD-6233).
       await store.events.settleGroupedAppends()
       expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'agentState',
         sessionId,
         state: st('idle', { kind: 'question' }),
       })
       // Same-phase refresh → no second row.
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'agentState',
         sessionId,
         state: st('idle'),

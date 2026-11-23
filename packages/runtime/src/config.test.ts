@@ -274,7 +274,7 @@ describe('layered resolvers (#251): env → config.json → default', () => {
     ).toBe('stable')
     expect(resolveUpdateChannel({}, {})).toBe('stable')
   })
-  it('resolveFeatureOverrides: config.features only (no env layer) [spec:SP-f4b9]', () => {
+  it('resolveFeatureOverrides: config.features only (no env layer)', () => {
     expect(resolveFeatureOverrides({})).toEqual({})
     expect(resolveFeatureOverrides({ features: { 'sample-experiment': true } })).toEqual({
       'sample-experiment': true,

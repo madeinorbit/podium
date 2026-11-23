@@ -58,7 +58,7 @@ const durableSends = (daemon: ControlMessage[], sessionId: SessionId): DurableSe
 
 /** The daemon takes custody of a durable row, as a real one does. Not delivery. */
 const grantCustody = (o: Awaited<ReturnType<typeof makeOracle>>, send: DurableSendRequest) =>
-  o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'runtimeSendResult',
     requestId: send.requestId,
     sessionId: send.sessionId,
@@ -72,7 +72,7 @@ const grantCustody = (o: Awaited<ReturnType<typeof makeOracle>>, send: DurableSe
 
 /** Bind a claude-code session live and idle so a send is accepted for delivery. */
 async function goIdle(o: Awaited<ReturnType<typeof makeOracle>>, sessionId: string): Promise<void> {
-  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'bind',
     sessionId: asSessionId(sessionId),
     cmd: 'claude',
@@ -80,7 +80,7 @@ async function goIdle(o: Awaited<ReturnType<typeof makeOracle>>, sessionId: stri
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
-  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'agentState',
     sessionId: asSessionId(sessionId),
     state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -193,7 +193,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
   it(`${MUST_NOT_CHANGE}: sessions.setIssueId dedupes its replay`, async () => {
     const o = await makeOracle()
     // Issues are placed on a machine that reported their repo (2b803efb5).
-    await o.store.repos.addRepo('/p', o.store.hostMachineId)
+    await o.store.repos.addRepo('/p', o.store.hostMachine!.id)
     const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
       repoPath: '/p',
       title: 'target',
@@ -487,7 +487,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
   it(`${MUST_NOT_CHANGE}: a replayed send does not double-type into the PTY (a plain shell, the one session the server still types for)`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'bash',

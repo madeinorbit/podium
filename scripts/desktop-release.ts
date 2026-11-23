@@ -1,7 +1,6 @@
 /**
  * Prepare signed Tauri updater artifacts and one static multi-platform manifest for an
  * explicitly promoted stable or edge desktop release. This script never publishes.
- * [spec:SP-7f2c]
  */
 import {
   copyFileSync,

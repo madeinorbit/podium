@@ -13,7 +13,7 @@ import { feedDelta } from './test-support/feed-delta'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 
-// Agent action offer [spec:SP-c7f1] — service-level set/replace/clear, meta
+// Agent action offer — service-level set/replace/clear, meta
 // surfacing, persistence across a restart, and clear-on-turn (queue path).
 
 const tmpDirs: string[] = []
@@ -41,7 +41,7 @@ async function metaOffer(reg: SessionRegistry, sessionId: string) {
   )?.offer
 }
 
-describe('agent action offer [spec:SP-c7f1]', () => {
+describe('agent action offer', () => {
   it('setOffer surfaces on session meta with a createdAt; a second offer replaces it', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {})
@@ -604,7 +604,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('entering working after the user typed into the PTY consumes it', async () => {
       const { reg, sessionId, createdAt } = await seed()
       await typeIntoPty(reg, sessionId, createdAt)
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'agentState',
         sessionId,
         state: working(plusMinute(createdAt)),
@@ -614,7 +614,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
     it('a forced turn with NO user input (stop-hook/mail wake) preserves it [POD-118]', async () => {
       const { reg, sessionId, createdAt } = await seed()
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'agentState',
         sessionId,
         state: working(plusMinute(createdAt)),
@@ -625,7 +625,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('a boot replay of the turn that produced the offer (older event-time) leaves it', async () => {
       const { reg, sessionId, createdAt } = await seed()
       await typeIntoPty(reg, sessionId, createdAt)
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'agentState',
         sessionId,
         state: working(minusMinute(createdAt)),
@@ -637,7 +637,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       const { reg, sessionId, createdAt } = await seed()
       await typeIntoPty(reg, sessionId, createdAt)
       // Turn end after the offer — the offer is exactly for this moment.
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'agentState',
         sessionId,
         state: idle(plusMinute(createdAt)),
@@ -645,7 +645,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       expect((await metaOffer(reg, sessionId))?.message).toBe(OFFER.message)
       // working → working (hook updates mid-turn) never re-triggers: only the
       // ENTRY into working counts, so an offer set mid-turn survives its turn.
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'agentState',
         sessionId,
         state: working(plusMinute(createdAt)),
@@ -655,7 +655,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
         ...OFFER,
       })
       await typeIntoPty(reg, sessionId, createdAt)
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'agentState',
         sessionId,
         state: working(plusMinute(plusMinute(createdAt))),
@@ -683,7 +683,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       const createdAt = (await metaOffer(reg, sessionId))?.createdAt as string
       const provider = agentKind === 'claude-code' ? ('claude-code' as const) : ('codex' as const)
       const observe = (observation: AgentObservation) =>
-        reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
           type: 'agentObservation',
           observation,
         })
@@ -935,7 +935,7 @@ describe('offer retirement across awaited owner notification', () => {
         await released
       })
       transition = reg.modules.sessions.onSessionDaemonFrame(
-        inProcessMachinePrincipal(reg.sessionStore.hostMachineId),
+        inProcessMachinePrincipal(reg.sessionStore.hostMachine!.id),
         {
           type: 'agentState',
           sessionId,

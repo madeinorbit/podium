@@ -262,7 +262,7 @@ category error as collapsing the pair, which is why a field name is not evidence
   code-**path** label, not a person, so "we record `deletion_source`, therefore deletion is
   attributed" was false.
 - `SessionNaming.namedBy` — `nameSource` is a **role class** (`'user' | 'agent'`), not a person, even
-  though [spec:SP-eb60]'s rule that a human-set name outranks an agent-set one depends on it.
+  though rule that a human-set name outranks an agent-set one depends on it.
 
 All three now nest the timestamp inside the object carrying the actor, so a half-filled value does not
 typecheck. Those two are session-side and belong to POD-366/POD-365; recorded here because the class

@@ -227,6 +227,7 @@ export function queuePositionSuffix(position: number | undefined): string {
 export function queuedDeliveryLabel(
   session: SessionView | SessionModel | undefined,
   position?: number,
+  resumeTimedOut = false,
 ): string {
   const error = queueIsBlocked(session)
     ? session && 'agentError' in session
@@ -237,9 +238,13 @@ export function queuedDeliveryLabel(
     const instruction = agentErrorRecoveryInstruction(error).replace(/\.$/, '')
     return `blocked · ${formatAgentError(error)} — ${instruction} to send${queuePositionSuffix(position)}`
   }
-  const label = sessionWaking(session)
-    ? 'pending · sends once the agent is up'
-    : 'pending · sends after this turn'
+  const parked = session?.status === 'hibernated' || session?.status === 'exited'
+  const label =
+    !resumeTimedOut && sessionWaking(session)
+      ? 'pending · sends once the agent is up'
+      : parked || resumeTimedOut
+        ? 'pending · sends when the session resumes'
+        : 'pending · sends after this turn'
   return `${label}${queuePositionSuffix(position)}`
 }
 
@@ -299,6 +304,7 @@ export function processPosition(
  */
 export interface TranscriptFeedProps {
   chat?: ChatSurface
+  resumeTimedOut?: boolean
 
   setScrollerRef: RefCallback<HTMLDivElement>
   setContentRef: RefCallback<HTMLDivElement>
@@ -781,7 +787,11 @@ export const TranscriptFeed = observer(function TranscriptFeed(
                               ) : waiting ? (
                                 <span className="transcript-delivery">
                                   {p.record || queueIsBlocked(session)
-                                    ? queuedDeliveryLabel(session, p.queuePosition)
+                                    ? queuedDeliveryLabel(
+                                        session,
+                                        p.queuePosition,
+                                        props.resumeTimedOut,
+                                      )
                                     : `pending${queuePositionSuffix(p.queuePosition)}`}
                                 </span>
                               ) : null}

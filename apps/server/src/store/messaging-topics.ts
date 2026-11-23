@@ -1,6 +1,6 @@
 // workspace-scoped (POD-6959)
 /**
- * Telegram forum-topic bindings [spec:SP-5d81] — persists issueId ↔ threadRef
+ * Telegram forum-topic bindings — persists issueId ↔ threadRef
  * ↔ superagent thread for the messaging bridge across restarts.
  */
 

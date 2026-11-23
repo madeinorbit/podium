@@ -87,7 +87,7 @@ const MAIL_ATTRIBUTION: AttributionPolicy = {
     'on-behalf-of are ACCOUNTABILITY, answering "who is answerable". Folding them together makes ' +
     '`from` ambiguous exactly where the product depends on it being unambiguous: `issue:#12` would ' +
     'name either the agent that wrote the row or the human it acted for, and the human-outranks-' +
-    'agent rules ([spec:SP-eb60] nameSource, server-authoritative humanQuestionAskedBy) exist ' +
+    'agent rules (nameSource, server-authoritative humanQuestionAskedBy) exist ' +
     'precisely so that question stays answerable. Recorded now because a wire shape is cheap ' +
     'before the POD-308 cutover and expensive after it. The KEYS are reserved here; the values ' +
     "arrive with POD-1075's User aggregate, which is what gives on-behalf-of something to hold — " +

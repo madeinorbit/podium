@@ -2,10 +2,11 @@ import { asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { systemPrincipal, userCommandPrincipal } from '../../../command-principal'
+import { TEST_MACHINE_ID } from '../../../test-support/machine-id'
 import { openTestStore } from '../../../test-support/open-test-store'
+import { sessionReadPorts } from '../../../test-support/session-facts'
 import { type IssueDeps, IssueService } from './index'
 import { issueTestPlumbing } from './test-plumbing'
-import { sessionReadPorts } from '../../../test-support/session-facts'
 
 /**
  * `addComment` must never invent a caller identity (POD-1315).
@@ -31,11 +32,12 @@ import { sessionReadPorts } from '../../../test-support/session-facts'
  */
 
 async function harness() {
-  const store = await openTestStore(':memory:')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   // An issue is placed under a machine that REPORTED its repo (2b803efb5).
-  await store.repos.addRepo('/r', store.hostMachineId)
+  await store.repos.addRepo('/r', TEST_MACHINE_ID)
   const broadcast = vi.fn()
   const deps: IssueDeps = {
+    resolveMachine: async () => TEST_MACHINE_ID,
     store,
     ...sessionReadPorts(() => []),
     getSettings: async () =>
@@ -46,13 +48,20 @@ async function harness() {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({
+      sessionId: asSessionId('s1'),
+      machine: 'machine-under-test',
+    })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing((msg) => broadcast(msg), { store }),
     now: () => '2026-06-30T00:00:00.000Z',
   }
   const svc = await IssueService.create(deps)
-  const issue = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+  const issue = await svc.crud.create(svc.reports.store.serverWriter, {
+    repoPath: '/r',
+    title: 'A',
+    startNow: false,
+  })
   return { store, svc, issue }
 }
 
@@ -76,16 +85,32 @@ async function _addCommentRefusesAnUnnamedCaller(svc: IssueService, id: string):
   // @ts-expect-error POD-1315: omitting the principal must not compile. If this
   // directive is reported unused, a default has come back — restore the fix, do
   // not delete the directive.
-  await svc.commentsMail.addComment(svc.reports.store.serverWriter, id, 'mike', 'no principal named')
+  await svc.commentsMail.addComment(
+    svc.reports.store.serverWriter,
+    id,
+    'mike',
+    'no principal named',
+  )
 
   // @ts-expect-error POD-1315: same guard one layer down. `IssueService` is an
   // INTERSECTION that includes this module's signature, so leaving the module's
   // parameter optional would keep 3-argument calls legal even with the facade's
   // default removed. Both surfaces are pinned deliberately.
-  await svc.commentsMail.addComment(svc.reports.store.serverWriter, id, 'mike', 'no principal named')
+  await svc.commentsMail.addComment(
+    svc.reports.store.serverWriter,
+    id,
+    'mike',
+    'no principal named',
+  )
 
-  // @ts-expect-error POD-1315: an optional parameter would accept this too.
-  await svc.commentsMail.addComment(svc.reports.store.serverWriter, id, 'mike', 'explicitly nobody', undefined)
+  await svc.commentsMail.addComment(
+    svc.reports.store.serverWriter,
+    id,
+    'mike',
+    'explicitly nobody',
+    // @ts-expect-error POD-1315: an optional parameter would accept this too.
+    undefined,
+  )
 }
 void _addCommentRefusesAnUnnamedCaller
 
@@ -97,16 +122,16 @@ void _addCommentRefusesAnUnnamedCaller
  */
 async function _gitWorkflowRefusesAnUnnamedCaller(svc: IssueService, id: string): Promise<void> {
   // @ts-expect-error POD-1344: cleanup without a principal must not compile.
-  void await svc.gitWorkflow.cleanup(id)
+  void (await svc.gitWorkflow.cleanup(id))
 
   // @ts-expect-error POD-1344: integrate without a principal must not compile.
-  void await svc.gitWorkflow.integrate(id)
+  void (await svc.gitWorkflow.integrate(id))
 
   // @ts-expect-error POD-1344: freeWorktreeKeepBranch without a principal must not compile.
-  void await svc.gitWorkflow.freeWorktreeKeepBranch(id)
+  void (await svc.gitWorkflow.freeWorktreeKeepBranch(id))
 
   // @ts-expect-error POD-1344: an explicit undefined is still not a principal.
-  void await svc.gitWorkflow.cleanup(id, undefined)
+  void (await svc.gitWorkflow.cleanup(id, undefined))
 }
 void _gitWorkflowRefusesAnUnnamedCaller
 
@@ -116,7 +141,13 @@ describe('addComment requires an explicit principal', () => {
     const alice = asUserId('user:alice')
     expect(alice).not.toBe(firstAdminMemberId())
 
-    await svc.commentsMail.addComment(svc.reports.store.serverWriter, issue.id, 'alice', 'my note', userCommandPrincipal(alice, 'member'))
+    await svc.commentsMail.addComment(
+      svc.reports.store.serverWriter,
+      issue.id,
+      'alice',
+      'my note',
+      userCommandPrincipal(alice, 'member'),
+    )
 
     const [comment] = await store.issues.listIssueComments(issue.id)
     expect(comment?.actor).toBe(alice)
@@ -126,7 +157,13 @@ describe('addComment requires an explicit principal', () => {
   it('stamps a system job as a system actor with no human behind it', async () => {
     const { store, svc, issue } = await harness()
 
-    await svc.commentsMail.addComment(svc.reports.store.serverWriter, issue.id, 'system:cleanup', 'freed the worktree', systemPrincipal('cleanup'))
+    await svc.commentsMail.addComment(
+      svc.reports.store.serverWriter,
+      issue.id,
+      'system:cleanup',
+      'freed the worktree',
+      systemPrincipal('cleanup'),
+    )
 
     const [comment] = await store.issues.listIssueComments(issue.id)
     // Visibly a job, not a person — and `onBehalfOf` stays null rather than
@@ -138,7 +175,8 @@ describe('addComment requires an explicit principal', () => {
   it('always records attribution — a comment can no longer land anonymously', async () => {
     const { store, svc, issue } = await harness()
 
-    await svc.commentsMail.addComment(svc.reports.store.serverWriter,
+    await svc.commentsMail.addComment(
+      svc.reports.store.serverWriter,
       issue.id,
       'mike',
       'attributed',

@@ -251,7 +251,7 @@ export class NotifyService {
 
   /**
    * Push a notice to the configured EXTERNAL targets (ntfy / Telegram) — the
-   * delivery behind a subscription's "Notify" switch (#470) [spec:SP-17db], which
+   * delivery behind a subscription's "Notify" switch (#470), which
    * until now wrote a `steward.notify` event nobody read.
    *
    * Two deliberate differences from notifyAttention:

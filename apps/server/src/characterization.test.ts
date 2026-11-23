@@ -81,7 +81,7 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     expect(daemon1).toContainEqual(
       expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/proj' }),
     )
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bind(sessionId))
 
     // A client attached from the start observes everything live.
     const witness = sink()
@@ -98,7 +98,7 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     // Three frames before the disconnect. The daemon bridge seq (0,1,2) is
     // IGNORED: the server assigns its own monotonic seq starting at 0.
     for (const [i, data] of (['QQ==', 'Qg==', 'Qw=='] as const).entries()) {
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'agentFrame',
         sessionId,
         seq: i,
@@ -108,18 +108,18 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
 
     // Daemon connection drops: the session stays live (not exited) and reads as
     // reconnecting from the machine's link (ADR 12 D1).
-    reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
+    reg.gateway.detachDaemon(reg.sessionStore.hostMachine!.id)
     expect(
       (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
         (s) => s.sessionId === sessionId,
       )?.status,
     ).toBe('live')
-    expect(reg.modules.machines.hasDaemon(reg.sessionStore.hostMachineId)).toBe(false)
+    expect(reg.modules.machines.hasDaemon(reg.sessionStore.hostMachine!.id)).toBe(false)
 
     // A new daemon connection reattaches; bind promotes the session back to live.
     const daemon2: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => daemon2.push(m))
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bind(sessionId))
     expect(
       (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
         (s) => s.sessionId === sessionId,
@@ -129,13 +129,13 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     // Post-reconnect frames arrive with the bridge seq RESET to 0 (that is what a
     // fresh PTY bridge does). A single-frame batch remains one server frame; a
     // multi-frame batch is byte-concatenated under one server seq (POD-1002).
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'agentFrame',
       sessionId,
       seq: 0,
       data: 'RA==',
     })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'agentFrameBatch',
       sessionId,
       frames: ['RQ=='],
@@ -172,7 +172,7 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
         epoch: 0,
       })
       expect(late.sent.filter((message) => message.type === 'outputFrame')).toEqual([])
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
         type: 'agentFrameBatch',
         sessionId,
         frames: ['Rg=='],
@@ -247,7 +247,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
     registries.push(reg)
     // An issue's repo resolves only through a machine that reported it (2b803efb5);
     // the one host reports it, identically in all three runs.
-    await reg.sessionStore.repos.addRepo('/repo', reg.sessionStore.hostMachineId)
+    await reg.sessionStore.repos.addRepo('/repo', reg.sessionStore.hostMachine!.id)
     // A delta-cap client so the broadcast pipeline runs the full oplog path in
     // all three runs identically.
     const c = sink()
@@ -383,7 +383,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
 describe('characterization: closed-state normalization (contract 2, issue #24)', () => {
   it('a bare closedReason patch moves the stage to done (#24)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
+    await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachine!.id)
     try {
       const w = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
         repoPath: '/r',
@@ -421,7 +421,7 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
 
   it('reopening via a stage patch clears closedReason — a REAL reopen (#24)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
+    await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachine!.id)
     try {
       const w = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
         repoPath: '/r',
@@ -454,7 +454,7 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
 
   it('re-closing after a stage reopen emits a SECOND issue.closed event (#24)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
+    await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachine!.id)
     try {
       const w = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
         repoPath: '/r',
@@ -687,7 +687,7 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
 
   it('scope violations are PRECONDITION_FAILED, role denials are FORBIDDEN, operator passes — identically via the middleware and the in-proc mailClaim check', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
+    await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachine!.id)
     try {
       const op = appRouter.createCaller({
         registry: reg,

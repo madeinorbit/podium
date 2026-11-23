@@ -1,6 +1,6 @@
 /**
  * THE CURATED SESSION NAME SLOT AND ITS PROVENANCE (POD-1396, from POD-1385's
- * god-object audit). [spec:SP-eb60] [spec:SP-4ef9]
+ * god-object audit).
  *
  * One rule, and it is the whole reason this is a module rather than two
  * setters: **a user-set name is sovereign.** `nameSource` records who wrote the

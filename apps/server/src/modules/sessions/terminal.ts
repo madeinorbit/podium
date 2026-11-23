@@ -393,8 +393,7 @@ export class SessionTerminal {
   /**
    * Last input a PERSON is responsible for — raw keystrokes and controller
    * sends (chat, offer buttons), but not mail delivery, stop-hook continues,
-   * steward or automation wakes. The offer staleness rule [spec:SP-c7f1,
-   * POD-118] needs that distinction for the harnesses whose observers report
+   * steward or automation wakes. The offer staleness rule needs that distinction for the harnesses whose observers report
    * no input origin of their own.
    */
   get lastUserInputAtMs(): number {

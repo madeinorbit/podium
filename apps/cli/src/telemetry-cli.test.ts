@@ -1,5 +1,5 @@
 /**
- * `podium telemetry` tests [spec:SP-f933].
+ * `podium telemetry` tests.
  */
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'

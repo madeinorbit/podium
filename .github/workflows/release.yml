@@ -57,7 +57,7 @@ concurrency:
   group: headless-release-${{ github.event_name == 'workflow_dispatch' && inputs.channel || (contains(github.ref_name, '-edge.') && 'edge' || github.ref_name) }}
   cancel-in-progress: false
 jobs:
-  # ONE LINUX JOB, FOUR PLATFORMS [spec:SP-6144 section 8b].
+  # ONE LINUX JOB, FOUR PLATFORMS.
   #
   # This used to be a matrix — x64 on Blacksmith Ubuntu, arm64 on a native ARM runner —
   # because the compiled daemon embeds native helpers and each helper had to be built on

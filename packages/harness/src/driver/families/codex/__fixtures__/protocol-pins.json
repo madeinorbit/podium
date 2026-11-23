@@ -6,6 +6,8 @@
     "clientRequests": [
       "initialize",
       "getAuthStatus",
+      "config/read",
+      "model/list",
       "thread/start",
       "thread/resume",
       "thread/name/set",

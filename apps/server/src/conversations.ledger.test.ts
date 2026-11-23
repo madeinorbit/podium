@@ -22,7 +22,7 @@ import { seedRows } from './test-support/seed-rows'
 import type { WriteContexts } from './write-contexts'
 
 /**
- * Conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257 — the LAST
+ * Conversation writes on the write-seam Ledger (#257 — the LAST
  * entity kind; after this the legacy diff-at-broadcast oplog records nothing):
  * discovery upserts/deletes commit atomically with their store writes (the
  * store's own transaction() spans nest as savepoints), volatile-field churn
@@ -53,7 +53,7 @@ describe('conversation rows are written only inside their commit (ADR 12 D9)', (
   })
 })
 
-describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', () => {
+describe('conversation writes on the write-seam Ledger (#257)', () => {
   const registries: SessionRegistry[] = []
   afterEach(async () => {
     for (const r of registries.splice(0)) await r.dispose()
@@ -170,7 +170,12 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     // Seed one row so the delete half of the batch has something to bite on.
     await seedRows(store, () =>
       store.conversations.index.upsert(fixtureWriteScope(), [
-        { id: 'c-old', agentKind: 'claude-code', providerId: 'p', machineId: store.hostMachineId },
+        {
+          id: 'c-old',
+          agentKind: 'claude-code',
+          providerId: 'p',
+          machineId: store.hostMachine!.id,
+        },
       ]),
     )
     const cursorBefore = await ledger.cursor()
@@ -185,10 +190,10 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
               id: 'c-new',
               agentKind: 'claude-code',
               providerId: 'p',
-              machineId: store.hostMachineId,
+              machineId: store.hostMachine!.id,
             },
           ])
-          await store.conversations.index.delete(fixtureWriteScope(), store.hostMachineId, [
+          await store.conversations.index.delete(fixtureWriteScope(), store.hostMachine!.id, [
             'c-old',
           ])
           throw new Error('write failed after the store writes')
@@ -208,10 +213,12 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
             id: 'c-new',
             agentKind: 'claude-code',
             providerId: 'p',
-            machineId: store.hostMachineId,
+            machineId: store.hostMachine!.id,
           },
         ])
-        await store.conversations.index.delete(fixtureWriteScope(), store.hostMachineId, ['c-old'])
+        await store.conversations.index.delete(fixtureWriteScope(), store.hostMachine!.id, [
+          'c-old',
+        ])
       },
     })
     const after = (await store.conversations.index.search({})).map((r) => r.id)

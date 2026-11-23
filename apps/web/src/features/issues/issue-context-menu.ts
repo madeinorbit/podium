@@ -23,7 +23,7 @@ export type IssueHandoff<M> =
   | { blocker: IssueHandoffBlocker }
 
 /**
- * The issue-row handoff picture ([spec:SP-3f7a], POD-850). Picks the issue's
+ * The issue-row handoff picture (, POD-850). Picks the issue's
  * single agent (claude/codex) session as the handoff subject and returns its
  * full `handoffAvailability`, or an issue-level reason when there is no single
  * subject to move. The menu ALWAYS shows Handoff and states its case — a hidden

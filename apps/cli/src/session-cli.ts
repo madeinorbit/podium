@@ -35,7 +35,7 @@ type SessionQuery = { query(input: Record<string, unknown>): Promise<unknown> }
  *  already named it) comes back as ok:false + reason, not as a thrown error. */
 type TitleResult = { ok: boolean; name?: string; reason?: string }
 
-/** `sessions.stop` [spec:SP-9904]: clean end; free worktree, keep branch. */
+/** `sessions.stop`: clean end; free worktree, keep branch. */
 type StopResult = {
   ok: boolean
   reason?: string
@@ -48,14 +48,14 @@ export interface SessionControlClient extends SyncSubmitTransport {
     sendText: SessionProc
     resumeAndSend: SessionProc
     continue: SessionProc
-    /** Read toolkit tiers 1–4 (#237) [spec:SP-34d7]. */
+    /** Read toolkit tiers 1–4 (#237). */
     status: SessionQuery
     read: SessionQuery
     recap: SessionQuery
     ask: { mutate(input: Record<string, unknown>): Promise<unknown> }
     /** Self-titling (#490) — no sessionId: the server binds the CALLING session. */
     title: { mutate(input: Record<string, unknown>): Promise<TitleResult> }
-    /** Clean end [spec:SP-9904] — no sessionId = stop the CALLING session. */
+    /** Clean end — no sessionId = stop the CALLING session. */
     stop: { mutate(input: Record<string, unknown>): Promise<StopResult> }
     /** Move a live session to another machine (POD-1386/POD-1424 exposing POD-642's
      *  `sessions.handoff`). Takes a `machineId`; the CLI resolves the name. */
@@ -301,7 +301,7 @@ export async function runSessionCli(
       : `session titled "${r.name ?? title}"`
   }
 
-  // `podium session stop [<id>]` [spec:SP-9904] — no id = stop the CALLING session.
+  // `podium session stop [<id>]` — no id = stop the CALLING session.
   if (command === 'stop') {
     if (positionals.length > 1) throw new SessionCliError(`unexpected argument: ${positionals[1]}`)
     const sessionId = positionals[0]
@@ -376,7 +376,7 @@ export async function runSessionCli(
       : `handed ${sessionId} to ${selector}${r.newCwd ? ` — now at ${r.newCwd}` : ''}`
   }
 
-  // Read toolkit tiers 1–2 (#237) [spec:SP-34d7].
+  // Read toolkit tiers 1–2 (#237).
   if (command === 'status') {
     const s = (await client.sessions.status.query({ ref: sessionId })) as StatusWire
     return args.json === true ? JSON.stringify({ command, ok: true, data: s }) : renderStatus(s)
@@ -392,7 +392,7 @@ export async function runSessionCli(
     })) as SessionReadResult
     return args.json === true ? JSON.stringify({ command, ok: true, data: r }) : renderRead(r)
   }
-  // Tier 3 (#237) [spec:SP-34d7 read-toolkit]: delta-priced server-side recap.
+  // Tier 3 (#237): delta-priced server-side recap.
   if (command === 'recap') {
     const r = (await client.sessions.recap.query({
       sessionId,
@@ -400,7 +400,7 @@ export async function runSessionCli(
     })) as SessionRecapResult
     return args.json === true ? JSON.stringify({ command, ok: true, data: r }) : renderRecap(r)
   }
-  // Tier 4 (#237) [spec:SP-34d7 read-toolkit]: the seance.
+  // Tier 4 (#237): the seance.
   if (command === 'ask') {
     const question = args.question
     if (typeof question !== 'string' || question.length === 0) {

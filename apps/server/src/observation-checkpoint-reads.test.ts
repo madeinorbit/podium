@@ -17,9 +17,18 @@ import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 
 const at = (second: number) => `2026-07-18T12:00:${String(second).padStart(2, '0')}.000Z`
-const idle: AgentRuntimeState = { phase: 'idle', since: at(10), workingMsTotal: 0, nativeSubagentCount: 0 }
+const idle: AgentRuntimeState = {
+  phase: 'idle',
+  since: at(10),
+  workingMsTotal: 0,
+  nativeSubagentCount: 0,
+}
 
-const snapshot = (sessionId: SessionId, generation: number, providerSessionId: string): AgentObservation => ({
+const snapshot = (
+  sessionId: SessionId,
+  generation: number,
+  providerSessionId: string,
+): AgentObservation => ({
   podiumSessionId: sessionId,
   provider: 'codex',
   providerSessionId,
@@ -43,7 +52,7 @@ const snapshot = (sessionId: SessionId, generation: number, providerSessionId: s
 
 async function boundSession(reg: SessionRegistry, cwd: string): Promise<SessionId> {
   const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd })
-  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
     type: 'bind',
     sessionId,
     cmd: 'codex',
@@ -51,7 +60,7 @@ async function boundSession(reg: SessionRegistry, cwd: string): Promise<SessionI
     agentKind: 'codex',
     geometry: { cols: 80, rows: 24 },
   } as never)
-  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
     type: 'sessionResumeRef',
     sessionId,
     resume: { kind: 'codex-thread', value: 'thread-1' },
@@ -76,7 +85,7 @@ describe('observation checkpoint reads', () => {
       bindingVersion: 1,
       checkpoint: null,
     })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'agentObservation',
       observation: snapshot(sessionId, 1, 'thread-1'),
     })
@@ -85,7 +94,7 @@ describe('observation checkpoint reads', () => {
     })
 
     // Resumed onto a new provider thread: the rebind reads the lease it fences.
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'agentObservationRebind',
       sessionId,
       provider: 'codex',
@@ -97,7 +106,11 @@ describe('observation checkpoint reads', () => {
       rebindId: 'rebind-1',
     })
     const rebound = await store.observationCheckpoints.get(sessionId)
-    expect(rebound).toMatchObject({ providerSessionId: 'thread-2', observationGeneration: 2, bindingVersion: 2 })
+    expect(rebound).toMatchObject({
+      providerSessionId: 'thread-2',
+      observationGeneration: 2,
+      bindingVersion: 2,
+    })
 
     // Torn down: hibernation keeps the lease as it was.
     expect(await reg.modules.sessions.hibernateSession({ sessionId })).toMatchObject({ ok: true })
@@ -105,13 +118,16 @@ describe('observation checkpoint reads', () => {
 
     // Rebooted: boot restores the agent state from the stored checkpoint.
     const sessionB = await boundSession(reg, '/other')
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'agentObservation',
       observation: snapshot(sessionB, 1, 'thread-1'),
     })
     await reg.dispose()
     const restarted = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    expect((await sessionOf(restarted, sessionB))?.agentState).toMatchObject({ phase: 'idle', since: at(10) })
+    expect((await sessionOf(restarted, sessionB))?.agentState).toMatchObject({
+      phase: 'idle',
+      since: at(10),
+    })
 
     await restarted.dispose()
     await store.close()
@@ -128,7 +144,7 @@ describe('observation checkpoint reads', () => {
     // longer authored by the fenced process, so it is ignored. (The deleted
     // in-memory book still held generation 1 here and accepted it.)
     await store.observationCheckpoints.advanceGeneration(sessionId, 'codex', null)
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'agentExit',
       sessionId,
       code: 0,

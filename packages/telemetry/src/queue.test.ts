@@ -1,5 +1,5 @@
 /**
- * Queue tests [spec:SP-f933]. Two properties matter: the file is readable text
+ * Queue tests. Two properties matter: the file is readable text
  * the user can audit, and it is bounded — an air-gapped install queues forever
  * and must never grow without limit in someone's state dir.
  */

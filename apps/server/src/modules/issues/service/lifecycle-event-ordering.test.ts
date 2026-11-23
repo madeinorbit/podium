@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../../relay'
+import { TEST_MACHINE_ID } from '../../../test-support/machine-id'
 import { openTestStore } from '../../../test-support/open-test-store'
 
 /**
@@ -41,9 +42,9 @@ describe('issue delete/restore events commit with the row (POD-3505)', () => {
   })
 
   async function build() {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     // Issues are placed under a machine that REPORTED their repo (2b803efb5).
-    await store.repos.addRepo('/repo', store.hostMachineId)
+    await store.repos.addRepo('/repo', TEST_MACHINE_ID)
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     return { store, registry }

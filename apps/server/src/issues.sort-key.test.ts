@@ -28,7 +28,7 @@ const ctx = (registry: SessionRegistry) =>
 async function newRegistry(): Promise<SessionRegistry> {
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   for (const path of ['/r', '/r1', '/r2'])
-    await reg.sessionStore.repos.addRepo(path, reg.sessionStore.hostMachineId)
+    await reg.sessionStore.repos.addRepo(path, reg.sessionStore.hostMachine!.id)
   return reg
 }
 

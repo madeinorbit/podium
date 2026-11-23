@@ -35,7 +35,7 @@ async function settled(o: Oracle, id: string) {
 /** A live claude-code session, bound on the oracle's daemon. */
 async function liveSession(o: Oracle): Promise<SessionId> {
   const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'bind',
     sessionId,
     cmd: 'claude',
@@ -54,7 +54,7 @@ async function report(
   since: string,
   turnStartedAt: string,
 ): Promise<void> {
-  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'agentState',
     sessionId,
     state: { phase, since, nativeSubagentCount: 0, turnStartedAt },
@@ -88,7 +88,7 @@ async function answerStop(
   await waitFor(() => interruptRequests(o, sessionId).length > 0, 'the interrupt request')
   // biome-ignore lint/style/noNonNullAssertion: waited for above.
   const request = interruptRequests(o, sessionId).at(-1)!
-  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'runtimeLifecycleResult',
     requestId: request.requestId,
     sessionId,

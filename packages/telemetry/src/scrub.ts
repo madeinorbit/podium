@@ -1,5 +1,5 @@
 /**
- * Stack-trace scrubbing [spec:SP-f933].
+ * Stack-trace scrubbing.
  *
  * Two rules, both deliberately blunt:
  *

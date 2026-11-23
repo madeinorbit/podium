@@ -255,8 +255,17 @@ export interface ChatActivity {
  * `justSent` only covers the optimistic gap before the send's own meta update
  * lands, and only while the session is still parked.
  */
-export function sessionWaking(meta: Pick<SessionView, 'status' | 'queuedMessageCount'> | undefined, justSent = false): boolean {
+type SessionWakeFields = Pick<
+  SessionView,
+  'status' | 'queuedMessageCount' | 'desired' | 'revision' | 'lifecycleFailure' | 'spawnFailure'
+>
+
+export function sessionWaking(meta: SessionWakeFields | undefined, justSent = false): boolean {
   if (!meta) return false
+  if (meta.desired === 'running' && meta.lifecycleFailure?.revision === (meta.revision ?? 1)) {
+    return false
+  }
+  if (meta.status === 'exited' && meta.spawnFailure && !justSent) return false
   const queued = (meta.queuedMessageCount ?? 0) > 0
   if (meta.status === 'hibernated' || meta.status === 'exited') return queued || justSent
   // Resurrection has begun: the process is coming up and the queue drains once
@@ -275,7 +284,7 @@ export function sessionWaking(meta: Pick<SessionView, 'status' | 'queuedMessageC
  * A parked process (hibernated/exited) cannot be working, however fresh the
  * preserved `working` phase — the header already says so, and the activity row
  * must not contradict it. Last-state *attention* labels are kept: a parked
- * "needs answer" is still true and worth surfacing. [spec:SP-8b0e]
+ * "needs answer" is still true and worth surfacing.
  *
  * WAKING WINS OVER EVERY PRESERVED LABEL (POD-762). Once a message is waiting on
  * a parked agent, the one thing the operator needs to know is that it is coming
@@ -310,7 +319,7 @@ export function sessionWaking(meta: Pick<SessionView, 'status' | 'queuedMessageC
  * and dropped the offer line entirely, with no send anywhere in sight.
  */
 export function chatActivity(
-  meta: Pick<SessionView, 'status' | 'queuedMessageCount' | 'agentState' | 'offer' | 'busy'> | undefined,
+  meta: (SessionWakeFields & Pick<SessionView, 'agentState' | 'offer' | 'busy'>) | undefined,
   justSent: boolean,
   offer = meta?.offer,
 ): ChatActivity | null {
@@ -362,7 +371,7 @@ export type DotTone = 'working' | 'attention' | 'error' | 'ready' | 'neutral'
  * grayed/italic `.dot.parked` row, not by draining the dot to grey. The one
  * exception is `working`: a parked process cannot be working, however fresh
  * its preserved phase, so a hibernated "working" session reads ready (blue)
- * — matching `attentionGroup`, which already treats it as idle. [spec:SP-8b0e]
+ * — matching `attentionGroup`, which already treats it as idle.
  */
 export function sessionDotTone(s: SessionView): DotTone {
   // Exited (process gone, phase cleared server-side): no live status colour.

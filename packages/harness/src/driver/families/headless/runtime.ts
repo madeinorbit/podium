@@ -106,6 +106,8 @@ import type { LaunchPosture } from '../../../launch-terms.js'
 import { declaredValue, supported, unsupported } from '../../../manifest.js'
 import { reduceAgentState } from '../../../observer.js'
 import { harnessAdapterFor } from '../../../registry.js'
+import { decideConfigure, noWhitespaceCheck } from '../../configure.js'
+import { configureFieldsForDriver } from '../../configure-catalog.js'
 import {
   type AgentSessionHandle,
   type AttachEndpoint,
@@ -478,7 +480,10 @@ export function headlessCapabilities(harness?: string): DriverCapabilities {
     draft: { supported: false, reason: 'headless sessions have no composer' },
     configure: {
       supported: true,
-      value: { fields: ['model', 'effort', 'permissionMode'], effective: 'next-turn' },
+      value: {
+        fields: configureFieldsForDriver(HEADLESS_DRIVER_ID, harness),
+        effective: 'next-turn',
+      },
     },
     usage: { supported: false, reason: 'headless turns report no usage accounting' },
     openUrl: { supported: false, reason: 'headless sessions open no browser surface' },
@@ -1525,12 +1530,25 @@ export function createHeadlessRuntime(
       },
       async configure(request: ConfigureRequest): Promise<Refusal | { ok: true }> {
         if (session.disposed || session.ended) return refuse('not_running', 'session has ended')
+        const declared = headlessCapabilities(session.agentKind).configure
+        if (!declared.supported) return refuse('unsupported', declared.reason)
+        const decision = decideConfigure({
+          declared: declared.value,
+          request,
+          policy: session.sticky,
+          checks: {
+            model: noWhitespaceCheck('a model id'),
+            // OpenCode variants can have account-defined names. The live
+            // catalog and native adapter own the ladder, not the fallback list.
+            effort: noWhitespaceCheck('a reasoning effort or native variant'),
+          },
+        })
+        if (!('ok' in decision)) return decision
         // Sticky for the session, effective from the next turn: every headless
         // request carries the session's policy, so the change provably cannot
         // reach inside an open turn (capability says `next-turn` for the same
         // reason).
-        if (request.model !== undefined) session.sticky.model = request.model
-        if (request.effort !== undefined) session.sticky.effort = request.effort
+        session.sticky = { ...session.sticky, ...decision.policy }
         if (request.permissionMode !== undefined) {
           session.sticky.permissionMode = request.permissionMode
         }

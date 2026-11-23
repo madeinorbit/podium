@@ -1,4 +1,5 @@
 import { bootStage } from './boot-timing'
+import type { HostMachine } from './host-machine'
 /**
  * Durable server-side store. Single writer (the server).
  *
@@ -297,8 +298,8 @@ export class StoreDatabase {
   get legacyIdentityStorage(): boolean {
     return this.lifecycle.legacyIdentityStorage
   }
-  /** See {@link SessionStore.hostMachineId}; one per process, so one per database. */
-  readonly hostMachineId: MachineId
+  /** See {@link SessionStore.hostMachine}; one per process, so one per database. */
+  readonly hostMachine: HostMachine
   private readonly publicationIdleSubscriptions = new Set<() => void>()
   /** Each workspace's store, made once: a workspace's repositories hold its caches. */
   private readonly workspaces = new Map<WorkspaceId, Promise<SessionStore>>()
@@ -319,7 +320,7 @@ export class StoreDatabase {
 
   static async open(
     location: string,
-    hostMachineId: MachineId,
+    hostMachine: HostMachine,
     options: StoreDatabaseOptions,
     watchdog: WatchdogOptions = {
       report: (report) => log.warn('transaction lease exceeded idle budget', { ...report }),
@@ -377,7 +378,7 @@ export class StoreDatabase {
     try {
       if (lifecycle.applied.length > 0)
         log.info('applied migrations', { applied: lifecycle.applied })
-      const store = new StoreDatabase(location, hostMachineId, lifecycle, {
+      const store = new StoreDatabase(location, hostMachine, lifecycle, {
         vaultKeyPath:
           options.vaultKeyFile ?? resolveVaultKeyPath(process.env, resolveInstanceId(process.env)),
         queryOnly: options.queryOnly === true,
@@ -419,7 +420,7 @@ export class StoreDatabase {
      * a URL carries its credential.
      */
     readonly location: string,
-    hostMachineId: MachineId,
+    hostMachine: HostMachine,
     /** The engine's lifecycle steps, and the executor every repository runs on. */
     private readonly lifecycle: StoreLifecycle,
     /**
@@ -433,10 +434,7 @@ export class StoreDatabase {
       readonly legacyPlaintext: LegacyPlaintextOptions
     },
   ) {
-    // The value crosses into its id space HERE, once: it arrives as the bytes of a
-    // state-dir file (or a fresh mint) and leaves as the machine identity every row,
-    // route and grant in this process is keyed by.
-    this.hostMachineId = asMachineId(hostMachineId)
+    this.hostMachine = hostMachine
     this.executor = lifecycle.executor
     this.db = lifecycle.connection
     this.queries = lifecycle.executor.queries
@@ -845,7 +843,7 @@ export class SessionStore {
   /** Each machine's checkouts, as its scans reported them (POD-6644). */
   readonly checkouts: CheckoutsRepository
   readonly sessions: SessionsRepository
-  /** Durable causal observer generations and accepted checkpoints [spec:SP-cdb2]. */
+  /** Durable causal observer generations and accepted checkpoints. */
   readonly observationCheckpoints: ObservationCheckpointsRepository
   readonly issues: IssuesRepository
   readonly conversations: ConversationsRepository
@@ -903,7 +901,7 @@ export class SessionStore {
    *  gets no principal and is refused; it never falls back to an operator. */
   readonly telegramBindings: TelegramBindingsRepository
   readonly events: EventsRepository
-  /** Cross-producer notification deduplication [spec:SP-ba61]. */
+  /** Cross-producer notification deduplication. */
   readonly notificationFacts: NotificationFactsRepository
   /** Each person's notice inbox (POD-6881, credential management spec §13). */
   readonly notices: NoticesRepository
@@ -913,22 +911,22 @@ export class SessionStore {
   /** One row per transcript the usage harvest has read (POD-1858) — what a task
    *  cost, after the harvest's 7-day window has rolled past the work. */
   readonly transcriptCosts: TranscriptCostsRepository
-  /** Unified agent messaging (#237) [spec:SP-34d7]. */
+  /** Unified agent messaging (#237). */
   readonly messages: MessagesRepository
-  /** Recap watermarks (#237) [spec:SP-34d7 read-toolkit tier 3]. */
+  /** Recap watermarks (#237). */
   readonly readWatermarks: ReadWatermarksRepository
   /** Blocking asks (POD-2020, spec §4) — durable so a stuck session is enumerable. */
   readonly interactions: InteractionsRepository
   readonly workflows: WorkflowsRepository
   readonly agentProfiles: AgentProfilesRepository
-  /** Advisory named lease locks [spec:SP-85d1] — podium lock / merge-lock. */
+  /** Advisory named lease locks — podium lock / merge-lock. */
   readonly locks: LocksRepository
   /** CLI bundle uploads in progress (POD-6963 design 2.4): their state; the bytes are blobs. */
   readonly artifactUploads: ArtifactUploadsRepository
   /** Files picked in a composer (POD-6963 design 2.5): their records; the bytes are blobs. */
   readonly pendingUploads: PendingUploadsRepository
   /**
-   * Janitor generation fencing + deterministic command outcomes [spec:SP-c29e].
+   * Janitor generation fencing + deterministic command outcomes.
    * A workspace repository: its command ledger (`maintenance_commands`) is
    * workspace data, and the install-wide lease (`maintenance_leases`) is an
    * install table a workspace transaction may write.
@@ -941,7 +939,7 @@ export class SessionStore {
    * query audits plan its definitions with every other repository's.
    */
   readonly janitorReads: JanitorReadsRepository
-  /** Scheduled automations + their run history (#470) [spec:SP-17db]. */
+  /** Scheduled automations + their run history (#470). */
   readonly automations: AutomationsRepository
   /** One-shot effects as data (ADR 12 D5 E2, POD-6357). */
   readonly effects: EffectsRepository
@@ -950,7 +948,7 @@ export class SessionStore {
   /** Durable long-running operations (POD-2097) — updates now, server moves later. */
   readonly updateRecovery: UpdateRecoveryStore
   readonly operations: OperationStore
-  /** Telegram forum-topic ↔ issue thread bindings [spec:SP-5d81]. */
+  /** Telegram forum-topic ↔ issue thread bindings. */
   readonly messagingTopics: MessagingTopicsRepository
   /** Telegram conversation ↔ directly attached session (POD-6212). */
   readonly messagingSessionAttachments: MessagingSessionAttachmentsRepository
@@ -963,14 +961,14 @@ export class SessionStore {
    */
   static async open(
     path: string = defaultDbPath(),
-    hostMachineId: MachineId = asMachineId(randomUUID()),
+    hostMachine: HostMachine = { id: asMachineId(randomUUID()) },
     options: Omit<StoreDatabaseOptions, 'bootWorkspace'> & { workspace?: WorkspaceId } = {},
     watchdog?: WatchdogOptions,
   ): Promise<SessionStore> {
     const { workspace = SELF_HOSTED_WORKSPACE_ID, ...rest } = options
     const database = await StoreDatabase.open(
       path,
-      hostMachineId,
+      hostMachine,
       { ...rest, bootWorkspace: workspace },
       watchdog,
     )
@@ -1143,7 +1141,7 @@ export class SessionStore {
   async refuseAndRepair(): Promise<void> {
     await this.settings.initializeSnapshot()
     await this.refuseLegacyIdentities()
-    await this.backfillLegacyWorktreeMachines()
+    await this.backfillLegacyWorktreeMachines(this.hostMachine?.id)
   }
 
   /**
@@ -1157,8 +1155,9 @@ export class SessionStore {
   }
 
   /** Run-once historical migration; no receipt until the host is enrolled. */
-  private async backfillLegacyWorktreeMachines(): Promise<void> {
-    const result = await this.issues.backfillLegacyWorktreeMachineIds(this.hostMachineId)
+  // LEGACY(remove-after: 2027-05): Pin v0.1.0 worktrees to an enrolled host; removing this drops that boot repair.
+  private async backfillLegacyWorktreeMachines(hostMachineId?: MachineId): Promise<void> {
+    const result = await this.issues.backfillLegacyWorktreeMachineIds(hostMachineId)
     if (result && (result.backfilled > 0 || result.skipped > 0)) {
       log.warn(
         `pinned ${result.backfilled} legacy worktree issue(s) to ${result.hostMachineId}; ` +
@@ -1214,21 +1213,12 @@ export class SessionStore {
   }
 
   /**
-   * The id of the machine this store's rows are written on — `<stateDir>/machine.id`,
-   * read by the composition root and handed down (`readOrCreateLocalMachineId`).
-   *
-   * It is an OPEN ARGUMENT rather than a file read here because the store must
-   * not decide who it is: the server, the split daemon and the CLI all read the same
-   * file, and a second reader is a second opinion waiting to happen.
-   *
-   * The default MINTS one instead of falling back to a constant. An unconfigured
-   * store — a test fixture, a script — is genuinely a fresh host with no prior rows,
-   * and saying so with a real UUID keeps the "an id is minted material or nothing"
-   * rule true everywhere. The old `'__local__'` default said the opposite: that
-   * unattributed rows are a legitimate durable state.
+   * The server's own install, supplied once by the composition root. Null means
+   * it has no fleet machine; workspace content always names its own machine.
+   * Standalone stores mint a fixture identity unless explicitly passed null.
    */
-  get hostMachineId(): MachineId {
-    return this.database.hostMachineId
+  get hostMachine(): HostMachine {
+    return this.database.hostMachine
   }
 
   /** The database's per-table write announcement ({@link StoreDatabase.tableWrites}). */
@@ -1244,7 +1234,7 @@ export class SessionStore {
   /** Run `fn` atomically on the shared connection (nesting-safe: BEGIN at depth
    *  0, SAVEPOINT inside an open transaction), as THIS WORKSPACE's transaction.
    *  Narrow seam for cross-aggregate atomic writes — the write-seam Ledger binds
-   *  an entity write and its change append into one span ([spec:SP-3fe2] #255) —
+   *  an entity write and its change append into one span (#255) —
    *  without exposing the db handle.
    *
    *  The executor owns the transaction scope and drains registered post-commit

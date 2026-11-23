@@ -42,19 +42,19 @@ describe('machines store', () => {
 
   it('repos table is re-keyed to (machine_id, path) with origin_url', async () => {
     const s = await openTestStore(':memory:')
-    await s.repos.addRepo('/home/u/a', s.hostMachineId)
+    await s.repos.addRepo('/home/u/a', s.hostMachine!.id)
     await s.repos.addRepo('/home/u/b', asMachineId('m2'), 'https://github.com/u/b')
     const rows = await s.repos.listRepos()
-    expect(rows.find((r) => r.path === '/home/u/a')?.machineId).toBe(s.hostMachineId)
+    expect(rows.find((r) => r.path === '/home/u/a')?.machineId).toBe(s.hostMachine!.id)
     expect(rows.find((r) => r.path === '/home/u/b')?.originUrl).toBe('https://github.com/u/b')
-    await s.repos.removeRepo('/home/u/a', s.hostMachineId)
+    await s.repos.removeRepo('/home/u/a', s.hostMachine!.id)
     expect((await s.repos.listRepos()).map((r) => r.path)).toEqual(['/home/u/b'])
     await s.close()
   })
 
   it('listRepoPaths returns a flat string[] for back-compat', async () => {
     const s = await openTestStore(':memory:')
-    await s.repos.addRepo('/abs/one', s.hostMachineId)
+    await s.repos.addRepo('/abs/one', s.hostMachine!.id)
     await s.repos.addRepo('/abs/two', asMachineId('m2'))
     const paths = await s.repos.listRepoPaths()
     expect(paths).toEqual(['/abs/one', '/abs/two'])
@@ -63,9 +63,9 @@ describe('machines store', () => {
 
   it('listRepos(machineId) filters to one machine', async () => {
     const s = await openTestStore(':memory:')
-    await s.repos.addRepo('/abs/local', s.hostMachineId)
+    await s.repos.addRepo('/abs/local', s.hostMachine!.id)
     await s.repos.addRepo('/abs/remote', asMachineId('m2'))
-    expect((await s.repos.listRepos(s.hostMachineId)).map((r) => r.path)).toEqual(['/abs/local'])
+    expect((await s.repos.listRepos(s.hostMachine!.id)).map((r) => r.path)).toEqual(['/abs/local'])
     expect((await s.repos.listRepos(asMachineId('m2'))).map((r) => r.path)).toEqual(['/abs/remote'])
     expect(await s.repos.listRepoPaths(asMachineId('m2'))).toEqual(['/abs/remote'])
     await s.close()
@@ -103,7 +103,7 @@ describe('machines store', () => {
   })
 
   // The 'pre-multi-machine repos copy' test (upgrading a pre-schema_version, machine_id-less
-  // database) was removed with the legacy migration chain [spec:SP-4428]; such old formats
+  // database) was removed with the legacy migration chain; such old formats
   // are upgraded by running a pre-drizzle Podium build first.
 
   it('multi-machine migration is idempotent — re-opening the same file db is a no-op', async () => {
@@ -116,7 +116,7 @@ describe('machines store', () => {
       tokenHash: 'x',
       ownerUserId: firstAdminMemberId(),
     })
-    await s1.repos.addRepo('/a', s1.hostMachineId)
+    await s1.repos.addRepo('/a', s1.hostMachine!.id)
     await s1.sessions.upsertSession(fixtureWriteScope(), {
       id: asSessionId('s1'),
       ownerUserId: firstAdminMemberId(),
@@ -138,7 +138,7 @@ describe('machines store', () => {
       lastResumedAt: null,
       archived: false,
       workState: null,
-      machineId: s1.hostMachineId,
+      machineId: s1.hostMachine!.id,
     })
     await s1.close()
 
@@ -146,7 +146,7 @@ describe('machines store', () => {
     // row keeps the machine id the FIRST store wrote it under; a second store over
     // the same file is a different host as far as its own default is concerned, and
     // nothing rewrites rows behind it.
-    const host = s1.hostMachineId
+    const host = s1.hostMachine!.id
     const s2 = await openTestStore(file)
     expect((await s2.sessions.loadSessions())[0]?.machineId).toBe(host)
     expect(await s2.machines.listMachines()).toHaveLength(1)

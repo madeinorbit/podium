@@ -325,7 +325,7 @@ describe('toggleLabelAcross', () => {
   })
 })
 
-describe('resolveIssueHandoffSession ([spec:SP-3f7a])', () => {
+describe('resolveIssueHandoffSession', () => {
   it('returns the single eligible session and its targets', () => {
     const session = makeSession({ sessionId: 's1' })
     const issue = makeIssue({ memberSessionIds: ['s1'] })

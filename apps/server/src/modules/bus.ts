@@ -57,7 +57,7 @@ export interface EventMap {
     /** Owning human for per-user attention routing; absent events fail closed. */
     ownerUserId?: UserId
     next: AgentRuntimeState
-    /** Present only for a v1 accepted causal live transition [spec:SP-cdb2]. */
+    /** Present only for a v1 accepted causal live transition. */
     observation?: AgentObservation
   }
   /** A session was created by an operator/programmatic caller (createSession —
@@ -111,7 +111,7 @@ export interface EventMap {
         sessionId: SessionId
         eventId: number
       }
-  /** A remote session asked its host to open a browser URL. [spec:SP-a43e] */
+  /** A remote session asked its host to open a browser URL. */
   'session.openUrl': SessionOpenUrlMessage
   /**
    * An issue was created by the create funnel — NOT any later mutation. The
@@ -215,7 +215,7 @@ export interface EventMap {
    *  mirrors rebroadcast their stale overlays on this. */
   'upstream.staleChanged': { stale: boolean }
   /** A superagent turn finished (success or failure) — the messaging bridge
-   *  [spec:SP-5d81] relays `output` to external chat channels. Fired for EVERY
+   *  relays `output` to external chat channels. Fired for EVERY
    *  turn on the thread regardless of who dispatched it (web UI or a bridge). */
   'superagent.turnEnded': {
     /** Owner of the personal superagent thread; outbound reactions route by it. */

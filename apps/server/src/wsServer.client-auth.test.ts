@@ -184,9 +184,14 @@ async function connectDeltaClient(url: string) {
 
 describe('/client WS auth gate', () => {
   test('refuses an upgrade with the answer the resolver gave: signed in and not a member', async () => {
-    const url = await start(() => true, undefined, undefined, () => ({
-      refused: { status: 403, body: { error: 'not_workspace_member' } },
-    }))
+    const url = await start(
+      () => true,
+      undefined,
+      undefined,
+      () => ({
+        refused: { status: 403, body: { error: 'not_workspace_member' } },
+      }),
+    )
     const response = await rejectedHandshake(url)
     expect(response.status).toBe(403)
     expect(JSON.parse(response.body)).toEqual({ error: 'not_workspace_member' })
@@ -366,18 +371,18 @@ describe('/client WS auth gate', () => {
     const url = await start(() => true)
     if (!registry || !store) throw new Error('missing test registry')
     await store.machines.upsertMachine({
-      id: store.hostMachineId,
+      id: store.hostMachine!.id,
       name: 'Host',
       hostname: 'test',
       tokenHash: 'token',
       ownerUserId: firstAdminMemberId(),
       assignment: { server: true, agentExecution: true },
     })
-    await store.machines.setServiceAssignment(store.hostMachineId, {
+    await store.machines.setServiceAssignment(store.hostMachine!.id, {
       server: true,
       agentExecution: true,
     })
-    await registry.gateway.attachDaemon(store.hostMachineId, () => {})
+    await registry.gateway.attachDaemon(store.hostMachine!.id, () => {})
     const sessionId = (
       await registry.modules.sessions.createSession({
         agentKind: 'shell',

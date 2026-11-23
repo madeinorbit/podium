@@ -218,7 +218,7 @@ export const IssuePanelArtifact = z.object({
   /** The person who uploaded that chat file (POD-2148): only they may send it
    *  again, so a shared issue's readers cannot reuse an id they can see. */
   chatUploadOwner: z.string().optional(),
-  /** Permanent-store snapshot id ([spec:SP-0fc9] #441). Present ⇒ the bytes are
+  /** Permanent-store snapshot id (#441). Present ⇒ the bytes are
    *  served from `<state-dir>/artifacts/<issueId>/<artifactId>/` via the
    *  server-local /files/artifact route; absent (pre-existing entries) ⇒ legacy
    *  live /files/asset route against the worktree. */

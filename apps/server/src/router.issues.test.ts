@@ -11,7 +11,7 @@ import { seedMailboxRow } from './test-support/seed-issue-mail'
 
 /** Issues are placed under a machine that REPORTED their repo (2b803efb5): the host reports `/r`. */
 async function reportRepo(registry: SessionRegistry): Promise<void> {
-  await registry.sessionStore.repos.addRepo('/r', registry.sessionStore.hostMachineId)
+  await registry.sessionStore.repos.addRepo('/r', registry.sessionStore.hostMachine!.id)
 }
 
 function inputSchema(path: string) {
@@ -291,8 +291,14 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
     registries.push(registry)
     await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
     // create + set worktreePath directly (start() needs a daemon repoOp round-trip).
-    const i = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/r', title: 'W', startNow: false })
-    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, i.id, { worktreePath: '/r/.worktrees/issue-1-w' })
+    const i = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'W',
+      startNow: false,
+    })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, i.id, {
+      worktreePath: '/r/.worktrees/issue-1-w',
+    })
     const wt = (await registry.issues.reports.get(i.id))!.worktreePath as string
 
     const { sessionId: sid } = await registry.modules.sessions.createSession({
@@ -551,7 +557,7 @@ describe('issues.mail* (agent mail #103)', () => {
 })
 
 // Basic create/list and the local (non-forwarded) update path (P7b). Folded from
-// the former router-issues.test.ts (POD-619 [spec:SP-0be7]) — now with registry disposal.
+// the former router-issues.test.ts (POD-619) — now with registry disposal.
 describe('issues router create/list/update', () => {
   const registries: SessionRegistry[] = []
   afterEach(async () => {
@@ -712,12 +718,12 @@ describe('issues.subscription* authz (Phase B)', () => {
     })
     const id = subscriptionRowIdOf(sa)
     // Another subscriber's subscription fails as an unknown one.
-    expect(
-      (await submit(scopedTo(B.id), 'records.subscription.remove', { id })).outcome,
-    ).toBe('rejected')
-    expect(
-      (await submit(scopedTo(A.id), 'records.subscription.remove', { id })).outcome,
-    ).toBe('applied')
+    expect((await submit(scopedTo(B.id), 'records.subscription.remove', { id })).outcome).toBe(
+      'rejected',
+    )
+    expect((await submit(scopedTo(A.id), 'records.subscription.remove', { id })).outcome).toBe(
+      'applied',
+    )
     expect(await scopedTo(A.id).issues.subscriptionList()).toEqual([])
   })
 
@@ -752,13 +758,13 @@ describe('issues.subscription* authz (Phase B)', () => {
       (await submit(callerWith(OPERATOR), 'records.subscription.edit', toggle(false))).outcome,
     ).toBe('applied')
     expect((await callerWith(OPERATOR).issues.subscriptionList())[0]!.enabled).toBe(false)
-    expect(
-      (await submit(scopedTo(B.id), 'records.subscription.edit', toggle(true))).outcome,
-    ).toBe('rejected')
+    expect((await submit(scopedTo(B.id), 'records.subscription.edit', toggle(true))).outcome).toBe(
+      'rejected',
+    )
     // The owner may re-enable it.
-    expect(
-      (await submit(scopedTo(A.id), 'records.subscription.edit', toggle(true))).outcome,
-    ).toBe('applied')
+    expect((await submit(scopedTo(A.id), 'records.subscription.edit', toggle(true))).outcome).toBe(
+      'applied',
+    )
     expect((await callerWith(OPERATOR).issues.subscriptionList())[0]!.enabled).toBe(true)
   })
 })

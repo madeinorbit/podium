@@ -13,8 +13,7 @@
       "!.design",
       "!artifacts",
       "!.github/skills",
-      "!docs/design",
-      "!pspec"
+      "!docs/design"
     ]
   },
   "formatter": {

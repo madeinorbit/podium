@@ -273,8 +273,8 @@ describe('podium session CLI', () => {
   })
 })
 
-// [spec:SP-9904] — clean end; no id = self-stop.
-describe('podium session stop [spec:SP-9904]', () => {
+// — clean end; no id = self-stop.
+describe('podium session stop', () => {
   it('self-stop sends no sessionId and reports deferred kill + worktree free', async () => {
     const c = client()
     const out = await runSessionCli(['stop'], c, { hasRelay: true })

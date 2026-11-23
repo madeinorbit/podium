@@ -3,7 +3,7 @@
 The auto-update machinery uses separate signing systems for the headless tarball and desktop
 AppImage. Before cutting a real public release, an operator must verify that the CI private keys
 match the committed public keys. Private keys are operator secrets and must never be committed.
-GitHub Releases is the production feed [spec:SP-7f2c].
+GitHub Releases is the production feed.
 
 ## The version is single-sourced
 

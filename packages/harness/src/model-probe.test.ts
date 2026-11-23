@@ -80,6 +80,46 @@ const CODEX = JSON.stringify({
 })
 
 describe('model-probe parsers', () => {
+  it('opencode: offers only the per-model variants reported by --verbose', () => {
+    const verbose = [
+      'provider/reasoning',
+      JSON.stringify({ variants: { low: {}, high: {}, disabled: { disabled: true } } }, null, 2),
+      'provider/plain',
+      JSON.stringify({ variants: {} }, null, 2),
+    ].join('\n')
+    expect(parseOpencodeModels(verbose)).toEqual([
+      { value: 'provider/reasoning', label: 'provider/reasoning', efforts: ['low', 'high'] },
+      { value: 'provider/plain', label: 'provider/plain', efforts: [] },
+    ])
+  })
+
+  it('grok: reads ACP model-specific efforts without guessing levels', () => {
+    const frame = {
+      result: {
+        _meta: {
+          modelState: {
+            currentModelId: 'grok-reasoning',
+            availableModels: [
+              {
+                modelId: 'grok-reasoning',
+                name: 'Reasoning',
+                _meta: {
+                  supportsReasoningEffort: true,
+                  reasoningEfforts: [{ value: 'high' }, { id: 'low' }],
+                },
+              },
+              { modelId: 'plain', name: 'Plain' },
+            ],
+          },
+        },
+      },
+    }
+    expect(parseGrokModels(JSON.stringify(frame))).toEqual([
+      { value: 'grok-reasoning', label: 'Reasoning', efforts: ['high', 'low'] },
+      { value: 'plain', label: 'Plain', efforts: [] },
+    ])
+  })
+
   it('grok: reads the marker list under "Available models:", ignores header/default line', () => {
     expect(parseGrokModels(GROK)).toEqual([
       { value: 'grok-4.5', label: 'grok-4.5' },

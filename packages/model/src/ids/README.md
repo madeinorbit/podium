@@ -35,7 +35,7 @@ vacuously.
 ### The set
 
 **Tier 1, ratified** — `SessionId`, `IssueId`, `MachineId`, `RepoId`, `ConversationId`,
-`MutationId`, `ThreadId` ([spec:SP-3fe2]) and `UserId` (ADR 4 Amendment 1 D9.1).
+`MutationId`, `ThreadId` and `UserId` (ADR 4 Amendment 1 D9.1).
 
 **Tier 2, added by POD-361 and recorded for ratification** — `AutomationId`, `AutomationRunId`,
 `ArtifactId`, `AccountId`. Each is named by a field in `entities/`, and ADR 4 D3.5 makes a raw

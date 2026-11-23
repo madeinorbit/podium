@@ -1,12 +1,11 @@
-import { here, omitGone } from './lookup'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { compareStructural } from 'mobx'
-import type { AutomationModel } from './models'
-import { debugName } from './debug-name'
-import type { MobxPool } from './pool'
-import type { SettingsRows } from './settings-schema'
-import { LOADING } from './worklist/rollup'
 import { createAutomationTargets } from './automation-targets'
+import { debugName } from './debug-name'
+import { here, omitGone } from './lookup'
+import type { AutomationModel } from './models'
+import type { MobxPool } from './pool'
+import { LOADING } from './worklist/rollup'
 
 export type TargetAvailability =
   | 'available'
@@ -52,26 +51,15 @@ export function createAutomationViews(pool: MobxPool) {
       if (catalog && catalog !== LOADING) {
         for (const id of catalog.automations) {
           const row = omitGone(pool.model('automation', id))
-          if (row === LOADING) { pending++; continue }
+          if (row === LOADING) {
+            pending++
+            continue
+          }
           if (!row || Reflect.get(here(row.row) ?? {}, 'system') === true) continue
           automations.push(row)
         }
       }
       return { automations, pending }
-    })
-  }
-  function repositories() {
-    return memo('repositories', () => {
-      const catalog = omitGone(pool.row('settingsCatalog', 'catalog'))
-      const repos: SettingsRows['settingsRepository'][] = []
-      let pending = catalog === LOADING ? 1 : 0
-      if (catalog && catalog !== LOADING)
-        for (const id of catalog.repositories) {
-          const row = omitGone(pool.row('settingsRepository', id))
-          if (row === LOADING) pending++
-          else if (row) repos.push(row)
-        }
-      return { repos, pending }
     })
   }
   function run(id: string) {
@@ -84,7 +72,6 @@ export function createAutomationViews(pool: MobxPool) {
   }
   return {
     list,
-    repositories,
     targets: targetViews.targets,
     target: targetViews.target,
     targetMachine: targetViews.targetMachine,

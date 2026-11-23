@@ -170,7 +170,7 @@ describe('appRouter', () => {
     expect(issueId).toMatch(/^iss_[0-9a-f-]{36}$/)
   })
 
-  it('files.read serves artifact-snapshot bytes from the server-local store [spec:SP-0fc9]', async () => {
+  it('files.read serves artifact-snapshot bytes from the server-local store', async () => {
     const { call, registry } = await caller()
     const base = mkdtempSync(join(tmpdir(), 'podium-artifact-read-'))
     try {
@@ -230,7 +230,7 @@ describe('appRouter', () => {
     const req = daemon.find((m) => m.type === 'transcriptRead') as { requestId: string } | undefined
     expect(req).toBeDefined()
     if (!req) throw new Error('transcriptRead not sent')
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
       type: 'transcriptReadResult',
       requestId: req.requestId,
       sessionId,
@@ -309,6 +309,10 @@ async function repoCaller({ repos: reported = [] }: { repos?: readonly string[] 
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const daemon: import('@podium/protocol/daemon').ControlMessage[] = []
   await attachHostDaemon(registry, (m) => daemon.push(m), { repos: reported })
+  vi.spyOn(registry.modules.rpc, 'scanRepos').mockResolvedValue({
+    repositories: [],
+    diagnostics: [],
+  })
   return {
     registry,
     repos,
@@ -416,7 +420,7 @@ describe('repos router', () => {
     expect(req?.includeHome).toBe(false)
     expect(req?.maxDepth).toBe(0)
     if (!req) throw new Error('no scanReposRequest')
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
       type: 'scanReposResult',
       requestId: req.requestId,
       repositories: [],
@@ -434,6 +438,7 @@ describe('repos router', () => {
 
   it('discovery.scanFolder scans the chosen folder to a bounded depth', async () => {
     const { call, registry, daemon } = await repoCaller()
+    vi.mocked(registry.modules.rpc.scanRepos).mockRestore()
     const p = call.discovery.scanFolder({ path: '/some/dir' })
     // scanFolder has a Zod input, so its handler runs a tick later than the
     // input-less procedures; a macrotask flushes the validation + handler first.
@@ -443,7 +448,7 @@ describe('repos router', () => {
     expect(req?.includeHome).toBe(false)
     expect(req?.maxDepth).toBe(6)
     if (!req) throw new Error('no scanReposRequest')
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
       type: 'scanReposResult',
       requestId: req.requestId,
       repositories: [],
@@ -483,7 +488,7 @@ describe('repos router', () => {
     expect(await call.snoozes.clear({ sessionId })).toEqual({})
   })
 
-  // #470 [spec:SP-17db]: the minimum interval is one minute, exactly the
+  // #470: the minimum interval is one minute, exactly the
   // granularity of five-field cron.
   it('automations.create accepts an every-minute cron', async () => {
     const { call } = await caller()

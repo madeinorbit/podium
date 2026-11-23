@@ -1,6 +1,6 @@
 name: desktop release
 
-# Desktop releases are explicit promotions, never a side effect of pushing main. [spec:SP-7f2c]
+# Desktop releases are explicit promotions, never a side effect of pushing main.
 # Pushing a version tag IS that explicit promotion — one deliberate act, not a per-push build —
 # so it releases without a second manual dispatch. The tag picks the channel:
 #   v0.2.0          → stable

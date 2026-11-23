@@ -1,5 +1,5 @@
 // `podium agent` — cross-harness subagent spawn + bounded await (#237)
-// [spec:SP-34d7 cross-harness]: argv shape, flag validation, wire forwarding
+// argv shape, flag validation, wire forwarding
 // (incl. #285 workflow pass-through), and the never-hangs await renderings.
 
 import { execFileSync } from 'node:child_process'

@@ -90,7 +90,7 @@ const readyLease = (
   worktreeGcAfterDays: over.worktreeGcAfterDays ?? 14,
 })
 
-describe('JanitorService [spec:SP-c29e]', () => {
+describe('JanitorService', () => {
   it('exposes progress and queue/coalescing/failure counters without mistaking a hung tick for progress', async () => {
     let finishHandshake: ((reply: MaintenanceHandshakeReply) => void) | undefined
     const handshake = vi.fn(
@@ -491,6 +491,18 @@ describe('JanitorService [spec:SP-c29e]', () => {
     // Recovered 6 minutes later: still a candidate (lastSeenAt is the durable handshake fact).
     expect(await new ConnectScanReader(port).read('2026-07-18T00:06:00.000Z', 'local')).toEqual([
       { machineId: 'remote', lastSeenAt: '2026-07-18T00:00:00.000Z', deep: false },
+    ])
+  })
+
+  it('ConnectScanReader skips nothing when there is no host machine', async () => {
+    const port = portOf({
+      remoteMachines: async ({ localMachineId }) => {
+        expect(localMachineId).toBeNull()
+        return [{ id: 'local', lastSeenAt: '2026-07-18T00:00:00.000Z' }]
+      },
+    })
+    expect(await new ConnectScanReader(port).read('2026-07-18T00:06:00.000Z', null)).toEqual([
+      { machineId: 'local', lastSeenAt: '2026-07-18T00:00:00.000Z', deep: false },
     ])
   })
 

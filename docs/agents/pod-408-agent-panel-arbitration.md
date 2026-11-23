@@ -21,7 +21,7 @@ There are **four states**, one of which carries a view axis:
 
 | state | when | shows |
 |---|---|---|
-| `transit` | the session is moving to another machine ([spec:SP-3f7a]) | the handover veil over the pane's own colour |
+| `transit` | the session is moving to another machine | the handover veil over the pane's own colour |
 | `parked` | hibernated — process stopped, conversation intact | transcript + wake banner, or the recovery pane when there is no transcript |
 | `ended` | exited — process gone | transcript + exit banner, or the recovery pane |
 | `live` | everything else, INCLUDING a not-yet-reconciled optimistic spawn | the terminal, with chat overlaid when the view is `chat` |

@@ -110,6 +110,7 @@ async function harness(
       machine: 'machine-1',
     }),
     repoOp: async () => ({ ok: true, output: '' }),
+    resolveMachine: async () => asMachineId('machine-1'),
     funnel: { run: (op) => op.write() },
     ledger: testLedgerWriter(ledger),
   })

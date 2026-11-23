@@ -257,7 +257,7 @@ naming the uncovered arms. Mechanism presence is not coverage, so the mechanism 
 |---|---|---|
 | Handoff — 7 message types + `HandoffManifest` | `handoff.json` | all 8 |
 | Browser-open — `SessionOpenUrl/Result/UrlCallback/UrlDismiss` + `BrowserOpenCallbackTarget` + `BrowserOpenIntent` | `browser-open.json` | `intent`, `callbackTarget` |
-| `SessionResumeRefAckMessage` [spec:SP-fccf] | `terminal.json` | `sessionResumeRefAck` |
+| `SessionResumeRefAckMessage` | `terminal.json` | `sessionResumeRefAck` |
 | `AutomationWire` / `AutomationRunWire` — `scheduleKind` cron\|once, `runAt`, `targetSessionId`, all 4 run outcomes | `automations.json` | `scheduleKind`, `targetSessionId` |
 | approvals `automation-schedule` op member (all 3 target arms) | `approvals.json` | `"automation-schedule"` |
 | `FeatureState` | `feature-state.json` | 12 flags × 36 input combinations = 432 cases |
@@ -573,7 +573,7 @@ list.
 |---|---|---|---|---|---|
 | E1 | `humanQuestionAskedBy` | `schema.ts:461` `human_question_asked_by` text | `IssueWire.humanQuestionAskedBy` (`issues.ts:236`) | a bare **session id**, server-authoritative (`registry.ts:1204-1209`: an explicit `askedBy` must equal the authenticated `actorSessionId`) | + on-behalf-of `UserId`. The server-authoritative check is the model for the rest: A3's rule is "stamped from the transport principal, never from payload", and this field already implements it. |
 | ~~E2~~ | ~~`deletion_source`~~ **NOT AN ATTRIBUTION SITE — see §3.6.1** | `schema.ts:55` | not on `SessionMeta` | **`'issue' \| 'standalone'`** (`apps/server/src/store/types.ts:36`) | **nothing.** It names a deletion *path*, not an actor. |
-| E3 | `nameSource: 'user'` | `schema.ts:60` `name_source` text | `SessionMeta.nameSource` (`runtime-state.ts:341`), `'user' \| 'agent'` | a **role class**, not a person. `'user'` outranks `'agent'` ([spec:SP-eb60]) — the precedence rule A3 says must survive | `'user'` gains *which* user. The precedence rule is what makes collapsing the pair lossy. |
+| E3 | `nameSource: 'user'` | `schema.ts:60` `name_source` text | `SessionMeta.nameSource` (`runtime-state.ts:341`), `'user' \| 'agent'` | a **role class**, not a person. `'user'` outranks `'agent'` — the precedence rule A3 says must survive | `'user'` gains *which* user. The precedence rule is what makes collapsing the pair lossy. |
 | E4 | close actor | `podium_events.payload` (`schema.ts:300`) | event payload `causedBySessionId` | a **session id**, threaded from `Capability.actorSessionId` (`crud.ts:450-462`, `:816-817`) | + on-behalf-of. Used today only to let the steward skip nudging the causing session (#116); under multi-user it is also *who closed it*. |
 | E5 | unblock actor | same | `issue.ready` payload `causedBySessionId` (`crud.ts:190-204`) | same | same |
 | E6 | reopen / stage-change actor | same | `issue.reopened`, `issue.stage_changed` payload `causedBySessionId` (`crud.ts:425-447`) | same | **Not named in the brief; found by the sweep.** Same shape, same seam, same fix — listed so POD-1075's list is the *whole* family rather than the four that were remembered. |

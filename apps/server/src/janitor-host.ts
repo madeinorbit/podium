@@ -52,6 +52,7 @@ export interface JanitorHostDeps {
    * store and sync worker open).
    */
   dbPath?: string
+  localMachineId?: string | null
   /**
    * TEST ONLY. Replaces the worker client so server tests never spawn a thread.
    * Production callers leave it absent, which is the real client.
@@ -73,7 +74,12 @@ export async function startJanitorHost(deps: JanitorHostDeps): Promise<JanitorHo
   const start: StartJanitorWorkerFn =
     deps.start ?? (async (opts) => await startJanitorWorker(opts, janitorWorkerTarget()))
   try {
-    return await start({ serverUrl, token, dbPath })
+    return await start({
+      serverUrl,
+      token,
+      dbPath,
+      ...(deps.localMachineId === undefined ? {} : { localMachineId: deps.localMachineId }),
+    })
   } catch (error) {
     const reason = (error as Error).message
     return {

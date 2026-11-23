@@ -98,7 +98,7 @@ describe('each declaration agrees with ADR 1’s ownership matrix', () => {
 
 async function repo(o: Oracle): Promise<void> {
   if (!(await o.store.repos.listRepoPaths()).includes('/p')) {
-    await o.store.repos.addRepo('/p', o.store.hostMachineId)
+    await o.store.repos.addRepo('/p', o.store.hostMachine!.id)
   }
 }
 

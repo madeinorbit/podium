@@ -59,7 +59,7 @@ export async function openHome(page: Page): Promise<void> {
     ])
   }
   // Phone user agents get the web shell at `/` directly since #58 — no cookie
-  // opt-out needed; `?server`/`?e2e` survive the load [spec:SP-902c].
+  // opt-out needed; `?server`/`?e2e` survive the load.
   await page.goto(`/?server=${RELAY}&e2e=1`)
   // Wait for the app to finish its cold-start load. The loading screen shows
   // "Loading Podium…" — wait until that is GONE (i.e. the .app-loading element

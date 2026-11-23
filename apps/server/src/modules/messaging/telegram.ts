@@ -154,7 +154,7 @@ type TelegramApiBody = {
 }
 
 /**
- * Telegram transport [spec:SP-5d81]: long-polls getUpdates on the notification
+ * Telegram transport: long-polls getUpdates on the notification
  * bot and accepts messages ONLY from the configured private chat — the chat id
  * is the authorization boundary. Outbound replies convert superagent markdown
  * to MarkdownV2 (Hermes pattern: try MDV2, strip+resend plain on parse error),

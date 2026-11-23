@@ -35,7 +35,7 @@ afterEach(() => disposeOracles())
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50))
 
 async function bindLive(o: Oracle, sessionId: SessionId, cwd: string): Promise<void> {
-  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'bind',
     sessionId,
     cmd: 'claude',
@@ -86,7 +86,7 @@ async function openAsk(o: Oracle, sessionId: SessionId, id = `ask:${sessionId}`)
 
 /** Two issues, each with its own worktree under the reported repo `/r`. */
 async function twoIssues(o: Oracle) {
-  await o.store.repos.addRepo('/r', o.store.hostMachineId)
+  await o.store.repos.addRepo('/r', o.store.hostMachine!.id)
   const a = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
     repoPath: '/r',
     title: 'A',

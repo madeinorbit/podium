@@ -34,13 +34,16 @@ async function setup(machines: { id: string; name: string; hostname: string }[])
   const store = await openTestStore(':memory:')
   stores.push(store)
   for (const machine of machines) {
-    await store.machines.upsertMachine({ ...machine, tokenHash: `token-${machine.id}`, ownerUserId: owner })
+    await store.machines.upsertMachine({
+      ...machine,
+      tokenHash: `token-${machine.id}`,
+      ownerUserId: owner,
+    })
   }
   const service = new MachinesService({
     instanceId: 'default',
     store,
-    hostMachineId: store.hostMachineId,
-
+    hostMachine: { id: store.hostMachine!.id },
   } as MachinesDeps)
   services.push(service)
   return { store, service, ids: [...machines.map((machine) => machine.id), 'never-enrolled'] }
@@ -54,7 +57,10 @@ async function expectReads({ store, service, ids }: Awaited<ReturnType<typeof se
   for (const id of ids) {
     const one = await store.machines.getMachine(id)
     expect(many.get(id), `${id} many`).toEqual(one)
-    expect(listed.find((row) => row.id === id), `${id} listed`).toEqual(one)
+    expect(
+      listed.find((row) => row.id === id),
+      `${id} listed`,
+    ).toEqual(one)
     expect(await service.machineName(id), `${id} name`).toBe(one?.name ?? id)
     expect(names.get(id), `${id} names`).toBe(one?.name ?? id)
   }
@@ -73,20 +79,40 @@ describe('machine reads follow the machines table', () => {
     await expectReads(fixture)
     const writes = [
       () => store.machines.renameMachine('edge-renamed', 'After'),
-      () => store.machines.setMachineInventory('edge-renamed', JSON.stringify({ os: 'linux', arch: 'x64', podiumVersion: '1', agents: [], tools: [] })),
+      () =>
+        store.machines.setMachineInventory(
+          'edge-renamed',
+          JSON.stringify({ os: 'linux', arch: 'x64', podiumVersion: '1', agents: [], tools: [] }),
+        ),
       () => store.machines.setMachineInventory('edge-renamed', '{"invalid":true}'),
-      () => store.machines.setServiceAssignment('edge-renamed', { server: false, agentExecution: true }),
+      () =>
+        store.machines.setServiceAssignment('edge-renamed', {
+          server: false,
+          agentExecution: true,
+        }),
       () => store.machines.setUpdateChannel('edge-renamed', 'edge'),
       () => store.machines.setUpdateChannel('edge-renamed', null),
       () => store.machines.touchMachine('edge-renamed', 'renamed-again.local'),
       () => store.machines.deleteMachine(asMachineId('edge-removed')),
       () => store.machines.revokeMachine(asMachineId('edge-revoked')),
-      () => store.machines.supersedeMachine(asMachineId('edge-revoked'), asMachineId('edge-replacement')),
-      () => store.grants.upsert({
-        resourceKind: 'machine', resourceId: 'edge-granted', grantee: colleague, verb: 'use',
-        owner, visibility: 'personal', createdAt: '2026-10-15T00:00:00.000Z',
-        actorKind: 'user', actorId: owner, onBehalfOf: owner,
-      }),
+      () =>
+        store.machines.supersedeMachine(
+          asMachineId('edge-revoked'),
+          asMachineId('edge-replacement'),
+        ),
+      () =>
+        store.grants.upsert({
+          resourceKind: 'machine',
+          resourceId: 'edge-granted',
+          grantee: colleague,
+          verb: 'use',
+          owner,
+          visibility: 'personal',
+          createdAt: '2026-10-15T00:00:00.000Z',
+          actorKind: 'user',
+          actorId: owner,
+          onBehalfOf: owner,
+        }),
       () => store.machines.setMachineOwner('edge-granted', colleague),
     ]
     for (const write of writes) {
@@ -96,10 +122,12 @@ describe('machine reads follow the machines table', () => {
     expect(await service.machineName('edge-renamed')).toBe('After')
     expect(await service.machineName('edge-removed')).toBe('edge-removed')
     expect((await service.serviceAssignment(asMachineId('edge-renamed'))).agentExecution).toBe(true)
-    await expect(store.transact(async () => {
-      await store.machines.renameMachine('edge-renamed', 'rolled back')
-      throw new Error('roll back')
-    })).rejects.toThrow('roll back')
+    await expect(
+      store.transact(async () => {
+        await store.machines.renameMachine('edge-renamed', 'rolled back')
+        throw new Error('roll back')
+      }),
+    ).rejects.toThrow('roll back')
     await expectReads(fixture)
     expect(await service.machineName('edge-renamed')).toBe('After')
 
@@ -108,7 +136,9 @@ describe('machine reads follow the machines table', () => {
     const granted = ownership.rowFor(asMachineId('edge-granted'))
     expect(granted?.owner).toBe(colleague)
     expect(granted?.grants.map((edge) => [edge.subject, edge.verb]).sort()).toEqual(
-      (await store.grants.listForResource('machine', 'edge-granted')).map((edge) => [edge.grantee, edge.verb]).sort(),
+      (await store.grants.listForResource('machine', 'edge-granted'))
+        .map((edge) => [edge.grantee, edge.verb])
+        .sort(),
     )
     expect((await service.ownershipRows()).map((row) => [row.id, row.name, row.revokedAt])).toEqual(
       (await store.machines.listMachines()).map((row) => [row.id, row.name, row.revokedAt]),
@@ -120,7 +150,13 @@ describe('machine reads follow the machines table', () => {
       {
         name: 'machineNames',
         setup: async (size) =>
-          await setup(Array.from({ length: size }, (_, i) => ({ id: `m-${i}`, name: `Machine ${i}`, hostname: `m-${i}.local` }))),
+          await setup(
+            Array.from({ length: size }, (_, i) => ({
+              id: `m-${i}`,
+              name: `Machine ${i}`,
+              hostname: `m-${i}.local`,
+            })),
+          ),
         target: (f) => f.store,
         run: async (f) => await f.service.machineNames(f.ids.map(asMachineId)),
         check: (names, f) => {

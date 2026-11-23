@@ -46,7 +46,7 @@ export function useFileDocument(scope: FileScope, path: string): FileDocument {
     message: string
   } | null>(null)
   const [reloadNonce, setReloadNonce] = useState(0)
-  // Artifact snapshots are immutable ([spec:SP-0fc9] #441) — no save path.
+  // Artifact snapshots are immutable (#441) — no save path.
   const editable = scope.kind !== 'artifact'
 
   useEffect(

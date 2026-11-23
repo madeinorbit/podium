@@ -6,7 +6,7 @@
  * remain, so the oracle has to cover the whole router inventory, not only the
  * writes the frozen brief listed. These two are the remainder:
  *
- *  - `ask` — the seance [spec:SP-34d7 read-toolkit tier 4]. It is a MESSAGE, not
+ *  - `ask` — the seance. It is a MESSAGE, not
  *    a bespoke path: a `kind:'question'` row at next-turn + wake, then a BOUNDED
  *    wait for the ack. Its authz is the MessageGate's session-target gate, the
  *    same containment the relay send arm applies, which is why it is the one
@@ -45,13 +45,13 @@ function answerUploads(
     path: string
     error?: string
   },
-  machineId = o.store.hostMachineId,
+  machineId = o.store.hostMachine!.id,
 ): ControlMessage[] {
   const seen: ControlMessage[] = []
   const svc = o.reg.gateway
   svc.attachDaemon(machineId, (msg) => {
     seen.push(msg)
-    if (machineId === o.store.hostMachineId) o.daemon.push(msg)
+    if (machineId === o.store.hostMachine!.id) o.daemon.push(msg)
     if (msg.type === 'inventoryRequest') {
       svc.routeDaemonFrame(machineId, {
         type: 'inventoryReport',
@@ -104,7 +104,7 @@ async function liveSession(
   sessionId: string,
   cwd = '/p',
 ): Promise<void> {
-  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'bind',
     sessionId: asSessionId(sessionId),
     cmd: 'claude',
@@ -112,7 +112,7 @@ async function liveSession(
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
-  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'agentState',
     sessionId: asSessionId(sessionId),
     state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -165,9 +165,15 @@ describe('oracle: sessions.ask (the seance)', () => {
   it(`${MUST_NOT_CHANGE}: an ANSWERED ask returns answered:true with the answer, the ack id and a live snapshot`, async () => {
     const o = await makeOracle()
     // Issues are placed on a machine that reported their repo (2b803efb5).
-    await o.store.repos.addRepo('/r', o.store.hostMachineId)
-    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'issue A', startNow: false })
-    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, { worktreePath: '/r/.worktrees/a' })
+    await o.store.repos.addRepo('/r', o.store.hostMachine!.id)
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'issue A',
+      startNow: false,
+    })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, {
+      worktreePath: '/r/.worktrees/a',
+    })
     const target = await o.reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/a',
@@ -257,9 +263,15 @@ describe('oracle: sessions.ask (the seance)', () => {
   it(`${AGENT_ONLY}: ask is NOT relay-reachable — the allowlist refuses it BEFORE the dispatch arm that implements it`, async () => {
     const o = await makeOracle()
     // Issues are placed on a machine that reported their repo (2b803efb5).
-    await o.store.repos.addRepo('/r', o.store.hostMachineId)
-    const a = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'issue A', startNow: false })
-    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, a.id, { worktreePath: '/r/.worktrees/a' })
+    await o.store.repos.addRepo('/r', o.store.hostMachine!.id)
+    const a = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'issue A',
+      startNow: false,
+    })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, a.id, {
+      worktreePath: '/r/.worktrees/a',
+    })
     const agent = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
@@ -340,7 +352,7 @@ describe('oracle: sessions.uploadImage', () => {
   it(`${MUST_NOT_CHANGE}: an agent session's upload is HELD on the server — no machine is touched, a ref with no path comes back (POD-2148)`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'codex', cwd: '/p' })
-    o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+    o.reg.gateway.routeDaemonFrame(o.store.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'codex app-server',
@@ -590,7 +602,7 @@ describe('oracle: sessions.uploadImage', () => {
       filename: 'shot.png',
       mimeType: 'image/png',
       dataBase64: 'AA==',
-      machineId: o.store.hostMachineId,
+      machineId: o.store.hostMachine!.id,
     })
 
     expect(result).toEqual({ path: '/on/other/x.png' })
@@ -608,7 +620,7 @@ describe('oracle: sessions.uploadImage', () => {
       // AWAITED: since 2a19e9c05 the bind's live flip is a queued session
       // write, so an un-awaited bind lands after the detach below and paints
       // the row live again (the same fixture race oracle-errors documents).
-      await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+      await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
         type: 'bind',
         sessionId,
         cmd: 'bash',
@@ -621,7 +633,7 @@ describe('oracle: sessions.uploadImage', () => {
       // the machine is not there. A deaf-but-attached daemon is a different state
       // (below) and would let a future "refuse immediately when offline" change
       // land while this test stayed green.
-      o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
+      o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachine!.id)
       expect((await o.meta(sessionId)).status).toBe('live')
       expect(o.reg.modules.machines.onlineMachineIds()).toEqual([])
       o.daemon.length = 0
@@ -661,7 +673,7 @@ describe('oracle: sessions.uploadImage', () => {
       // characterization because the two states are genuinely different inputs
       // that today produce the same output — which is the fact worth pinning.
       await attachHostDaemon(o.reg, (msg) => o.daemon.push(msg))
-      expect(o.reg.modules.machines.onlineMachineIds()).toEqual([o.store.hostMachineId])
+      expect(o.reg.modules.machines.onlineMachineIds()).toEqual([o.store.hostMachine!.id])
 
       const settled = o.call.sessions
         .uploadImage({
@@ -749,7 +761,7 @@ describe('oracle: sessions.uploadImage', () => {
   it(`${MUST_NOT_CHANGE}: rejects forged local-file refs from both chat and mail before crossing to the daemon`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'codex', cwd: '/p' })
-    o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+    o.reg.gateway.routeDaemonFrame(o.store.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'codex app-server',
@@ -758,7 +770,7 @@ describe('oracle: sessions.uploadImage', () => {
       geometry: { cols: 80, rows: 24 },
       driverId: 'codex-app-server',
     })
-    o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+    o.reg.gateway.routeDaemonFrame(o.store.hostMachine!.id, {
       type: 'agentState',
       sessionId,
       state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },

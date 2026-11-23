@@ -325,7 +325,7 @@ describe('D17 — attribution is a PAIR, stamped from the transport', () => {
     const pair = attributionOf(agent)
     expect(pair.actor).toBe(`session:${AGENT_OF_OWNER}`)
     expect(pair.onBehalfOf).toBe(OWNER)
-    // The two questions [spec:SP-eb60] depends on stay separately answerable:
+    // The two questions depends on stay separately answerable:
     // "did a person or an agent do this?" and "which person was it for?".
     expect(pair.actor).not.toBe(pair.onBehalfOf)
   })

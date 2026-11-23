@@ -535,14 +535,10 @@ function corpusTables(): SQLiteTable[] {
  * opens Postgres, so this opens SQLite itself, as `openTestStore` does.
  */
 async function sqliteCorpus(): Promise<{ store: SessionStore; unseeded: string[] }> {
-  const store = await SessionStore.open(
-    ':memory:',
-    undefined as never,
-    {
-      changeCapture: 'whenLogAttaches',
-      workspace: SELF_HOSTED_WORKSPACE_ID,
-    } as never,
-  )
+  const store = await SessionStore.open(':memory:', { id: undefined as never }, {
+    changeCapture: 'whenLogAttaches',
+    workspace: SELF_HOSTED_WORKSPACE_ID,
+  } as never)
   primeFirstAdminMember(await firstAdminMemberId(store))
   await store.database.provisionWorkspace(asWorkspaceId(OTHER_WORKSPACE))
   const db = (store as unknown as { queries: { rootDb: StoreDrizzle } }).queries.rootDb

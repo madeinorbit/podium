@@ -1,7 +1,7 @@
 /**
  * THE FEDERATION SEAM PROOF (POD-309, ADR 5 D8 "Seam proof (test-only, H1)").
  *
- * The hub is DEFERRED, not cancelled ([spec:SP-0371]). POD-309 deletes the half-built
+ * The hub is DEFERRED, not cancelled. POD-309 deletes the half-built
  * node⇄hub implementation; this file is the other half of the bargain — the commitment
  * that the rewrite has not made a future hub impossible. D8 states the obligation
  * exactly: *"instantiate a second in-memory Authority against kernel ports and run the

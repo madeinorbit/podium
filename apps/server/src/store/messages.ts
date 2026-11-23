@@ -5,7 +5,7 @@ import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
 import { CommittedRows } from './committed-rows'
 /**
  * Messages aggregate — owns the unified `messages` table (#237)
- * [spec:SP-34d7]: one durable row per inter-agent / superagent / system / UI
+ * one durable row per inter-agent / superagent / system / UI
  * message, with the delivery ledger as columns on the row.
  */
 
@@ -426,49 +426,13 @@ const messagesAddressedTo = preparedFamily((db, t, shape: AddressShape) =>
     .prepare(),
 )
 
-const pendingForSessionProof = prepared((db, t) =>
-  db
-    .select()
-    .from(t.messages)
-    .where(
-      inWorkspace(
-        t.messages,
-        or(
-          and(
-            pending(t),
-            or(
-              and(
-                eq(t.messages.toKind, 'session'),
-                eq(t.messages.toId, param(t.messages.toId, 'sessionId')),
-              ),
-              eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'sessionId')),
-            ),
-          ),
-          and(
-            confirmedInto(db, t),
-            isNull(t.messages.ackedBy),
-            eq(t.messages.expectsResponse, true),
-            or(
-              isNull(t.messages.expiresAt),
-              gt(t.messages.expiresAt, param(t.messages.expiresAt, 'now')),
-            ),
-          ),
-        ),
-      ),
-    )
-    .orderBy(...DELIVERY_ORDER(t))
-    .prepare(),
-)
-
 /**
- * {@link pendingForSessionProof} for a known set of sessions (POD-7036): the
- * host sample checks the terminal proof of every idle candidate at once, and
- * asked per session it was the audit's burst `#3d3edfd1` (up to 909 statements
- * in one stall window). One SELECT per way a row names its session, each on its
- * own index (`idx_messages_recipient_time`, `idx_messages_delivered_to_time`),
- * joined by `UNION ALL`: a `UNION` would deduplicate in a temporary B-tree, and
- * the caller attributes and deduplicates by id anyway. The ids are the `ids`
- * list in both arms.
+ * Pending proof rows for a known set of sessions, one indexed SELECT per way
+ * a row names its session (POD-7036, POD-7263). The single-session proof uses
+ * this same read: its former OR walked the entire workspace's message history.
+ * Each arm seeks the recipient or delivered-to index, never a status range.
+ * UNION ALL also works with Postgres json columns; attribution, de-duplication
+ * and DELIVERY_ORDER are applied to each session's rows below.
  */
 const pendingForSessionsProof = preparedFamily((db, t, size: number) =>
   db
@@ -479,7 +443,9 @@ const pendingForSessionsProof = preparedFamily((db, t, size: number) =>
         t.messages,
         eq(t.messages.toKind, 'session'),
         inListOf(t.messages.toId, size, 'ids'),
-        pending(t),
+        // Keep the status out of SQLite's index choice: other sessions' pending
+        // rows must not turn this into a workspace-wide status scan.
+        sql`${statusOutOfIndexChoice(db, t)} in ${[...MESSAGE_PENDING]}`,
       ),
     )
     .unionAll(
@@ -1739,7 +1705,7 @@ export class MessagesRepository {
 
   /** Exact, unbounded safety projection of work still pending for one session. */
   async pendingForSessionProof(sessionId: SessionId, now: string): Promise<MessageRow[]> {
-    return (await pendingForSessionProof(this.db).all({ sessionId, now })).map(mapMessage)
+    return (await this.pendingForSessionsProof([sessionId], now)).get(sessionId) ?? []
   }
 
   /**
@@ -1756,6 +1722,8 @@ export class MessagesRepository {
     const unique = [...new Set(sessionIds)]
     const out = new Map<SessionId, MessageRow[]>(unique.map((id) => [id, []]))
     const pendingStatuses = new Set<string>(MESSAGE_PENDING)
+    // A row can name sessions in different chunks; attribute it once across the read.
+    const seen = new Set<string>()
     for (let at = 0; at < unique.length; at += 500) {
       const chunk = unique.slice(at, at + 500)
       const size = inListSize(chunk.length)
@@ -1763,7 +1731,6 @@ export class MessagesRepository {
         ...inListValues(chunk, size, 'ids'),
         now,
       })
-      const seen = new Set<string>()
       for (const row of rows) {
         if (seen.has(row.id)) continue
         seen.add(row.id)
@@ -1782,12 +1749,16 @@ export class MessagesRepository {
       }
     }
     for (const list of out.values()) {
-      list.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+      // Match SQL DELIVERY_ORDER (binary text order), including ids tied on time.
+      list.sort((a, b) => {
+        if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1
+        return Buffer.compare(Buffer.from(a.id), Buffer.from(b.id))
+      })
     }
     return out
   }
 
-  /** The delivery ledger for one issue or session (#237) [spec:SP-34d7 web]:
+  /** The delivery ledger for one issue or session (#237):
    *  every row the principal SENT or was ADDRESSED (issue box / session box /
    *  delivered-to), newest first — the "what happened to my message" view. */
   async listLedger(q: {
@@ -1933,7 +1904,7 @@ export class MessagesRepository {
     return Number(row?.n ?? 0)
   }
 
-  // ---- PER-READER state [POD-1379] [spec:SP-b11e] ----
+  // ---- PER-READER state [POD-1379] ----
   // `delivery_status` is the DELIVERY ledger: one pipeline per message (stored →
   // handed on → confirmed, or another end), shared by every session on the issue.
   // It cannot answer "has THIS session seen it", and an issue mailbox is read by
@@ -2650,12 +2621,12 @@ export class MessagesRepository {
    *  so receipt alone never lands here. `acked_by IS NULL` is the unfulfilled test:
    *  it is stamped by any in-thread reply (semantic-reply-as-ack), not just a
    *  `kind:'ack'`. The stop-hook reminder and the steward's deterministic fallback
-   *  both read this set (#237) [spec:SP-34d7 acks]. */
+   *  both read this set (#237). */
   async listDeliveredUnacked(sessionId: SessionId, now: string): Promise<MessageRow[]> {
     return (await deliveredUnacked(this.db).all({ sessionId, now })).map(mapMessage)
   }
 
-  /** The steward settle-fallback set (#468, [spec:SP-bf44] [POD-835 §04b]): delivered,
+  /** The steward settle-fallback set (#468, [POD-835 §04b]): delivered,
    *  unfulfilled, unexpired rows for `sessionId` that (a) REQUESTED a response — `expects_response
    *  = 1`, the opt-in flag; an ordinary message (even next-turn) owes no reply and
    *  never nags, killing the 49% ack traffic — and (b) have not already produced a

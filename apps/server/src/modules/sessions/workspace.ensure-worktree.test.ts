@@ -80,10 +80,8 @@ describe('prepareTarget reconnect inventory', () => {
  * path that is not there — and the spawn went into it. How a process died says
  * nothing about whether its directory exists.
  *
- * The second test is the load-bearing one for POD-197 and is why the fix is
- * scoped the way it is: the common wake path must stay SYNCHRONOUS, because
- * `queueText` fire-and-forgets the resurrect and needs the spawn on the wire
- * before it returns. Only the branch that was already async widened.
+ * Check the recorded path too: a worktree can disappear while parked without
+ * the issue row having been updated.
  */
 
 const issueMeta = (over: {
@@ -130,7 +128,7 @@ describe('ensureSessionWorktree rebuilds regardless of how the process died', ()
     )
     const result = await workspace.ensureSessionWorktree(session({}), issues)
 
-    expect(ensureWorktree).toHaveBeenCalledWith('iss_7')
+    expect(ensureWorktree).toHaveBeenCalledWith('iss_7', undefined, { forResume: true })
     expect(result).toEqual({ ok: true, cwd: '/repo/.worktrees/issue-7' })
   })
 
@@ -170,21 +168,14 @@ describe('ensureSessionWorktree rebuilds regardless of how the process died', ()
     expect(result).toEqual({ ok: true, cwd: '/repo/.worktrees/issue-7' })
   })
 
-  /**
-   * POD-197: `queueText` fire-and-forgets this call and relies on the spawn being
-   * on the wire before it returns, so the common wake path must not become a
-   * promise. Asserting the RETURN TYPE, not just the value — an `await` in the
-   * test would hide exactly the regression this guards.
-   */
-  it('resolves synchronously when the worktree is already recorded', async () => {
+  it('checks the issue worktree even when a path is already recorded', async () => {
     const { workspace, issues, ensureWorktree } = harness(
       issueMeta({ worktreePath: '/repo/.worktrees/issue-7', branch: 'issue/7-thing' }),
     )
     const result = await workspace.ensureSessionWorktree(session({}), issues)
 
-    expect(result).not.toBeInstanceOf(Promise)
     expect(result).toEqual({ ok: true, cwd: '/repo/.worktrees/issue-7' })
-    expect(ensureWorktree).not.toHaveBeenCalled()
+    expect(ensureWorktree).toHaveBeenCalledWith('iss_7', undefined, { forResume: true })
   })
 
   it('reconciles a recorded worktree when the session moved to another machine', async () => {
@@ -200,7 +191,7 @@ describe('ensureSessionWorktree rebuilds regardless of how the process died', ()
     const result = await workspace.ensureSessionWorktree(session({}), issues)
 
     expect(result).toEqual({ ok: true, cwd: '/repo/.worktrees/issue-7' })
-    expect(ensureWorktree).toHaveBeenCalledWith('iss_7', 'machine-b')
+    expect(ensureWorktree).toHaveBeenCalledWith('iss_7', 'machine-b', { forResume: true })
   })
 })
 

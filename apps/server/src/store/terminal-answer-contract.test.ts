@@ -27,7 +27,7 @@ describe('production terminal answer identity', () => {
     let ingress = Promise.resolve()
     const send = (msg: DaemonMessage): void => {
       frames.push(msg)
-      ingress = ingress.then(() => registry.gateway.routeDaemonFrame(store.hostMachineId, msg))
+      ingress = ingress.then(() => registry.gateway.routeDaemonFrame(store.hostMachine!.id, msg))
     }
     const transport = {
       live: true,
@@ -54,14 +54,14 @@ describe('production terminal answer identity', () => {
     const daemon = { agentRuntime: runtime, send } as unknown as DaemonContext
     try {
       await store.machines.upsertMachine({
-        id: store.hostMachineId,
+        id: store.hostMachine!.id,
         name: 'Host',
         hostname: 'test',
         tokenHash: 'test',
         ownerUserId: firstAdminMemberId(),
         assignment: { server: true, agentExecution: true },
       })
-      await registry.gateway.attachDaemon(store.hostMachineId, (msg) => {
+      await registry.gateway.attachDaemon(store.hostMachine!.id, (msg) => {
         if (msg.type === 'runtimeAnswerRequest') runtimeHandlers.runtimeAnswerRequest(daemon, msg)
       })
       const { sessionId } = await registry.modules.sessions.createSession({
@@ -69,7 +69,7 @@ describe('production terminal answer identity', () => {
         cwd: '/project',
       })
       const profile = terminalProfileFor('claude-code')!
-      await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      await registry.gateway.routeDaemonFrame(store.hostMachine!.id, {
         type: 'bind',
         sessionId,
         cmd: 'claude',
@@ -140,7 +140,7 @@ describe('production terminal answer identity', () => {
         (f) =>
           f.type === 'runtimeEvent' && f.event.t === 'interaction' && f.event.ev.ev === 'asked',
       )!
-      await registry.gateway.routeDaemonFrame(store.hostMachineId, askFrame)
+      await registry.gateway.routeDaemonFrame(store.hostMachine!.id, askFrame)
       expect(await registry.modules.interactions.listOpen(sessionId)).toHaveLength(1)
       const principal = userCommandPrincipal(firstAdminMemberId(), 'admin')
       const ctx = await sessionCommandCtx(registry.modules, principal.capability)

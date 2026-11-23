@@ -8,7 +8,7 @@ import type { FileTab } from './store'
  *  opened under one issue no longer leak into every issue sharing the same
  *  checkout (the old worktree-path fallback showed POD-131's artifacts under
  *  any issue worked from the main checkout). Ownership also covers the
- *  worktree-LESS artifact case ([spec:SP-0fc9] #441 / POD-502): an owned tab
+ *  worktree-LESS artifact case (#441 / POD-502): an owned tab
  *  renders for its issue even with no worktreePath at all. Tabs with no owner
  *  (opened outside any issue) appear only in the worktree-selected workspace,
  *  which still matches by containment root. Closed-over tabs stay reachable

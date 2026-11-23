@@ -86,7 +86,7 @@ async function expiredEvents(store: SessionStore, id: string): Promise<number> {
 describe.each([
   'before-apply',
   'after-apply-before-ack',
-] as const)('janitor crash boundary: %s [spec:SP-c29e]', (boundary) => {
+] as const)('janitor crash boundary: %s', (boundary) => {
   it('retries the deterministic command and commits the transition exactly once', async () => {
     const store = await openTestStore(':memory:')
     const message = dueMessage(`msg_${boundary}`)
@@ -123,7 +123,7 @@ describe.each([
   })
 })
 
-describe('janitor lease and server-restart faults [spec:SP-c29e]', () => {
+describe('janitor lease and server-restart faults', () => {
   it('allows only one lease holder, then fences takeover after expiry', async () => {
     let now = NOW
     const store = await openTestStore(':memory:')

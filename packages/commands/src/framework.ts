@@ -3,7 +3,7 @@ import type { MachineVerb } from '@podium/protocol'
 import type { z } from 'zod'
 
 /**
- * Command-definition contract for the P3 command registry [spec:SP-3fe2]:
+ * Command-definition contract for the P3 command registry:
  * one declarative table per namespace from which the tRPC router, the CLI
  * surface, and the MCP tool surface are all derived. P1 only defines the
  * contract — nothing registers commands yet.
@@ -301,7 +301,7 @@ export type CommandName<R extends { namespace: string; defs: Record<string, Comm
  */
 
 /**
- * THE canonical lock-command name list [spec:SP-85d1] — the def keys of the
+ * THE canonical lock-command name list — the def keys of the
  * server's `lock` registry (advisory named lease locks), declared here for the
  * same reason the issue list exists (see the note above): the server registry is
  * `satisfies`-checked against it and @podium/issue-client keys its

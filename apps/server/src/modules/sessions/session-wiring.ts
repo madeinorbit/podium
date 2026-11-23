@@ -1467,7 +1467,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     'settings.changed',
     ({ previous, next, member }: { previous: any; next: any; member?: string }) => {
       // Keep the cached draftSync flag current (POD-859). Resolved through the
-      // canonical experiments system (channel/config/user) [spec:SP-f4b9].
+      // canonical experiments system (channel/config/user).
       bag.state.setDraftSyncEnabled(isFeatureEnabled('draft-sync', next))
       const wasEnabled = previous.autoContinue.enabled
       const nowEnabled = next.autoContinue.enabled

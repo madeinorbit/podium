@@ -4,7 +4,7 @@ import { didYouMean } from './similarity'
 
 /**
  * Spawn-time validation of an explicit model/effort selection against the live
- * ModelCatalog [spec:SP-cc60]. Every session-creation entry point (agent spawn,
+ * ModelCatalog. Every session-creation entry point (agent spawn,
  * issue start, issue add-session) runs this before creating a session or mutating
  * issue-start state, so a typo'd or retired slug is caught with a "did you mean"
  * suggestion instead of silently spawning an agent that falls back to a CLI default.
@@ -157,7 +157,7 @@ function quotedList(values: string[]): string {
   return values.map((v) => `"${v}"`).join(', ')
 }
 
-/** The clear, actionable error message for a rejected selection [spec:SP-cc60]:
+/** The clear, actionable error message for a rejected selection:
  *  requested harness/model/effort, catalog freshness, and a "did you mean" line. */
 export function formatModelValidationProblem(
   problem: ModelValidationProblem,
@@ -311,7 +311,7 @@ export interface ResolvedLaunchSelection extends VettedSelection {
 
 /** One pure answer for a new launch. Catalog data is supplied by the server's
  * persisted machine row; resolving never contacts a daemon. `auto` means unset
- * in every layer. Settings apply only to the coding harness [spec:SP-7ff1]. */
+ * in every layer. Settings apply only to the coding harness. */
 export function resolveLaunchSelection(input: {
   agentKind: string
   explicit?: SelectionValues

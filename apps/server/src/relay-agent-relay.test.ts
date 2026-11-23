@@ -659,8 +659,8 @@ describe('server agent relay handler (P1b)', () => {
   })
 })
 
-// [spec:SP-9904] sessions.stop authz + after-reply self-kill
-describe('sessions.stop relay authz [spec:SP-9904]', () => {
+// sessions.stop authz + after-reply self-kill
+describe('sessions.stop relay authz', () => {
   const registries: SessionRegistry[] = []
   let machineId: string
   const repoPath = '/r'
@@ -672,7 +672,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
 
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    machineId = registry.sessionStore.hostMachineId
+    machineId = registry.sessionStore.hostMachine!.id
     registries.push(registry)
     // The host runs the sessions and reports the repo their issues sit under.
     await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
@@ -1077,7 +1077,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
 
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    machineId = registry.sessionStore.hostMachineId
+    machineId = registry.sessionStore.hostMachine!.id
     registries.push(registry)
     // The host runs the sessions and reports the repo their issues sit under.
     await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
@@ -1197,7 +1197,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   })
 })
 
-// Agent action offer [spec:SP-c7f1]: `podium offer` set/clear, relayed from the
+// Agent action offer: `podium offer` set/clear, relayed from the
 // CALLING session, mirroring the sessions.title target-binding.
 describe('offer.set / offer.clear — an agent offers the user next actions', () => {
   const registries: SessionRegistry[] = []
@@ -1233,7 +1233,7 @@ describe('offer.set / offer.clear — an agent offers the user next actions', ()
 
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    machineId = registry.sessionStore.hostMachineId
+    machineId = registry.sessionStore.hostMachine!.id
     registries.push(registry)
     // The host runs the sessions and reports the repo their issues sit under.
     await attachHostDaemon(registry, () => {}, { repos: ['/r'] })

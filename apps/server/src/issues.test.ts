@@ -1,5 +1,12 @@
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { blobKey } from '@podium/blob-store'
@@ -16,6 +23,7 @@ import {
   type DescendantTip,
   firstAdminMemberId,
   type IssueId,
+  type MachineId,
   type SessionMeta,
   type SessionMetaInput,
   type UserId,
@@ -40,6 +48,7 @@ import { memberFacts } from './store/fixtures/test-support'
 import { artifactStoreOnDisk } from './test-support/artifact-store'
 import { captureLogs } from './test-support/capture-logs'
 import { seedLegacyKeyCredential } from './test-support/legacy-key-credential'
+import { TEST_MACHINE_ID } from './test-support/machine-id'
 import { openTestStore } from './test-support/open-test-store'
 import { seedMailboxRow } from './test-support/seed-issue-mail'
 import { seedMessage } from './test-support/seed-message'
@@ -51,14 +60,14 @@ import { metasAsFacts, sessionReadPorts } from './test-support/session-facts'
 const AS_OPERATOR = userCommandPrincipal(firstAdminMemberId(), 'admin')
 
 async function harness(sessions: SessionMeta[] = [], opts: { originUrl?: string } = {}) {
-  const store = await openTestStore(':memory:')
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
   // Without an origin its identity is derived from the host and path; a test
   // that moves an issue between checkouts BY IDENTITY passes `originUrl`.
   await seedRows(
     store,
-    async () => await store.repos.addRepo('/r', store.hostMachineId, opts.originUrl),
+    async () => await store.repos.addRepo('/r', store.hostMachine!.id, opts.originUrl),
   )
   const setSessionArchived = vi.fn()
   const clearSessionOffer = vi.fn()
@@ -81,7 +90,7 @@ async function harness(sessions: SessionMeta[] = [], opts: { originUrl?: string 
       machine: 'machine-under-test',
     })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    resolveMachine: vi.fn(async () => store.hostMachineId),
+    resolveMachine: vi.fn(async () => store.hostMachine!.id),
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg), { store }),
     setSessionArchived,
@@ -271,7 +280,7 @@ describe('IssueService CRUD', () => {
       worktreePath: '/r/wt',
       stage: 'planning',
     })
-    expect(updated.machineId).toBe(store.hostMachineId)
+    expect(updated.machineId).toBe(store.hostMachine!.id)
     expect(deps.resolveMachine).toHaveBeenCalledWith(undefined, '/r/wt')
     expect(updated).not.toHaveProperty('sessions')
     expect(updated).not.toHaveProperty('sessionSummary')
@@ -601,11 +610,12 @@ describe('IssueService unread (#124)', () => {
     // Mutable clock so a content patch can stamp updatedAt strictly after readAt
     // (computeUnread uses lastActivity > readAt, not >=).
     let clock = '2026-06-30T00:00:00.000Z'
-    const store = await openTestStore(':memory:')
-    await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachineId))
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
+    await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachine!.id))
     /** Every change row the service published — see `issueTestPlumbing`. */
     const broadcast = vi.fn()
     const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
+      resolveMachine: async () => TEST_MACHINE_ID,
       store,
       ...sessionReadPorts(() => []),
       getSettings: async () =>
@@ -716,11 +726,12 @@ describe('IssueService tuck-away (POD-333)', () => {
   it('untucks back to null, and a re-tuck keeps the ORIGINAL dismissal moment', async () => {
     // Mutable clock so a repeated tuck could visibly move the stamp if it did.
     let clock = '2026-06-30T00:00:00.000Z'
-    const store = await openTestStore(':memory:')
-    await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachineId))
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
+    await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachine!.id))
     /** Every change row the service published — see `issueTestPlumbing`. */
     const broadcast = vi.fn()
     const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
+      resolveMachine: async () => TEST_MACHINE_ID,
       store,
       ...sessionReadPorts(() => []),
       getSettings: async () =>
@@ -1635,7 +1646,7 @@ describe('new agent after worktree free (POD-580)', () => {
       'worktreeAddExisting',
       '/r',
       { path: '/r/.worktrees/issue-x', branch: 'issue/x' },
-      store.hostMachineId,
+      store.hostMachine!.id,
     )
     expect((await svc.reports.get(w.id))!.worktreePath).toBe('/r/.worktrees/issue-x')
     expect(deps.spawnSession).toHaveBeenCalledWith(
@@ -1679,7 +1690,7 @@ describe('new agent after worktree free (POD-580)', () => {
       'worktreeAddExisting',
       '/r',
       { path: '/r/.worktrees/issue-x', branch: 'issue/x' },
-      store.hostMachineId,
+      store.hostMachine!.id,
     )
     expect(
       (deps.repoOp as ReturnType<typeof vi.fn>).mock.calls.every(
@@ -1706,7 +1717,7 @@ describe('new agent after worktree free (POD-580)', () => {
       'worktreeAdd',
       '/r',
       expect.objectContaining({ branch: 'issue/1-brand-new' }),
-      store.hostMachineId,
+      store.hostMachine!.id,
     )
     expect(
       (deps.repoOp as ReturnType<typeof vi.fn>).mock.calls.every(
@@ -1862,13 +1873,13 @@ describe('IssueService.start', () => {
     expect(started.stage).toBe('in_progress')
     expect(started.branch).toBe('issue/1-fix-login')
     expect(started.worktreePath).toBe('/r/.worktrees/issue-1-fix-login')
-    expect(started.machineId).toBe(store.hostMachineId)
+    expect(started.machineId).toBe(store.hostMachine!.id)
     expect(deps.resolveMachine).toHaveBeenCalledWith(undefined, '/r')
     expect(deps.repoOp).toHaveBeenCalledWith(
       'worktreeAdd',
       '/r',
       { path: '/r/.worktrees/issue-1-fix-login', branch: 'issue/1-fix-login', startPoint: 'main' },
-      store.hostMachineId,
+      store.hostMachine!.id,
     )
     expect(deps.spawnSession).toHaveBeenCalledWith({
       cwd: '/r/.worktrees/issue-1-fix-login',
@@ -1879,7 +1890,7 @@ describe('IssueService.start', () => {
       initialPrompt: 'do the thing',
       ownerUserId: firstAdminMemberId(),
       spawnedBy: `issue:${created.id}`,
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
     })
   })
 
@@ -1908,6 +1919,95 @@ describe('IssueService.start', () => {
     expect(deps.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ machineId: selected }))
   })
 
+  it('validates an unpinned start against the catalog of the machine it starts on', async () => {
+    const { svc, deps, store } = await harness()
+    const machineId = asMachineId('catalog-remote')
+    deps.resolveMachine = vi.fn(async () => machineId)
+    await store.settings.setModelCatalog({
+      machineId: store.hostMachine!.id,
+      version: MODEL_CATALOG_VERSION,
+      fetchedAt: 1,
+      byAgent: { 'claude-code': [{ value: 'server-model', label: 'Server model' }] },
+    })
+    await store.settings.setModelCatalog({
+      machineId,
+      version: MODEL_CATALOG_VERSION,
+      fetchedAt: 1,
+      byAgent: { 'claude-code': [{ value: 'remote-model', label: 'Remote model' }] },
+    })
+    const created = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Remote catalog',
+      startNow: false,
+    })
+    expect((await store.issues.getIssue(created.id))?.machineId).toBeNull()
+    const catalog = vi.spyOn(store.settings, 'getModelCatalog')
+    await svc.gitWorkflow.start(created.id, undefined, { model: 'remote-model' })
+    expect(catalog).toHaveBeenCalledExactlyOnceWith(machineId)
+    expect(deps.resolveMachine).toHaveBeenCalledTimes(1)
+    expect(deps.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ machineId, model: 'remote-model' }),
+    )
+  })
+
+  it('with no machine online, a stale catalog never blocks placement (POD-3911)', async () => {
+    const { svc, deps, store } = await harness()
+    await store.settings.setModelCatalog({
+      machineId: store.hostMachine!.id,
+      version: MODEL_CATALOG_VERSION,
+      fetchedAt: 1,
+      byAgent: { 'claude-code': [{ value: 'old-model', label: 'Old model' }] },
+    })
+    const created = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'No daemon',
+      defaultModel: 'stale-model',
+      startNow: false,
+    })
+    deps.resolveMachine = vi.fn(async () => undefined)
+    const catalog = vi.spyOn(store.settings, 'getModelCatalog')
+    await expect(
+      svc.gitWorkflow.start(created.id, undefined, { model: 'new-model' }),
+    ).rejects.toMatchObject({
+      name: 'IssueRefusal',
+      message: 'no machine for this worktree: /r',
+    })
+    expect(catalog).not.toHaveBeenCalled()
+    expect(deps.repoOp).not.toHaveBeenCalled()
+    expect(deps.spawnSession).not.toHaveBeenCalled()
+    expect((await svc.reports.get(created.id))?.stage).toBe('backlog')
+  })
+
+  it('validates an added session against its resolved worktree machine', async () => {
+    const { svc, deps, store } = await harness()
+    const created = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Added catalog',
+      startNow: false,
+      defaultModel: 'remote-model',
+    })
+    await svc.gitWorkflow.start(created.id)
+    const row = (await store.issues.getIssue(created.id))!
+    await seedRows(
+      store,
+      async () => await store.issues.upsertIssue(fixtureWriteScope(), { ...row, machineId: null }),
+    )
+    const machineId = asMachineId('added-session-remote')
+    deps.resolveMachine = vi.fn(async () => machineId)
+    await store.settings.setModelCatalog({
+      machineId,
+      version: MODEL_CATALOG_VERSION,
+      fetchedAt: 1,
+      byAgent: { 'claude-code': [{ value: 'remote-model', label: 'Remote model' }] },
+    })
+    const catalog = vi.spyOn(store.settings, 'getModelCatalog')
+    await svc.gitWorkflow.addSession(created.id)
+    expect(catalog).toHaveBeenCalledExactlyOnceWith(machineId)
+    expect(deps.spawnSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({ machineId, model: 'remote-model' }),
+    )
+  })
+
   it('fires onWorktreesChanged with the issue repoPath after a successful worktree add (POD-665)', async () => {
     const { svc, onWorktreesChanged, store } = await harness()
     const created = await svc.crud.create(svc.reports.store.serverWriter, {
@@ -1916,7 +2016,7 @@ describe('IssueService.start', () => {
       startNow: false,
     })
     await svc.gitWorkflow.start(created.id)
-    expect(onWorktreesChanged).toHaveBeenCalledWith('/r', store.hostMachineId)
+    expect(onWorktreesChanged).toHaveBeenCalledWith('/r', store.hostMachine!.id)
   })
 
   it('does NOT fire onWorktreesChanged when worktreeAdd fails (POD-665)', async () => {
@@ -1938,7 +2038,7 @@ describe('IssueService.start', () => {
   it('starts on Auto when the stored model is one the catalog does not know', async () => {
     const { svc, deps, store } = await harness()
     await store.settings.setModelCatalog({
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
       version: MODEL_CATALOG_VERSION,
       fetchedAt: 1_000_000,
       byAgent: {
@@ -1972,7 +2072,7 @@ describe('IssueService.start', () => {
         roles: { coding: { accountId: 'native:claude-code', model: 'Codex', effort: 'auto' } },
       })
     await store.settings.setModelCatalog({
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
       version: MODEL_CATALOG_VERSION,
       fetchedAt: 1_000_000,
       byAgent: { 'claude-code': [{ value: 'claude-opus-4-8', label: 'Opus 4.8' }] },
@@ -1991,7 +2091,7 @@ describe('IssueService.start', () => {
   it('keeps an inherited effort the chosen model takes, drops one it does not', async () => {
     const { svc, deps, store } = await harness()
     await store.settings.setModelCatalog({
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
       version: MODEL_CATALOG_VERSION,
       fetchedAt: 1_000_000,
       byAgent: {
@@ -2023,10 +2123,10 @@ describe('IssueService.start', () => {
     )
   })
 
-  it('force lets an unlisted issue model start [spec:SP-cc60]', async () => {
+  it('force lets an unlisted issue model start', async () => {
     const { svc, deps, store } = await harness()
     await store.settings.setModelCatalog({
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
       version: MODEL_CATALOG_VERSION,
       fetchedAt: 1_000_000,
       byAgent: { 'claude-code': [{ value: 'claude-opus-4-8', label: 'Opus 4.8' }] },
@@ -2395,6 +2495,113 @@ describe('IssueService.start', () => {
     })
   })
 
+  it('reconstructs a missing target branch from the exact branch on the issue home', async () => {
+    const { svc, deps } = await harness()
+    deps.findRepoOnMachine = vi.fn(async () => '/target/repo')
+    const tip = 'a'.repeat(40)
+    deps.recoverIssueBranch = vi.fn(async () => tip)
+    const created = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/source/repo',
+      title: 'Moved session',
+      startNow: false,
+      machineId: asMachineId('mach-a'),
+    })
+    const branch = 'issue/1-moved-session'
+    await svc.crud.update(svc.reports.store.serverWriter, created.id, { branch })
+    deps.repoOp = vi.fn(async (op: string) =>
+      op === 'worktreeAddExisting'
+        ? { ok: false, output: `fatal: invalid reference: ${branch}\n` }
+        : { ok: true, output: '' },
+    ) as typeof deps.repoOp
+
+    const result = await svc.gitWorkflow.ensureWorktree(created.id, asMachineId('mach-b'), {
+      forResume: true,
+    })
+
+    expect(deps.recoverIssueBranch).toHaveBeenCalledWith({
+      sourceRepoPath: '/source/repo',
+      sourceMachineId: 'mach-a',
+      targetRepoPath: '/target/repo',
+      targetMachineId: 'mach-b',
+      branch,
+    })
+    const path = '/target/repo/.worktrees/issue-1-moved-session'
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAdd',
+      '/target/repo',
+      { path, branch, startPoint: tip },
+      'mach-b',
+    )
+    expect(result).toMatchObject({
+      ok: true,
+      worktreePath: path,
+    })
+    expect(await svc.reports.get(created.id)).toMatchObject({
+      worktreePath: path,
+      machineId: 'mach-b',
+      repoPath: '/target/repo',
+    })
+  })
+
+  it('uses an alternate branch when the original branch transfer times out', async () => {
+    const { svc, deps } = await harness()
+    deps.findRepoOnMachine = vi.fn(async () => '/target/repo')
+    let noteTransfer!: () => void
+    const transferring = new Promise<void>((resolve) => {
+      noteTransfer = resolve
+    })
+    let finishTransfer!: (tip: string) => void
+    const transfer = new Promise<string>((resolve) => {
+      finishTransfer = resolve
+    })
+    deps.recoverIssueBranch = vi.fn(() => {
+      noteTransfer()
+      return transfer
+    })
+    const writer = svc.reports.store.serverWriter
+    const created = await svc.crud.create(writer, {
+      repoPath: '/source/repo',
+      title: 'Cross-machine fallback',
+      parentBranch: 'dev',
+      startNow: false,
+      machineId: asMachineId('mach-a'),
+    })
+    const branch = 'issue/1-cross-machine-fallback'
+    await svc.crud.update(writer, created.id, { branch })
+    deps.repoOp = vi.fn(async (op: string) =>
+      op === 'worktreeAddExisting'
+        ? { ok: false, output: `fatal: invalid reference: ${branch}` }
+        : { ok: true, output: '' },
+    ) as typeof deps.repoOp
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const result = svc.gitWorkflow.ensureWorktree(created.id, asMachineId('mach-b'), {
+        forResume: true,
+      })
+      await transferring
+      await vi.advanceTimersByTimeAsync(30_000)
+      const path = '/target/repo/.worktrees/resume-issue-1-cross-machine-fallback'
+      expect(await result).toMatchObject({
+        ok: true,
+        worktreePath: path,
+        issue: { branch: `resume/${branch}`, parentBranch: 'dev' },
+      })
+      finishTransfer('a'.repeat(40))
+      await transfer
+      expect(vi.mocked(deps.repoOp).mock.calls.filter(([op]) => op === 'worktreeAdd')).toEqual([
+        [
+          'worktreeAdd',
+          '/target/repo',
+          { path, branch: `resume/${branch}`, startPoint: 'refs/heads/dev' },
+          'mach-b',
+        ],
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   /**
    * POD-1898. Resuming onto the machine the issue is ALREADY homed on, where that
    * machine keeps the repo at its own path: the recorded worktree was compared by
@@ -2459,7 +2666,7 @@ describe('IssueService.start', () => {
     expect(result.output).toMatch(/already present/)
     expect(await svc.reports.get(created.id)).toMatchObject({
       worktreePath: '/r/.worktrees/issue-1-present',
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
     })
   })
 
@@ -2638,7 +2845,7 @@ describe('IssueService.start', () => {
       effort: 'auto',
       ownerUserId: firstAdminMemberId(),
       spawnedBy: `issue:${a.id}`,
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
     })
   })
 
@@ -2666,7 +2873,7 @@ describe('IssueService.start', () => {
     // DECISION: issue profiles now hold picks, so Settings equality no longer
     // identifies legacy inheritance. The machine's catalog rejects the old slug.
     await store.settings.setModelCatalog({
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
       version: MODEL_CATALOG_VERSION,
       fetchedAt: 1_000_000,
       byAgent: { codex: [{ value: 'gpt-5.6', label: 'GPT-5.6', efforts: [] }] },
@@ -2702,7 +2909,7 @@ describe('IssueService.start', () => {
       effort: 'high',
       ownerUserId: firstAdminMemberId(),
       spawnedBy: `issue:${a.id}`,
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
     })
   })
 
@@ -2836,7 +3043,7 @@ describe('IssueService.start', () => {
     it('refuses a nonsense effort with the valid set, before mutating any start state', async () => {
       const { svc, deps, store } = await harness()
       await store.settings.setModelCatalog({
-        machineId: store.hostMachineId,
+        machineId: store.hostMachine!.id,
         version: MODEL_CATALOG_VERSION,
         fetchedAt: 1_000_000,
         byAgent: {
@@ -2863,7 +3070,7 @@ describe('IssueService.start', () => {
     it('refuses a nonsense model and leaves the stored profile untouched', async () => {
       const { svc, deps, store } = await harness()
       await store.settings.setModelCatalog({
-        machineId: store.hostMachineId,
+        machineId: store.hostMachine!.id,
         version: MODEL_CATALOG_VERSION,
         fetchedAt: 1_000_000,
         byAgent: { 'claude-code': [{ value: 'claude-opus-5', label: 'Opus 5' }] },
@@ -2911,7 +3118,7 @@ describe('IssueService.start', () => {
     it('--force-unknown-model still lets an explicit unlisted model through', async () => {
       const { svc, deps, store } = await harness()
       await store.settings.setModelCatalog({
-        machineId: store.hostMachineId,
+        machineId: store.hostMachine!.id,
         version: MODEL_CATALOG_VERSION,
         fetchedAt: 1_000_000,
         byAgent: { 'claude-code': [{ value: 'claude-opus-5', label: 'Opus 5' }] },
@@ -2958,7 +3165,7 @@ describe('IssueService.start', () => {
       effort: 'auto',
       ownerUserId: firstAdminMemberId(),
       spawnedBy: `issue:${a.id}`,
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
     })
     await svc.gitWorkflow.addShell(a.id)
     expect(deps.spawnSession).toHaveBeenLastCalledWith(
@@ -4373,7 +4580,7 @@ describe('IssueService ready/blocked lists (P2a)', () => {
 describe('IssueService graph (P2a)', () => {
   it('returns nodes for repo issues and edges from issue_deps', async () => {
     const { svc, store } = await harness()
-    await seedRows(store, async () => await store.repos.addRepo('/other', store.hostMachineId))
+    await seedRows(store, async () => await store.repos.addRepo('/other', store.hostMachine!.id))
     const a = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'A',
@@ -4574,7 +4781,7 @@ describe('IssueService.tree (issue #82)', () => {
     await expect(svc.reports.tree('iss_nope')).rejects.toThrow()
   })
 
-  // [spec:SP-99d3] managers must see sibling sessions before spawn
+  // managers must see sibling sessions before spawn
   it('lists all sessions on each issue including siblings, with coordinator', async () => {
     const sessions: SessionMeta[] = []
     const { svc } = await harness(sessions)
@@ -4898,7 +5105,7 @@ describe('IssueService.prime (P1a)', () => {
     const out = await svc.reports.prime({ repoPath: '/r', boundIssueId: epic.id })
     // Structural: the bound issue and its child both surface. Instructional
     // copy-string pins (reparent / --outside-scope / operator-only prose) dropped
-    // as brittle bitrot, POD-619 [spec:SP-0be7].
+    // as brittle bitrot, POD-619.
     expect(out).toContain('Epic')
     expect(out).toContain(child.title)
   })
@@ -4930,7 +5137,7 @@ describe('IssueService.prime (P1a)', () => {
     expect(out).toContain('Ready one')
   })
 
-  // POD-694 [spec:SP-4ef9]. Asserting the discoverable SURFACE (command
+  // POD-694. Asserting the discoverable SURFACE (command
   // names, guide path) rather than the copy: an agent that cannot see the string
   // `podium lock` has no way to learn leases exist for anything but merging, which
   // was the actual gap. Prose is free to change; these identifiers are the contract.
@@ -4989,7 +5196,8 @@ describe('IssueService.prime (P1a)', () => {
 
     await seedRows(
       store,
-      async () => await store.repos.addRepo('/home/u/other', store.hostMachineId, undefined, 'OTH'),
+      async () =>
+        await store.repos.addRepo('/home/u/other', store.hostMachine!.id, undefined, 'OTH'),
     )
     const issue = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/home/u/other',
@@ -5212,7 +5420,7 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
   it('throws on a seq that exists in several repos (per-repo counters collide)', async () => {
     const { svc, store } = await harness()
     await seedRows(store, async () => {
-      for (const path of ['/r1', '/r2']) await store.repos.addRepo(path, store.hostMachineId)
+      for (const path of ['/r1', '/r2']) await store.repos.addRepo(path, store.hostMachine!.id)
     })
     await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r1',
@@ -5230,7 +5438,7 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
   it('resolves repo-qualified refs — the exact form the ambiguity error prints', async () => {
     const { svc, store } = await harness()
     for (const path of ['/home/u/r1', '/home/u/r2'])
-      await seedRows(store, async () => await store.repos.addRepo(path, store.hostMachineId))
+      await seedRows(store, async () => await store.repos.addRepo(path, store.hostMachine!.id))
     const a = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/home/u/r1',
       title: 'A',
@@ -5253,7 +5461,7 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
   it('the ambiguity error is copy-paste actionable: its printed refs resolve', async () => {
     const { svc, store } = await harness()
     for (const path of ['/home/u/r1', '/home/u/r2'])
-      await seedRows(store, async () => await store.repos.addRepo(path, store.hostMachineId))
+      await seedRows(store, async () => await store.repos.addRepo(path, store.hostMachine!.id))
     const a = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/home/u/r1',
       title: 'A',
@@ -5279,7 +5487,7 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
   it('a suffix ref matching several repos throws instead of guessing', async () => {
     const { svc, store } = await harness()
     for (const path of ['/a/podium', '/b/podium'])
-      await seedRows(store, async () => await store.repos.addRepo(path, store.hostMachineId))
+      await seedRows(store, async () => await store.repos.addRepo(path, store.hostMachine!.id))
     await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/a/podium',
       title: 'A',
@@ -5494,7 +5702,7 @@ describe('IssueService worktree reconciliation and root safety (POD-2662)', () =
 
   it('rejects repository roots at the write seam and before any removal probe', async () => {
     const h = await harness()
-    await seedRows(h.store, async () => await h.store.repos.addRepo('/r', h.store.hostMachineId))
+    await seedRows(h.store, async () => await h.store.repos.addRepo('/r', h.store.hostMachine!.id))
     const issue = await prepared(h)
     await expect(
       h.svc.crud.update(h.svc.reports.store.serverWriter, issue.id, { worktreePath: '/r' }),
@@ -5529,7 +5737,10 @@ describe('IssueService worktree reconciliation and root safety (POD-2662)', () =
     const issue = await prepared(h)
     // The harness reports /r so the issue can be created (2b803efb5); this case is
     // about a free with NO repos-table match, so the report is withdrawn first.
-    await seedRows(h.store, async () => await h.store.repos.removeRepo('/r', h.store.hostMachineId))
+    await seedRows(
+      h.store,
+      async () => await h.store.repos.removeRepo('/r', h.store.hostMachine!.id),
+    )
     // A historical row the write seam would now refuse, planted in the store.
     const row = (await h.store.issues.getIssue(issue.id))!
     row.worktreePath = '/r'
@@ -6673,7 +6884,7 @@ describe('IssueService children + depReport (epic ergonomics)', () => {
 
   it('depReport without id covers the repo', async () => {
     const { svc, store } = await harness()
-    await seedRows(store, async () => await store.repos.addRepo('/other', store.hostMachineId))
+    await seedRows(store, async () => await store.repos.addRepo('/other', store.hostMachine!.id))
     await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'x',
@@ -6789,7 +7000,7 @@ describe('IssueService panelApply (agent-published human panel)', () => {
   })
 })
 
-describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc9])', () => {
+describe('IssueService panelArtifactAdd/Remove (permanent snapshots)', () => {
   async function artifactHarness() {
     const sessions = [sess('/wt')]
     const h = await harness(sessions)
@@ -6844,7 +7055,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
       issueId: w.id,
       root: '/wt/issue-1',
       sourcePath: 'shots/a.png',
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
     })
     const a = wire.panel?.artifacts[0]
     expect(a).toMatchObject({
@@ -7696,7 +7907,7 @@ describe('IssueService agent mail (#103)', () => {
     await seedMailboxRow(store, a.id, 'operator', 'x')
     await seedMailboxRow(store, a.id, 'operator', 'y')
     // Behavioral: the unread count surfaces and points at the mail inbox command
-    // (exact sentence pin relaxed, POD-619 [spec:SP-0be7]).
+    // (exact sentence pin relaxed, POD-619).
     const primed = await svc.reports.prime({ boundIssueId: a.id })
     expect(primed).toContain('2 unread mail')
     expect(primed).toContain('mail inbox')
@@ -8266,13 +8477,14 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
 
   const closedIssueWithCheckout = async (
     h: { svc: IssueService },
-    over: { title?: string; parentId?: IssueId; path?: string } = {},
+    over: { title?: string; parentId?: IssueId; path?: string; machineId?: MachineId } = {},
   ) => {
     const created = await h.svc.crud.create(h.svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: over.title ?? 'Shipped',
       startNow: false,
       ...(over.parentId ? { parentId: over.parentId } : {}),
+      ...(over.machineId ? { machineId: over.machineId } : {}),
     })
     await h.svc.crud.update(h.svc.reports.store.serverWriter, created.id, {
       worktreePath: over.path ?? `/r/.worktrees/${created.id}`,
@@ -8489,9 +8701,96 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     expect(reclaimable.candidates.map((c) => c.issueId)).not.toContain(busy)
   })
 
+  it('lists both machines without a filter, skipping and counting unresolved worktree rows', async () => {
+    const h = await gcHarness({ mode: 'propose', afterDays: 14 })
+    const remote = asMachineId('gc-remote')
+    await seedRows(h.store, async () => await h.store.repos.addRepo('/r', remote))
+    const local = await closedIssueWithCheckout(h, {
+      title: 'First machine',
+      path: '/r/.worktrees/shared',
+      machineId: TEST_MACHINE_ID,
+    })
+    const other = await closedIssueWithCheckout(h, {
+      title: 'Second machine',
+      path: '/r/.worktrees/shared',
+      machineId: remote,
+    })
+    const unresolved = await closedIssueWithCheckout(h, {
+      title: 'Unresolved',
+      path: '/r/.worktrees/unresolved',
+    })
+    const row = (await h.store.issues.getIssue(unresolved))!
+    await seedRows(
+      h.store,
+      async () =>
+        await h.store.issues.upsertIssue(fixtureWriteScope(), { ...row, machineId: null }),
+    )
+    h.deps.resolveMachine = vi.fn(async () => undefined)
+    h.deps.repoOp = vi.fn(async () => ({
+      ok: true,
+      output: gitWorktreeList([
+        { path: '/r', branch: 'main' },
+        { path: '/r/.worktrees/shared', branch: 'issue/shared' },
+        { path: '/r/.worktrees/unresolved', branch: 'issue/unresolved' },
+      ]),
+    }))
+    const inventory = await h.svc.gitWorkflow.listReclaimableWorktrees(DUE)
+    expect(inventory.candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ issueId: local, machineId: TEST_MACHINE_ID, present: true }),
+        expect.objectContaining({ issueId: other, machineId: remote, present: true }),
+      ]),
+    )
+    expect(inventory.candidates).toHaveLength(2)
+    expect(inventory.skippedUnresolvedMachines).toBe(1)
+    expect(inventory.orphans).toEqual([])
+    expect(h.deps.repoOp).toHaveBeenCalledWith('worktreeList', '/r', undefined, TEST_MACHINE_ID)
+    expect(h.deps.repoOp).toHaveBeenCalledWith('worktreeList', '/r', undefined, remote)
+    const filtered = await h.svc.gitWorkflow.listReclaimableWorktrees(DUE, remote)
+    expect(filtered.candidates.map((candidate) => candidate.issueId)).toEqual([other])
+  })
+
+  it('revalidates a janitor observation on its issue machine and refuses an unresolved row', async () => {
+    const h = await gcHarness({ mode: 'auto', afterDays: 14 })
+    const remote = asMachineId('gc-observed-remote')
+    await seedRows(h.store, async () => await h.store.repos.addRepo('/r', remote))
+    const pinned = await closedIssueWithCheckout(h, {
+      title: 'Remote observation',
+      machineId: remote,
+    })
+    const unresolved = await closedIssueWithCheckout(h, { title: 'Unresolved observation' })
+    const row = (await h.store.issues.getIssue(unresolved))!
+    await seedRows(
+      h.store,
+      async () =>
+        await h.store.issues.upsertIssue(fixtureWriteScope(), { ...row, machineId: null }),
+    )
+    h.deps.resolveMachine = vi.fn(async () => undefined)
+    recordOps(h)
+    const ops = vi.spyOn(h.deps, 'repoOp')
+    expect(
+      await h.svc.gitWorkflow.tryWorktreeGcObserved(
+        await observationFor(h, pinned, 'auto'),
+        DUE,
+        systemPrincipal('expiry'),
+      ),
+    ).toEqual({ outcome: 'freed' })
+    expect(ops).toHaveBeenCalledWith('worktreeRemove', '/r', expect.any(Object), remote)
+    ops.mockClear()
+    expect(
+      await h.svc.gitWorkflow.tryWorktreeGcObserved(
+        await observationFor(h, unresolved, 'auto'),
+        DUE,
+        systemPrincipal('expiry'),
+      ),
+    ).toEqual({ outcome: 'refused', reason: 'no machine for this worktree: /r' })
+    expect(ops).not.toHaveBeenCalled()
+    expect((await h.svc.reports.get(unresolved))?.worktreePath).toBe(row.worktreePath)
+  })
+
   it('reports a git worktree that no issue row claims as an orphan', async () => {
     const h = await gcHarness({ mode: 'propose', afterDays: 14 })
-    await seedRows(h.store, async () => await h.store.repos.addRepo('/r', h.store.hostMachineId))
+    await seedRows(h.store, async () => await h.store.repos.addRepo('/r', h.store.hostMachine!.id))
     const claimed = await closedIssueWithCheckout(h, { path: '/r/.worktrees/claimed' })
     h.deps.repoOp = vi.fn(async (op) =>
       op === 'worktreeList'
@@ -8506,7 +8805,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
         : { ok: true, output: '' },
     )
 
-    const inventory = await h.svc.gitWorkflow.listReclaimableWorktrees(DUE, h.store.hostMachineId)
+    const inventory = await h.svc.gitWorkflow.listReclaimableWorktrees(DUE, h.store.hostMachine!.id)
 
     expect(inventory.candidates).toEqual([
       expect.objectContaining({ issueId: claimed, present: true, protectedReason: null }),
@@ -8531,7 +8830,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     String.raw`C:\repo`,
   ])('machine paths: worktree inventory recognizes claimed paths under %s', async (root) => {
     const h = await gcHarness({ mode: 'propose', afterDays: 14 })
-    await seedRows(h.store, async () => await h.store.repos.addRepo(root, h.store.hostMachineId))
+    await seedRows(h.store, async () => await h.store.repos.addRepo(root, h.store.hostMachine!.id))
     const worktree = root + '/.worktrees/claimed'
     const claimed = await closedIssueWithCheckout(h, { path: worktree })
     h.deps.repoOp = vi.fn(async (op) =>
@@ -8545,7 +8844,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
           }
         : { ok: true, output: '' },
     )
-    const inventory = await h.svc.gitWorkflow.listReclaimableWorktrees(DUE, h.store.hostMachineId)
+    const inventory = await h.svc.gitWorkflow.listReclaimableWorktrees(DUE, h.store.hostMachine!.id)
     expect(inventory.candidates).toEqual([
       expect.objectContaining({ issueId: claimed, present: true }),
     ])
@@ -8884,7 +9183,7 @@ it.each([
   'C:\\repo',
 ])('machine paths: shared roots remain unowned while nested worktrees attach under %s', async (root) => {
   const { svc, store } = await harness()
-  await seedRows(store, async () => await store.repos.addRepo(root, store.hostMachineId))
+  await seedRows(store, async () => await store.repos.addRepo(root, store.hostMachine!.id))
   const w = await svc.crud.create(svc.reports.store.serverWriter, {
     repoPath: root,
     title: 'shared',
@@ -8904,7 +9203,7 @@ it.each([
   'C:\\repo',
 ])('machine paths: worktree creation and qualified issue reference under %s', async (root) => {
   const { svc, deps, store } = await harness()
-  await seedRows(store, async () => await store.repos.addRepo(root, store.hostMachineId))
+  await seedRows(store, async () => await store.repos.addRepo(root, store.hostMachine!.id))
   const w = await svc.crud.create(svc.reports.store.serverWriter, {
     repoPath: root,
     title: 'feature',
@@ -8957,7 +9256,7 @@ describe('landing verdict over real git (POD-2151)', () => {
     appendFileSync(join(root, '.git', 'info', 'exclude'), '.worktrees/\n')
     commit(root, 'base.txt', 'base')
     const h = await harness()
-    await seedRows(h.store, async () => await h.store.repos.addRepo(root, h.store.hostMachineId))
+    await seedRows(h.store, async () => await h.store.repos.addRepo(root, h.store.hostMachine!.id))
     // The merge stamp reads the wall clock, so the service's must too.
     h.deps.now = () => new Date().toISOString()
     const calls: { op: string; cwd: string }[] = []

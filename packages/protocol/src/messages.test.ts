@@ -179,7 +179,7 @@ describe('shared schemas', () => {
     expect(parsed).not.toHaveProperty('unread')
   })
 
-  // Agent action offer [spec:SP-c7f1]: additive overlay — absent by default,
+  // Agent action offer: additive overlay — absent by default,
   // round-trips a message + action buttons, and accepts an explicit null.
   it('SessionMeta omits offer by default and round-trips one when present', () => {
     expect('offer' in SessionMeta.parse(baseMeta)).toBe(false)
@@ -384,7 +384,7 @@ describe('parseServerMessageLenient (per-element quarantine)', () => {
     expect(() => parseServerMessageLenient('{not json')).toThrow()
   })
 
-  // Kind-tolerance ([spec:SP-3fe2] #258): a NEWER server may stream metadata
+  // Kind-tolerance (#258): a NEWER server may stream metadata
   // changes for entity kinds this build doesn't know. Those rows must PASS the
   // lenient parse (consumers ignore them but advance the cursor past them — a
   // strict parse would quarantine → heal → same rows → heal-loop forever),

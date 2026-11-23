@@ -1,3 +1,5 @@
+import { TEST_MACHINE_ID } from '../../../test-support/machine-id'
+
 /**
  * The hierarchy reads of the issue writes answer from the database (POD-6192,
  * part of POD-6158; design §7 step 3.2).
@@ -10,9 +12,9 @@
  * the issue map, these reads were also compared with it.
  */
 
-import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asSessionId, firstAdminMemberId, type RepoId, type UserId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../../store'
@@ -28,6 +30,7 @@ afterEach(async () => {
 
 async function serviceOver(store: SessionStore): Promise<IssueService> {
   return await IssueService.create({
+    resolveMachine: async () => TEST_MACHINE_ID,
     store,
     ...sessionReadPorts(() => []),
     getSettings: async () => normalizeSettings({}),
@@ -54,8 +57,15 @@ const ids = (rows: readonly { id: string }[]) => rows.map((row) => row.id)
 describe('issue hierarchy reads over the database', () => {
   it('over the edge fixtures', async () => {
     const live = (seq: number, patch: Partial<CorpusIssue> = {}): CorpusIssue => ({
-      id: `iss_${seq}`, seq, repoPath: '/a', worktreePath: null, parentId: null, stage: 'backlog',
-      archived: false, deletedAt: null, ...patch,
+      id: `iss_${seq}`,
+      seq,
+      repoPath: '/a',
+      worktreePath: null,
+      parentId: null,
+      stage: 'backlog',
+      archived: false,
+      deletedAt: null,
+      ...patch,
     })
     const rows: CorpusIssue[] = [
       live(1),
@@ -86,18 +96,35 @@ describe('issue hierarchy reads over the database', () => {
 
     // Children in repository order (path, then sequence).
     expect(ids(await issues.childRows('iss_1'))).toEqual(['iss_2', 'iss_5', 'iss_7', 'iss_b1'])
-    expect(ids(await issues.childRows('iss_1', { live: true }))).toEqual(['iss_2', 'iss_7', 'iss_b1'])
-    expect(ids(await issues.childRows('iss_1', { live: true, unarchived: true }))).toEqual(['iss_2', 'iss_b1'])
+    expect(ids(await issues.childRows('iss_1', { live: true }))).toEqual([
+      'iss_2',
+      'iss_7',
+      'iss_b1',
+    ])
+    expect(ids(await issues.childRows('iss_1', { live: true, unarchived: true }))).toEqual([
+      'iss_2',
+      'iss_b1',
+    ])
     expect(await issues.childRows('iss_missing')).toEqual([])
 
     // Descendants depth first, each level by sequence; `live` drops a deleted
     // row with its subtree; a parent cycle stops at the first repeat.
-    expect(ids(await issues.descendantRows('iss_1'))).toEqual(
-      ['iss_b1', 'iss_2', 'iss_3', 'iss_4', 'iss_5', 'iss_6', 'iss_7'],
-    )
-    expect(ids(await issues.descendantRows('iss_1', { live: true }))).toEqual(
-      ['iss_b1', 'iss_2', 'iss_3', 'iss_4', 'iss_7'],
-    )
+    expect(ids(await issues.descendantRows('iss_1'))).toEqual([
+      'iss_b1',
+      'iss_2',
+      'iss_3',
+      'iss_4',
+      'iss_5',
+      'iss_6',
+      'iss_7',
+    ])
+    expect(ids(await issues.descendantRows('iss_1', { live: true }))).toEqual([
+      'iss_b1',
+      'iss_2',
+      'iss_3',
+      'iss_4',
+      'iss_7',
+    ])
     expect(ids(await issues.descendantRows('iss_c1'))).toEqual(['iss_c2'])
 
     // Ancestors, nearest first, through deleted rows and around a cycle.
@@ -112,11 +139,18 @@ describe('issue hierarchy reads over the database', () => {
     expect(await svc.hierarchy.inProposedSubtree('iss_2')).toBe(false)
 
     // The manual-order key spaces: live rows only, in no particular order.
-    expect(ids(await crud.sortScopeRows(null, '', 'iss_1', { includePinned: true })).sort()).toEqual(['iss_2', 'iss_7', 'iss_b1'])
+    expect(
+      ids(await crud.sortScopeRows(null, '', 'iss_1', { includePinned: true })).sort(),
+    ).toEqual(['iss_2', 'iss_7', 'iss_b1'])
     const a = resolve('/a')!
     const b = resolve('/b')!
-    expect(ids(await crud.sortScopeRows(a, '/a', null, { includePinned: true })).sort()).toEqual(['iss_1', 'iss_8'])
+    expect(ids(await crud.sortScopeRows(a, '/a', null, { includePinned: true })).sort()).toEqual([
+      'iss_1',
+      'iss_8',
+    ])
     expect(ids(await crud.sortScopeRows(a, '/a', null, { unpinnedFor: viewer }))).toEqual(['iss_1'])
-    expect(ids(await crud.sortScopeRows(b, '/b', null, { includePinned: true }))).toEqual(['iss_b2'])
+    expect(ids(await crud.sortScopeRows(b, '/b', null, { includePinned: true }))).toEqual([
+      'iss_b2',
+    ])
   })
 })

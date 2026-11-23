@@ -19,7 +19,7 @@ import {
 import { makeOperatorIssueClient } from './operator-client'
 
 /**
- * `podium lock <command>` / `podium merge-lock <command>` [spec:SP-85d1] —
+ * `podium lock <command>` / `podium merge-lock <command>` —
  * advisory named lease locks over the server's `lock.*` procs. Modeled on
  * issue-cli.ts: parse → find command → inject repoPath from cwd → zod validate
  * → run → render (incl. --json). merge-lock is a thin argv mapping onto the

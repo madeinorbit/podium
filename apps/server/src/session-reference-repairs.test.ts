@@ -102,7 +102,7 @@ describe('S1 rare reference repairs', () => {
       origin: { kind: 'spawn' },
       createdAt: '2026-01-01T00:00:00.000Z',
       geometry: { cols: 80, rows: 24 },
-      machineId: f.store.hostMachineId,
+      machineId: f.store.hostMachine!.id,
       toDaemon: vi.fn(),
     })
     const target = asMachineId('machine:target')

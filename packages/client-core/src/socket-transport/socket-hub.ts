@@ -465,7 +465,7 @@ export interface WireSkew {
 }
 
 /**
- * The hub's typed subscription seam [spec:SP-3fe2]: every event the hub fans
+ * The hub's typed subscription seam: every event the hub fans
  * out, keyed by a CLOSED kind union. Payloads are tuples so multi-argument
  * legacy callbacks (`onSessionDraft`) ride the same seam without an adapter.
  * `on(kind, handler)` is the one subscription primitive; the deprecated
@@ -1977,7 +1977,7 @@ export class SocketHub {
   }
 
   /**
-   * Total dispatch over the parsed ServerMessage union [spec:SP-3fe2]: the
+   * Total dispatch over the parsed ServerMessage union: the
    * handler table is a mapped type over `ServerMessage['type']`, so adding a
    * message type to the protocol breaks compilation HERE until it is handled —
    * the hand-written if-ladder this replaces could silently ignore one.
@@ -2419,7 +2419,7 @@ export class SessionConnection {
     this.ingestOutput(metadata.epoch, payload)
   }
 
-  /** Total dispatch over the session-scoped subunion [spec:SP-3fe2] — the same
+  /** Total dispatch over the session-scoped subunion — the same
    *  compile-checked exhaustiveness as the hub's table, replacing the switch. */
   private readonly dispatchSessionMessage = createDispatcher<SessionScopedServerMessage>({
     attached: (msg) => {

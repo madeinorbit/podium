@@ -21,7 +21,12 @@ import { currentReadScope, inExplicitReadScope, readScopeSlot } from './store/ex
  * handshake's own passthrough and nothing here may read it. That narrowing is
  * real; the four keys it keeps are not this module's to define.
  */
-export type MachineOwnershipRow = Pick<ResolvedMachine, 'machine' | 'owner' | 'name'> & { grants: (MachineGrant & { custody?: boolean })[]; revokedAt?: string | null; daemonAssigned?: boolean; daemonAvailable?: boolean }
+export type MachineOwnershipRow = Pick<ResolvedMachine, 'machine' | 'owner' | 'name'> & {
+  grants: (MachineGrant & { custody?: boolean })[]
+  revokedAt?: string | null
+  daemonAssigned?: boolean
+  daemonAvailable?: boolean
+}
 
 /**
  * Where ownership facts come from. A direct index may read live per question;
@@ -68,14 +73,34 @@ export interface MachineGrantSource {
  * Custody and personal rights are read separately from the grant edge source.
  */
 export interface MachineRowSource extends MachineGrantSource {
-  ownershipRows(): { id: MachineId; name?: string; revokedAt?: string | null; daemonAssigned?: boolean; daemonAvailable?: boolean }[]
+  ownershipRows(): {
+    id: MachineId
+    name?: string
+    revokedAt?: string | null
+    daemonAssigned?: boolean
+    daemonAvailable?: boolean
+  }[]
 }
 
 /** Async repository-backed form, resolved before a synchronous policy pass begins. */
 export interface AsyncMachineRowSource {
   ownershipRows():
-    | { id: MachineId; name?: string; revokedAt?: string | null; daemonAssigned?: boolean; daemonAvailable?: boolean }[]
-    | Promise<{ id: MachineId; name?: string; revokedAt?: string | null; daemonAssigned?: boolean; daemonAvailable?: boolean }[]>
+    | {
+        id: MachineId
+        name?: string
+        revokedAt?: string | null
+        daemonAssigned?: boolean
+        daemonAvailable?: boolean
+      }[]
+    | Promise<
+        {
+          id: MachineId
+          name?: string
+          revokedAt?: string | null
+          daemonAssigned?: boolean
+          daemonAvailable?: boolean
+        }[]
+      >
   grantsForMachine?(
     machineId: MachineId,
   ):
@@ -111,7 +136,11 @@ export function ownershipFromMachines(machines: MachineRowSource): MachineOwners
       if (!row) return undefined
       const edges = (machines.grantsForMachine?.(row.id) ?? [])
         .filter((edge) => MACHINE_VERBS.includes(edge.verb))
-        .map((edge) => ({ subject: edge.grantee as UserId, verb: edge.verb as MachineVerb, custody: edge.custody === true }))
+        .map((edge) => ({
+          subject: edge.grantee as UserId,
+          verb: edge.verb as MachineVerb,
+          custody: edge.custody === true,
+        }))
       return {
         machine: row.id,
         owner: machineCustodian(edges),
@@ -131,14 +160,24 @@ export async function ownershipSnapshotFromMachines(
 ): Promise<MachineOwnershipIndex> {
   const rows = await machines.ownershipRows()
   // One grouped read for the fleet when the source offers it (rule 2).
-  const grouped = machines.grantsForMachines ? await machines.grantsForMachines(rows.map((row) => row.id)) : undefined
+  const grouped = machines.grantsForMachines
+    ? await machines.grantsForMachines(rows.map((row) => row.id))
+    : undefined
   const resolved = await Promise.all(
     rows.map(async (row): Promise<MachineOwnershipRow> => {
-      const edges = ((grouped ? grouped.get(row.id) : await machines.grantsForMachine?.(row.id)) ?? [])
+      const edges = (
+        (grouped ? grouped.get(row.id) : await machines.grantsForMachine?.(row.id)) ?? []
+      )
         .filter((edge) => MACHINE_VERBS.includes(edge.verb))
-        .map((edge) => ({ subject: edge.grantee as UserId, verb: edge.verb as MachineVerb, custody: edge.custody === true }))
+        .map((edge) => ({
+          subject: edge.grantee as UserId,
+          verb: edge.verb as MachineVerb,
+          custody: edge.custody === true,
+        }))
       return {
-        machine: row.id, owner: machineCustodian(edges), grants: edges,
+        machine: row.id,
+        owner: machineCustodian(edges),
+        grants: edges,
         daemonAssigned: row.daemonAssigned === true,
         daemonAvailable: row.daemonAvailable === true,
         revokedAt: row.revokedAt,
@@ -187,7 +226,9 @@ export function ownershipFromMachinesPerPass(machines: MachineRowSource): Machin
 }
 
 /** Custody is an explicit attribute, never an implied verb or row owner. */
-export function machineCustodian(edges: readonly (MachineGrant & { custody?: boolean })[]): UserId | null {
+export function machineCustodian(
+  edges: readonly (MachineGrant & { custody?: boolean })[],
+): UserId | null {
   const custodians = edges.filter((edge) => edge.custody === true && edge.verb === 'manage')
   return custodians.length === 1 ? custodians[0]!.subject : null
 }
@@ -223,16 +264,25 @@ export function machineVerbsFor(
   // and `'__local__'` were sentinels that routinely had no machines row, so a gate
   // reading "no row ⇒ absent" refused the product's own default state, and the fix was
   // a SYNTHESIZED row owned by the instance installer. POD-318 removed the premise —
-  // `ensureHostMachine` writes this host's row before the first session exists, and
-  // every other machine's row is written when it pairs — so an unknown machine id is
+  // setup enrolls a self-hosted install and pairing enrolls other machines. A
+  // server without an install has no host row, so an unknown machine id is
   // now exactly what it says it is, and the default-closed reading is the only one.
   const row = ownership.rowFor(machineId)
   if (!row) return new Set()
   if (principal.kind === 'system') {
-    return new Set<MachineVerb>(row.revokedAt || machineCustodian(row.grants) === null || !row.daemonAssigned || !row.daemonAvailable ? ['see'] : ['see', 'use'])
+    return new Set<MachineVerb>(
+      row.revokedAt ||
+        machineCustodian(row.grants) === null ||
+        !row.daemonAssigned ||
+        !row.daemonAvailable
+        ? ['see']
+        : ['see', 'use'],
+    )
   }
   const held = row.revokedAt
-    ? new Set<MachineVerb>(machineCustodian(row.grants) === onBehalfOfUser(principal) ? ['see'] : [])
+    ? new Set<MachineVerb>(
+        machineCustodian(row.grants) === onBehalfOfUser(principal) ? ['see'] : [],
+      )
     : verbsFromRow(row, onBehalfOfUser(principal))
   // `use` is a GRANT fact, and a daemon that is unassigned or disconnected does
   // not take it away (POD-4630). Those are the model's `no-daemon` and `offline`
@@ -295,9 +345,12 @@ export function canManageMachineCustody(
   machineId: MachineId,
   ownership: MachineOwnershipIndex,
 ): boolean {
-  return !ownership.rowFor(machineId)?.revokedAt && principal.kind !== 'system' &&
+  return (
+    !ownership.rowFor(machineId)?.revokedAt &&
+    principal.kind !== 'system' &&
     machineVerbsFor(principal, machineId, ownership).has('manage') &&
     (principal.capability.role === 'admin' || isMachineOwner(principal, machineId, ownership))
+  )
 }
 
 /** Why a machine reference failed, when it did. */

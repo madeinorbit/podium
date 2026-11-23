@@ -98,7 +98,7 @@ describe('sessions.asks_user follows every writer of its inputs', () => {
       geometry: { cols: 120, rows: 40 },
       archived: false,
       workState: null,
-      machineId: asMachineId(store.hostMachineId),
+      machineId: asMachineId(store.hostMachine!.id),
       lastOutputAt: null,
       lastInputAt: null,
       lastResumedAt: null,

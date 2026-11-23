@@ -59,7 +59,7 @@ export function dedupeSessionsByResume<S extends ResumableSession>(sessions: S[]
     if (rank(a) !== rank(b)) return rank(a) > rank(b) ? a : b
     return a.lastActiveAt >= b.lastActiveAt ? a : b
   }
-  // [spec:SP-fccf] A live row is identified only by its Podium session id. If
+  // A live row is identified only by its Podium session id. If
   // ANY active row shares a native ref with another row, keep the whole group
   // visible: using resume metadata to hide even the parked sibling would make
   // the active row participate in native-id identity/deduplication.

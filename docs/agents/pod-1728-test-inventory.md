@@ -67,7 +67,7 @@ The 56 residual files are 53 under `scripts`, one under `services/telemetry-rela
 I read the repository testing guidance and the unit/integration/web Vitest configurations, then:
 
 1. enumerated test files by suffix rather than by any filename containing `test`;
-2. screened source and history for `[spec:SP-…]`, `POD-…`, security/isolation, wire, process, storage, and other boundary markers;
+2. screened source and history for, `POD-…`, security/isolation, wire, process, storage, and other boundary markers;
 3. compared old-looking app tests with current package/feature owner tests by imported symbol and assertion case;
 4. ran only individual files or small explicitly named groups with `bun --bun node_modules/vitest/vitest.mjs …`;
 5. kept the worktree clean after the dependency setup needed to run those targeted samples.
@@ -125,7 +125,7 @@ Keep the expensive examples below despite their size:
 
 - `apps/server/src/relay.test.ts` (4,307 lines) — live server/transport/composition behavior, machine/session/message authorization, temp-resource cleanup, and wire seams.
 - `apps/server/src/issues.test.ts` (4,195 lines) — issue service behavior through store, principal, session, and broadcast seams; it includes named authorization behavior.
-- `apps/server/src/modules/messages/service.test.ts` (4,097 lines) — explicitly `[spec:SP-34d7]`, with delivery, containment, sender, ledger, and authorization behavior.
+- `apps/server/src/modules/messages/service.test.ts` (4,097 lines) — explicitly, with delivery, containment, sender, ledger, and authorization behavior.
 - `apps/server/src/modules/workflows/characterization.test.ts` (3,942 lines) — migration oracle and `POD-730`/workflow cutover characterization.
 - `apps/daemon/src/daemon.test.ts` (2,748 lines) and `apps/daemon/src/session-observers.test.ts` (2,280 lines) — real daemon/WebSocket/filesystem/agent-observation boundaries.
 - `packages/sync/src/outbox/outbox.test.ts` (2,430 lines) and `packages/sync/src/replica/replica.test.ts` (2,151 lines) — durable mutation, recovery, authority, and replica semantics; these are not UI duplicates.
@@ -139,7 +139,7 @@ Keep the security/isolation and real-boundary families, including `apps/server/s
 ### Shallow wiring and type-looking tests that are still contracts
 
 - `packages/harness/src/index.test.ts` checks the public package runtime exports used by daemon and E2E consumers; it is a package boundary, not a Vitest/framework test.
-- `packages/commands/src/framework.test.ts` contains type-level assertions, but its runtime sections test the command-definition and canonical command-name contract. The implementation is itself `[spec:SP-3fe2]`; do not cull the file as “just types.”
+- `packages/commands/src/framework.test.ts` contains type-level assertions, but its runtime sections test the command-definition and canonical command-name contract. The implementation is itself; do not cull the file as “just types.”
 - `apps/desktop/src-tauri/tauri-conf.test.ts`, `scripts/build-bun-windows.test.ts`, and `scripts/vitest-bun-runtime.test.ts` protect packaging/runtime contracts. The latter explicitly prevents the wrong Node-vs-Bun test runner from silently returning false failures.
 
 Slow, annoying, or snapshot-like is not sufficient evidence for removal. No flaky test was proposed for deletion; flakiness would be a separate fix.

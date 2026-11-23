@@ -10,8 +10,8 @@
 - **Related ADRs (forward refs):** ADR 2 (sync protocol), ADR 3 (command security &
   lifecycle), ADR 4 (representation policy), ADR 5 (peer topology), ADR 6 (replica
   storage), ADR 7 (plane/message inventory), ADR 8 (package topology)
-- **Specs:** [spec:SP-15aa] multi-instance isolation; [spec:SP-0371] hub/node federation
-  deferred; [spec:SP-3fe2] strangler rebuild; [spec:SP-4428] drizzle-kit (server DB only —
+- **Specs:** multi-instance isolation; hub/node federation
+  deferred; strangler rebuild; drizzle-kit (server DB only —
   named here so ownership of *schema tool* is not confused with *wire authority*)
 - **Amended by:** [Amendment 1 — ownership, visibility and the per-user state
   family](0001-authority-ownership-amendment-1.md) (2026-07-29, POD-1071, from the human
@@ -61,12 +61,12 @@ Without a binding ownership matrix, three failure modes reappear:
    expected-revision** (or command-specific rejection/rebase) is safer and preserves
    invariants. Field-level LWW is opt-in only with defined clocks and
    invariant-preserving merges.
-3. **Post-freeze drift** — instance identity ([spec:SP-15aa],
+3. **Post-freeze drift** — instance identity (,
    `packages/runtime/src/instance.ts`) and the secrets-in-settings blob (POD-352) landed
    or crystallized after the plan froze; POD-359 drift refreshes require this ADR to
    place them.
 
-**Topology (binding, [spec:SP-0371]):** local topology only — clients + **one server** +
+**Topology (binding):** local topology only — clients + **one server** +
 **N paired machine daemons**. Hub↔node product federation is deferred (POD-353). This
 ADR preserves a **federation seam** (named home roles, origin/causation hooks for ADR 2)
 but does **not** specify authority transfer, loop prevention, or hub disappearance.
@@ -79,8 +79,8 @@ Each POD-359 drift clause is addressed **explicitly** for this ADR's scope:
 
 | POD-359 drift clause | Owner ADR | Disposition in this document |
 |---|---|---|
-| (1) Drizzle-kit is decided fact ([spec:SP-4428]); wire/replica protocol version ≠ server DB drizzle journal; client stores not drizzle-managed; daemon binding store (POD-415) / mobile SQLite (POD-375) tooling undecided | **ADR 2 / ADR 6** primarily | **Recorded only as boundary:** server Authority persistence is the instance SQLite under drizzle journal. This ADR does **not** choose client/daemon migration tooling. |
-| (2) **Instance identity** ([spec:SP-15aa], `packages/runtime/src/instance.ts`): InstanceId brand vs runtime-only; machine identity + pairing per-instance; feeds POD-645 | **This ADR** (+ package placement ADR 8) | **Decision D5** below. |
+| (1) Drizzle-kit is decided fact; wire/replica protocol version ≠ server DB drizzle journal; client stores not drizzle-managed; daemon binding store (POD-415) / mobile SQLite (POD-375) tooling undecided | **ADR 2 / ADR 6** primarily | **Recorded only as boundary:** server Authority persistence is the instance SQLite under drizzle journal. This ADR does **not** choose client/daemon migration tooling. |
+| (2) **Instance identity** (, `packages/runtime/src/instance.ts`): InstanceId brand vs runtime-only; machine identity + pairing per-instance; feeds POD-645 | **This ADR** (+ package placement ADR 8) | **Decision D5** below. |
 | (3) Plane inventory surface growth (handoff, messaging, workflows, browser-open, sessionResumeRefAck) | **ADR 7** | Handoff **ownership row** only: **matrix §9** (who mints export, source→target). Message classification is ADR 7. |
 | Build orchestration / tsgo / turbo / `@podium/source` vs project-references | **ADR 8** | Out of scope here. |
 | File discipline: one file `docs/adr/000N-…md`; no index | process | This file is **only** `docs/adr/0001-authority-ownership.md`. |
@@ -188,7 +188,7 @@ re-opening default LWW.
 
 ---
 
-### Decision D5 — Instance identity ([spec:SP-15aa], feeds POD-645)
+### Decision D5 — Instance identity (, feeds POD-645)
 
 **Decision.**
 
@@ -202,7 +202,7 @@ re-opening default LWW.
    of an entire Authority: state root (`instanceStateDir`), install root, derived
    ports (`defaultInstancePorts`), systemd unit names (`instanceServiceName`), durable
    PTY labels (`durableSessionLabel`), CLI name (`instanceCommandName`). Two instances
-   on one machine are two isolated product universes ([spec:SP-15aa];
+   on one machine are two isolated product universes (;
    `docs/agents/multi-instance.md`).
 3. **Machine identity + pairing are per-instance.** Each instance owns its own server
    DB and daemon identity file under that instance's state root
@@ -257,7 +257,7 @@ only**. Wire/read projections expose **presence + fingerprint** at most
 (`secret-presence`). Outbox **must not** enqueue secret writes (ADR 3: online-only +
 apply-time re-auth).
 
-**Preferences** (including `settings.experimental` — [spec:SP-f4b9], POD-418 drift:
+**Preferences** (including `settings.experimental` —, POD-418 drift:
 intentionally replicated, no secret annotation) are `preference` / `public` and may be
 offline-eligible.
 
@@ -277,7 +277,7 @@ browser/mobile replica storage and the outbox.
 
 ### Decision D7 — Federation seam without product hub
 
-**Decision.** Even with hub deferred ([spec:SP-0371] / POD-309 / POD-353):
+**Decision.** Even with hub deferred (/ POD-309 / POD-353):
 
 - Changes and commands carry **origin / causation / mutation identity** (ADR 2) so a
   future hop can attribute writers.
@@ -303,7 +303,7 @@ browser/mobile replica storage and the outbox.
 
 | Token | Meaning |
 |---|---|
-| **server** | The instance Authority process + its SQLite (`apps/server/src/migrations/schema.ts` via drizzle-kit / [spec:SP-4428]). Wire/replica protocol version is **independent** (ADR 2). |
+| **server** | The instance Authority process + its SQLite (`apps/server/src/migrations/schema.ts` via drizzle-kit). Wire/replica protocol version is **independent** (ADR 2). |
 | **daemon** | Paired machine runtime; observations enter via authenticated daemon→server control (ADR 5 / ADR 7). |
 | **operator** | Authenticated human principal (transport-only principal — ADR 3). |
 | **agent-session** | Podium session acting via tools/CLI with scoped policy. |
@@ -417,7 +417,7 @@ same class — treat as `preference` / non-secret unless product policy tightens
 
 | Aggregate / field group | Home | ID minting | Writers | Replication | Conflict | Tombstone | Offline | Secret |
 |---|---|---|---|---|---|---|---|---|
-| **Advisory locks** (`locks`, `lock_waiters`; [spec:SP-85d1]) | server | key `(repo_id, name)` | sessions / operator | server→clients | **cmd** lease machine (grant/renew/steal/FIFO/expiry) | expiry releases | online-only recommended (server clock) | public |
+| **Advisory locks** (`locks`, `lock_waiters`) | server | key `(repo_id, name)` | sessions / operator | server→clients | **cmd** lease machine (grant/renew/steal/FIFO/expiry) | expiry releases | online-only recommended (server clock) | public |
 | **Approval requests** | server | server id | daemon/agent create; operator decide | server→clients | **cmd** state machine | terminal states retained | decide online-only | public (payload redaction ADR 3) |
 | **Automations / runs** | server | server id | operator; system fires | server→clients | exp-rev on defs | disable/delete cmd | defs offline-eligible; **fire needs server clock** | public |
 | **Workflows / revisions / bindings / runs / steps / events / execution_profiles** | server | `wf_` / `wfr_` / `wrun_`-style server prefixes (see workflows service) | operator, coordinator sessions | server→clients | exp-rev on defs; **cmd** on run machine | archive / supersede | defs offline-eligible; run advance often live-path | public |

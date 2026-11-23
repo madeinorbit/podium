@@ -259,7 +259,7 @@ pub fn progress_percent(received: u64, total: Option<u64>) -> Option<u8> {
 }
 
 /// Resolve one updater authority everywhere. Precedence is the explicit bridge argument, then the
-/// persisted user choice, then the channel stamped into the installed build. [spec:SP-7f2c]
+/// persisted user choice, then the channel stamped into the installed build.
 pub fn resolve_update_channel(
     argument: Option<UpdateChannel>,
     persisted: Option<UpdateChannel>,
@@ -273,7 +273,6 @@ pub fn should_install_native_update(update_available: bool, confirmed: bool) -> 
 }
 
 /// Resolve the production static manifest for the persisted release channel.
-/// [spec:SP-7f2c]
 pub fn endpoint_for_channel(
     channel: UpdateChannel,
     dev_endpoint: Option<&str>,
@@ -1135,7 +1134,7 @@ fn refuse_target_drift(expected: Option<&str>, available: &str) -> Result<(), Up
 }
 
 /// Production auto-update is deliberately absent from debug/`tauri dev` builds.
-/// Development is not a third release channel. [spec:SP-7f2c]
+/// Development is not a third release channel.
 pub const fn production_auto_update_enabled(debug_build: bool) -> bool {
     !debug_build
 }

@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, test } from 'vitest'
 import { inspectGitRepositoryPath, readRegisteredWorktrees } from './metadata.js'
 
-// POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
+// POD-518: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
 const tmpDirs: string[] = []
 function trackTmp(prefix: string): string {
@@ -313,7 +313,7 @@ describe('inspectGitRepositoryPath', () => {
     ])
   })
 
-  test('excludes workspace-fetch peek worktrees from repo scans [spec:SP-6d57]', async () => {
+  test('excludes workspace-fetch peek worktrees from repo scans', async () => {
     const root = await createTempRoot()
     const { main, worktree } = await writeLinkedWorktree(root)
     // Register a peek exactly as `podium workspace fetch` materializes one:

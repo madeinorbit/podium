@@ -51,7 +51,7 @@ const meta = (sessionId: SessionId): SessionMeta => ({
   archived: false,
 })
 
-// The hub's ServerMessage dispatch is compile-checked total [spec:SP-3fe2]:
+// The hub's ServerMessage dispatch is compile-checked total:
 // this table mirrors the shape connection.ts builds, and the @ts-expect-error
 // cases prove that an unhandled union member cannot compile.
 describe('SocketHub dispatch exhaustiveness (type-level)', () => {

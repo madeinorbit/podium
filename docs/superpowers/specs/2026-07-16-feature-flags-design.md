@@ -1,4 +1,4 @@
-# Feature flags + Labs settings page — design (POD-677, [spec:SP-f4b9])
+# Feature flags + Labs settings page — design (POD-677)
 
 Date: 2026-07-16. Author: coordinator session on POD-677.
 
@@ -104,7 +104,7 @@ Export everything from the protocol package index.
 ### 2. Operator override — `packages/runtime/src/config.ts`
 
 - Add to `PodiumConfig`: `features: z.record(z.string(), z.boolean()).optional()` with a
-  doc comment referencing [spec:SP-f4b9].
+  doc comment referencing.
 - Add accessor `resolveFeatureOverrides(config = loadConfig()): Record<string, boolean>`
   returning `config.features ?? {}`. Deliberately **no env layer** (`PODIUM_FEATURES`):
   the spec decision is config-file-only for hidden flags; note that in the accessor
@@ -189,4 +189,4 @@ export function isFeatureEnabled(id: FeatureId, settings: PodiumSettings, config
 4. web: Labs section + tab registration + `useFeature`
 5. design doc: `docs/superpowers/specs/2026-07-16-feature-flags-design.md`
 
-Code comments at the implementing sites reference `[spec:SP-f4b9]`.
+Code comments at the implementing sites reference.

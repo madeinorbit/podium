@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { type StewardDeps, StewardService } from './steward'
+import { TEST_MACHINE_ID } from './test-support/machine-id'
 import { openTestStore } from './test-support/open-test-store'
 import { sessionReadPorts } from './test-support/session-facts'
 
@@ -20,7 +21,7 @@ import { sessionReadPorts } from './test-support/session-facts'
  */
 describe('StewardService.tick single-flight (POD-3258)', () => {
   async function harness() {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     await store.events.setStewardState('cursor', '0')
     const sessions: SessionMeta[] = []
     const settings = normalizeSettings({
@@ -31,6 +32,7 @@ describe('StewardService.tick single-flight (POD-3258)', () => {
     let clockMs = Date.parse('2026-07-02T00:00:00.000Z')
     const now = () => new Date(clockMs++).toISOString()
     const issueDeps: IssueDeps = {
+      resolveMachine: async () => TEST_MACHINE_ID,
       store,
       ...sessionReadPorts(() => sessions),
       getSettings: async () => settings,

@@ -147,11 +147,23 @@ describe('oracle: not-found shape, per write', () => {
   it(`${EXISTENCE_ORACLE}: via the RELAY, not-found and authz-denied are DIFFERENT messages — the send path is an existence oracle today`, async () => {
     const o = await makeOracle()
     // An issue's repo resolves only through a machine that reported it (2b803efb5).
-    await o.store.repos.addRepo('/r', o.store.hostMachineId)
-    const a = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
-    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, a.id, { worktreePath: '/r/.worktrees/a' })
-    const b = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'B', startNow: false })
-    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, b.id, { worktreePath: '/r/.worktrees/b' })
+    await o.store.repos.addRepo('/r', o.store.hostMachine!.id)
+    const a = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, a.id, {
+      worktreePath: '/r/.worktrees/a',
+    })
+    const b = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'B',
+      startNow: false,
+    })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, b.id, {
+      worktreePath: '/r/.worktrees/b',
+    })
     const agent = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
@@ -243,7 +255,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
     // marks the row awaiting its rebind synchronously (machine-reconciler
     // `onDetached`); the fixture has to let the bind finish first for that to
     // be the state under test.
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -255,9 +267,9 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
     // A machine being briefly UNREACHABLE is transport state (POD-4800): the
     // durable row stays queued and is forwarded on reconnect. Dead-lettering
     // here lost a message sent during a 3-second daemon restart without a word.
-    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
+    o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachine!.id)
     expect((await o.meta(sessionId)).status).toBe('live')
-    expect(o.reg.modules.machines.hasDaemon(o.reg.sessionStore.hostMachineId)).toBe(false)
+    expect(o.reg.modules.machines.hasDaemon(o.reg.sessionStore.hostMachine!.id)).toBe(false)
     o.daemon.length = 0
 
     const sent = await o.call.sessions.sendText({ sessionId, text: 'anyone there' })
@@ -284,7 +296,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
 
   it(`${MUST_NOT_CHANGE}: handoff to an offline machine is refused BEFORE anything is stopped or moved`, async () => {
     const o = await makeOracle({ offlineMachines: OFFLINE })
-    await o.store.repos.addRepo('/r', o.store.hostMachineId, 'git@github.com:example/r.git')
+    await o.store.repos.addRepo('/r', o.store.hostMachine!.id, 'git@github.com:example/r.git')
     const { sessionId } = await o.call.sessions.resume({
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/x',
@@ -297,7 +309,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
     )
     // Nothing moved, nothing parked, and no handover overlay was ever painted.
     expect(await o.meta(sessionId)).toMatchObject({
-      machineId: o.store.hostMachineId,
+      machineId: o.store.hostMachine!.id,
       status: 'starting',
     })
     expect((await o.meta(sessionId)).handoffTargetMachineId).toBeUndefined()
@@ -353,9 +365,9 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
         machineId: target,
         inventory: { os: 'linux', arch: 'x64', agents: [TIMED_OUT_PROBE], tools: [] },
       })
-    o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+    o.reg.gateway.routeDaemonFrame(o.store.hostMachine!.id, {
       type: 'inventoryReport',
-      machineId: o.store.hostMachineId,
+      machineId: o.store.hostMachine!.id,
       inventory: {
         os: 'linux',
         arch: 'x64',
@@ -363,7 +375,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
         tools: [],
       },
     })
-    await o.store.repos.addRepo('/r', o.store.hostMachineId, 'git@github.com:example/r.git')
+    await o.store.repos.addRepo('/r', o.store.hostMachine!.id, 'git@github.com:example/r.git')
     const { sessionId } = await o.call.sessions.resume({
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/x',

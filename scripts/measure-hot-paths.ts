@@ -287,7 +287,7 @@ async function buildFixture(): Promise<Fixture> {
     registry,
     (message) => {
       if (message.type !== 'scanReposRequest') return
-      void registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      void registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
         type: 'scanReposResult',
         requestId: message.requestId,
         repositories: message.roots.map((path) => ({ path, kind: 'repository', worktrees: [] })),
@@ -317,7 +317,7 @@ async function buildFixture(): Promise<Fixture> {
   for (let index = 0; index < SESSION_COUNT; index += 1) {
     // On the host, whose daemon is attached: a bare attach of m1/m2 no longer counts as a
     // daemon that can run an agent. The two machines stay in the fleet the reads walk.
-    const machineId = store.hostMachineId
+    const machineId = store.hostMachine!.id
     const cwd = `/repo/w${index}`
     const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'shell',

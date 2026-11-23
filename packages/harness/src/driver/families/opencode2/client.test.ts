@@ -21,6 +21,51 @@ function makeClient(fetch: typeof globalThis.fetch, timeoutMs?: number) {
 }
 
 describe('OpenCode 2 client adapter', () => {
+  it('applies effort-only changes to the current model and clears an explicit variant for Auto', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      if (init?.method === 'GET')
+        return json({
+          data: { id: 'ses_v2', model: { providerID: 'openai', id: 'gpt-5', variant: 'low' } },
+        })
+      if (String(url).endsWith('/prompt')) {
+        const body = JSON.parse(String(init?.body))
+        return json({ data: { id: body.id, sessionID: 'ses_v2', type: 'user', delivery: 'queue' } })
+      }
+      return json({ data: {} })
+    })
+    const client = makeClient(fetch)
+    for (const [messageID, variant] of [
+      ['msg_high', 'high'],
+      ['msg_auto', ''],
+    ]) {
+      await client.prompt('ses_v2', {
+        messageID: messageID!,
+        variant,
+        parts: [{ type: 'text', text: 'hi' }],
+      })
+    }
+    const changes = fetch.mock.calls
+      .filter(([url]) => String(url).endsWith('/model'))
+      .map(([, init]) => JSON.parse(String(init?.body)))
+    expect(changes).toEqual([
+      { model: { providerID: 'openai', id: 'gpt-5', variant: 'high' } },
+      { model: { providerID: 'openai', id: 'gpt-5' } },
+    ])
+  })
+
+  it('resolves Auto from the model default API in the session directory', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      json({ data: { providerID: 'openai', id: 'default-model' } }),
+    )
+    expect(await makeClient(fetch).defaultModel!()).toEqual({
+      providerID: 'openai',
+      modelID: 'default-model',
+    })
+    const url = new URL(String(fetch.mock.calls[0]?.[0]))
+    expect(url.pathname).toBe('/api/model/default')
+    expect(url.searchParams.get('location[directory]')).toBe('/repo')
+  })
+
   it('configures and admits a prompt through the v2 session API', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (url) =>
       String(url).endsWith('/prompt')

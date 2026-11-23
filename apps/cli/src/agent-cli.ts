@@ -1,6 +1,5 @@
 /**
  * `podium agent` — cross-harness subagent spawn + bounded await (#237)
- * [spec:SP-34d7 cross-harness]:
  *   spawn --harness <claude-code|codex|...> (--issue <ref> | --new "title" [--repo <path>])
  *         --prompt "…" [--title "…"] [--worktree] [--model M] [--effort E]
  *         [--profile <name>] [--credential <label|id|none>]
@@ -13,7 +12,7 @@
  * child with ordinary `podium mail send`; `await` is BOUNDED — it returns the
  * child's ack/settle result or "still working" + a status snapshot, never hangs.
  * The workflow flags are #285 pass-through metadata (uninterpreted).
- * `--title` is the spawner-prescribed child session name [spec:SP-4ef9][spec:SP-eb60]
+ * `--title` is the spawner-prescribed child session name
  * (curated name slot); distinct from `--new "title"` which names the ISSUE.
  */
 

@@ -1,5 +1,5 @@
 /**
- * THE LEDGER GUARDS BOTH MIGRATION CHAINS SHARE [spec:SP-4428, POD-1621, POD-6981].
+ * THE LEDGER GUARDS BOTH MIGRATION CHAINS SHARE.
  *
  * The SQLite runner (`./index.ts`) and the Postgres runner (`./pg/index.ts`) read
  * different ledgers on different engines, but they decide the same two questions the

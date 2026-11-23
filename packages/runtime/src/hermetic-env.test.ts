@@ -10,7 +10,7 @@ import { resolveAgentRelay } from './config'
 /**
  * Proves the hermetic test harness (test-hermetic-env.ts, wired as vitest `setupFiles`)
  * actually ran for this file — i.e. a suite launched from inside a live agent session is
- * insulated from the live instance. [spec:SP-b85a] (POD-555)
+ * insulated from the live instance. (POD-555)
  */
 describe('hermetic test env', () => {
   it('scrubs the ambient Podium agent-session env', () => {

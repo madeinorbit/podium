@@ -1,6 +1,7 @@
 import { asMachineId, Inventory } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { encodeDaemonMessage as encode, parseControlMessage, parseDaemonMessage } from '../daemon'
+import { InventoryReportMessage } from './inventory'
 
 describe('inventory messages (#222)', () => {
   const inventory: Inventory = {
@@ -37,6 +38,20 @@ describe('inventory messages (#222)', () => {
   it('round-trips inventoryReport through the DaemonMessage union', () => {
     const msg = { type: 'inventoryReport' as const, machineId: asMachineId('m1'), inventory }
     expect(parseDaemonMessage(encode(msg))).toEqual(msg)
+  })
+
+  it.each(['C:\\Users\\u', '/Users/u'])('preserves a reported machine home: %s', (homePath) => {
+    const msg = {
+      type: 'inventoryReport' as const,
+      machineId: asMachineId('m1'),
+      inventory: { ...inventory, homePath },
+    }
+    expect(parseDaemonMessage(encode(msg))).toEqual(msg)
+    // This is the previous server's schema: Zod strips additive inventory fields.
+    const olderServer = InventoryReportMessage.extend({
+      inventory: Inventory.omit({ homePath: true }),
+    })
+    expect(olderServer.parse(msg).inventory).toEqual(inventory)
   })
 
   it('round-trips inventoryReport with podiumVersion set (post-#221)', () => {

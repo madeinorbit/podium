@@ -6,7 +6,7 @@ import { z } from 'zod'
 // observation protocol between daemon and server, and the server→client
 // session-list/state broadcasts.
 
-// ---- Causal observation protocol [spec:SP-cdb2] ----
+// ---- Causal observation protocol ----
 // Provider history restores one snapshot. Only a fenced, cursor-new live
 // observation is eligible to become a transition with downstream effects.
 export const ObservationProvider = z.enum(OBSERVATION_PROVIDER_KINDS)
@@ -119,7 +119,7 @@ export const AgentObservation = z.object({
 export type AgentObservation = z.infer<typeof AgentObservation>
 
 /** Newest-first durable history used to reject delayed observation retries.
- * [spec:SP-cdb2] */
+ */
 export const ACCEPTED_TRANSITION_ID_WINDOW_SIZE = 32
 
 export const SessionObservationCheckpointV1 = z.object({
@@ -168,7 +168,7 @@ export const AgentObservationMessage = z.object({
 })
 export type AgentObservationMessage = z.infer<typeof AgentObservationMessage>
 
-/** Provider-neutral proof of a later unchanged live observer poll. [spec:SP-cdb2] */
+/** Provider-neutral proof of a later unchanged live observer poll. */
 export const AgentObserverLiveConfirmationMessage = z.object({
   type: z.literal('agentObserverLiveConfirmation'),
   sessionId: z.string().min(1).pipe(SessionIdField),
@@ -212,7 +212,6 @@ export type AgentObservationAckMessage = z.infer<typeof AgentObservationAckMessa
  * The prior lease identity makes retries and late old-provider reports inert.
  * Acceptance always resets the provider cursor; the provider submits a normal
  * bootstrap only after the server returns the resulting lease.
- * [spec:SP-cdb2]
  */
 export const AgentObservationRebindMessage = z.object({
   type: z.literal('agentObservationRebind'),

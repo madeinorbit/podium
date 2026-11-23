@@ -169,7 +169,7 @@ describe('readAssetSandboxed', () => {
     expect(r.ok).toBe(false)
     expect(r.error).toBe('outside workspace')
   })
-  it('ranged reads return the requested slice + total size ([spec:SP-0fc9])', async () => {
+  it('ranged reads return the requested slice + total size', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'asset-'))
     await writeFileFs(join(dir, 'big.bin'), Buffer.from('0123456789'))
     const path = join(dir, 'big.bin')

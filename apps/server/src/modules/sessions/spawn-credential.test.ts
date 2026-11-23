@@ -121,7 +121,7 @@ async function reportLogins(
   logins: { kind: AgentKind; fingerprint: string }[],
 ) {
   await store.machines.setMachineInventory(
-    store.hostMachineId,
+    store.hostMachine!.id,
     JSON.stringify({
       os: 'linux',
       arch: 'x64',
@@ -170,7 +170,7 @@ async function hibernated(
     resume: RESUME[agentKind],
     conversationId: 'c1',
   })
-  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
     type: 'bind',
     sessionId,
     cmd: agentKind === 'codex' ? 'codex' : 'claude',
@@ -572,7 +572,7 @@ describe('old account ids', () => {
       db.close()
 
       // The same host: a reopened test store otherwise mints a new machine id.
-      const reopened = await openTestStore(file, first.hostMachineId)
+      const reopened = await openTestStore(file, first.hostMachine!.id)
       const { reg, daemon } = await makeRegistry(reopened)
       await reportLogins(reopened, [{ kind: 'codex', fingerprint: 'fp-codex' }])
       expect((await reopened.sessions.getSession(sessionId))?.status).toBe('hibernated')
@@ -631,7 +631,7 @@ describe('an old account id and a key another member shared', () => {
       db.close()
     }
 
-    const store = await openTestStore(file, first.hostMachineId)
+    const store = await openTestStore(file, first.hostMachine!.id)
     const { reg, daemon } = await makeRegistry(store)
     const aliceKey = (await store.credentials.findByLegacyKey(alice, 'managed:anthropic'))?.id
     if (!aliceKey) throw new Error('the import moved no key')
@@ -662,7 +662,7 @@ describe('an old account id and a key another member shared', () => {
       accountKey: 'managed:anthropic',
       type: 'anthropic.api-key',
       secret: FAKE_B,
-      sentTo: [store.hostMachineId],
+      sentTo: [store.hostMachine!.id],
     })
   }
 
@@ -860,7 +860,7 @@ describe('after the daemon reconnects (Task 5)', () => {
       cwd: '/p',
       credentialId,
     })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -872,7 +872,7 @@ describe('after the daemon reconnects (Task 5)', () => {
   }
 
   async function reconnect(reg: SessionRegistry): Promise<ControlMessage[]> {
-    reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
+    reg.gateway.detachDaemon(reg.sessionStore.hostMachine!.id)
     const after: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => after.push(m))
     return after

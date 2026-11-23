@@ -56,7 +56,6 @@ function openNewTab(url: string): void {
  * Confirm-first browser opening plus the persistent callback paste-back
  * affordance. The daemon remains the authority for callback validation and
  * loopback execution; this component only forwards explicit user actions.
- * [spec:SP-a43e]
  */
 export const BrowserOpenOverlay = observer(function BrowserOpenOverlay(): JSX.Element | null {
   const { hub } = useShellActions()
@@ -80,7 +79,7 @@ export const BrowserOpenOverlay = observer(function BrowserOpenOverlay(): JSX.El
     const offOpen = hub.on('openUrl', (request) => {
       const key = requestKey(request)
       // Only login flows earn the persistent pending-login card; a plain link
-      // gets the confirm toast alone. [spec:SP-a43e]
+      // gets the confirm toast alone.
       if (isLogin(request)) {
         setPending((current) => {
           const next = new Map(current)

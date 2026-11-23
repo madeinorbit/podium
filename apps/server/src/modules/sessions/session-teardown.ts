@@ -287,7 +287,7 @@ export class SessionTeardown {
     return retired ? { ok: true } : { ok: false, reason: 'process retirement was not confirmed' }
   }
 
-  /** Authoritatively revalidate a stopped-session decay proposal [spec:SP-6144]. */
+  /** Authoritatively revalidate a stopped-session decay proposal. */
   async tryAutoArchiveStoppedObserved(
     observed: {
       sessionId: SessionId
@@ -334,7 +334,7 @@ export class SessionTeardown {
   }
 
   /**
-   * Cleanly end a session [spec:SP-9904]: stop its process, free the issue
+   * Cleanly end a session: stop its process, free the issue
    * worktree when safe, KEEP branch + transcript + session row (reversible —
    * resume recreates the worktree from the branch). Distinct from hibernate
    * (keeps worktree) and kill/delete (removes the row).
@@ -430,10 +430,10 @@ export class SessionTeardown {
             draft.status = 'hibernated'
           }
           // A terminal transition is new unread information; acknowledgment begins
-          // only after the operator opens it again. [spec:SP-6144]
+          // only after the operator opens it again.
           draft.stoppedAt = new Date(this.ports.now()).toISOString()
           // 'forced' is reserved for --force (work may be discarded); a plain
-          // operator/parent stop is an orderly park, labeled 'parent'. [spec:SP-6144]
+          // operator/parent stop is an orderly park, labeled 'parent'.
           draft.stopReason = input.force
             ? 'forced'
             : (input.stopReason ?? (input.selfStop ? 'self' : 'parent'))
@@ -449,7 +449,7 @@ export class SessionTeardown {
 
     // Free worktree only when no OTHER live session still uses the path —
     // including sessions attached to a different issue but running in this
-    // worktree [spec:SP-9904]. Free BEFORE arming any kill so work completes
+    // worktree. Free BEFORE arming any kill so work completes
     // while the agent is still alive; self-stop kill is armed only after the
     // relay reply (finalizeDeferredStopKill), not via a timer.
     let worktreeFreed = false
@@ -491,7 +491,7 @@ export class SessionTeardown {
 
     // Peer/operator: graceful stop now, kill only as escalation. Self-stop:
     // hold both until the relay has delivered agentRelayResult
-    // (finalizeDeferredStopKill) [spec:SP-9904].
+    // (finalizeDeferredStopKill).
     //
     // SHELL LIFETIME POLICY: the issue-close / worktree-free trigger (POD-4435).
     // The row above already parked a live shell as hibernated; the policy now
@@ -578,7 +578,7 @@ export class SessionTeardown {
 
   /**
    * Arm the process kill for a self-stop AFTER the relay reply has been sent
-   * [spec:SP-9904]. Called from AgentRelayGate once agentRelayResult is on the
+   * Called from AgentRelayGate once agentRelayResult is on the
    * wire — not a fixed timer. Graceful first, same escalation as the
    * peer/operator path above.
    */
@@ -593,7 +593,6 @@ export class SessionTeardown {
 
   /**
    * Stop every session on an issue, then free the issue worktree (keep branch)
-   * [spec:SP-9904].
    */
   async stopIssue(
     input: {

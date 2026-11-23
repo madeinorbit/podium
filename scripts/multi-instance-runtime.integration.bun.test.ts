@@ -3,7 +3,7 @@ import { readOrCreateUpdateSigningKey } from '@podium/runtime/update-signing-key
 import { completePreauthorizedSetup } from '../apps/server/src/setup-enrollment'
 import { legacyAbducoBin } from '../packages/pty/src/legacy-abduco-fixture'
 /**
- * Process-level acceptance proof for independent Podium instances [spec:SP-15aa].
+ * Process-level acceptance proof for independent Podium instances.
  * Starts two real all-in-one runtimes and exercises their public CLI and APIs.
  *
  * Run: bun test --conditions=@podium/source ./scripts/multi-instance-runtime.integration.bun.test.ts

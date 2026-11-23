@@ -510,7 +510,7 @@ export const ChatBlockView = observer(function ChatBlockView({
   const message = useChatItemMessage(sessionId, item.role === 'user' ? item.id : undefined)
   const attachmentText = messageAttachmentText(item, message)
   const attachments = message?.attachments ?? []
-  // Delivered-message envelope (#237) [spec:SP-34d7 web]: an inter-agent /
+  // Delivered-message envelope (#237): an inter-agent /
   // superagent / system message reaches the harness as a server-rendered frame
   // in a "user" turn — render it as a distinct framed block, never a "You"
   // bubble. Operator messages arrive unwrapped and fall through to the

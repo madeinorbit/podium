@@ -340,7 +340,7 @@ describe('codexStateProvider', () => {
     })
   })
 
-  it('seedTheme adds the official per-invocation tui.theme=ansi override; off adds nothing [spec:SP-a04d]', () => {
+  it('seedTheme adds the official per-invocation tui.theme=ansi override; off adds nothing', () => {
     expect(
       codexStateProvider.instrumentation({
         endpointUrl: 'http://x',

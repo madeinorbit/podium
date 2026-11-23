@@ -146,7 +146,7 @@ export const IssueProperties = observer(function IssueProperties({
   const mateOptions = mateOptionsOf(repoMates)
   const labelPool = labelPoolOf(issues, issue)
 
-  // [spec:SP-a1c0] (#411) Route through the central action — never roll per-feature
+  // (#411) Route through the central action — never roll per-feature
   // navigation (setPane+setView flips the URL then reverts off the workspace view).
   const openSession = (session: { sessionId: import('@podium/model/browser').SessionId }): void => {
     navigateToSession(session.sessionId)

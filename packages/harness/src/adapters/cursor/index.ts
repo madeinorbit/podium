@@ -15,7 +15,9 @@ import { cursorCredentials } from './credentials.js'
 import { cursorDescriptor } from './descriptor.js'
 import { createCursorConversationProvider } from './discovery.js'
 import { cursorInstall, cursorManagedInstall } from './install.js'
+import { cursorSelectedModel } from './model-variants.js'
 import { cursorPosture } from './posture.js'
+import { resolveCursorSelection } from './selection.js'
 import { cursorStateProvider, observeCursorState } from './state.js'
 import { cursorTranscript } from './transcript.js'
 import { cursorUsage } from './usage.js'
@@ -29,7 +31,7 @@ export const cursorManifest: AgentManifest = {
   catalog: cursorCatalog,
   capabilities: {
     argvPrompt: false,
-    effortFlag: 'none',
+    effortFlag: 'variant',
     systemPromptFlag: false,
     newSessionIdFlag: false,
     quota: false,
@@ -93,7 +95,7 @@ export const cursorManifest: AgentManifest = {
   launch(opts) {
     const args = [
       ...(opts.resume ? ['--resume', opts.resume.value] : []),
-      ...(isSet(opts.model) ? ['--model', opts.model] : []),
+      ...(isSet(opts.model) ? ['--model', cursorSelectedModel(opts.model, opts.effort)] : []),
     ]
     const instructions = composeAgentInstructions(opts.instructions)
     if (!instructions) return { args, cwd: opts.cwd }
@@ -113,7 +115,7 @@ export const cursorManifest: AgentManifest = {
       2,
     )}\n`
     const rule = `---\ndescription: Podium session context\nalwaysApply: true\n---\n\n${instructions}\n`
-    // No effort flag (capabilities.effortFlag 'none') and no argv prompt.
+    // Effort is encoded in the selected native model id; no argv prompt.
     return {
       args: [...args, '--plugin-dir', opts.runtimeDir],
       cwd: opts.cwd,
@@ -127,7 +129,7 @@ export const cursorManifest: AgentManifest = {
   exec: supported((opts) => {
     // Cursor can persist a named CLI default that the current account cannot use;
     // pin Podium's absent/auto selection to Cursor's real Auto model.
-    const model = opts.model || 'auto'
+    const model = cursorSelectedModel(opts.model, opts.effort)
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
     return { args: ['-p', '--model', model, prompt] }
@@ -156,16 +158,17 @@ export const cursorManifest: AgentManifest = {
     select: (ctx) => selectRuntimeDriver(ctx, ['generic-pty']),
   },
   headless: supported({
+    resolveSelection: resolveCursorSelection,
     driver: 'resume-exec',
     outputFormat: 'text',
-    // The chat id is pre-allocated with `cursor-agent create-chat` (bare UUID
-    // on stdout) so even the first turn runs pinned via --resume.
-    resumeIdAllocation: 'create-chat',
+    // --resume creates an absent chat at this UUID as well as resuming it.
+    // Pin the first turn directly: create-chat can linger after printing its id.
+    resumeIdAllocation: 'daemon-minted-uuid',
     noTools: 'unsupported',
     buildExec: supported((opts) => {
       // A preallocated chat otherwise inherits Cursor's persisted named model.
       // Pin Auto explicitly when Podium supplied no model override.
-      const model = opts.model || 'auto'
+      const model = cursorSelectedModel(opts.model, opts.effort)
       const sys = opts.systemPrompt?.trim()
       const context = opts.contextPrompt?.trim()
       const prompt = [sys, context, opts.prompt].filter(Boolean).join('\n\n---\n\n')

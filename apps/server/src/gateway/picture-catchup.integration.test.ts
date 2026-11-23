@@ -134,7 +134,7 @@ describe('viewer catch-up through a real server', () => {
 
   async function boot(): Promise<void> {
     handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
-    machineId = handle.registry.modules.machines.hostMachineId
+    machineId = handle.registry.modules.machines.hostMachine!.id
     cookieHeader = (
       await loginTestClient({
         origin: `http://127.0.0.1:${handle.port}`,

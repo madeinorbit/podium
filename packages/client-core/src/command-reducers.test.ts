@@ -1,5 +1,5 @@
 /**
- * Unit pins for the unified optimistic overlay (#263 [spec:SP-3fe2]): the
+ * Unit pins for the unified optimistic overlay (#263): the
  * outbox-entry → overlay projection mirrors the old direct-replica patches
  * field for field, and folding composes in queue order with stable
  * identities. Retirement is the outbox entry's (command-reducers.ts header).

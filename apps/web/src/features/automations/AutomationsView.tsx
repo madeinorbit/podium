@@ -13,7 +13,7 @@ import { TriggersSection } from './TriggersSection'
 export type Automation = AutomationWire
 export type AutomationRun = AutomationRunWire
 
-/** Live, replica-backed automations and honest run history [spec:SP-17db]. */
+/** Live, replica-backed automations and honest run history. */
 export function AutomationsView(): JSX.Element {
   return (
     <AutomationOpening>

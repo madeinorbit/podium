@@ -93,7 +93,7 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
    */
   it('replays after reconnect until acknowledged, and the durable row stays queued', async () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    const machineId: MachineId = registry.sessionStore.hostMachineId
+    const machineId: MachineId = registry.sessionStore.hostMachine!.id
     // The host machine must be enrolled for agent execution, or no session can
     // be placed on it ("no assigned and available daemon").
     await assignHostMachine(registry.sessionStore)

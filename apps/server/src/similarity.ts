@@ -1,6 +1,6 @@
 /**
  * Case-insensitive Jaro-Winkler + substring-containment "did you mean" ranking
- * [spec:SP-cc60]. Used to suggest the closest valid model/effort slug when a
+ * Used to suggest the closest valid model/effort slug when a
  * spawn names one the live catalog doesn't have (e.g. a `claude-opus-4.8` typo
  * for `claude-opus-4-8`, or `highh` for `high`).
  *

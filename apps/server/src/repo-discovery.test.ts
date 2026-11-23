@@ -8,7 +8,7 @@ import {
   probeRootsFor,
 } from './repo-discovery'
 
-// [spec:SP-3701] POD-787 — tiered per-machine repo discovery.
+// POD-787 — tiered per-machine repo discovery.
 
 const row = (machineId: string, path: string, originUrl: string | null = null) => ({
   machineId: asMachineId(machineId),

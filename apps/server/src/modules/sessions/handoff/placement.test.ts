@@ -135,7 +135,7 @@ describe('handoff placement: what it resolves', () => {
     )
   })
 
-  it('[spec:SP-3f7a] anchors on the issue worktree when the session cwd drifted to the repo root', async () => {
+  it('anchors on the issue worktree when the session cwd drifted to the repo root', async () => {
     // The daemon follows the shell, so a session that ran a command against the
     // main checkout is stamped at the repo root. Its issue's worktree is still
     // its home: the move is allowed and the worktree is offered as the fallback.

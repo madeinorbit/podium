@@ -54,9 +54,9 @@ async function fixture(size: number, quiet: boolean): Promise<Fixture> {
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: `/w${i}`,
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
     })
-    await reg.gateway.routeDaemonFrame(asMachineId(store.hostMachineId), {
+    await reg.gateway.routeDaemonFrame(asMachineId(store.hostMachine!.id), {
       type: 'bind',
       sessionId,
       cmd: 'sh',
@@ -113,7 +113,7 @@ const pin = (
   setup: async (size) => await fixture(size, quiet),
   target: (f) => f.store,
   run: async (f) => {
-    const result = await f.reg.modules.hosts.onHostMetrics(f.store.hostMachineId, sample())
+    const result = await f.reg.modules.hosts.onHostMetrics(f.store.hostMachine!.id, sample())
     // The sample's own delivery runs inside the count, whole (POD-7068): it trails
     // the commit unawaited, so a window that ended when the sample returned held as
     // many of its reads as had started by then.
@@ -191,7 +191,7 @@ describe('host sample: pinned statement counts at 5 and 200 live shells', () => 
         }),
         setup: async (size) => {
           const f = await fixture(5, false)
-          await f.store.repos.addRepo('/w', f.store.hostMachineId)
+          await f.store.repos.addRepo('/w', f.store.hostMachine!.id)
           for (let i = 0; i < size; i++) {
             // Worktrees outside every shell's folder. The folder-owner query's
             // own cost is pinned in folder-owner-parity.test.ts.
@@ -205,7 +205,7 @@ describe('host sample: pinned statement counts at 5 and 200 live shells', () => 
                     seq: i + 1,
                   }),
                   repoId: undefined,
-                  machineId: f.store.hostMachineId,
+                  machineId: f.store.hostMachine!.id,
                   parentId: null,
                   worktreePath: `/elsewhere/${i}`,
                 } as never),

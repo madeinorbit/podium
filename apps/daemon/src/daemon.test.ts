@@ -113,7 +113,7 @@ import { createSessionObservers, type ReattachControl } from './session-observer
 import { TopicWatchRegistry } from './topics/watch-registry'
 import { DiscoveryWorkerClient, type WorkerLike } from './worker-client'
 
-// POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
+// POD-518: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
 const tmpDirs: string[] = []
 function trackTmp(prefix: string): string {
@@ -570,7 +570,7 @@ describe('daemon multi-bridge', () => {
       received.some((m) => m.type === 'sessionCwd' && m.cwd === join(wt, 'packages', 'web')),
     ).toBe(false)
 
-    // …and the repo's MAIN checkout never captures the session [spec:SP-4ef9]: an
+    // …and the repo's MAIN checkout never captures the session: an
     // agent stepping into it to run one command must stay in the worktree it works in.
     await fetch(`http://127.0.0.1:${daemon.hookPort}/hooks/sGit`, {
       method: 'POST',
@@ -2181,7 +2181,7 @@ describe.skipIf(!isHostAvailable())('daemon podium-host survival', () => {
     // adopted, size-neutrally) used to make it one: the client
     // announced its size on connect and the master signalled the program on every
     // packet, so a reconnect resized a running agent to a number nobody asked
-    // for [spec:SP-6144]. The attach is
+    // for. The attach is
     // size-neutral now — it touches the agent in no way at all — and the resize
     // control, a viewer actually asking, both moves it and repaints it.
     //
@@ -3603,7 +3603,7 @@ describe('agent state instrumentation', () => {
     expect(url).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${daemon.hookPort}/hooks/sA$`))
   })
 
-  it('seedCliTheme rides the spawn into the settings file: absent/true seed theme:auto, false leaves the user theme alone [spec:SP-a04d]', async () => {
+  it('seedCliTheme rides the spawn into the settings file: absent/true seed theme:auto, false leaves the user theme alone', async () => {
     const themeOf = async (sessionId: SessionId): Promise<string | undefined> => {
       const raw = await readFile(join(settingsDir, `${sessionId}.json`), 'utf8')
       return (JSON.parse(raw) as { theme?: string }).theme

@@ -222,7 +222,7 @@ class Coordinator {
       return new Coordinator(
         handle,
         `http://127.0.0.1:${handle.port}`,
-        new Set([handle.registry.modules.machines.hostMachineId, ...existing.map((r) => r.id)]),
+        new Set([handle.registry.modules.machines.hostMachine!.id, ...existing.map((r) => r.id)]),
       )
     } finally {
       if (previous === undefined) delete process.env.PODIUM_STATE_DIR

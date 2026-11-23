@@ -116,7 +116,7 @@ function expandHome(path: string, homePath: string): string {
 }
 
 /** Does this directory contain a `.git` (dir for a normal repo, file for a
- *  worktree/submodule)? The browser's git-repo badge (POD-855) [spec:SP-5eb6].
+ *  worktree/submodule)? The browser's git-repo badge (POD-855).
  *  One stat — deliberately cheaper than a full git probe, since it only drives an
  *  icon; the authoritative repo metadata comes from a scan. */
 async function hasGitDir(dir: string): Promise<boolean> {
@@ -155,10 +155,10 @@ export async function mapLimit<T, R>(
 }
 
 /**
- * One directory's sub-directories on THIS machine's disk (POD-814) [spec:SP-3701].
- * Ported from the server's browseDirectories(): the picker used to browse the hub
- * host's own disk, which is the wrong filesystem — the user picks a machine, and a
- * hub in mode=server may have no disk of interest (or no daemon) at all.
+ * One directory's sub-directories on THIS machine's disk (POD-814).
+ * The picker used to browse the hub host's own disk, which is the wrong filesystem.
+ * The user picks a machine, and a hub in mode=server may have no disk of interest
+ * (or no daemon) at all.
  *
  * Directories only (the picker adds repos, and files are never repo roots), hidden
  * ones filtered unless asked for, sorted by name. Throws on an unusable path; the

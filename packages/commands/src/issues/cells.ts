@@ -125,7 +125,7 @@ export const REAUTHORIZATION =
  * above still buys nothing until a client outbox serves issues" — a true statement with a
  * recorded expiry condition, and the condition has been met. `packages/client-core`'s
  * engine queues `issues.update`, `issues.archive` and `issues.delete` through the same
- * outbox-as-overlay path (#263 [spec:SP-3fe2]) the session presence family uses, so a
+ * outbox-as-overlay path (#263) the session presence family uses, so a
  * sidebar delete, dismiss or inline rename paints on the press and replays — deduped by
  * `mutationId` — on reconnect. `outbox-coverage.oracle.test.ts` pins the extended set.
  *

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * THE NO-DRIFT GATE for the migration chain [spec:SP-4428].
+ * THE NO-DRIFT GATE for the migration chain.
  *
  *   bun run audit:migration-drift          # the gate — exit 1 on any drift
  *   bun run audit:migration-drift --probe  # prove the check can say YES

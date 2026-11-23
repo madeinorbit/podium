@@ -215,7 +215,7 @@ describe('MachinesService.recordInventory raises install notices', () => {
     const service = () =>
       new MachinesService({
         store,
-        hostMachineId: store.hostMachineId,
+        hostMachine: store.hostMachine,
         instanceId: 'test',
         installNotices,
       })

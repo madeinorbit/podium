@@ -1,3 +1,4 @@
+import { TEST_MACHINE_ID } from '../../test-support/machine-id'
 /**
  * THE ISSUE CLI / MCP SURFACE, DRIVEN AGAINST A RUNNING SERVER OBJECT.
  *
@@ -47,7 +48,7 @@ const fresh = async (): Promise<SessionRegistry> => {
   registries.push(r)
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
-  await r.sessionStore.repos.addRepo('/r', r.sessionStore.hostMachineId)
+  await r.sessionStore.repos.addRepo('/r', TEST_MACHINE_ID)
   return r
 }
 afterAll(async () => {
@@ -86,11 +87,9 @@ describe('the real in-process client serves every cli/mcp-exposed contract', () 
       properties: { id: { type: 'string' }, before: { type: 'string' }, after: { type: 'string' } },
     })
     expect(Object.keys(issues).sort()).toEqual([...ISSUE_COMMAND_NAMES].sort())
-    // And the specs/lock routers really are NOT served in-process — the historical
+    // And the lock router really is NOT served in-process — the historical
     // behaviour, asserted so "everything is reachable" cannot be read into this file.
-    expect(() => (client.specs as { list: { query: () => unknown } }).list.query()).toThrow(
-      /no such issue procedure/,
-    )
+    expect(() => client.lock.status.query()).toThrow(/no such issue procedure/)
   })
 
   it('every cli/mcp-exposed contract has a live procedure on the real client', async () => {

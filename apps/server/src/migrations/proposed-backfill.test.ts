@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
 
-describe('proposed lane migration [spec:SP-6144]', () => {
+describe('proposed lane migration', () => {
   it('accepts proposed and backfills only untouched top-level agent backlog issues', () => {
     const db = openDatabase(':memory:')
     const cut = DRIZZLE_MIGRATIONS.findIndex((migration) =>

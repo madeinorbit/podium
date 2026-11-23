@@ -333,7 +333,7 @@ export type SessionRuntimeConfig = z.infer<typeof SessionRuntimeConfig>
  *
  * `nameSource` is an AUTHORIZATION rule wearing a two-value enum: human-set
  * `name` outranks agent-set, so no agent may overwrite a user-set name
- * ([spec:SP-eb60]). Inventory §9 is explicit that a role class is not a person —
+ * Inventory §9 is explicit that a role class is not a person —
  * so the group carries the attribution PAIR beside it, and the two travel
  * together in a nested object so that "who named it" cannot be half-recorded.
  * `namedBy` is optional as a WHOLE; it is never partially present.

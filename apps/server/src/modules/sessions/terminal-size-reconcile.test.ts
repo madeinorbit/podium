@@ -213,7 +213,7 @@ describe('rule 2 on bind, and rule 3 (report and bind broadcast only on change)'
    *  does — so the base's reporting path (and its watchdog) is what these
    *  tests were proven red against, not the compatibility branch. */
   async function attachDaemon(reg: SessionRegistry, sink: ControlMessage[]): Promise<void> {
-    const machineId = reg.sessionStore.hostMachineId
+    const machineId = reg.sessionStore.hostMachine!.id
     await assignHostMachine(reg.sessionStore)
     await reg.gateway.attachDaemon(
       machineId,
@@ -239,7 +239,7 @@ describe('rule 2 on bind, and rule 3 (report and bind broadcast only on change)'
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId, GEO))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bind(sessionId, GEO))
     const internal = reg as unknown as InternalRegistry
     const session = internal.modules.sessions.sessions.get(sessionId) as Session
     const client = viewer(session.terminal, 'c-watch', sessionId)
@@ -284,20 +284,20 @@ describe('rule 2 on bind, and rule 3 (report and bind broadcast only on change)'
 
     // Link B drops before the daemon reads the resize; it comes back and binds
     // with the size the host still has.
-    reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
+    reg.gateway.detachDaemon(reg.sessionStore.hostMachine!.id)
     const after: ControlMessage[] = []
     await attachDaemon(reg, after)
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId, GEO))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bind(sessionId, GEO))
     expect(resizes(after)).toEqual([BOX])
   })
 
   it('a rebind at the box the controller holds forwards nothing', async () => {
     const { reg, sessionId, session, client } = await watched()
     session.terminal.handleViewportRequest(client.id, statement(BOX))
-    reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
+    reg.gateway.detachDaemon(reg.sessionStore.hostMachine!.id)
     const after: ControlMessage[] = []
     await attachDaemon(reg, after)
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId, BOX))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bind(sessionId, BOX))
     expect(resizes(after)).toEqual([])
     expect(session.terminal.geometry).toEqual(BOX)
   })
@@ -305,11 +305,11 @@ describe('rule 2 on bind, and rule 3 (report and bind broadcast only on change)'
   it('a bare bind (a backend that cannot read its size) keeps the copy and re-drives the box', async () => {
     const { reg, sessionId, session, client } = await watched()
     session.terminal.handleViewportRequest(client.id, statement(BOX))
-    reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
+    reg.gateway.detachDaemon(reg.sessionStore.hostMachine!.id)
     const after: ControlMessage[] = []
     await attachDaemon(reg, after)
     client.sent.length = 0
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bind(sessionId))
     expect(session.terminal.geometry).toEqual(GEO)
     expect(sizeFrames(client)).toEqual([])
     expect(resizes(after)).toEqual([BOX])
@@ -317,14 +317,14 @@ describe('rule 2 on bind, and rule 3 (report and bind broadcast only on change)'
 
   it('an EQUAL report writes nothing and broadcasts nothing', async () => {
     const { reg, sessionId, client, rows } = await watched()
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, report(sessionId, GEO))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, report(sessionId, GEO))
     expect(sizeFrames(client)).toEqual([])
     expect(await rows()).toBe(0)
   })
 
   it('a CHANGED report writes the copy and sends one geometry frame with no revision; the record is not republished (the size is a live reading, POD-6764)', async () => {
     const { reg, sessionId, session, client, rows } = await watched()
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, report(sessionId, BOX))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, report(sessionId, BOX))
     expect(session.terminal.geometry).toEqual(BOX)
     expect(client.sent.filter((m) => m.type === 'geometry')).toEqual([
       { type: 'geometry', sessionId, cols: BOX.cols, rows: BOX.rows },
@@ -338,7 +338,7 @@ describe('rule 2 on bind, and rule 3 (report and bind broadcast only on change)'
     daemon.length = 0
     // The host refused BOX and something else moved the kernel: the report says so.
     await reg.gateway.routeDaemonFrame(
-      reg.sessionStore.hostMachineId,
+      reg.sessionStore.hostMachine!.id,
       report(sessionId, { cols: 90, rows: 30 }),
     )
     expect(resizes(daemon)).toEqual([])
@@ -368,10 +368,10 @@ describe('rule 2 on bind, and rule 3 (report and bind broadcast only on change)'
     daemon.length = 0
 
     // ARMED: the same size as a plain (RESIZED) report forwards nothing.
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, report(sessionId, GEO))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, report(sessionId, GEO))
     expect(resizes(daemon)).toEqual([])
 
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       ...report(sessionId, GEO),
       birth: true,
     } as DaemonMessage)
@@ -380,7 +380,7 @@ describe('rule 2 on bind, and rule 3 (report and bind broadcast only on change)'
 
   it('a bind at the same size broadcasts nothing', async () => {
     const { reg, sessionId, client } = await watched()
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId, GEO))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bind(sessionId, GEO))
     expect(client.sent.filter((m) => m.type === 'geometry')).toEqual([])
   })
 
@@ -403,7 +403,7 @@ describe('rule 2 on bind, and rule 3 (report and bind broadcast only on change)'
   it('a durable-write rollback leaves the copy alone: only the report and the bind write it', async () => {
     const { reg, sessionId, session, client } = await watched()
     const before = session.captureDurableState()
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, report(sessionId, BOX))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, report(sessionId, BOX))
     client.sent.length = 0
     session.restoreDurableState(before)
     expect(session.terminal.geometry).toEqual(BOX)

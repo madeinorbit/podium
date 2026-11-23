@@ -65,21 +65,7 @@ export function createAutomationsFixture(
     calls[key] = (calls[key] ?? 0) + 1
     return value
   }
-  const meta = {
-    id: 'SP-root',
-    title: 'Synthetic specification',
-    parent: '',
-    order: 0,
-    status: 'active',
-    updatedAt: Date.now(),
-  }
   Object.assign(fixture.api, {
-    specs: {
-      list: { query: query('specList', [meta]) },
-      get: { query: query('specGet', { ...meta, body: '<p>Synthetic specification body.</p>' }) },
-      save: { mutate: query('specSave', meta) },
-      search: { query: query('specSearch', []) },
-    },
     automations: {
       create: { mutate: query('create', {}) },
       update: { mutate: query('update', {}) },

@@ -98,7 +98,7 @@ async function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions
   const registry = await SessionRegistry.create(opts.store, undefined, {
     instanceId: 'updates-test',
   })
-  const hostMachineId = registry.sessionStore.hostMachineId
+  const hostMachineId = registry.sessionStore.hostMachine!.id
   // Registry construction no longer enrolls the host. Supply the enrolled
   // coordinator and its running identity before attaching an update receiver.
   await registry.modules.machines.ensureHostMachine('updates-test')
@@ -219,7 +219,7 @@ describe('read-only update space RPC', () => {
       expect(
         result.machines.some(
           (machine) =>
-            machine.machineId === registry.sessionStore.hostMachineId && machine.status === 'low',
+            machine.machineId === registry.sessionStore.hostMachine!.id && machine.status === 'low',
         ),
       ).toBe(true)
       expect(check).toHaveBeenCalledTimes(1)
@@ -554,7 +554,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
     channel: UpdateChannel,
     appVersion: string,
   ) => {
-    const id = registry.sessionStore.hostMachineId
+    const id = registry.sessionStore.hostMachine!.id
     await registry.modules.machines.setUpdateChannel(id, channel)
     await registry.modules.machines.setMachineBuild(
       id,
@@ -577,14 +577,14 @@ describe('the fleet counted is the fleet the global action would grant', () => {
     expect(fleet.total).toBe(1)
     expect(fleet.behind).toBe(1)
     expect(fleet.machines.map((machine) => machine.id)).toEqual([
-      registry.sessionStore.hostMachineId,
+      registry.sessionStore.hostMachine!.id,
     ])
     await registry.dispose()
   })
   it('excludes a source checkout while retaining an outdated packaged machine', async () => {
     const release = '0.1.1-dev.1+6e57311'
     const { registry, caller } = await harness({ serverInstallKind: 'source' })
-    const host = registry.sessionStore.hostMachineId
+    const host = registry.sessionStore.hostMachine!.id
     await registry.modules.machines.setMachineBuild(
       host,
       { appVersion: 'dev+6e57311', installKind: 'source' },
@@ -715,7 +715,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
     const fleet = await caller.updates.fleet()
     const channel = await registry.modules.updates.operationChannel({
       kind: 'fleet',
-      machineId: registry.sessionStore.hostMachineId,
+      machineId: registry.sessionStore.hostMachine!.id,
     })
 
     expect(channel).toBe('stable')
@@ -782,7 +782,7 @@ describe('updates tRPC', () => {
     process.env.PODIUM_APP_VERSION = '0.4.2'
     const { registry, caller } = await harness()
     await registry.modules.machines.setMachineBuild(
-      registry.sessionStore.hostMachineId,
+      registry.sessionStore.hostMachine!.id,
       { appVersion: '0.4.2' },
       ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-10T00:00:00.000Z',
@@ -807,7 +807,7 @@ describe('updates tRPC', () => {
       servedWebDigest: () => digest,
     })
     await registry.modules.machines.setMachineBuild(
-      registry.sessionStore.hostMachineId,
+      registry.sessionStore.hostMachine!.id,
       { appVersion: 'dev+47a01e3' },
       ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
@@ -843,7 +843,7 @@ describe('updates tRPC', () => {
     const { registry, caller } = await harness({ servedWebDigest: '47a01e3', requestDestBundle })
     const grants: unknown[] = []
     await registry.modules.machines.setMachineBuild(
-      registry.sessionStore.hostMachineId,
+      registry.sessionStore.hostMachine!.id,
       { appVersion: 'dev+47a01e3' },
       ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
@@ -928,7 +928,7 @@ describe('updates tRPC', () => {
     })
     const grants: unknown[] = []
     await registry.modules.machines.setMachineBuild(
-      registry.sessionStore.hostMachineId,
+      registry.sessionStore.hostMachine!.id,
       { appVersion: 'dev+47a01e3' },
       ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
@@ -981,7 +981,7 @@ describe('updates tRPC', () => {
     })
     const grants: unknown[] = []
     await registry.modules.machines.setMachineBuild(
-      registry.sessionStore.hostMachineId,
+      registry.sessionStore.hostMachine!.id,
       { appVersion: 'dev+47a01e3' },
       ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
@@ -1090,7 +1090,7 @@ describe('updates tRPC', () => {
       requestDestBundle,
     })
     await registry.modules.machines.setMachineBuild(
-      registry.sessionStore.hostMachineId,
+      registry.sessionStore.hostMachine!.id,
       { appVersion: 'dev+47a01e3' },
       ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
@@ -1161,7 +1161,7 @@ describe('updates tRPC', () => {
       servedWebDigest: '47a01e3',
     })
     await registry.modules.machines.setMachineBuild(
-      registry.sessionStore.hostMachineId,
+      registry.sessionStore.hostMachine!.id,
       { appVersion: 'dev+aaaaaaa' },
       ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
@@ -1351,7 +1351,7 @@ describe('updates tRPC', () => {
       servedWebDigest: '47a01e3',
     })
     await registry.modules.machines.setMachineBuild(
-      registry.sessionStore.hostMachineId,
+      registry.sessionStore.hostMachine!.id,
       { appVersion: 'dev+aaaaaaa' },
       ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
@@ -1391,12 +1391,12 @@ describe('updates tRPC', () => {
       expect(hostControl).toEqual([expect.objectContaining({ type: 'updateGrant' })]),
     )
     await registry.modules.machines.setMachineBuild(
-      registry.sessionStore.hostMachineId,
+      registry.sessionStore.hostMachine!.id,
       { appVersion: 'dev+47a01e3' },
       ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:01.000Z',
     )
-    registry.bus.emit('machine.connected', { machineId: registry.sessionStore.hostMachineId })
+    registry.bus.emit('machine.connected', { machineId: registry.sessionStore.hostMachine!.id })
     await vi.waitFor(async () =>
       expect((await caller.operations.history({ kind: 'update' }))[0]).toMatchObject({
         state: 'done',
@@ -1418,7 +1418,7 @@ describe('updates tRPC', () => {
       servedWebDigest: '47a01e3',
     })
     await registry.modules.machines.setMachineBuild(
-      registry.sessionStore.hostMachineId,
+      registry.sessionStore.hostMachine!.id,
       { appVersion: 'dev+47a01e3' },
       ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
@@ -1447,7 +1447,7 @@ describe('updates tRPC', () => {
     /** Server and target both on dev+47a01e3, so only a dist can be behind. */
     const settle = async (registry: SessionRegistry): Promise<void> => {
       await registry.modules.machines.setMachineBuild(
-        registry.sessionStore.hostMachineId,
+        registry.sessionStore.hostMachine!.id,
         { appVersion: 'dev+47a01e3' },
         ['update.delivery.feed', 'update.delivery.bundle'],
         '2026-08-13T00:00:00.000Z',
@@ -1556,7 +1556,7 @@ describe('updates tRPC', () => {
     const grants: unknown[] = []
 
     await registry.modules.machines.setMachineBuild(
-      registry.sessionStore.hostMachineId,
+      registry.sessionStore.hostMachine!.id,
       { appVersion: '0.4.2' },
       ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-10T00:00:00.000Z',
@@ -1595,7 +1595,7 @@ describe('updates tRPC', () => {
     const store = await fileBackedStore()
     const { registry, caller } = await harness({ store, requestCoordinatorRestart })
     await registry.modules.machines.setMachineBuild(
-      registry.sessionStore.hostMachineId,
+      registry.sessionStore.hostMachine!.id,
       { appVersion: '0.4.2' },
       ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-10T00:00:00.000Z',
@@ -1669,7 +1669,7 @@ describe('the update operation', () => {
     process.env.PODIUM_APP_VERSION = '0.4.1'
     const built = await harness(options)
     await built.registry.modules.machines.setMachineBuild(
-      built.registry.sessionStore.hostMachineId,
+      built.registry.sessionStore.hostMachine!.id,
       { appVersion: '0.4.1' },
       ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
@@ -1723,7 +1723,7 @@ describe('the update operation', () => {
     const { registry, caller } = await harness({ store })
     // The host is already on the target; only a daemon machine is behind.
     await registry.modules.machines.setMachineBuild(
-      registry.sessionStore.hostMachineId,
+      registry.sessionStore.hostMachine!.id,
       { appVersion: '0.4.2' },
       ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
@@ -1802,7 +1802,7 @@ describe('the update operation', () => {
     const record = await registry.sessionStore.effects.get(recordId)
     expect(record).toMatchObject({
       kind: 'server.update',
-      target: { kind: 'machine', id: registry.sessionStore.hostMachineId },
+      target: { kind: 'machine', id: registry.sessionStore.hostMachine!.id },
       result: { operationId: started.operationId },
     })
 
@@ -1881,7 +1881,7 @@ describe('the update operation', () => {
     process.env.PODIUM_APP_VERSION = '0.4.2'
     const { registry, caller } = await harness()
     await registry.modules.machines.setMachineBuild(
-      registry.sessionStore.hostMachineId,
+      registry.sessionStore.hostMachine!.id,
       { appVersion: '0.4.2' },
       ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',

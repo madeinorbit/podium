@@ -9,6 +9,7 @@ import {
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CAP_TERMINAL_PICTURE_V1,
+  CAP_TRANSCRIPT_PATHS,
   DAEMON_WIRE_VERSION,
   DaemonPtyOutputMetadata,
   decodeBinaryEnvelope,
@@ -192,6 +193,7 @@ describe('daemon connection credential state machine', () => {
     await state.start()
     expect(hello?.caps).toContain(CAP_TERMINAL_OUTPUT_BINARY_V1)
     expect(hello?.caps).toContain(CAP_TERMINAL_PICTURE_V1)
+    expect(hello?.caps).toContain(CAP_TRANSCRIPT_PATHS)
     expect(hello).toMatchObject({
       type: 'peerHello',
       peerRole: 'machine',

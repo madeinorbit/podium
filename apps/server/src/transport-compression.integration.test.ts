@@ -377,7 +377,7 @@ describe('transport compression on real Bun wires', () => {
   it('negotiates and selects compression per frame on the authenticated daemon wire', async () => {
     const daemon = await openRawWebSocket(server.port, '/daemon')
     expect(daemon.responseHeaders.get('sec-websocket-extensions')).toContain('permessage-deflate')
-    const machineId = server.registry.modules.machines.hostMachineId
+    const machineId = server.registry.modules.machines.hostMachine!.id
     daemon.socket.write(
       maskedTextFrame(
         JSON.stringify({

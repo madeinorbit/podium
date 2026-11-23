@@ -5,7 +5,7 @@ import type { IssueTrpc } from './client.js'
 import { ISSUE_COMMANDS } from './commands.js'
 
 /**
- * CLI-table drift pins (#248 [spec:SP-3fe2]). The `podium issue` command table
+ * CLI-table drift pins (#248). The `podium issue` command table
  * is PRESENTATION (verbs, positionals, render bodies) over the shared command
  * name contract: its run() bodies compile against `IssueTrpc`, whose issues
  * record is keyed by @podium/commands' ISSUE_COMMAND_NAMES, itself derived from the

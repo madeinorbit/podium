@@ -147,12 +147,6 @@ describe('FEATURES registry', () => {
           visibility: 'edge',
         },
         {
-          id: 'specs',
-          name: 'Specs',
-          description: 'Long-lived documents agents plan against.',
-          visibility: 'edge',
-        },
-        {
           id: 'automations',
           name: 'Automations',
           description: 'Scheduled and triggered agent runs.',

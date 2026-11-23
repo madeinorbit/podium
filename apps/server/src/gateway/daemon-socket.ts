@@ -19,8 +19,8 @@
  * back, and the acceptor refuses every later frame on the socket rather than
  * letting a peer retry into a usable connection. A pre-auth frame that is not a
  * handshake is dropped on the floor — it never reaches a port and no principal
- * exists. The local daemon comes through this SAME path (`ensureHostMachine`
- * pre-registers it with a server-owned credential), so connecting over the local
+ * exists. A self-hosted install's local daemon comes through this SAME path
+ * (explicit setup enrollment supplies its credential), so connecting over the local
  * socket confers exactly what a remote pairing confers and nothing more.
  */
 

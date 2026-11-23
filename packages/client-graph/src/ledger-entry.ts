@@ -9,7 +9,7 @@ import {
   type ThreadId,
 } from '@podium/model'
 /**
- * Message-ledger view model (#237) [spec:SP-34d7 web]: pure helpers over the
+ * Message-ledger view model (#237): pure helpers over the
  * `messages.ledger` wire — the anti-"mail broke down mysteriously" surface.
  * The human must be able to answer "what happened to my message / why didn't
  * my wake fire" from these derivations alone.

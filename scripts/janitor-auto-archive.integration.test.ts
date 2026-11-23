@@ -131,7 +131,7 @@ async function seedSession(
     lastResumedAt: null,
     archived: false,
     workState: null,
-    machineId: store.hostMachineId,
+    machineId: store.hostMachine!.id,
     stoppedAt: STOPPED,
     issueId: null,
     ...over,
@@ -152,7 +152,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     process.env.PODIUM_STATE_DIR = dir
     store = await openTestStore(dbPath)
     await assignHostMachine(store)
-    await store.repos.addRepo('/repo', store.hostMachineId)
+    await store.repos.addRepo('/repo', store.hostMachine!.id)
     db = janitorSource(dbPath)
   })
 

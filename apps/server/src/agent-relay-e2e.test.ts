@@ -38,7 +38,7 @@ describe('agent relay end-to-end (CLI → daemon relay → server capability gat
 
   beforeAll(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    machineId = registry.sessionStore.hostMachineId
+    machineId = registry.sessionStore.hostMachine!.id
     await attachHostDaemon(registry, () => {}, { repos: [repoPath] })
 
     // A is a subtree root with a worktree; a session running INSIDE it → a worker capability

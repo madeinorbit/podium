@@ -1,10 +1,10 @@
-import { mkdir, mkdtemp } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, asRepoId } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { browseDirectories, inferRepoFromRoots, RepoRegistry } from './repo-registry'
+import { inferRepoFromRoots, RepoRegistry } from './repo-registry'
 import type { SessionStore } from './store'
 import { normalizeRepoPath } from './store'
 import { attachHostDaemon } from './test-support/host-daemon'
@@ -16,6 +16,10 @@ import { openTestStore } from './test-support/open-test-store'
 async function singleMachineRepos(store: SessionStore): Promise<RepoRegistry> {
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   await attachHostDaemon(registry, () => {})
+  vi.spyOn(registry.modules.rpc, 'scanRepos').mockResolvedValue({
+    repositories: [],
+    diagnostics: [],
+  })
   return new RepoRegistry(registry, store)
 }
 
@@ -54,25 +58,6 @@ describe('RepoRegistry', () => {
     expect(await repos.inferFromPath('/a')).toBe('/a')
     expect(await repos.inferFromPath('/ab')).toBeUndefined()
     expect(await repos.inferFromPath('/elsewhere')).toBeUndefined()
-  })
-
-  it('browses server-side directories from HOME by default', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'podium-browse-home-'))
-    await mkdir(join(home, 'src'), { recursive: true })
-    await mkdir(join(home, 'notes'), { recursive: true })
-    await mkdir(join(home, '.cache'), { recursive: true })
-
-    const prevHome = process.env.HOME
-    process.env.HOME = home
-    try {
-      const listing = await browseDirectories()
-      expect(listing.path).toBe(home)
-      expect(listing.entries.map((entry) => entry.name)).toEqual(['notes', 'src'])
-      const withHidden = await browseDirectories(undefined, { includeHidden: true })
-      expect(withHidden.entries.map((entry) => entry.name)).toEqual(['.cache', 'notes', 'src'])
-    } finally {
-      process.env.HOME = prevHome
-    }
   })
 })
 

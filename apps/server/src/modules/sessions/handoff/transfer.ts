@@ -309,7 +309,7 @@ export class HandoffTransfer {
       // keeps its residue but is no longer where this session lives.
       this.ports.onWorktreesChanged(targetRepo.path, input.machineId)
       this.ports.onWorktreesChanged(sourceRepo.path, source.machineId)
-      // [spec:SP-3f7a] The issue's home follows its session (POD-824): the target
+      // The issue's home follows its session (POD-824): the target
       // worktree is where this work lives now, and the issue's home is what the
       // user sees — the file-browser root, the sidebar's worktree, and the cwd a
       // new agent on this issue spawns into. Keyed on the worktree ROOT the daemon

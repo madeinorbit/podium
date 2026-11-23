@@ -20,13 +20,20 @@ import type { SyncWriteContext } from '../sync-write/registry'
 
 import { describeError } from '@podium/logger'
 import type { MachineId, UserId } from '@podium/model'
-import { asMachineId, HOST_REPOS, isMachinePathWithinRoot, joinMachinePath, machinePathsEqual, mintDeviceId } from '@podium/model'
+import {
+  asMachineId,
+  HOST_REPOS,
+  isMachinePathWithinRoot,
+  joinMachinePath,
+  machinePathsEqual,
+  mintDeviceId,
+} from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import type { CommandPrincipal } from '../../command-principal'
 import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
 import type { MachineDiscoveryResult } from '../../repo-discovery'
-import type { RepoRegistry } from '../../repo-registry'
+import type { PreparedRepoAdd, RepoRegistry } from '../../repo-registry'
 import { normalizeRepoPath, type SessionStore } from '../../store'
 import { afterCommit } from '../../store/executor/executor'
 import type { Context } from '../../trpc'
@@ -117,6 +124,8 @@ export interface FleetWriteEnv {
   readonly store: SessionStore
   /** The command's own writer (ADR 12 D9): its repo writes commit on it. */
   readonly writer: SyncWriteContext['ledger']
+  /** Origin lookups (including per-path refusals) gathered before the unit of work. */
+  readonly repoAdds?: ReadonlyMap<string, PromiseSettledResult<PreparedRepoAdd>>
 }
 
 export interface FleetSyncArgs<In> {
@@ -187,7 +196,12 @@ export const machineApplyUpdateHandler = async ({ ctx, input }: FleetArgs<{ id: 
 export const machineShareHandler = async ({
   env,
   input,
-}: FleetSyncArgs<{ id: string; grantee: string; verb: 'see' | 'use' | 'manage'; acknowledgeSharedMachine?: boolean }>) => {
+}: FleetSyncArgs<{
+  id: string
+  grantee: string
+  verb: 'see' | 'use' | 'manage'
+  acknowledgeSharedMachine?: boolean
+}>) => {
   const authz = env.authz
   const principal = authz.principal
   const attribution = attributionOf(principal)
@@ -357,6 +371,11 @@ export const machineMoveServerHandler = async ({
   port?: number
   confirmation: 'TRANSFER SERVER'
 }>) => {
+  if (!mods(ctx).machines.hostMachine)
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'Server move is unavailable on this server: it has no host machine.',
+    })
   // The input's own checks answer as before, before any record exists.
   resolvedTransferPort(input, normalizedPublicUrl(input))
   const id = mintDeviceId('eff_')
@@ -422,9 +441,14 @@ export const machinePairingCodeHandler = async ({
   const principal = (await fleetAuthzDeps(ctx)).principal
   if (input?.clientRegistration) {
     if (principal.kind !== 'user' || principal.capability.role !== 'admin' || pairer === null)
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'client registration requires an authenticated administrator login' })
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'client registration requires an authenticated administrator login',
+      })
     const code = await mods(ctx).machines.mintClientRegistrationCode(
-      { ...input.clientRegistration, machineId: asMachineId(input.clientRegistration.machineId) }, pairer)
+      { ...input.clientRegistration, machineId: asMachineId(input.clientRegistration.machineId) },
+      pairer,
+    )
     return { code, joinCommand: null }
   }
   if (input?.replaceMachineId) {
@@ -452,7 +476,10 @@ export const machinePairingCodeHandler = async ({
     // gate has already required an enabled account; the machine goes into the
     // minter's custody with their `use`, exactly as an admin's does. An agent
     // never mints one: a machine is a person's to bring.
-    throw new TRPCError({ code: 'FORBIDDEN', message: 'new enrollment requires a signed-in member' })
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'new enrollment requires a signed-in member',
+    })
   }
   // The code is bound to the minter as they are now: any change to their
   // authority (disable, removal, role) ends it at redeem (`enrollment.ts`).
@@ -484,7 +511,12 @@ export function pairingJoinCommand(
   { ctx, input, ports }: FleetArgs<{ podiumManaged?: boolean } | undefined>,
   code: string,
 ): string | null {
-  return ports.joinCommand(code, input?.podiumManaged ?? true, ctx.workspaceId, mods(ctx).updates.fleetDefaultChannel())
+  return ports.joinCommand(
+    code,
+    input?.podiumManaged ?? true,
+    ctx.workspaceId,
+    mods(ctx).updates.fleetDefaultChannel(),
+  )
 }
 
 /**
@@ -520,12 +552,22 @@ const requireRepoHost = async (
 // repos.*
 // ---------------------------------------------------------------------------
 
+async function addRepo(env: FleetWriteEnv, path: string, machineId?: MachineId, prefix?: string) {
+  const prepared = env.repoAdds?.get(path)
+  if (prepared?.status === 'rejected') throw prepared.reason
+  if (prepared?.status === 'fulfilled') {
+    await env.repos.addPrepared(env.writer, prepared.value, prefix)
+  } else {
+    await env.repos.add(env.writer, path, machineId, prefix)
+  }
+}
+
 export const repoAddHandler = async ({
   env,
   input,
 }: FleetSyncArgs<{ path: string; machineId?: MachineId; prefix?: string }>) => {
   try {
-    await env.repos.add(env.writer, input.path, input.machineId, input.prefix)
+    await addRepo(env, input.path, input.machineId, input.prefix)
   } catch (e) {
     badRequest(e)
   }
@@ -547,7 +589,7 @@ export const repoAddManyHandler = async ({
     try {
       // A refused path is refused before it writes (`RepoRegistry.add` checks
       // first), so the rest still register in the same unit of work.
-      await env.repos.add(env.writer, path, input.machineId)
+      await addRepo(env, path, input.machineId)
     } catch (e) {
       failed.push({ path, message: describeError(e) })
     }

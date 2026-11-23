@@ -199,7 +199,7 @@ describe('repoOpCommand', () => {
       repoOpCommand('worktreeAdd', { path: '/r/wt', branch: 'issue/1-x', startPoint: 'main' }),
     ).toEqual({ bin: 'git', argv: ['worktree', 'add', '-b', 'issue/1-x', '--', '/r/wt', 'main'] })
   })
-  it('worktreeAddExisting attaches a preserved branch (no -b/-B) [spec:SP-9904]', () => {
+  it('worktreeAddExisting attaches a preserved branch (no -b/-B)', () => {
     expect(repoOpCommand('worktreeAddExisting', { path: '/r/wt', branch: 'issue/1-x' })).toEqual({
       bin: 'git',
       argv: ['worktree', 'add', '--', '/r/wt', 'issue/1-x'],

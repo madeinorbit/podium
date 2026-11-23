@@ -88,7 +88,7 @@ The rewrite lands five moves, end to end, with no intermediate state left behind
   Deliberately open, per feature: which existence facts leak; whether a cross-boundary graph edge is
   hidden or shown opaquely; that `reparent` is now permission-affecting; per-class owner/grant
   inheritance on create.
-- **HUB DEFERRED** per spec [spec:SP-0371] (user decision, confirmed 2026-07-13).
+- **HUB DEFERRED** per spec (user decision, confirmed 2026-07-13).
   In scope: local topology (clients + one server + N paired machine daemons) plus the
   preserved federation SEAM (feed identity, origin/causation, reserved peer-capability
   fields, kernel ports free of same-machine assumptions, parameterized conformance
@@ -97,7 +97,7 @@ The rewrite lands five moves, end to end, with no intermediate state left behind
 
 ---
 
-## Runtime work placement [spec:SP-c29e]
+## Runtime work placement
 
 The loop split is classified by the facts a job needs and the authority it exercises. A timer
 is only a trigger; it does not decide placement. This matrix is the durable rule for current
@@ -131,14 +131,14 @@ its existing owner remains authoritative rather than running two writers.
 
 The oracle is the behavioral contract every phase must preserve. It is defined over the
 **test-lane doctrine** — `docs/agents/testing.md` (authoritative lane map) and specs
-[spec:SP-0be7] + [spec:SP-3f93] — NOT a single full-suite command. `bun run test` is
+ + — NOT a single full-suite command. `bun run test` is
 deliberately the fast retry-0 unit lane only; "oracle green" means the relevant lanes
 green: **unit / integration / e2e / multi-instance** (agent-smoke is explicit-only).
 Per-phase "oracle status" lines below reference lane results. Locking the baseline is
 POD-295; the CI wiring is verified at gate POD-422.
 
 Build orchestration is part of the oracle environment: typecheck runs under tsgo
-(POD-706, [spec:SP-3b58]), with turbo task orchestration once POD-715 lands — gate
+(POD-706), with turbo task orchestration once POD-715 lands — gate
 evidence must cite the orchestrator actually in CI at the time.
 
 ### 2.1 Running it: one command (POD-295)
@@ -187,7 +187,7 @@ and was found by the sweep, already skipped and already invisible.
 | `router.test.ts:369` `discovery.refreshRepos enriches registered roots in place` | unit | POD-759 | The expectation predates registered-root enrichment: discovery now returns the registered root itself as a repository entry even when the daemon scan is empty. Skipped rather than fixed so CI would not silently bless the new shape without review — **that review never happened**. Its original link (`podium #32`) is closed AND was never about this test, so the skip deferred to nothing. POD-759 replaces it. |
 
 Everything else that does not run is **conditional-by-environment, not a quarantine**, and
-needs no entry: the `PODIUM_REAL_CLI` gate on the agent-smoke suites ([spec:SP-0be7] — never
+needs no entry: the `PODIUM_REAL_CLI` gate on the agent-smoke suites (— never
 implicit, bills real quota), podium-host availability guards, and platform guards. Verified
 by sweep: `router.test.ts:369` is the only unconditional `.skip` in the repo.
 
@@ -220,7 +220,7 @@ to the owner of the code under test while POD-295 inherits only the CONSEQUENCE:
   records why the assertion was wrong (a proxy satisfiable by the delegation prose alone,
   in both directions). The fix keys on the thing itself: the marker derives from
   `sessionTitleRule()`, the doctrine's single copy, already reused at relay.ts:1190 —
-  [spec:SP-0be7]'s "behavioral assertions over UI copy-string pins". Mutation-tested:
+  "behavioral assertions over UI copy-string pins". Mutation-tested:
   deleting the product's already-named guard (relay.ts:1176) turns the file red on exactly
   `says nothing about titles once the session HAS a name`; the old assertion could not have
   caught that at the positive site. The unit lane's red is closed outright.
@@ -268,7 +268,7 @@ too, so nothing runs it and nothing references it.
 At every phase-entry gate, **the phase agent re-audits its phase issues against current
 main before starting** — a "drift refresh". This plan froze 2026-07-13 and was
 materially stale in ~30 issues within 3 days (drizzle-kit adoption, instance identity
-[spec:SP-15aa], session handoff, new messages/workflows verticals, web redesign);
+, session handoff, new messages/workflows verticals, web redesign);
 later phases execute months from now and WILL drift further. The 2026-07-16 refresh
 comments on affected issues are the template: a dated `DRIFT REFRESH` comment per
 affected issue stating what changed on main and how the issue's scope/ACs move.
@@ -450,7 +450,7 @@ runbooks live in this document (section per gate below or in the phase section).
 | POD-310 live upgrade rehearsal | Runs the local-topology upgrade on the real fleet (VPS + remote daemon + phone PWA); rollback drill; switch latency from the POD-736 harness, per principal with slice size | This document, Phase 2 section (runbook committed by POD-310) | POD-310 issue artifacts + quantitative checks recorded here |
 | POD-377 mobile cutover device smoke | Real-device smoke of the SQLite replica migration | POD-377 description | POD-377 issue artifacts |
 | POD-332 mobile slices device smoke | Real-device smoke: cold-start offline paint, reconnect drain, terminal parity | POD-332 description | POD-332 issue artifacts |
-| POD-327 remote-daemon soak | 48h live remote-daemon soak (paired VPS) without manual intervention; may run on an isolated named instance per [spec:SP-15aa] | POD-327 description + Phase 5 section | POD-327 issue artifacts |
+| POD-327 remote-daemon soak | 48h live remote-daemon soak (paired VPS) without manual intervention; may run on an isolated named instance per | POD-327 description + Phase 5 section | POD-327 issue artifacts |
 | POD-337 fleet soak + release | 72h+ local-topology fleet soak, two redeploys + one daemon self-update; quantitative criteria within thresholds (switch latency from the POD-736 harness, per principal with slice size); "clean" as defined in POD-337 | This document, Phase 7 section (runbook committed by POD-337) | POD-337 issue artifacts |
 
 ---
@@ -625,7 +625,7 @@ same commit.**
 | `packages/runtime` | L2 kernel | **neutral** | config, sqlite, git-port, connectivity, auth-store, settings | browser-safe barrel + node-only subpaths (legacy rule 8) |
 | `packages/terminal-client` | L2 kernel | browser-safe | terminal-port | — |
 | `packages/sync` | L2 kernel | neutral | oplog, upstream-sync | → one sync kernel (Phase 2 POD-305/306); retagged `neutral` at POD-307 — Authority/Ledger/mirror are node-only, the Replica/Outbox roles and the ADR 6 client storage adapters are browser-safe, and one bit cannot say both. Browser-safe consumers are held to the declared entrypoints by check-boundaries rule 12 |
-| `packages/telemetry` | L2 kernel | **neutral** | telemetry-schema, telemetry-consent, telemetry-queue | added mid-Phase-0 [spec:SP-f933]; subpath gap POD-745 |
+| `packages/telemetry` | L2 kernel | **neutral** | telemetry-schema, telemetry-consent, telemetry-queue | added mid-Phase-0; subpath gap POD-745 |
 | `packages/identity` | L2 kernel | node-only | identity | added by POD-6744 (docs/design/people-and-sign-in.md): accounts, password sign-in, device sign-ins, one-time codes and the capability list, one implementation for the server's SQLite store and the cloud's Postgres. Imports `packages/model` only, never an app, so podium-cloud can depend on it |
 | `packages/pty` | L2 kernel | node-only | pty-port, durable-host | **landed POD-396** (5.3a) from agent-bridge (ADR 8 D4). Harness-AGNOSTIC: `HARNESS_ADAPTER_HOME` is now `packages/harness`, so the axiom APPLIES here and a harness comparison inside pty is a violation |
 | `packages/harness` | L2 kernel | neutral | harness-adapters, agent-runtime-contract, transcript-parsing, composer-driver, prompt-draft | **landed POD-397** (5.3b): one `AgentManifest` per CLI (launch/exec/headless/state/discovery/transcript) over `Record<BuiltinHarnessKind, AgentManifest>`; the home for harness variance and `HARNESS_ADAPTER_HOME` for the axiom. Principal-free (`harness-principal-free` lint). **POD-4469** dissolved `packages/agent-runtime`, `packages/transcript` and `packages/composer` into it: the driver contract + host live under `src/driver/` (entries `@podium/harness/driver` for the server-reachable contract, `@podium/harness/driver/host` daemon-only), the transcript store under `src/store/` (entry `@podium/harness/store`, both sides), per-harness manifests renamed to `src/adapters/<h>/`, and the pure composer interface under `src/driver/families/terminal/`. Retagged `neutral` at POD-2206: the manifests drive processes and reach sqlite while `./browser` is a literal table with no runtime import, so browser-safe consumers are held to the declared entrypoints |
@@ -634,7 +634,7 @@ same commit.**
 | `packages/client-graph` | L3 feature | browser-safe | client-graph | worklist feeds over the client runtime (pool, worklist, sidebar); tagged POD-5615 |
 | `packages/working-mark` | L3 feature | browser-safe | working-mark | Animated working mark, its frames and APNG, and an optional React component (POD-5558); no workspace dependencies. |
 | `packages/terminal-client-react` | L3 feature | browser-safe | terminal-react | — |
-| `packages/janitor` | L3 feature | node-only | maintenance-jobs | maintenance/steward jobs lifted out of `apps/server` (was `apps/janitor` on main after POD-296; moved to `packages/` as an engine, PDM-27 [spec:SP-c29e]) — feeds Phase 4 server decomposition (POD-292) |
+| `packages/janitor` | L3 feature | node-only | maintenance-jobs | maintenance/steward jobs lifted out of `apps/server` (was `apps/janitor` on main after POD-296; moved to `packages/` as an engine, PDM-27) — feeds Phase 4 server decomposition (POD-292) |
 | `apps/cli` | L4 app | node-only | cli-surface | — |
 | `apps/daemon` | L4 app | node-only | daemon-surface | Phase 5 machine-host tightening (POD-292) |
 | `apps/desktop` | L4 app | browser-safe | desktop-shell | — |
@@ -1495,7 +1495,7 @@ throw standing as its tripwire.
 #### LEDGER ENTRY — POD-309 (2.5 retire the upstream sync/forwarder): the two-directional claim
 
 **THE JOB WAS TWO OBLIGATIONS THAT FAIL IN OPPOSITE DIRECTIONS,** and naming that was the
-first useful thing. [spec:SP-0371] says the rewrite must NOT deliver hub/node federation
+first useful thing. says the rewrite must NOT deliver hub/node federation
 AND must NOT make choices that prevent a future hub. The retirement rots by RE-GROWTH — a
 `new UpstreamForwarder(` reappearing, a `forwardIssueMutation` dep coming back with a
 well-meaning refactor. The seam rots by ATTRITION — nobody deletes it, they bake an
@@ -1551,7 +1551,7 @@ interesting half.** ADR 5 D8 permits archiving the schema and forbids silent dis
 poison/pending work. The literal reading of "one-shot migration parks the rows" is a
 drizzle migration renaming `upstream_outbox`, and that is the ONE option that destroys
 them: `drizzle-kit` resolves renames INTERACTIVELY and this repo generates
-non-interactively ([spec:SP-4428]), where the same schema edit emits DROP + CREATE — in one
+non-interactively, where the same schema edit emits DROP + CREATE — in one
 transaction, at boot, silently. So the table keeps its name and contents, every WRITER is
 deleted (only `SyncRepository.listParkedUpstreamMutations` survives, and
 `parked-upstream.test.ts` asserts the writers' ABSENCE on the running object rather than
@@ -2253,7 +2253,7 @@ POD-290 may not close. The detailed evidence is in
 + one machine identity (POD-318), SessionService split (POD-319 → 392–395), IssueService
 recomposition (POD-320), declarative acyclic composition + reactions registry (POD-321),
 memory service (POD-322), orchestrator/attention/telemetry boundary review (POD-355),
-instance-vs-machine identity (POD-645, [spec:SP-15aa], post-freeze addition),
+instance-vs-machine identity (POD-645, post-freeze addition),
 **presence rooms + subscriptions (POD-1078) and machine ownership + grants (POD-1079)** —
 both multi-user, 2026-07-29.
 

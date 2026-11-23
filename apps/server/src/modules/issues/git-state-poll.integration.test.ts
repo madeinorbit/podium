@@ -11,6 +11,7 @@ import { expect, it, vi } from 'vitest'
 import { repoOpCommand } from '../../../../daemon/src/repo-op'
 import type { SessionStore } from '../../store'
 import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
+import { TEST_MACHINE_ID } from '../../test-support/machine-id'
 import { openTestStore } from '../../test-support/open-test-store'
 import { logStoreRecords } from '../../test-support/record-writer'
 import { sessionReadPorts } from '../../test-support/session-facts'
@@ -47,9 +48,9 @@ it('polls a real worktree without journaling checks, then journals each git chan
     await git(repo, 'commit', '-m', 'Initial commit')
     await git(repo, 'worktree', 'add', '-b', 'issue/git-state', worktree, 'main')
 
-    const db = await openTestStore(':memory:')
+    const db = await openTestStore(':memory:', TEST_MACHINE_ID)
     store = db
-    await db.repos.addRepo(repo, db.hostMachineId)
+    await db.repos.addRepo(repo, TEST_MACHINE_ID)
     let now = '2026-07-20T12:00:00.000Z'
     const ledger = new Ledger({
       repo: db.sync,
@@ -71,6 +72,7 @@ it('polls a real worktree without journaling checks, then journals each git chan
       }
     })
     const svc = await IssueService.create({
+      resolveMachine: async () => TEST_MACHINE_ID,
       store: db,
       ...sessionReadPorts(() => []),
       getSettings: async () => normalizeSettings({}),

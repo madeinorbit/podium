@@ -286,7 +286,7 @@ describe('record builders (POD-6763)', () => {
       const issues = reg.issues.reports.store
       await issues.commitRepoWrite(
         issues.serverWriter,
-        async () => await store.repos.addRepo('/repo', store.hostMachineId),
+        async () => await store.repos.addRepo('/repo', store.hostMachine!.id),
       )
       await quietShipping(reg)
       const owner = await firstAdminMemberId(store)
@@ -448,7 +448,7 @@ describe('record builders (POD-6763)', () => {
       await ask(reg, sessionId, 'ixn_open')
       await chatTraffic(store, sessionId, owner)
       await settle(reg)
-      const machineId = store.hostMachineId
+      const machineId = store.hostMachine!.id
       await reg.dispose()
       await store.close()
 

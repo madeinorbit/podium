@@ -1,17 +1,11 @@
-import { firstAdminMemberId, type AgentRuntimeState } from '@podium/model'
+import { testEngineTerms } from '@podium/harness/driver/testing'
+import { type AgentRuntimeState, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage, RuntimeEvent } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import type { AgentSessionHandle } from '../../../../packages/harness/src/driver/driver.js'
-import type { SessionSpec } from '../../../../packages/harness/src/driver/session-spec.js'
 import {
-  createMemoryAttachmentStager,
-  createMemoryDriverSlots,
-  testHarnessContext,
-  testSessionTerms,
-} from '../../../../packages/harness/src/driver/testing/index.js'
-import {
-  createCodexRuntime,
   type CodexRuntimeHost,
+  createCodexRuntime,
 } from '../../../../packages/harness/src/driver/families/codex/runtime.js'
 import { startFakeAppServer } from '../../../../packages/harness/src/driver/families/codex/test-support/fake-app-server.js'
 import {
@@ -28,9 +22,15 @@ import {
   createOpencodeRuntime,
   type OpencodeRuntimeHost,
 } from '../../../../packages/harness/src/driver/families/opencode/runtime.js'
+import type { SessionSpec } from '../../../../packages/harness/src/driver/session-spec.js'
+import {
+  createMemoryAttachmentStager,
+  createMemoryDriverSlots,
+  testHarnessContext,
+  testSessionTerms,
+} from '../../../../packages/harness/src/driver/testing/index.js'
 import { SessionRegistry } from '../relay'
 import { openTestStore } from '../test-support/open-test-store'
-import { testEngineTerms } from '@podium/harness/driver/testing'
 
 const AT = 1_786_700_000_000
 const options = { origin: 'human', delivery: 'when-ready' } as const
@@ -63,21 +63,21 @@ async function sessionWorld(agentKind: 'grok' | 'opencode' | 'codex', driverId: 
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const commands: ControlMessage[] = []
   await store.machines.upsertMachine({
-    id: store.hostMachineId,
+    id: store.hostMachine!.id,
     name: 'Host',
     hostname: 'test',
     tokenHash: 'test',
     ownerUserId: firstAdminMemberId(),
     assignment: { server: true, agentExecution: true },
   })
-  await registry.gateway.attachDaemon(store.hostMachineId, (message) => {
+  await registry.gateway.attachDaemon(store.hostMachine!.id, (message) => {
     commands.push(message)
   })
   const { sessionId } = await registry.modules.sessions.createSession({
     agentKind,
     cwd: '/ordering-fixture',
   })
-  await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+  await registry.gateway.routeDaemonFrame(store.hostMachine!.id, {
     type: 'bind',
     sessionId,
     cmd: 'fixture',
@@ -97,7 +97,7 @@ async function sessionWorld(agentKind: 'grok' | 'opencode' | 'codex', driverId: 
       const forwarded: RuntimeEvent[] = []
       async function send(event: RuntimeEvent) {
         const deliveryId = `ordering-${forwarded.length}`
-        await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+        await registry.gateway.routeDaemonFrame(store.hostMachine!.id, {
           type: 'runtimeEvent',
           sessionId,
           deliveryId,

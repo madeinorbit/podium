@@ -44,13 +44,13 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
     forceUnknownModel: true,
   })
 
-  await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+  await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
     type: 'agentModel',
     sessionId: spawned.sessionId,
     model: 'observed-model',
     effort: 'xhigh',
   })
-  await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+  await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
     type: 'agentContext',
     sessionId: spawned.sessionId,
     percent: 37.5,

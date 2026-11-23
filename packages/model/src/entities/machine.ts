@@ -201,6 +201,8 @@ export const Inventory = z.object({
   arch: z.enum(['x64', 'arm64']),
   /** Absent until #221 ships `podium --version`. */
   podiumVersion: z.string().optional(),
+  /** The daemon user's real home. Absent on daemons predating this field. */
+  homePath: z.string().min(1).optional(),
   /** All 5 HarnessAgent kinds, present or not. */
   agents: z.array(AgentInventory),
   /** Concrete runtime drivers admitted by this daemon's manifest and live
@@ -704,7 +706,7 @@ export const QuotaWindowWire = z.object({
   // Set when the provider scopes this limit to one model (Claude's
   // `weekly_scoped` + `scope.model`). Such a window is extra capacity for that
   // model alone: spending it drops the model, not the harness, which falls back
-  // onto the unscoped pool. Absent means the window gates all work. [spec:SP-0610]
+  // onto the unscoped pool. Absent means the window gates all work.
   scopeModel: z.string().optional(),
 })
 export type QuotaWindowWire = z.infer<typeof QuotaWindowWire>
@@ -742,7 +744,7 @@ export type MachineQuotaWire = z.infer<typeof MachineQuotaWire>
 // ── Quota HISTORY. The wires above are the live reading; these are the record of
 // what each window came to before it reset. Nothing upstream keeps that record —
 // no provider reports a window id, a start, or a prior period — so it exists only
-// because this server samples and folds. [spec:SP-0610]
+// because this server samples and folds.
 
 /**
  * The identity a quota window belongs to. Rate limits are per-ACCOUNT, not per
@@ -808,7 +810,7 @@ export type QuotaWindowHistoryWire = z.infer<typeof QuotaWindowHistoryWire>
 // These are per-machine facts in the fullest sense: §3.1.4 M1 gives "what is
 // checked out on it" as the canonical example of what `see` must NOT reveal.
 
-/** `USE` — [spec:SP-4ef9] a worktree is a per-(branch, machine) materialization. */
+/** `USE` — a worktree is a per-(branch, machine) materialization. */
 export const GitWorktreeWire = z.object({
   path: z.string(),
   branch: z.string().optional(),
@@ -847,7 +849,7 @@ export const GitDiscoveryDiagnosticWire = z.object({
 })
 export type GitDiscoveryDiagnosticWire = z.infer<typeof GitDiscoveryDiagnosticWire>
 
-// Directory browsing (POD-814) [spec:SP-3701]. The repo picker browses the
+// Directory browsing (POD-814). The repo picker browses the
 // SELECTED machine's disk through its daemon. The server host's own filesystem is
 // never the browse target: users pick a machine, and in hub-only mode
 // (mode=server) the hub may run no daemon at all.
@@ -858,7 +860,7 @@ export const DirectoryEntryWire = z.object({
   name: z.string(),
   path: z.string(),
   /** This subfolder is itself a git repo (has a `.git`) — the browser badges it
-   *  (POD-855) [spec:SP-5eb6]. Cheap: one stat per entry on the daemon. Optional
+   *  (POD-855). Cheap: one stat per entry on the daemon. Optional
    *  for back-compat; an older daemon omits it and the browser shows no badge. */
   isRepo: z.boolean().optional(),
 })
@@ -875,7 +877,7 @@ export const DirectoryListingWire = z.object({
   // Always present on the wire; defaults to [] so producers may omit it safely.
   entries: z.array(DirectoryEntryWire).default([]),
   /** The browsed folder ITSELF is a git repo — the picker only lets you add a repo
-   *  (POD-855) [spec:SP-5eb6], so this gates the "Add repo" button. Optional for
+   *  (POD-855), so this gates the "Add repo" button. Optional for
    *  back-compat with pre-POD-855 daemons. */
   isRepo: z.boolean().optional(),
   /** The browsed repo's origin URL when it has one — the picker names the add

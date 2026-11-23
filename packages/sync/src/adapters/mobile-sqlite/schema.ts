@@ -47,17 +47,7 @@ import type { SqlDatabaseLike } from './sql'
 /** The database file name a mobile client opens. Composition chooses the directory. */
 export const REPLICA_DB_NAME = 'podium-replica.db'
 
-/**
- * Bump this when the physical layout changes.
- *
- * FORWARD-ONLY, with no down migration (D5.1). A store written by a NEWER build than
- * this one cannot be read, and a store written by an OLDER one has no upgrade arm at
- * version 1 because there is no earlier version in existence — both are handled by
- * ADR 6 D6's upgrade-or-rebootstrap posture: clear the file and cold start from the
- * Authority (`SqliteSyncStore.open`). When a version 2 lands, the older-version arm
- * in `open()` is where its migration goes, and the D6 posture stays as the fallback
- * for anything the migration cannot carry.
- */
+/** Bump this and add a forward migration when the physical layout changes (D5.1). */
 export const REPLICA_SCHEMA_VERSION = 3
 
 export const ENTITY_TABLE = 'entities'
@@ -164,18 +154,9 @@ export function applySchema(db: SqlDatabaseLike): void {
     );
   `)
   applyIndexTable(db)
-  db.prepare(
-    `INSERT INTO ${SCHEMA_VERSION_TABLE} (singleton, version) VALUES (1, ?)
-     ON CONFLICT(singleton) DO UPDATE SET version = excluded.version`,
-  ).run(REPLICA_SCHEMA_VERSION)
+  stampSchemaVersion(db)
 }
 
-/**
- * Bring an older layout forward in place, inside the open handshake. Version 1
- * had no row part and no per-row feed number; both columns are added empty, so
- * every existing row reads as a whole record current as of its provenance seq,
- * and the outbox is untouched.
- */
 /**
  * Version 3 (POD-7159): the disk index table. Its rows are built from the
  * existing rows at the first open that finds no `disk-index` flag (see
@@ -193,14 +174,23 @@ function applyIndexTable(db: SqlDatabaseLike): void {
   `)
 }
 
+/** Bring an earlier layout forward inside the open handshake's write transaction. */
 export function migrateSchema(db: SqlDatabaseLike, from: number): void {
   if (from < 2) {
-    db.exec(`
-      ALTER TABLE ${ENTITY_TABLE} ADD COLUMN part TEXT;
-      ALTER TABLE ${ENTITY_TABLE} ADD COLUMN as_of INTEGER;
-    `)
+    // Older builds could commit either column before stamping the version.
+    const columns = new Set(
+      (db.prepare(`PRAGMA table_info(${ENTITY_TABLE})`).all() as { name: string }[]).map(
+        (column) => column.name,
+      ),
+    )
+    if (!columns.has('part')) db.exec(`ALTER TABLE ${ENTITY_TABLE} ADD COLUMN part TEXT`)
+    if (!columns.has('as_of')) db.exec(`ALTER TABLE ${ENTITY_TABLE} ADD COLUMN as_of INTEGER`)
   }
   if (from < 3) applyIndexTable(db)
+  stampSchemaVersion(db)
+}
+
+function stampSchemaVersion(db: SqlDatabaseLike): void {
   db.prepare(
     `INSERT INTO ${SCHEMA_VERSION_TABLE} (singleton, version) VALUES (1, ?)
      ON CONFLICT(singleton) DO UPDATE SET version = excluded.version`,
@@ -208,12 +198,8 @@ export function migrateSchema(db: SqlDatabaseLike, from: number): void {
 }
 
 /**
- * The version stamped in the file, or `null` when this is not a replica database.
- *
- * `null` covers both "brand new file" and "a file whose tables we have not created
- * yet", which the open path treats identically — there is nothing to lose in either.
- * A file that is not a SQLite database at all throws instead, and the open path
- * treats that as D4.5 poison.
+ * The version stamped in the file, or `null` before the first stamp. SQLite
+ * reports an invalid file through its own error code.
  */
 export function readSchemaVersion(db: SqlDatabaseLike): number | null {
   const table = db

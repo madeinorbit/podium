@@ -267,7 +267,7 @@ export interface RealAgentCodexEnvOptions {
  * Give opt-in real-agent browser runs an empty Codex history while retaining the
  * native login needed to exercise the real CLI. The daemon's discovery override
  * points at discoveryHomeDir, so scanner + live observer resolve the same private
- * `.codex` tree that the spawned CLI sees through CODEX_HOME. [spec:SP-9257]
+ * `.codex` tree that the spawned CLI sees through CODEX_HOME.
  */
 export function applyRealAgentCodexEnv(
   port: number,

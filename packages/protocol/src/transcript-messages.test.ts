@@ -1,7 +1,6 @@
 import type { TranscriptItem } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { parseClientMessage, parseServerMessage, ServerMessage } from './messages'
 import {
   ControlMessage,
   DaemonMessage,
@@ -9,6 +8,7 @@ import {
   parseControlMessage,
   parseDaemonMessage,
 } from './daemon'
+import { parseClientMessage, parseServerMessage, ServerMessage } from './messages'
 
 const item: TranscriptItem = {
   id: 'i1',
@@ -16,6 +16,21 @@ const item: TranscriptItem = {
   role: 'assistant',
   text: 'hello',
 }
+
+it('round-trips a batched transcript presence request and confirmed missing paths', () => {
+  const request = {
+    type: 'transcriptPathsRequest' as const,
+    requestId: 'tp1',
+    paths: ['/transcripts/present.jsonl', '/transcripts/pruned.jsonl'],
+  }
+  const result = {
+    type: 'transcriptPathsResult' as const,
+    requestId: 'tp1',
+    missingPaths: ['/transcripts/pruned.jsonl'],
+  }
+  expect(parseControlMessage(encode(request))).toEqual(request)
+  expect(parseDaemonMessage(encode(result))).toEqual(result)
+})
 
 describe('transcript read (server -> daemon)', () => {
   it('round-trips a transcriptRead control message (with anchor + session metadata)', () => {

@@ -1,5 +1,5 @@
 /**
- * Spawner-prescribed child session name at createSession [spec:SP-4ef9][spec:SP-eb60].
+ * Spawner-prescribed child session name at createSession.
  * Lands in the curated `name` slot with nameSource='agent' — not the derived title.
  * Reuses setAgentName rules: user-set names stay sovereign.
  */

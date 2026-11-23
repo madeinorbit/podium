@@ -25,7 +25,7 @@
 
 Today’s type-system classification uses **four** sync-class labels (`durable | live | command | bulk`) in `message-class.ts`. The rewrite’s port architecture (POD-387 plane-count correction, third-round review item 5) settles on **three planes**, with **command as a message class inside control** — not a fourth plane.
 
-After the 2026-07-13 freeze, drift refreshes on POD-359 added surface that must be inventoried against **current** integrated tree: handoff family, messaging bus/webhook, workflows, browser-open family, `sessionResumeRefAck`, and the twice-re-derived rule that host↔server traffic stays separate from the agent command relay ([spec:SP-b85a], [spec:SP-fccf], [spec:SP-a43e]).
+After the 2026-07-13 freeze, drift refreshes on POD-359 added surface that must be inventoried against **current** integrated tree: handoff family, messaging bus/webhook, workflows, browser-open family, `sessionResumeRefAck`, and the twice-re-derived rule that host↔server traffic stays separate from the agent command relay.
 
 ## Decisions
 
@@ -76,13 +76,13 @@ Application code stays **vertical by feature**. Planes are **boundary port contr
 
 **Decision.** Two non-overlapping host-edge channels:
 
-1. **Agent command relay** ([spec:SP-b85a]) — daemon injects a loopback HTTP endpoint at `/session/<sessionId>`, carried by `PODIUM_SESSION_RELAY` (every session kind, `shell` included) and additionally by `PODIUM_AGENT_RELAY` for harness kinds only, per the identity split in the env-variable table below. The path names the *session*, not an agent, precisely because holding `PODIUM_AGENT_RELAY` — not reaching the endpoint — is what asserts delegate-agent identity. The legacy `/agent/<sessionId>` and `/issue/<sessionId>` paths stay accepted so sessions spawned before each rename survive the daemon redeploy that lands it; only `/session/` is ever emitted. It carries the agent CLI/MCP command surface (issues, messages, sessions, specs, workflows, locks, approvals, agent spawn/await, worktree reporting). On the peer wire this is **only** `agentRelayRequest` (daemon→server) and `agentRelayResult` (server→daemon), both control · command.
+1. **Agent command relay** — daemon injects a loopback HTTP endpoint at `/session/<sessionId>`, carried by `PODIUM_SESSION_RELAY` (every session kind, `shell` included) and additionally by `PODIUM_AGENT_RELAY` for harness kinds only, per the identity split in the env-variable table below. The path names the *session*, not an agent, precisely because holding `PODIUM_AGENT_RELAY` — not reaching the endpoint — is what asserts delegate-agent identity. The legacy `/agent/<sessionId>` and `/issue/<sessionId>` paths stay accepted so sessions spawned before each rename survive the daemon redeploy that lands it; only `/session/` is ever emitted. It carries the agent CLI/MCP command surface (issues, messages, sessions, specs, workflows, locks, approvals, agent spawn/await, worktree reporting). On the peer wire this is **only** `agentRelayRequest` (daemon→server) and `agentRelayResult` (server→daemon), both control · command.
 
-2. **Host↔server traffic** — daemon- or host-owned side channels that must **not** share the agent-relay HTTP surface or its session-identity inheritance: native harness hooks (instance-scoped `/hooks` / hook socket per [spec:SP-15aa]), browser-open family ([spec:SP-a43e]), resume-ref + `sessionResumeRefAck` ([spec:SP-fccf]), inventory probes, PTY/agent-frame streams, host-initiated file/transcript bulk.
+2. **Host↔server traffic** — daemon- or host-owned side channels that must **not** share the agent-relay HTTP surface or its session-identity inheritance: native harness hooks (instance-scoped `/hooks` / hook socket per), browser-open family, resume-ref + `sessionResumeRefAck`, inventory probes, PTY/agent-frame streams, host-initiated file/transcript bulk.
 
 **Rule (binding for new work):** never route a new host callback through the agent command relay for convenience. New host features get typed frames (or a dedicated host HTTP path under instance isolation) and a plane classification in this inventory (amend this ADR).
 
-**Rationale.** Independently re-derived in [spec:SP-fccf] (“Hook transport and receipts … remain separate from the agent command relay”) and [spec:SP-a43e] (browser-open is daemon→server→client, not an agent-relay RPC). The relay bakes session identity into the URL path; host callbacks are not “the agent speaking CLI.” Collapsing them re-homes identity, confuses authz, and breaks `PODIUM_NO_RELAY` hermetic tests.
+**Rationale.** Independently re-derived in (“Hook transport and receipts … remain separate from the agent command relay”) and (browser-open is daemon→server→client, not an agent-relay RPC). The relay bakes session identity into the URL path; host callbacks are not “the agent speaking CLI.” Collapsing them re-homes identity, confuses authz, and breaks `PODIUM_NO_RELAY` hermetic tests.
 
 **Rejected alternatives.**
 
@@ -98,7 +98,7 @@ Application code stays **vertical by feature**. Planes are **boundary port contr
 
 | Var | Question it answers | Bound for | Read by |
 |-----|--------------------|-----------|---------|
-| `PODIUM_SESSION_RELAY` | *"Where is my session's daemon endpoint?"* — pure transport | **every** kind, `shell` included | browser-command shim ([spec:SP-a43e]), `podium worktree` |
+| `PODIUM_SESSION_RELAY` | *"Where is my session's daemon endpoint?"* — pure transport | **every** kind, `shell` included | browser-command shim, `podium worktree` |
 | `PODIUM_AGENT_RELAY` | *"Am I a constrained delegate agent?"* — identity | harness kinds **only** (`AgentKind` minus `shell`) | everything whose answer depends on **who** is asking: issues, mail, specs, locks, workflows, `agent`, `session`, quota, offers, workspace, approvals |
 
 Both hold the same URL. `resolveSessionRelay()` falls back to `PODIUM_AGENT_RELAY` (then the legacy `PODIUM_ISSUE_RELAY`) so sessions spawned before the split keep working for one release.
@@ -109,7 +109,7 @@ Both hold the same URL. `resolveSessionRelay()` falls back to `PODIUM_AGENT_RELA
 
 **Rule.** Adding a relay consumer? Ask whether the command is the session describing **itself** (session relay) or claiming **delegate authority** (agent relay). Default to the agent relay; the session relay is the narrow exception, and every addition to it widens what a human's shell can do while still being *right*, not merely convenient.
 
-**In-process `EventBus`** (`apps/server/src/modules/bus.ts`) is **not** a wire plane. External chat adapters (Telegram long-poll/webhook, [spec:SP-5d81]) sit on bus + superagent services — **outside** the three peer planes; not tRPC for the external edge.
+**In-process `EventBus`** (`apps/server/src/modules/bus.ts`) is **not** a wire plane. External chat adapters (Telegram long-poll/webhook) sit on bus + superagent services — **outside** the three peer planes; not tRPC for the external edge.
 
 ---
 
@@ -123,7 +123,7 @@ Both hold the same URL. `resolveSessionRelay()` falls back to `PODIUM_AGENT_RELA
 | Curated name (`SessionMeta.name` + `nameSource`) | Human `sessions.rename` or agent `sessions.title` / `setAgentName`; `nameSource='user'` sovereign | Yes | **control · entity only** (no dedicated stream message) |
 | Issue title (`IssueWire.title`) | Issue writers (ADR 1) | Yes | control · entity via `issuesChanged` / `issueUpdated` / oplog |
 
-**Display rule (product, [spec:SP-eb60]):** curated `name` wins over OSC/derived `title` everywhere shown.
+**Display rule (product):** curated `name` wins over OSC/derived `title` everywhere shown.
 
 **Rationale.** OSC titles fire at spinner rates (~10 Hz); classifying those message types as entity would force funnel/oplog volume or wrong offline semantics. Curated names are rare authoritative writes — entity-only. Same semantic field may appear on both stream messages and entity aggregates (**dual delivery**); each **message type** still has exactly one plane·class.
 
@@ -307,7 +307,7 @@ package's `OutboxCommand`; there is no generic mutation WS frame type.
 | Path | Classification |
 |------|----------------|
 | Operator/agent mail (`messages.*` tRPC + agent-relay procs) | C/c (delivery ledger is feature storage) |
-| External chat (Telegram adapter, [spec:SP-5d81]) | **Outside** three peer planes: bus + webhook/long-poll; **no tRPC** for the external edge |
+| External chat (Telegram adapter) | **Outside** three peer planes: bus + webhook/long-poll; **no tRPC** for the external edge |
 | In-process `EventBus` | Not a plane; features translate bus → plane sends |
 
 #### D6.8 Workflows
@@ -336,7 +336,7 @@ Workspace export/import/clean (6 more types in `workspace.ts`) follow the same r
 
 ---
 
-### D8 — Browser-open family ([spec:SP-a43e])
+### D8 — Browser-open family
 
 | type | direction | plane·class |
 |------|-----------|-------------|

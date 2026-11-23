@@ -1,7 +1,7 @@
 import '@/test-support/mock-core-store-handle'
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
 /**
- * Settings → Privacy tests [spec:SP-f933].
+ * Settings → Privacy tests.
  *
  * The behaviours that matter: the toggle self-persists (no Save button to
  * forget), a kill switch disables it WITH the reason, and the page shows the

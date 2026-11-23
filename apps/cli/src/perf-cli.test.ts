@@ -198,7 +198,7 @@ describe('podium perf discovery', () => {
 
   it('is listed in podium --help only when podium-development is on', async () => {
     expect(helpText(new Set())).not.toContain('perf <command>')
-    expect(helpText(new Set(['workflows', 'specs']))).not.toContain('perf <command>')
+    expect(helpText(new Set(['workflows']))).not.toContain('perf <command>')
     const listed = helpText(new Set(['podium-development']))
     expect(listed).toContain('  perf <command>        Loop profile level, minute files')
     // It belongs under Lifecycle, next to the other things that read a process.

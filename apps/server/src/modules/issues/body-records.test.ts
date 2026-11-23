@@ -80,7 +80,7 @@ describe('issue body records: build', () => {
 describe('issue body records: logged with every write', () => {
   it('upserts a body when it changes, removes it when emptied, and leaves it alone otherwise', async () => {
     const o = await makeOracle()
-    await o.store.repos.addRepo('/r', o.store.hostMachineId)
+    await o.store.repos.addRepo('/r', o.machineId)
     const writer = o.reg.issues.reports.store.serverWriter
     let id = asIssueId('')
     const created = await bodyRowsOf(o, async () => {
@@ -124,7 +124,7 @@ describe('issue body records: logged with every write', () => {
 
   it('removes both bodies when the issue goes', async () => {
     const o = await makeOracle()
-    await o.store.repos.addRepo('/r', o.store.hostMachineId)
+    await o.store.repos.addRepo('/r', o.machineId)
     const writer = o.reg.issues.reports.store.serverWriter
     const { id } = await o.reg.issues.crud.create(writer, {
       repoPath: '/r',

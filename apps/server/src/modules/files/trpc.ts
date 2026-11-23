@@ -25,7 +25,12 @@ import type { DetailedSubmit } from '../sync-write/entry'
 import { refusalAsTrpcError } from '../sync-write/route-adapter'
 import { syncRoute } from '../write-routes/sync'
 import { FILE_QUERIES } from './queries'
-import { assertOwnsSessionFiles, assertReadableRoot, FILE_COMMANDS_TRPC, type FileState } from './registry'
+import {
+  assertOwnsSessionFiles,
+  assertReadableRoot,
+  FILE_COMMANDS_TRPC,
+  type FileState,
+} from './registry'
 import {
   FILE_WRITE_EFFECT_KIND,
   FILE_WRITE_WAIT_MS,
@@ -40,7 +45,12 @@ export type FileProcedures = FamilyProcedures<typeof FILE_COMMANDS_TRPC, typeof 
 
 const fileState = (ctx: Context): FileState => {
   const state = familyState(ctx)
-  return { rpc: state.modules.rpc, artifacts: state.modules.issueArtifacts, repos: state.repos, access: state.privateAccess }
+  return {
+    rpc: state.modules.rpc,
+    artifacts: state.modules.issueArtifacts,
+    repos: state.repos,
+    access: state.privateAccess,
+  }
 }
 
 /** `files.write` through an effect record, answering as the route always did. */
@@ -64,7 +74,7 @@ async function writeThroughEffect(
   const { reply, cause } = await submit({
     id,
     kind: FILE_WRITE_EFFECT_KIND,
-    target: fileWriteTarget(input, ctx.registry.sessionStore.hostMachineId),
+    target: fileWriteTarget(input),
     input,
   })
   if (reply.outcome !== 'applied') {

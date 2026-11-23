@@ -61,7 +61,7 @@ export function createMailInjector(
 }
 
 /**
- * Ack single-reminder (#237) [spec:SP-34d7 acks]: at Stop for Claude/Codex or
+ * Ack single-reminder (#237): at Stop for Claude/Codex or
  * PreToolUse for Grok, delivered-but-unacked non-fyi messages get ONE reminder.
  * The server persists reminded_at before returning, so this stays stateless
  * beyond the standard loop guard and cooldown; afterward the steward owns it.

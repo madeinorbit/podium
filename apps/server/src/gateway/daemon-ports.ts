@@ -180,7 +180,7 @@ export interface ApprovalsDaemonPort {
 /**
  * THE AGENT COMMAND RELAY — its OWN port, never merged with the host edge.
  *
- * ADR 7 D2 / ADR 5 D7, [spec:SP-b85a] restated by SP-fccf and SP-a43e: the relay
+ * ADR 7 D2 / ADR 5 D7, restated by SP-fccf and SP-a43e: the relay
  * bakes session identity into its URL path, so a host callback routed through it
  * re-homes identity. The two surfaces arrive on the SAME SOCKET and this
  * extraction is exactly where they would be easiest to quietly merge — hence a

@@ -1,3 +1,5 @@
+import { TEST_MACHINE_ID } from '../../test-support/machine-id'
+
 /**
  * "Which issue owns this folder" answers like the durable access index always
  * did (POD-6155 step 5).
@@ -20,14 +22,14 @@
  * lookup now reject it, after the containment repair in fb03ddcb68.
  */
 
-import { fixtureWriteScope } from '@podium/sync/testing'
 import { firstAdminMemberId, type IssueId, machinePathKey } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
+import { isMemberCwd } from '../../issue-util'
 import type { SessionStore } from '../../store'
+import { issueRowFixture } from '../../test-support/issue-row'
 import { openTestStore } from '../../test-support/open-test-store'
 import { expectConstantStatements } from '../../test-support/statement-count'
-import { issueRowFixture } from '../../test-support/issue-row'
-import { isMemberCwd } from '../../issue-util'
 import { DurableIssueAccessIndex } from './access-index'
 import { deepestOwner, soleOwner } from './folder-owner'
 
@@ -47,15 +49,20 @@ interface CorpusIssue {
 
 async function seed(store: SessionStore, repos: readonly string[], rows: readonly CorpusIssue[]) {
   await store.transact(async () => {
-    for (const path of repos) await store.repos.addRepo(path, store.hostMachineId)
+    for (const path of repos) await store.repos.addRepo(path, TEST_MACHINE_ID)
   })
   for (let start = 0; start < rows.length; start += 500) {
     await store.transact(async () => {
       for (const row of rows.slice(start, start + 500)) {
         await store.issues.upsertIssue(fixtureWriteScope(), {
-          ...issueRowFixture({ id: row.id, repoPath: row.repoPath ?? repos[0]!, seq: row.seq, ownerUserId: firstAdminMemberId() }),
+          ...issueRowFixture({
+            id: row.id,
+            repoPath: row.repoPath ?? repos[0]!,
+            seq: row.seq,
+            ownerUserId: firstAdminMemberId(),
+          }),
           repoId: undefined,
-          machineId: store.hostMachineId,
+          machineId: TEST_MACHINE_ID,
           parentId: null,
           worktreePath: row.worktreePath,
           archived: row.archived,
@@ -72,20 +79,33 @@ function oracle(rows: readonly CorpusIssue[], cwd: string, roots: ReadonlySet<st
     .filter((row) => !row.deletedAt)
     .map((row) => ({ ...row, key: Buffer.from(row.repoPath ?? '') }))
     .sort((a, b) => Buffer.compare(a.key, b.key) || a.seq - b.seq)
-  const depth = (row: CorpusIssue) => (row.worktreePath ? machinePathKey(row.worktreePath).length : 0)
+  const depth = (row: CorpusIssue) =>
+    row.worktreePath ? machinePathKey(row.worktreePath).length : 0
   let owner: { id: string; length: number } | undefined
   for (const row of live) {
     if (!isMemberCwd(row.worktreePath, cwd)) continue
     if (!owner || depth(row) > owner.length) owner = { id: row.id, length: depth(row) }
   }
-  const candidates = live.filter((row) => !row.archived && row.worktreePath !== null
-    && !roots.has(machinePathKey(row.worktreePath)) && isMemberCwd(row.worktreePath, cwd))
+  const candidates = live.filter(
+    (row) =>
+      !row.archived &&
+      row.worktreePath !== null &&
+      !roots.has(machinePathKey(row.worktreePath)) &&
+      isMemberCwd(row.worktreePath, cwd),
+  )
   const deepest = Math.max(0, ...candidates.map(depth))
   const sole = candidates.filter((row) => depth(row) === deepest)
-  return { owner: (owner?.id ?? null) as IssueId | null, sole: (sole.length === 1 ? sole[0]!.id : null) as IssueId | null }
+  return {
+    owner: (owner?.id ?? null) as IssueId | null,
+    sole: (sole.length === 1 ? sole[0]!.id : null) as IssueId | null,
+  }
 }
 
-async function expectAnswers(store: SessionStore, rows: readonly CorpusIssue[], folders: readonly string[]) {
+async function expectAnswers(
+  store: SessionStore,
+  rows: readonly CorpusIssue[],
+  folders: readonly string[],
+) {
   const access = new DurableIssueAccessIndex(store.issues, store.grants, store.repos)
   const roots = new Set((await store.repos.listRepoPaths()).map(machinePathKey))
   const shared = await store.issues.worktreeOwnerCandidates(folders)
@@ -100,7 +120,13 @@ async function expectAnswers(store: SessionStore, rows: readonly CorpusIssue[], 
       sole: await access.soleOwnerForCwd(cwd),
       soleShared: soleOwner(shared, cwd, { any: roots, home: roots }),
     }
-    const expected = { owner: want.owner, shared: want.owner, many: want.owner, sole: want.sole, soleShared: want.sole }
+    const expected = {
+      owner: want.owner,
+      shared: want.owner,
+      many: want.owner,
+      sole: want.sole,
+      soleShared: want.sole,
+    }
     if (JSON.stringify(got) !== JSON.stringify(expected)) mismatches.push({ cwd, got, expected })
   }
   expect(mismatches).toEqual([])
@@ -108,11 +134,18 @@ async function expectAnswers(store: SessionStore, rows: readonly CorpusIssue[], 
 
 describe('folder owner: the indexed query answers like the old algorithm', () => {
   it('over the edge cases', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openTestStore(':memory:', TEST_MACHINE_ID)
     stores.push(store)
     let seq = 0
-    const issue = (worktreePath: string, over: Partial<CorpusIssue> = {}): CorpusIssue =>
-      ({ id: `iss_edge_${++seq}`, seq, repoPath: '/r', worktreePath, archived: false, deletedAt: null, ...over })
+    const issue = (worktreePath: string, over: Partial<CorpusIssue> = {}): CorpusIssue => ({
+      id: `iss_edge_${++seq}`,
+      seq,
+      repoPath: '/r',
+      worktreePath,
+      archived: false,
+      deletedAt: null,
+      ...over,
+    })
     const rows: CorpusIssue[] = [
       issue('/r/.worktrees/a'),
       issue('/r/.worktrees/a/nested'), // nested worktree
@@ -133,20 +166,50 @@ describe('folder owner: the indexed query answers like the old algorithm', () =>
     ]
     await seed(store, ['/r', '/a', 'C:\\Repo'], rows)
     await expectAnswers(store, rows, [
-      '/r', '/r/', '/r/src', '/r/.worktrees', '/r/.worktrees/a', '/r/.worktrees/a/', '/r/.worktrees/a/x',
-      '/r/.worktrees/a/nested', '/r/.worktrees/a/nested/deeper', '/r/.worktrees/a-sibling',
-      '/r/.worktrees/deleted/x', '/r/.worktrees/archived', '/r/.worktrees/archived/x',
-      '/r/.worktrees/tie', '/r/.worktrees/tie/x',
-      '/r/.worktrees/trailing', '/r/.worktrees/trailing/', '/r/.worktrees/trailing/x',
-      '/r/.worktrees/a//double', '/r/.worktrees/a//double/x', '/r/.worktrees/a/double',
-      'relative/wt', 'relative/wt/sub', 'relative', '/relative/wt',
-      'C:\\Repo\\.worktrees\\Win', 'c:\\repo\\.worktrees\\win\\x', 'C:/Repo/.worktrees/Win/x',
-      'C:\\Repo\\.worktrees\\Win\\Inner\\y', 'c:/REPO/.WORKTREES/WIN/INNER',
-      'C:\\Repo\\.worktrees\\forward\\x', 'c:\\repo\\.worktrees\\FORWARD',
-      'D:\\Trailing', 'D:\\trailing\\x', 'E:\\Trailing\\x',
-      '\\\\srv\\share\\wt\\x', '\\\\SRV\\share\\WT', '\\\\srv\\share',
-      'C:\\Repo\\.worktrees\\Win\\..\\Win\\z', 'C:\\Repo\\.worktrees\\Win.\\z',
-      '', '/', 'C:\\', 'not-a-path',
+      '/r',
+      '/r/',
+      '/r/src',
+      '/r/.worktrees',
+      '/r/.worktrees/a',
+      '/r/.worktrees/a/',
+      '/r/.worktrees/a/x',
+      '/r/.worktrees/a/nested',
+      '/r/.worktrees/a/nested/deeper',
+      '/r/.worktrees/a-sibling',
+      '/r/.worktrees/deleted/x',
+      '/r/.worktrees/archived',
+      '/r/.worktrees/archived/x',
+      '/r/.worktrees/tie',
+      '/r/.worktrees/tie/x',
+      '/r/.worktrees/trailing',
+      '/r/.worktrees/trailing/',
+      '/r/.worktrees/trailing/x',
+      '/r/.worktrees/a//double',
+      '/r/.worktrees/a//double/x',
+      '/r/.worktrees/a/double',
+      'relative/wt',
+      'relative/wt/sub',
+      'relative',
+      '/relative/wt',
+      'C:\\Repo\\.worktrees\\Win',
+      'c:\\repo\\.worktrees\\win\\x',
+      'C:/Repo/.worktrees/Win/x',
+      'C:\\Repo\\.worktrees\\Win\\Inner\\y',
+      'c:/REPO/.WORKTREES/WIN/INNER',
+      'C:\\Repo\\.worktrees\\forward\\x',
+      'c:\\repo\\.worktrees\\FORWARD',
+      'D:\\Trailing',
+      'D:\\trailing\\x',
+      'E:\\Trailing\\x',
+      '\\\\srv\\share\\wt\\x',
+      '\\\\SRV\\share\\WT',
+      '\\\\srv\\share',
+      'C:\\Repo\\.worktrees\\Win\\..\\Win\\z',
+      'C:\\Repo\\.worktrees\\Win.\\z',
+      '',
+      '/',
+      'C:\\',
+      'not-a-path',
     ])
 
     // Both containment paths reject the old cross-form accident (see the header).
@@ -162,17 +225,29 @@ describe('folder owner: the indexed query answers like the old algorithm', () =>
       {
         name: 'issuesForCwds',
         setup: async (size) => {
-          const store = await openTestStore(':memory:')
+          const store = await openTestStore(':memory:', TEST_MACHINE_ID)
           stores.push(store)
-          await seed(store, ['/r'], Array.from({ length: size }, (_, i) => ({
-            id: `iss_count_${i}`, seq: i + 1, repoPath: '/r', worktreePath: `/r/.worktrees/wt-${i}`,
-            archived: false, deletedAt: null,
-          })))
-          return { store, access: new DurableIssueAccessIndex(store.issues, store.grants, store.repos) }
+          await seed(
+            store,
+            ['/r'],
+            Array.from({ length: size }, (_, i) => ({
+              id: `iss_count_${i}`,
+              seq: i + 1,
+              repoPath: '/r',
+              worktreePath: `/r/.worktrees/wt-${i}`,
+              archived: false,
+              deletedAt: null,
+            })),
+          )
+          return {
+            store,
+            access: new DurableIssueAccessIndex(store.issues, store.grants, store.repos),
+          }
         },
         target: (f) => f.store,
         run: async (f) => await f.access.issuesForCwds(folders),
-        check: (owners) => expect((owners as Map<string, string | null>).get(folders[0]!)).toBe('iss_count_0'),
+        check: (owners) =>
+          expect((owners as Map<string, string | null>).get(folders[0]!)).toBe('iss_count_0'),
       },
       1,
     )

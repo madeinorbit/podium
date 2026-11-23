@@ -2,7 +2,7 @@
  * Golden fixtures for the FeatureState family (POD-360).
  *
  * FeatureState is the one family in the covered set that is NOT a zod schema —
- * it is a TypeScript interface plus a pure resolver ([spec:SP-f4b9]), so the
+ * it is a TypeScript interface plus a pure resolver, so the
  * schema walker cannot reach it and it would otherwise have been the gap in
  * "every message family". Its wire shape is assembled by
  * `apps/server/src/features.ts` (`FeatureStateWire`) as the flag DEFINITION

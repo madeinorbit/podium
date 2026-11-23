@@ -19,8 +19,8 @@
  *    Until one of the two is there, the record is not ready and stays pending.
  */
 
-import type { MachineId } from '@podium/model'
 import { z } from 'zod'
+import type { HostMachine } from '../../host-machine'
 import type { EffectExecutorRegistry } from '../effects/registry'
 import type { EffectsRunner } from '../effects/runner'
 import { operationEffectExecutor } from '../operations/effects'
@@ -60,7 +60,7 @@ export function registerUpdateEffect(deps: {
   readonly executors: EffectExecutorRegistry
   readonly runner: Pick<EffectsRunner, 'poke'>
   readonly engine: OperationEngine
-  readonly hostMachineId: MachineId
+  readonly hostMachine: HostMachine
 }): UpdateEffects {
   let bound: UpdateStartPorts | undefined
   /** In-flight route calls' ports, by the record each one created. */
@@ -79,7 +79,9 @@ export function registerUpdateEffect(deps: {
           ? NO_TARGET
           : undefined,
       admit: async (_input, target) =>
-        target.id === deps.hostMachineId ? undefined : { kind: 'invalid', details: ['target'] },
+        deps.hostMachine !== null && target.id === deps.hostMachine.id
+          ? undefined
+          : { kind: 'invalid', details: ['target'] },
       ready: (record) => portsFor(record.id) !== undefined,
       prepare: async (record, input) => {
         const ports = portsFor(record.id)

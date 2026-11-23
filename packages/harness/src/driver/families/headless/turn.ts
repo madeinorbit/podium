@@ -35,6 +35,7 @@ import {
   composeHeadlessInvocation,
   type HeadlessInvocation,
   headlessFor,
+  headlessInstallation,
   needsAllocation,
 } from './invocation.js'
 import {
@@ -577,7 +578,18 @@ export function runHostedHeadlessTurn(
         await releaseLabel(deps.owner, label)
         if (settled || disposed) return
       }
-      const invocation = composeHeadlessInvocation(spec, snapshot, {
+      const selection = headless.resolveSelection
+        ? await headless.resolveSelection({
+            model: spec.model,
+            effort: spec.effort,
+            cwd: spec.cwd,
+            ...(spec.toolPolicy ? { toolPolicy: spec.toolPolicy } : {}),
+            installation: headlessInstallation(spec, snapshot),
+            env: deps.childEnv({}).env,
+          })
+        : {}
+      if (settled || disposed) return
+      const invocation = composeHeadlessInvocation({ ...spec, ...selection }, snapshot, {
         ...(allocated ? { allocated } : {}),
         isRoot: deps.isRoot ?? false,
       })

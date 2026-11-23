@@ -16,7 +16,7 @@ export interface MaintenanceRouteDeps {
   }
 }
 
-/** Narrow, local-secret-authenticated janitor transport [spec:SP-c29e]. */
+/** Narrow, local-secret-authenticated janitor transport. */
 export function registerMaintenanceRoute(app: Hono, deps: MaintenanceRouteDeps): void {
   const authorize = async (header: string | undefined): Promise<boolean> => {
     if (!header?.startsWith('Bearer ')) return false

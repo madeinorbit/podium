@@ -18,7 +18,7 @@
  *
  * | Variable                      | Layered over            | Read by / accessor                                     |
  * |-------------------------------|-------------------------|--------------------------------------------------------|
- * | PODIUM_INSTANCE               | — → default             | global selector; state/ports/runtime/services [spec:SP-15aa] |
+ * | PODIUM_INSTANCE               | — → default             | global selector; state/ports/runtime/services |
  * | PODIUM_STATE_DIR              | — (env-only)            | `stateDir()` (config/run-registry/logs home)           |
  * | PODIUM_PORT                   | config.port → per-id    | `resolvePort()` (cli, scripts entrypoints)             |
  * | PODIUM_HOOK_PORT              | config.hookPort → per-id| `resolveHookPort()` (daemon hook ingest)                |
@@ -402,7 +402,7 @@ export const PodiumConfig = z.object({
    */
   persistence: z.enum(['systemd', 'detached']).optional(),
   // RETIRED at POD-309 (ADR 5 D8 "Retirement"): `upstream: { url, token }` named the hub
-  // a NODE dialed. Federation is deferred ([spec:SP-0371]), the dialer is deleted, and a
+  // a NODE dialed. Federation is deferred, the dialer is deleted, and a
   // config key nothing reads is a promise the binary does not keep. The key is NOT
   // re-reserved as an inert optional: zod objects strip unknown keys by default, so an
   // operator's stale `upstream` block loads WITHOUT crash-looping the box (it is dropped
@@ -410,7 +410,7 @@ export const PodiumConfig = z.object({
   // key rather than a field pretending to still do something). `config.test.ts` pins
   // both halves. A future hub (POD-353) re-declares it, with a live reader.
   /**
-   * Operator feature-flag overrides [spec:SP-f4b9]. Keys are stable feature ids
+   * Operator feature-flag overrides. Keys are stable feature ids
    * from the protocol registry (`FEATURES`); values force enable/disable and
    * lock the Experimental UI toggle. Config-file only — there is deliberately
    * no `PODIUM_FEATURES` env layer (hidden flags are enableable only via this
@@ -443,7 +443,7 @@ export const PodiumConfig = z.object({
     })
     .optional(),
   /**
-   * Telemetry consent + identity operator overrides [spec:SP-f933]. Here so
+   * Telemetry consent + identity operator overrides. Here so
    * `podium telemetry off` works whether or not the server is running — and so
    * a user can turn it off with a text editor.
    *
@@ -1443,7 +1443,7 @@ export function resolveEffectiveSampleUs(env: EnvSource = process.env): {
 }
 
 /**
- * Operator feature-flag overrides from config.json [spec:SP-f4b9].
+ * Operator feature-flag overrides from config.json.
  * Config-file only — deliberately no env layer (`PODIUM_FEATURES`). Hidden flags
  * are enableable only via this file (except in development mode, where they are
  * listed in Experimental). Returns `{}` when absent.
@@ -2451,7 +2451,7 @@ export function resolveInstallDir(
  *  by nested subagent contexts and the hermetic test harness to shed an inherited relay
  *  (so they stop acting as the parent session).
  *  Reads the new name, falling back to the legacy PODIUM_ISSUE_RELAY for one release
- *  (in-flight sessions spawned before the cutover still carry it). [spec:SP-b85a] */
+ *  (in-flight sessions spawned before the cutover still carry it). */
 export function resolveAgentRelay(env: EnvSource = process.env): string | undefined {
   if (env.PODIUM_NO_RELAY) return undefined
   return env.PODIUM_AGENT_RELAY ?? env.PODIUM_ISSUE_RELAY
@@ -2462,7 +2462,7 @@ export function resolveAgentRelay(env: EnvSource = process.env): string | undefi
  *
  *  Use this ONLY for commands that are the session talking about ITSELF and carry no
  *  delegate authority (the browser shim's URL open, `podium worktree`). Anything whose
- *  answer depends on WHO is asking — issues, mail, specs, locks, workflows, quota,
+ *  answer depends on WHO is asking — issues, mail, locks, workflows, quota,
  *  offers, workspace claims — must keep reading `resolveAgentRelay()`, so a human in
  *  their own terminal gets the operator path instead of a constrained agent identity.
  *

@@ -66,7 +66,7 @@ async function cloneRepo(origin: string, prefix: string): Promise<string> {
   configureGitIdentity(path)
   return path
 }
-/** A linked worktree — the only thing a handoff may move ([spec:SP-3f7a]). Lives
+/** A linked worktree — the only thing a handoff may move. Lives
  *  under the repo, so the `repo()` cleanup takes it with it. */
 async function worktreeAt(repoPath: string, branch: string, relativePath: string): Promise<string> {
   const path = join(repoPath, relativePath)
@@ -830,7 +830,7 @@ describe('handoff manifest read path across file formats ([POD-1153])', () => {
   })
 })
 
-describe('handoff source resolution ([spec:SP-3f7a])', () => {
+describe('handoff source resolution', () => {
   const exportFrom = async (input: {
     cwd: string
     fallbackCwd?: string

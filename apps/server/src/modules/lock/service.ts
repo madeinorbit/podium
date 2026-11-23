@@ -7,7 +7,7 @@ import { isSystemLockSession, OPERATOR_LOCK_SESSION } from '../../store/locks'
 import type { WriteFunnel } from '../funnel'
 
 /**
- * Advisory named lease locks [spec:SP-85d1] — server-side coordination tokens
+ * Advisory named lease locks — server-side coordination tokens
  * for agents, scoped (repo_id, name). PURELY advisory: no code path refuses a
  * git merge because of a lock; `podium merge-lock` is a convention over it.
  *

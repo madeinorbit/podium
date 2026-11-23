@@ -34,9 +34,9 @@ import type { SessionStore } from '../store'
 
 /** Give the store's host machine the row setup enrollment would: owned, server + agent execution. */
 export async function assignHostMachine(store: SessionStore): Promise<void> {
-  if (await store.machines.getMachine(store.hostMachineId)) return
+  if (await store.machines.getMachine(store.hostMachine!.id)) return
   await store.machines.upsertMachine({
-    id: store.hostMachineId,
+    id: store.hostMachine!.id,
     name: 'Host',
     hostname: 'test',
     tokenHash: 'test',
@@ -60,7 +60,7 @@ export async function attachHostDaemon(
   } = {},
 ): Promise<void> {
   const store = registry.sessionStore
-  const machineId = store.hostMachineId
+  const machineId = store.hostMachine!.id
   await assignHostMachine(store)
   for (const path of opts.repos ?? []) await store.repos.addRepo(path, machineId)
   const peer =

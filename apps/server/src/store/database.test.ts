@@ -37,6 +37,18 @@ async function twoWorkspaces(): Promise<readonly [SessionStore, SessionStore]> {
 }
 
 describe('StoreDatabase.workspace', () => {
+  it('shares an explicitly absent host install across workspaces', async () => {
+    const first = await openTestStore(':memory:', null)
+    opened.push(first)
+    await first.database.provisionWorkspace(WS_B)
+    const second = await first.database.workspace(WS_B)
+    expect(first.hostMachine).toBeNull()
+    expect(second.hostMachine).toBeNull()
+    expect(first.database.hostMachine).toBeNull()
+    expect(await first.machines.listMachines()).toEqual([])
+    expect(await second.machines.listMachines()).toEqual([])
+  })
+
   it('gives two workspaces over one database two stores, each bound to its own workspace', async () => {
     const [a, b] = await twoWorkspaces()
     expect(a).not.toBe(b)
@@ -50,7 +62,7 @@ describe('StoreDatabase.workspace', () => {
     expect(a.secrets).not.toBe(b.secrets)
     // What there is one of per database is shared.
     expect(a.tableWrites).toBe(b.tableWrites)
-    expect(a.hostMachineId).toBe(b.hostMachineId)
+    expect(a.hostMachine!.id).toBe(b.hostMachine!.id)
   })
 
   it('is memoised per id, concurrent first calls included', async () => {
@@ -169,9 +181,13 @@ describe('StoreDatabase.open on a Postgres URL [POD-6979, POD-6994]', () => {
     // Nothing listens on port 9: the open fails at its first connection, the ledger
     // check, and never reaches the SQLite opener, which would make the directory.
     await expect(
-      StoreDatabase.open('postgres://podium@127.0.0.1:9/nowhere', asMachineId('m_test'), {
-        bootWorkspace: asWorkspaceId('local'),
-      }),
+      StoreDatabase.open(
+        'postgres://podium@127.0.0.1:9/nowhere',
+        { id: asMachineId('m_test') },
+        {
+          bootWorkspace: asWorkspaceId('local'),
+        },
+      ),
     ).rejects.toThrow(/ECONNREFUSED|connect/i)
     expect(existsSync('postgres:')).toBe(false)
   })

@@ -1,5 +1,5 @@
 /**
- * Issue-topic entry recap [spec:SP-62c3]: last few conversational messages from
+ * Issue-topic entry recap: last few conversational messages from
  * the bound agent transcript, truncated for phone chat.
  */
 import { asSessionId, type SessionId, type TranscriptItem, type ThreadId } from '@podium/model'

@@ -1,17 +1,17 @@
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
-import { createIssuePageViews } from './issue-page'
-import { createSettingsViews } from './settings-views'
 import { createAutomationViews } from './automation-views'
+import { createIssuePageViews } from './issue-page'
+import { LOADING, type Loaded } from './loading'
 import {
+  beforeAutomationViews,
   beforeIssuePages,
   beforeSettingsView,
-  beforeAutomationViews,
 } from './opening-views.before.test.fixture'
 import { MobxPool } from './pool'
-import type { RowRecord } from './shared/source'
+import { createSettingsViews } from './settings-views'
 import type { ReaderQuestion } from './shared/reader-questions'
-import { LOADING, type Loaded } from './loading'
+import type { RowRecord } from './shared/source'
 
 const stamp = '2026-10-01T00:00:00Z'
 function fixture() {
@@ -82,7 +82,6 @@ it('keeps the old and opening-owned answers identical on the same fixtures', () 
     expect(nextSettings.setup()).toEqual(oldSettings.setup())
     expect(nextSettings.sessionCount()).toEqual(oldSettings.sessionCount())
     expect(nextAutomations.list()).toEqual(oldAutomations.list())
-    expect(nextAutomations.repositories()).toEqual(oldAutomations.repositories())
     expect(nextAutomations.targets(null)).toEqual(oldAutomations.targets(null))
     expect(nextIssue.issue('missing')).toEqual(oldIssue.issue('missing'))
   } finally {
@@ -93,7 +92,10 @@ it('keeps the old and opening-owned answers identical on the same fixtures', () 
   }
 })
 
-it.each(['scan', 'wrong'] as const)('executes the %s plant during the measured row update', (plant) => {
+it.each([
+  'scan',
+  'wrong',
+] as const)('executes the %s plant during the measured row update', (plant) => {
   const pool = fixture(),
     view = createIssuePageViews(pool)
   let measuring = false,
@@ -119,7 +121,9 @@ it.each(['scan', 'wrong'] as const)('executes the %s plant during the measured r
   }
   const project = vi.spyOn(pool.queries, 'project').mockImplementation(rebuild)
   let answer: ReturnType<typeof view.issues>
-  const stop = autorun(() => { answer = view.issues() })
+  const stop = autorun(() => {
+    answer = view.issues()
+  })
   try {
     const row = pool.row('issue', 'issue-0')
     if (!row || typeof row === 'symbol') throw new Error('Fixture issue is missing')
@@ -127,7 +131,9 @@ it.each(['scan', 'wrong'] as const)('executes the %s plant during the measured r
     runInAction(() =>
       pool.apply({
         type: 'update',
-        rows: [{ kind: 'issue', id: 'issue-0', value: { ...row, description: 'Measured body edit' } }],
+        rows: [
+          { kind: 'issue', id: 'issue-0', value: { ...row, description: 'Measured body edit' } },
+        ],
       }),
     )
     measuring = false
@@ -158,7 +164,6 @@ it('collects opening models and companions after fifty closes while their pool s
       issue.issues()
       settings.setup()
       automation.list()
-      automation.repositories()
       automation.targets(null)
     })
     for (const [kind, value] of [
@@ -192,10 +197,14 @@ it('collects opening models and companions after fifty closes while their pool s
 })
 
 it('drops companions even if a late handler still holds the closed view', async () => {
-  const pool = fixture(), view = createIssuePageViews(pool)
+  const pool = fixture(),
+    view = createIssuePageViews(pool)
   function showAndClose() {
     const row = view.row('issue-0')
-    const stop = autorun(() => { void row.children; void row.activeSessions })
+    const stop = autorun(() => {
+      void row.children
+      void row.activeSessions
+    })
     stop()
     const refs = [new WeakRef(row)]
     view.dispose()
@@ -206,7 +215,7 @@ it('drops companions even if a late handler still holds the closed view', async 
     await new Promise((resolve) => setTimeout(resolve, 0))
     ;(globalThis as unknown as { Bun: { gc(force: boolean): void } }).Bun.gc(true)
   }
-  expect(refs.map(ref => ref.deref())).toEqual([undefined])
+  expect(refs.map((ref) => ref.deref())).toEqual([undefined])
   expect(view.issue('issue-0')).toBe(LOADING)
   expect(pool.issueObject('issue-0').authoredTitle).toBe('Task 0')
   pool.dispose()

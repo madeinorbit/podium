@@ -560,7 +560,6 @@ describe('resolvePlan — utility subcommands', () => {
     expect(plan({}, ['daemon', '--help'])).toEqual({ kind: 'help' })
     expect(plan({}, ['issue', '--help'])).toEqual({ kind: 'issue', args: ['--help'] })
     expect(plan({}, ['quota', '--help'])).toEqual({ kind: 'quota', args: ['--help'] })
-    expect(plan({}, ['spec', '-h'])).toEqual({ kind: 'spec', args: ['-h'] })
     expect(plan({}, ['session', '--help'])).toEqual({ kind: 'session', args: ['--help'] })
     expect(plan({}, ['worktree', '--help'])).toEqual({ kind: 'worktree', args: ['--help'] })
     expect(plan({}, ['workflow', '--help'])).toEqual({ kind: 'workflow', args: ['--help'] })
@@ -853,10 +852,16 @@ describe('resolvePlan — utility subcommands', () => {
       message: "podium setup --persist must be systemd or detached (got 'nohup')",
     })
   })
-  it('issue/quota/spec/worktree/logs carry their remaining args', () => {
+  it('the removed spec command is an unknown argument', () => {
+    expect(plan({}, ['spec'])).toEqual({
+      kind: 'usage-error',
+      message: "podium: unknown argument 'spec' (run `podium help` for usage)",
+    })
+  })
+
+  it('issue/quota/worktree/logs carry their remaining args', () => {
     expect(plan({}, ['issue', 'list', '--all'])).toEqual({ kind: 'issue', args: ['list', '--all'] })
     expect(plan({}, ['quota', '--json'])).toEqual({ kind: 'quota', args: ['--json'] })
-    expect(plan({}, ['spec', 'show'])).toEqual({ kind: 'spec', args: ['show'] })
     expect(plan({}, ['worktree', '/x'])).toEqual({ kind: 'worktree', args: ['/x'] })
     expect(plan({}, ['logs', '-f'])).toEqual({ kind: 'logs', args: ['-f'] })
     // The crash export is a `logs` SUBCOMMAND, so the planner must hand the word
@@ -898,7 +903,6 @@ describe('resolvePlan — help (#18)', () => {
   it('sub-CLIs with their own richer help keep their --help — logs included since POD-1947', () => {
     expect(plan({}, ['issue', '--help'])).toEqual({ kind: 'issue', args: ['--help'] })
     expect(plan({}, ['quota', '--help'])).toEqual({ kind: 'quota', args: ['--help'] })
-    expect(plan({}, ['spec', '-h'])).toEqual({ kind: 'spec', args: ['-h'] })
     // `logs` used to fall through to the top-level help, which was right while it
     // was one file reader. It now has verbs that reach the server, and their
     // selectors do not fit in the top-level list.
@@ -916,8 +920,8 @@ describe('resolvePlan — help (#18)', () => {
     expect(hidden).not.toContain('spec <command>')
     expect(hidden).not.toContain('workflow <command>')
 
-    const visible = helpText(new Set(['specs', 'workflows']))
-    expect(visible).toContain('spec <command>')
+    const visible = helpText(new Set(['workflows']))
+    expect(visible).not.toContain('spec <command>')
     expect(visible).toContain('workflow <command>')
   })
 
@@ -930,7 +934,7 @@ describe('resolvePlan — help (#18)', () => {
           state: {
             query: async () => ({
               flags: [
-                { id: 'specs', enabled: true },
+                { id: 'automations', enabled: true },
                 { id: 'workflows', enabled: false },
                 { id: 'unknown', enabled: true },
               ],
@@ -939,16 +943,16 @@ describe('resolvePlan — help (#18)', () => {
         },
       },
     )
-    expect([...enabled]).toEqual(['specs'])
+    expect([...enabled]).toEqual(['automations'])
   })
 
   it('falls back to config overrides when feature-state transport fails', async () => {
     const enabled = await resolveCliFeatures(
-      { features: { specs: true, workflows: false } },
+      { features: { automations: true, workflows: false } },
       { PODIUM_APP_VERSION: '1.0.0' },
       { features: { state: { query: async () => Promise.reject(new Error('offline')) } } },
     )
-    expect(enabled.has('specs')).toBe(true)
+    expect(enabled.has('automations')).toBe(true)
     expect(enabled.has('workflows')).toBe(false)
   })
 })

@@ -300,7 +300,7 @@ export const sharedVitestConfig = {
   test: {
     // Strip the ambient Podium agent-session env before every test file so a suite
     // launched from inside a live session can't touch/be hijacked by the live instance
-    // (POD-555 [spec:SP-b85a]). `bun test` gets the same via bunfig.toml [test].preload.
+    // (POD-555). `bun test` gets the same via bunfig.toml [test].preload.
     // The third one is POD-523's pre-migrated store fixture: ordinary apps/server
     // test files clone a current-schema database instead of replaying all 54
     // migrations. It is a setupFile because the decision is per test FILE and has to

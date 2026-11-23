@@ -33,6 +33,7 @@ import { CAP_MACHINE_UNINSTALL, type UninstallEditOutcome } from '@podium/protoc
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
+import type { HostMachine } from '../../host-machine'
 import type { RegistryModules } from '../../relay'
 import { trpcErrorRefusal } from '../sync-write/family'
 import { NO_TARGET, refuseTarget, type SyncWriteTarget } from '../sync-write/registry'
@@ -66,7 +67,7 @@ export interface MachineUninstallEffectDeps {
   roleOf(user: UserId): Promise<UserRole | undefined>
   servesHub(): boolean
   /** The machine this server runs on, which is never uninstalled from here. */
-  hostMachineId(): MachineId | undefined
+  hostMachine(): HostMachine
 }
 
 /** The gate for `principal` on machine `id`, as the target's answer. */
@@ -114,7 +115,7 @@ export function registerMachineUninstallEffect(deps: MachineUninstallEffectDeps)
         (candidate) => candidate.id === machineId,
       )
       if (!machine || machine.revokedAt) return failed('not-found', 'machine not found')
-      if (machineId === deps.hostMachineId())
+      if (machineId === deps.hostMachine()?.id)
         return failed(
           'hosts-server',
           'This machine runs the server. Run podium uninstall on it instead.',

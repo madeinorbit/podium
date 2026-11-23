@@ -33,7 +33,7 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
         cwd: '/repo/w',
       })
     ).sessionId
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
+    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, bind(s1))
     await reg.modules.sessions.flushBroadcasts()
     const inbox: ServerMessage[] = []
     const clientId = attachTestClient(reg.clientGateway, (m) => inbox.push(m))

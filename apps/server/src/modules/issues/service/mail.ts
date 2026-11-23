@@ -262,7 +262,7 @@ export class IssueCommentsMailModule {
    *  pre-read status so the caller can render the unread marker.
    *
    *  The mailbox is per ISSUE and several agents work one issue, so the read
-   *  state is per READER [POD-1379] [spec:SP-b11e]: it records a receipt for `sessionId` and
+   *  state is per READER [POD-1379]: it records a receipt for `sessionId` and
    *  leaves every peer's unread status intact. The shared delivery ledger still
    *  advances (it is what stops the push/retry sweep re-injecting a message the
    *  issue has now pulled) — it just no longer decides who gets nagged. */
@@ -318,7 +318,7 @@ export class IssueCommentsMailModule {
               unreadIds,
               at,
             )
-            // Unified substrate mirror (#237) [spec:SP-34d7]: the rows share ids —
+            // Unified substrate mirror (#237): the rows share ids —
             // the pull advances the shared delivery ledger on BOTH tables so the
             // sweep stops pushing what the issue has now read.
             // NAME the reader on the ledger [POD-1420]. A pull is a delivery to a
@@ -353,7 +353,7 @@ export class IssueCommentsMailModule {
 
   /** Atomic claim (single guarded UPDATE): `claimed` is false when someone else won.
    *  Claim stays what it always was — the OPT-IN "I will act on this" signal, one
-   *  winner. Delivery never depends on it [spec:SP-b11e]: an unclaimed message still
+   *  winner. Delivery never depends on it: an unclaimed message still
    *  reaches every session on the issue exactly once. Claiming does prove the
    *  claimer has the message, so it records that reader's receipt [POD-1379]. */
   async mailClaim(
@@ -369,7 +369,7 @@ export class IssueCommentsMailModule {
           claimedBy,
           this.store.now(),
         )
-        // Keep the unified-substrate mirror row in step (#237) [spec:SP-34d7].
+        // Keep the unified-substrate mirror row in step (#237).
         // The claimer demonstrably has the message, so it is the reader the
         // ledger names [POD-1420]; absent a session id there is nobody to name.
         if (won)

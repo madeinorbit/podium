@@ -1,6 +1,5 @@
 import { messageTestWriter, messageTestWriters } from '../../test-support/message-writer'
-// Cross-harness subagent spawn + bounded await (#237) [spec:SP-34d7
-// cross-harness]: gate authz ordering, deliberate-only issue creation, #285
+// Cross-harness subagent spawn + bounded await (#237): gate authz ordering, deliberate-only issue creation, #285
 // pass-through metadata, parent provenance, and the never-hangs await contract.
 
 import type { SessionMeta, SessionMetaInput } from '@podium/model'
@@ -1379,7 +1378,7 @@ describe('session ask — the seance (#237 tier 4)', () => {
   })
 })
 
-// The web ledger view (#237) [spec:SP-34d7 web]: operator-only, per-issue /
+// The web ledger view (#237): operator-only, per-issue /
 // per-session, pure read (never consumes queued status), newest first, and
 // carries the delivery-ledger fields the CLI wire previously omitted.
 describe('message ledger (gate)', () => {

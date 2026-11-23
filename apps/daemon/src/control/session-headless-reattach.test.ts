@@ -29,12 +29,13 @@ function headlessHandle(sessionId: SessionId, resume: ResumeRef | null): AgentSe
       since: '2026-08-27T00:00:00.000Z',
       nativeSubagentCount: 0,
     }),
+    configure: vi.fn(async () => ({ ok: true })),
   } as unknown as AgentSessionHandle
 }
 
 function reattachMessage(
   sessionId: SessionId,
-  input: { resume?: ResumeRef; requestedDriverId?: string } = {},
+  input: { resume?: ResumeRef; requestedDriverId?: string; model?: string; effort?: string } = {},
 ): never {
   const { resume, requestedDriverId = 'headless' } = input
   return {
@@ -43,6 +44,8 @@ function reattachMessage(
     durableLabel: `podium-${sessionId}`,
     agentKind: 'codex',
     cwd: '/project',
+    ...(input.model !== undefined ? { model: input.model } : {}),
+    ...(input.effort !== undefined ? { effort: input.effort } : {}),
     lastKnownGeometry: { cols: 80, rows: 24 },
     ...(resume ? { resume } : {}),
     ...(requestedDriverId === undefined ? {} : { requestedDriverId }),
@@ -95,6 +98,30 @@ function world(input: {
 }
 
 describe('Headless reattach control', () => {
+  it.each([
+    false,
+    true,
+  ])('restores the accepted picker policy on a fresh handle (resume=%s)', async (resuming) => {
+    const handle = headlessHandle(SESSION_ID, RESUME)
+    const w = world({
+      adopt: async () => {
+        if (resuming) throw new Error(ADOPT_ERROR)
+        return handle
+      },
+      resume: async (_ref, spec) => {
+        expect(spec).toMatchObject({ model: { model: 'picked-model', effort: 'low' } })
+        return handle
+      },
+    })
+    sessionHandlers.reattach(
+      w.ctx,
+      reattachMessage(SESSION_ID, { resume: RESUME, model: 'picked-model', effort: 'low' }),
+    )
+    await vi.waitFor(() => expect(w.sent.some((message) => message.type === 'bind')).toBe(true))
+    if (!resuming)
+      expect(handle.configure).toHaveBeenCalledWith({ model: 'picked-model', effort: 'low' })
+  })
+
   it('adopts on the exact durable label instead of falling through to a PTY', async () => {
     const adopted = headlessHandle(SESSION_ID, null)
     const w = world({

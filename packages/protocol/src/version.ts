@@ -6,7 +6,7 @@
  *  1. wire versions — peer-to-peer compatibility, sent on the WS URL (`/client?v=`);
  *  2. the replica schema version — the CLIENT's local store shape, owned by the
  *     client (ADR 6);
- *  3. the server's drizzle journal [spec:SP-4428] — server-internal, NEVER on
+ *  3. the server's drizzle journal — server-internal, NEVER on
  *     the wire, never compared with a peer, never sent to a client.
  *
  * Conflating 1 and 3 is wrong in both directions: a migration that adds an index

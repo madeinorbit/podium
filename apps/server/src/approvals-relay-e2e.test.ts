@@ -9,7 +9,7 @@ import { fixtureInventory } from './test-support/daemon-inventory'
 import { attachHostDaemon } from './test-support/host-daemon'
 
 /**
- * Approval broker end-to-end through the real registry [spec:SP-edbb] (#410):
+ * Approval broker end-to-end through the real registry (#410):
  * agent relay request → gate → an `approval` effect record → the person's
  * decision (`records.effect.edit`, POD-6674) → exec frame to the owning daemon →
  * result lands. Mirrors relay-agent-relay.test.ts's harness.
@@ -28,7 +28,7 @@ describe('approval broker relay e2e (#410)', () => {
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
-    machineId = registry.sessionStore.hostMachineId
+    machineId = registry.sessionStore.hostMachine!.id
     daemonInbox = []
     relayReplies = new Map()
     // Enroll a reporting machine and finish its inventory handshake before placement.
@@ -45,8 +45,14 @@ describe('approval broker relay e2e (#410)', () => {
       { repos: ['/r'] },
     )
     await registry.modules.machines.recordInventory(machineId, fixtureInventory())
-    const A = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/r', title: 'epic', startNow: false })
-    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
+    const A = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'epic',
+      startNow: false,
+    })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, A.id, {
+      worktreePath: '/r/.worktrees/issue-1-a',
+    })
     const wtA = (await registry.issues.reports.get(A.id))?.worktreePath as string
     sA = (await registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' })).sessionId
   })

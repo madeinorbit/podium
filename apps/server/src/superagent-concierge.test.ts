@@ -59,7 +59,7 @@ async function harness(opts?: { eventReadLimit?: number }) {
   // completed events, then history/snapshot reads for output and resume), so
   // the conciergeTurn flow completes without a real harness.
   const turnReqs: TurnReq[] = []
-  const host = registry.sessionStore.hostMachineId
+  const host = registry.sessionStore.hostMachine!.id
   const resolveTurn = (m: TurnReq, epoch: number) => {
     void registry.gateway.routeDaemonFrame(host, {
       type: 'runtimeSendResult',
@@ -102,11 +102,11 @@ async function harness(opts?: { eventReadLimit?: number }) {
   await assignHostMachine(registry.sessionStore)
   await attachDaemonWithInventory(
     registry,
-    registry.sessionStore.hostMachineId,
+    registry.sessionStore.hostMachine!.id,
     (m) => {
       if (m.type === 'repoOpRequest') {
         queueMicrotask(() =>
-          registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+          registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
             type: 'repoOpResult',
             requestId: m.requestId,
             ok: true,
@@ -188,6 +188,10 @@ async function harness(opts?: { eventReadLimit?: number }) {
     }),
   )
   const repos = new RepoRegistry(registry, registry.sessionStore)
+  vi.spyOn(registry.modules.rpc, 'scanRepos').mockResolvedValue({
+    repositories: [],
+    diagnostics: [],
+  })
   await repos.add(repos.serverWriter, '/r') // conciergeTurn rejects unregistered repos
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore, opts)
   await sa.history(firstAdminMemberId())
@@ -608,7 +612,7 @@ describe('concierge threads (issue #64)', () => {
 })
 
 // The prior-art intake test (grepping conciergeSystemPrompt for instructional
-// copy-strings) was dropped as brittle bitrot, POD-619 [spec:SP-0be7]. Its real
+// copy-strings) was dropped as brittle bitrot, POD-619. Its real
 // behavioral surface is covered elsewhere: the confirmed-gate on start-capable
 // tools (concierge threads describe) and the search_all/issue_find_duplicates
 // tools actually running (search_all tool describe below).
@@ -633,24 +637,28 @@ describe('search_all tool', () => {
       sessionId,
       name: 'capacitor refactor',
     })
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachine!.id, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'native-conv' },
     })
-    await seedRows(registry.sessionStore, async () => await registry.sessionStore.conversations.index.upsert(fixtureWriteScope(), [
-      {
-        id: 'native-conv',
-        agentKind: 'claude-code',
-        providerId: 'claude-code-jsonl',
-        title: 'capacitor deep dive',
-        updatedAt: '2026-07-01T09:00:00.000Z',
-        // Memory visibility is default-closed (POD-322): the conversation is only
-        // readable through a session that resumes it ON THE SAME MACHINE — which
-        // since POD-318 is this host's minted id, not a sentinel.
-        machineId: registry.sessionStore.hostMachineId,
-      },
-    ]))
+    await seedRows(
+      registry.sessionStore,
+      async () =>
+        await registry.sessionStore.conversations.index.upsert(fixtureWriteScope(), [
+          {
+            id: 'native-conv',
+            agentKind: 'claude-code',
+            providerId: 'claude-code-jsonl',
+            title: 'capacitor deep dive',
+            updatedAt: '2026-07-01T09:00:00.000Z',
+            // Memory visibility is default-closed (POD-322): the conversation is only
+            // readable through a session that resumes it ON THE SAME MACHINE — which
+            // since POD-318 is this host's minted id, not a sentinel.
+            machineId: registry.sessionStore.hostMachine!.id,
+          },
+        ]),
+    )
     const out = await sa.callMcpTool('search_all', { query: 'capacitor' }, asThreadId('global'))
     // One rendered line per hit: [kind] title (ref) — issues cite the display seq.
     expect(out).toContain(`[issue] replace the flux capacitor`)
@@ -775,7 +783,11 @@ it.each([
   expect(text).toContain('- podium (')
   expect(text).toContain('- podium #1')
   const { registry, sa } = await harness()
-  await seedRows(registry.sessionStore, async () => await registry.sessionStore.repos.addRepo(repoPath, registry.sessionStore.hostMachineId))
+  await seedRows(
+    registry.sessionStore,
+    async () =>
+      await registry.sessionStore.repos.addRepo(repoPath, registry.sessionStore.hostMachine!.id),
+  )
   const thread = await sa.ensureConciergeThread({ ownerUserId: firstAdminMemberId(), repoPath })
   expect(
     (await registry.sessionStore.superagent.listSuperagentThreads(firstAdminMemberId())).find(
@@ -794,7 +806,11 @@ it.each([
   String.raw`C:\Src\Podium`,
 ])('machine paths: session title and concierge repo usage under %s', async (cwd) => {
   const { registry, sa, turnReqs, settle } = await harness()
-  await seedRows(registry.sessionStore, async () => await registry.sessionStore.repos.addRepo(cwd, registry.sessionStore.hostMachineId))
+  await seedRows(
+    registry.sessionStore,
+    async () =>
+      await registry.sessionStore.repos.addRepo(cwd, registry.sessionStore.hostMachine!.id),
+  )
   expect(await registry.sessionStore.repos.listRepoPaths()).toContain(cwd)
   const created = await registry.modules.sessions.createSession({
     agentKind: 'claude-code',

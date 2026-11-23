@@ -68,7 +68,7 @@ const session = (id: string, ownerUserId: UserId): SessionRow =>
     geometry: { cols: 120, rows: 40 },
     archived: false,
     workState: null,
-    machineId: asMachineId(store.hostMachineId),
+    machineId: asMachineId(store.hostMachine!.id),
     lastOutputAt: null,
     lastInputAt: null,
     lastResumedAt: null,
@@ -95,7 +95,7 @@ const ISSUES = () => [
   {
     id: 'iss_own_execution',
     ownerUserId: owner,
-    machineId: store.hostMachineId,
+    machineId: store.hostMachine!.id,
     worktreePath: '/repo/.worktrees/own',
     coordinatorSessionId: 'ses_owner',
     startedBySession: 'ses_owner',
@@ -104,7 +104,7 @@ const ISSUES = () => [
   {
     id: 'iss_other_execution',
     ownerUserId: other,
-    machineId: store.hostMachineId,
+    machineId: store.hostMachine!.id,
     worktreePath: '/repo/.worktrees/other',
     coordinatorSessionId: 'ses_other',
     startedBySession: 'ses_other',

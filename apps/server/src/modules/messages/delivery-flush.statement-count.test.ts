@@ -284,7 +284,7 @@ async function heldIssueMail(size: number): Promise<HeldIssueMail> {
     cwd,
     issueId: issue.id,
   })
-  await reg.gateway.routeDaemonFrame(store.hostMachineId, {
+  await reg.gateway.routeDaemonFrame(store.hostMachine!.id, {
     type: 'bind',
     sessionId,
     cmd: 'sh',

@@ -120,7 +120,7 @@ export type OptimisticEffect =
    *
    *   - Permitted: a refusal derivable from the AUTHORITATIVE ROW the principal
    *     was already given, plus the command itself. `session.rename` is the
-   *     motivating case — [spec:SP-eb60] makes a user-set `name` sovereign over
+   *     motivating case — makes a user-set `name` sovereign over
    *     an agent-set one, so `base.nameSource === 'user'` decides the outcome of
    *     an agent-authored rename with no principal, no grant and no capability
    *     consulted. The row said so; the reducer only read it.
@@ -197,7 +197,7 @@ export interface OptimisticOverlayPort {
    *     branch on. The direction lint would catch an inspection; the type makes
    *     one uninteresting to attempt.
    *  2. **It is what makes the rejection path REACHABLE.** `session.rename`'s
-   *     arbitration ([spec:SP-eb60]) turns on whether an AGENT or a HUMAN authored
+   *     arbitration turns on whether an AGENT or a HUMAN authored
    *     the write. Without the authored pair a reducer cannot tell those apart, and
    *     `rejected` would be a member with no possible caller — mechanism presence
    *     rather than coverage. The reducer reads the actor's KIND, never its id.

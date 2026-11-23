@@ -75,7 +75,7 @@ async function seedSessions(f: Awaited<ReturnType<typeof fixture>>, size: number
       lastResumedAt: null,
       archived: true,
       workState: null,
-      machineId: f.store.hostMachineId,
+      machineId: f.store.hostMachine!.id,
     })
   }
 }

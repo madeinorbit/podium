@@ -31,7 +31,7 @@ use and cached by source hash under `~/.cache/podium/podium-host-src`
 (`ensureSourceRustHost()`). With none of these the daemon refuses every spawn
 (`HOST_UNAVAILABLE`); there is no fallback. `hostSupported()` is the single place the
 platform rule lives: on Windows sessions run on the ConPTY backend with no durable host
-\[spec:SP-7f2c].
+.
 
 Production daemon code reaches a host only through `DurableProcess`
 (`createDurableProcess()` / `durableProcessFor()`, `@podium/process/durable`); the raw

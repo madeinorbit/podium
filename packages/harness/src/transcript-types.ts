@@ -202,7 +202,7 @@ const STAT_POLL_MS = 700
  * Fan every registered stat watcher out from one interval. The callback list is
  * snapshotted per batch so lifecycle changes during one watcher cannot perturb
  * the rest of that batch. The interval is lazy and disappears with the last
- * watcher, so an idle daemon holds no polling timer. [spec:SP-c29e]
+ * watcher, so an idle daemon holds no polling timer.
  *
  * Moved verbatim from `store/stat-tick.ts` (POD-4520): the types already lived
  * here, and adapters may import this leaf but never the Store — so the shared

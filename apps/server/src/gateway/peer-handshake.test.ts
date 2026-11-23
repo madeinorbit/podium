@@ -122,7 +122,7 @@ const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions
   const dbPath = join(stateRoot, 'podium.db')
   // A seeding fixture: rows written below the commit layer (POD-6920).
   const seeded = await SessionStore.open(dbPath, undefined, { changeCapture: 'whenLogAttaches' })
-  const hostMachineId = seeded.hostMachineId
+  const hostMachineId = seeded.hostMachine!.id
   const machineId = asMachineId('remote-machine')
   const enrollment = openEnrollmentLedger(stateRoot)
   const token = mintPairingToken(enrollment.pairingRoot, { machineId, serial: 1 })
@@ -157,19 +157,22 @@ const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions
 
   // No change log is wired in this world (no registry), so nothing drains a
   // capture: the store captures only once a log attaches (POD-6920).
-  const store = await SessionStore.open(dbPath, hostMachineId, {
-    queryOnly: options.queryOnly ?? true,
-    changeCapture: 'whenLogAttaches',
-  })
+  const store = await SessionStore.open(
+    dbPath,
+    { id: hostMachineId },
+    {
+      queryOnly: options.queryOnly ?? true,
+      changeCapture: 'whenLogAttaches',
+    },
+  )
   const pairing = new PairingManager({ installationId: 'installation-test' })
   const machines = new MachinesService({
     instanceId: 'verify-only-test',
     installationId: 'installation-test',
     store,
-    hostMachineId,
+    hostMachine: { id: hostMachineId },
     pairing,
     userExists: async (id) => (await store.users.get(id)) !== undefined,
-
   })
   return { dbPath, enrollment, hostMachineId, machineId, machines, pairing, store, token }
 }

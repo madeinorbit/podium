@@ -11,7 +11,7 @@ afterEach(() => disposeOracles())
 async function setup(start: 'explicit' | 'auto' | 'settings' = 'auto') {
   const o = await makeOracle()
   await o.store.settings.setModelCatalog({
-    machineId: o.store.hostMachineId,
+    machineId: o.store.hostMachine!.id,
     version: MODEL_CATALOG_VERSION,
     fetchedAt: Date.now(),
     byAgent: {
@@ -41,7 +41,7 @@ async function setup(start: 'explicit' | 'auto' | 'settings' = 'auto') {
     ...(start === 'explicit' ? { model: 'gpt-5.6', effort: 'low' } : {}),
     ...(start === 'auto' ? { model: 'auto', effort: 'auto' } : {}),
   })
-  await o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.store.hostMachine!.id, {
     type: 'bind',
     sessionId,
     cmd: 'codex',
@@ -49,7 +49,7 @@ async function setup(start: 'explicit' | 'auto' | 'settings' = 'auto') {
     agentKind: 'codex',
     geometry: { cols: 80, rows: 24 },
   })
-  await o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.store.hostMachine!.id, {
     type: 'sessionResumeRef',
     sessionId,
     resume: { kind: 'codex-thread', value: 'old-thread' },
@@ -126,7 +126,7 @@ describe('restart selection and explicit wake flags (POD-3911)', () => {
     })
     expect(result.wakeSelection).toEqual({ model: 'gpt-5.6', effort: 'high' })
     await vi.waitFor(() => expect(spawns(o)).toHaveLength(1))
-    await o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.store.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'codex',

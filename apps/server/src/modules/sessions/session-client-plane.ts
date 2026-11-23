@@ -88,6 +88,12 @@ export class SessionClientPlane {
       durableLabel: session.durableLabel,
       agentKind: session.agentKind,
       cwd: session.cwd,
+      ...(session.headless || driverRequest === 'headless'
+        ? {
+            model: session.requestedModel ?? session.model,
+            effort: session.requestedEffort ?? session.effort,
+          }
+        : {}),
       // LAST-KNOWN, AND NAMED AS SUCH (POD-3279). The daemon builds its headless
       // screens against this; it never puts the pty at it, and it never reports
       // it back on `bind`. What this server knows W to be is not evidence about
@@ -206,10 +212,7 @@ export class SessionClientPlane {
    * (POD-390). Entity bootstrap belongs exclusively to FeedServing; this hook
    * replays only session draft state and the machine list.
    */
-  async onClientAttached(
-    principal: ClientPrincipal,
-    client: ClientConn,
-  ): Promise<void> {
+  async onClientAttached(principal: ClientPrincipal, client: ClientConn): Promise<void> {
     await this.ports.clientControl.onAttached(principal, client)
   }
 
@@ -307,7 +310,7 @@ export class SessionClientPlane {
   ): Promise<void> {
     return this.ports.clientControl.onInputBytes(principal, client, sessionId, bytes)
   }
-  /** Hand an issue the worktree its session is actually working in [spec:SP-4ef9].
+  /** Hand an issue the worktree its session is actually working in.
    *  Two ways in: the agent DECLARES it (`podium worktree`), or the HARNESS makes its
    *  own worktree and the session's hooks start reporting from it (Claude's
    *  EnterWorktree — POD-664 left the worktree real on disk with the issue holding
@@ -316,7 +319,7 @@ export class SessionClientPlane {
    *
    *  Every guard earns its place — this stamps a path the AGENT chose, not one podium
    *  created: only a real linked worktree (a main checkout is never a workspace, and an
-   *  issue claiming main would swallow every unattached session — [spec:SP-595b]), only
+   *  issue claiming main would swallow every unattached session —), only
    *  in the issue's own repo, only when the issue owns no worktree yet, and never one
    *  another issue already owns (a `cd` into a sibling's workspace must not steal it).
    *

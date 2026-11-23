@@ -108,7 +108,7 @@ const freshStore = async (): Promise<SessionStore> => {
   const store = await openTestStore(':memory:')
   // An issue's repo resolves only through a machine that reported it (2b803efb5),
   // so the fixture repo is reported by the host machine.
-  await store.repos.addRepo('/r', store.hostMachineId)
+  await store.repos.addRepo('/r', store.hostMachine!.id)
   return store
 }
 

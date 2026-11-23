@@ -5,6 +5,7 @@ import {
   useCommands,
   useDeviceState,
   useRequestClient,
+  useSessionTransition,
   useSocketHub,
   useUi,
 } from '@podium/client-core/react'
@@ -30,7 +31,7 @@ export { effectivePanelMode, effectivePanelMode as initialPanelMode, type PanelM
 
 import { issueAgentKind } from '@podium/client-core/agent-models'
 import { attentionGroup } from '@podium/client-core/focus'
-import { formatClock, panelLabel, resumeCommand, sessionWaking } from '@podium/client-core/values'
+import { formatClock, panelLabel, resumeCommand } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
 import { isSnoozed } from '@podium/model/browser'
 import { SWITCH_TRACE_MARKS } from '@podium/protocol'
@@ -152,6 +153,10 @@ export const AgentPanel = observer(function AgentPanel({
     navigateToSession: useUi().navigateToSession,
   }
   const session = usePaneSession(sessionId)
+  const { transition, waking } = useSessionTransition(session)
+  const resumeTimedOut = transition?.kind === 'resume-timeout'
+  const resumeFailed =
+    resumeTimedOut || (transition?.kind === 'refused' && transition.desired === 'running')
   const geometry = usePaneGeometry(sessionId)
   const reconnecting = usePaneReconnecting(sessionId)
   // A session its issue's closing stopped ends with that outcome (POD-2151).
@@ -231,7 +236,7 @@ export const AgentPanel = observer(function AgentPanel({
     freshStartTracedRef.current = true
     if (!isSwitchTraced(sessionId)) beginSwitch({ sessionId, issueId: traceIssueId })
   }, [active, sessionId, traceIssueId])
-  // Moving to another machine ([spec:SP-3f7a]) is one deliberate state, not the
+  // Moving to another machine is one deliberate state, not the
   // sequence of read-only states the move happens to pass through: the session is
   // stopped here, shipped, and resumed there. `handover` covers the pane for the
   // whole window (and one beat past it, over the reattaching terminal), so
@@ -338,7 +343,7 @@ export const AgentPanel = observer(function AgentPanel({
     !!session &&
     surface.kind === 'live' &&
     (attentionGroup(session) !== 'working' || isSnoozed(session, snoozeNow))
-  // Agent action offer [spec:SP-c7f1] in NATIVE mode: chat renders its own bar
+  // Agent action offer in NATIVE mode: chat renders its own bar
   // above the composer; this one sits beneath the PTY so an offer is visible in
   // both views. Same optimistic-hide contract as chat: dismissed the moment a
   // button is clicked (keyed by createdAt so a NEW offer re-shows), and the
@@ -368,7 +373,7 @@ export const AgentPanel = observer(function AgentPanel({
       throw cause
     }
   }
-  /** "None of these" [spec:SP-c7f1] — a write that clears the offer everywhere
+  /** "None of these" — a write that clears the offer everywhere
    *  instead of sending a turn, and QUEUED since POD-1110 so it survives an
    *  offline gap like every other row edit. Unlike the answer above it takes no
    *  local hide: the queued entry paints the offer away on this session, which
@@ -985,7 +990,9 @@ export const AgentPanel = observer(function AgentPanel({
         <SessionLoginBar agentKind={session.agentKind} terminalOutlook={terminalOutlook} />
       )}
       {session && <SessionCredentialNotice session={session} />}
-      {session && <LifecycleTransitionBar session={session} />}
+      {session && transition && (
+        <LifecycleTransitionBar session={session} transition={transition} />
+      )}
       {handover && <HandoverPane view={handover} background={termBg} />}
       {surface.kind === 'pending' ? (
         // WAITING TO BE TOLD WHICH VIEW THIS SESSION HAS [POD-2290]. One
@@ -1000,11 +1007,15 @@ export const AgentPanel = observer(function AgentPanel({
           role="status"
           aria-live="polite"
         >
-          <span
-            className="size-[22px] animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-300"
-            aria-hidden="true"
-          />
-          <span>Starting {session ? panelLabel(session.agentKind) : 'session'}…</span>
+          {!resumeTimedOut && (
+            <>
+              <span
+                className="size-[22px] animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-300"
+                aria-hidden="true"
+              />
+              <span>Starting {session ? panelLabel(session.agentKind) : 'session'}…</span>
+            </>
+          )}
         </div>
       ) : surface.kind === 'transit' ? (
         // The veil owns this window; underneath it only the pane's own surface
@@ -1021,19 +1032,20 @@ export const AgentPanel = observer(function AgentPanel({
               <IssueOutcomeBanner
                 sessionId={sessionId}
                 outcome={outcome}
-                resume="parked"
-                waking={sessionWaking(session)}
+                resume={resumeFailed ? null : 'parked'}
+                waking={waking}
                 queuedCount={session?.queuedMessageCount ?? 0}
               />
-            ) : (
+            ) : !resumeFailed ? (
               <HibernatedBanner
                 sessionId={sessionId}
-                waking={sessionWaking(session)}
+                waking={waking}
                 queuedCount={session?.queuedMessageCount ?? 0}
               />
-            )}
+            ) : null}
             <ChatView
               sessionId={sessionId}
+              resumeTimedOut={resumeTimedOut}
               active={active}
               initialPendingText={optimisticFirstPrompt}
               onInitialPendingSettled={settleOptimisticFirstPrompt}
@@ -1041,9 +1053,9 @@ export const AgentPanel = observer(function AgentPanel({
               outcome={outcome}
             />
           </>
-        ) : (
+        ) : !resumeFailed ? (
           <HibernatedPane sessionId={sessionId} />
-        )
+        ) : null
       ) : surface.kind === 'ended' && session ? (
         surface.view === 'transcript' ? (
           // The process is gone but the transcript outlives it — keep the chat
@@ -1060,10 +1072,10 @@ export const AgentPanel = observer(function AgentPanel({
               <IssueOutcomeBanner
                 sessionId={sessionId}
                 outcome={outcome}
-                resume={session.resumable === true ? 'ended' : null}
-                waking={sessionWaking(session)}
+                resume={!resumeFailed && session.resumable === true ? 'ended' : null}
+                waking={waking}
               />
-            ) : (
+            ) : !resumeFailed ? (
               <ExitedBanner
                 sessionId={sessionId}
                 exitCode={session.exitCode}
@@ -1077,11 +1089,12 @@ export const AgentPanel = observer(function AgentPanel({
                 isShell={session.agentKind === 'shell'}
                 resumable={session.resumable === true}
                 {...(session.neverBound ? { neverBound: true as const } : {})}
-                waking={sessionWaking(session)}
+                waking={waking}
               />
-            )}
+            ) : null}
             <ChatView
               sessionId={sessionId}
+              resumeTimedOut={resumeTimedOut}
               active={active}
               initialPendingText={optimisticFirstPrompt}
               onInitialPendingSettled={settleOptimisticFirstPrompt}
@@ -1097,7 +1110,7 @@ export const AgentPanel = observer(function AgentPanel({
               firstPrompt={optimisticFirstPrompt}
             />
           </div>
-        ) : (
+        ) : !resumeFailed ? (
           <ExitedPane
             sessionId={sessionId}
             exitCode={session.exitCode}
@@ -1109,7 +1122,7 @@ export const AgentPanel = observer(function AgentPanel({
             resumable={session.resumable === true}
             {...(session.neverBound ? { neverBound: true as const } : {})}
           />
-        )
+        ) : null
       ) : (
         // Warm chat<->native toggle (Task 6): the terminal container stays
         // mounted in BOTH modes — `hidden` (display:none) when in chat — so
@@ -1123,6 +1136,7 @@ export const AgentPanel = observer(function AgentPanel({
           >
             <ChatView
               sessionId={sessionId}
+              resumeTimedOut={resumeTimedOut}
               active={active && effectiveMode === 'chat'}
               initialPendingText={optimisticFirstPrompt}
               onInitialPendingSettled={settleOptimisticFirstPrompt}
@@ -1300,7 +1314,7 @@ export const AgentPanel = observer(function AgentPanel({
               </div>
             </>
           )}
-          {/* Agent action offer bar [spec:SP-c7f1] beneath the PTY — the native
+          {/* Agent action offer bar beneath the PTY — the native
               counterpart of the chat composer's bar, so offers aren't invisible
               in native mode. Clicking a button sends its prompt as a user turn. */}
           {dockOffer && (

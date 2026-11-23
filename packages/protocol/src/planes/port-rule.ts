@@ -1,6 +1,6 @@
 /**
  * THE NAMED PORT RULE — ADR 7 D2, restated by ADR 5 D7 and independently
- * re-derived in [spec:SP-b85a], [spec:SP-fccf] and [spec:SP-a43e].
+ * re-derived in, and.
  *
  * Host↔server traffic stays SEPARATE from the agent command relay. This is a
  * rule with a name, not a convention: the relay bakes session identity into its
@@ -40,7 +40,7 @@ export type AgentRelayFrame = (typeof AGENT_RELAY_FRAMES)[number]
  * inventory's, not a judgement call at a send site.
  */
 export const HOST_EDGE_FRAMES = [
-  // Native harness hooks ([spec:SP-15aa] instance-scoped /hooks or hook socket).
+  // Native harness hooks (instance-scoped /hooks or hook socket).
   'title',
   'agentState',
   'agentColor',
@@ -53,13 +53,13 @@ export const HOST_EDGE_FRAMES = [
   'agentObserverLiveConfirmation',
   'nativeDraft',
   'draftTarget',
-  // Resume-ref receipts ([spec:SP-fccf]) — explicitly "separate from the agent
+  // Resume-ref receipts — explicitly "separate from the agent
   // command relay" in that spec's own words.
   'sessionResumeRef',
   'sessionResumeRefAck',
   'sessionCwd',
   'sessionGitActivity',
-  // Browser-open family ([spec:SP-a43e]): daemon→server→client, not an RPC.
+  // Browser-open family: daemon→server→client, not an RPC.
   'sessionOpenUrl',
   'sessionOpenUrlResult',
   'sessionOpenUrlCallback',
@@ -118,6 +118,8 @@ export const HOST_EDGE_FRAMES = [
   'transcriptReadResult',
   'transcriptMirrorRead',
   'transcriptMirrorResult',
+  'transcriptPathsRequest',
+  'transcriptPathsResult',
 ] as const
 export type HostEdgeFrame = (typeof HOST_EDGE_FRAMES)[number]
 

@@ -209,14 +209,14 @@ export interface PodiumClientApi {
     setWorkState: ApiMutation<WithMutationId<{ sessionId: SessionId; workState: WorkState | null }>>
     markRead: ApiMutation<WithMutationId<{ sessionId: SessionId }>>
     markUnread: ApiMutation<WithMutationId<{ sessionId: SessionId }>>
-    /** Decline one named offer [spec:SP-c7f1]. `offerCreatedAt` is the guard, not
+    /** Decline one named offer. `offerCreatedAt` is the guard, not
      *  a courtesy: it names the offer the user was looking at, so a replacement
      *  posted between render and press survives instead of being swallowed. */
     dismissOffer: ApiMutation<WithMutationId<{ sessionId: SessionId; offerCreatedAt: string }>>
     kill: ApiMutation<{ sessionId: SessionId }>
     continue: ApiMutation<{ sessionId: SessionId }>
     hibernate: ApiMutation<{ sessionId: SessionId }>
-    /** Clean end [spec:SP-9904] — stop the process, free the issue worktree,
+    /** Clean end — stop the process, free the issue worktree,
      *  keep branch + transcript + row. REFUSES rather than throws (POD-379), so
      *  `ok: false` carries a reason an unsaved tree can be forced past. Present
      *  on the command plane since POD-382; POD-1077 gave it a client caller. */
@@ -327,7 +327,7 @@ export interface PodiumClientApi {
   files: {
     read: ApiQuery<
       | { sessionId: SessionId; path: string }
-      // Artifact-snapshot reads ([spec:SP-0fc9] #441).
+      // Artifact-snapshot reads (#441).
       | { issueId: IssueId; artifactId: ArtifactId; path: string }
       | { machineId?: MachineId; root: string; path: string },
       unknown

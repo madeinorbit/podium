@@ -23,7 +23,7 @@ export async function relay(
   proc: string,
   input: unknown,
 ): Promise<RelayResult> {
-  await o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.store.hostMachine!.id, {
     type: 'agentRelayRequest',
     requestId,
     sessionId,
@@ -43,7 +43,7 @@ export async function relay(
 export async function agentOnIssue(o: Oracle, title: string): Promise<SessionId> {
   const writer = o.reg.issues.reports.store.serverWriter
   if (!(await o.store.repos.listRepoPaths()).includes('/r')) {
-    await o.store.repos.addRepo('/r', o.store.hostMachineId)
+    await o.store.repos.addRepo('/r', o.store.hostMachine!.id)
   }
   const issue = await o.reg.issues.crud.create(writer, { repoPath: '/r', title, startNow: false })
   const slug = title.replace(/\W+/g, '-')
@@ -113,7 +113,9 @@ export const approvalDeps = (o: Oracle) =>
         executeServerOp: (op: ApprovalOp, sessionId: string) => Promise<string | null>
         notifyIssue: (issueId: string, body: string) => Promise<void>
         hasDaemon: (machineId: string) => boolean
-        opPermission: { workflowWrite: (principal: unknown, revisionId: string) => Promise<boolean> }
+        opPermission: {
+          workflowWrite: (principal: unknown, revisionId: string) => Promise<boolean>
+        }
       }
     }
   ).deps

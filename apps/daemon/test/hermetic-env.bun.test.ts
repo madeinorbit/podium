@@ -9,7 +9,7 @@ import { hermeticChildEnv } from '../../../test-hermetic-env'
  * Bun-runtime twin of packages/runtime/src/hermetic-env.test.ts: proves the hermetic harness
  * (test-hermetic-env.ts, wired as bunfig.toml `[test].preload`) ran for the `bun test` scope
  * too, so `bun run test:bun` from inside a live session can't reach the live instance.
- * [spec:SP-b85a] (POD-555)
+ * (POD-555)
  *
  * Cross-file isolation (two files, one bun process, distinct roots) is covered by
  * scripts/hermetic-bun-per-file.test.ts [POD-553] — a single file cannot observe that bug.

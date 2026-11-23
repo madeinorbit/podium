@@ -56,7 +56,7 @@ async function fixture(size: number): Promise<Fixture> {
   // Complete the normal startup cursor load explicitly; later frames still
   // exercise the live durable board projection and all of its statements.
   await reg.modules.sessions.runtimeGateway.replayBoardProjection()
-  const host = store.hostMachineId
+  const host = store.hostMachine!.id
   const issue = await settledCommand(() =>
     reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
       repoPath: '/repo',

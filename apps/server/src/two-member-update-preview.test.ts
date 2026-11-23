@@ -143,14 +143,14 @@ describe('informational update previews respect machine visibility', () => {
   it('uses the actual host’s operation channel even when that machine is invisible', async () => {
     const h = await previews()
     const store = registry().sessionStore
-    const ids = [store.hostMachineId, f.machines.bob]
+    const ids = [store.hostMachine!.id, f.machines.bob]
     const prior = await Promise.all(ids.map((id) => store.machines.getMachine(id)))
     try {
       // This HTTP fixture starts without an enrolled server machine. Supply
       // the actual host row before testing its channel against Bob’s visibility.
       if (!prior[0])
         await store.machines.upsertMachine({
-          id: store.hostMachineId,
+          id: store.hostMachine!.id,
           name: 'preview-host',
           hostname: 'preview-host',
           tokenHash: 'preview-fixture',
@@ -168,8 +168,8 @@ describe('informational update previews respect machine visibility', () => {
       for (const [index, id] of ids.entries())
         await store.machines.setUpdateChannel(id, prior[index]?.updateChannelOverride ?? null)
       if (!prior[0]) {
-        await store.grants.removeAllForResource('machine', store.hostMachineId, true)
-        await store.machines.deleteMachine(store.hostMachineId)
+        await store.grants.removeAllForResource('machine', store.hostMachine!.id, true)
+        await store.machines.deleteMachine(store.hostMachine!.id)
       }
     }
   })

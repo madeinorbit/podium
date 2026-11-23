@@ -64,13 +64,13 @@ describe('POD-424 gate: the messages router is DERIVED, not hand-written', () =>
    *  types what the client reads, and the procedure is derived all the same. */
   function derivedProcs(): { key: string; verb: 'query' | 'mutation'; proc: string }[] {
     const block = messagesRouterBlock()
-    return [
-      ...block.matchAll(/^\s{4}(\w+): mail(Query|Mutation)(?:<[^>]*>)?\('(\w+)'\),$/gm),
-    ].map((m) => ({
-      key: m[1] as string,
-      verb: m[2] === 'Query' ? 'query' : 'mutation',
-      proc: m[3] as string,
-    }))
+    return [...block.matchAll(/^\s{4}(\w+): mail(Query|Mutation)(?:<[^>]*>)?\('(\w+)'\),$/gm)].map(
+      (m) => ({
+        key: m[1] as string,
+        verb: m[2] === 'Query' ? 'query' : 'mutation',
+        proc: m[3] as string,
+      }),
+    )
   }
 
   /**
@@ -389,14 +389,16 @@ describe('the tRPC arm and the relay arm reach the SAME answer', () => {
       // ALLOWED first, so the instrument is known to be able to say yes: without
       // this arm a broken fixture and a working ceiling look identical.
       allowed.push(
-        await outcome(async () =>
-          await h.gate.dispatch(cap, true, 'send', { to: theirs.id, body: 'x' }, transport),
+        await outcome(
+          async () =>
+            await h.gate.dispatch(cap, true, 'send', { to: theirs.id, body: 'x' }, transport),
         ),
       )
       hidden.push(theirs.id)
       denied.push(
-        await outcome(async () =>
-          await h.gate.dispatch(cap, true, 'send', { to: theirs.id, body: 'x' }, transport),
+        await outcome(
+          async () =>
+            await h.gate.dispatch(cap, true, 'send', { to: theirs.id, body: 'x' }, transport),
         ),
       )
     }
@@ -419,11 +421,13 @@ describe('the tRPC arm and the relay arm reach the SAME answer', () => {
       hidden.push(theirs.id)
       const cap = h.agentCap(mine.id, asSessionId('sMine'))
 
-      const beyond = await outcome(async () =>
-        await h.gate.dispatch(cap, true, 'send', { to: theirs.id, body: 'x' }, transport),
+      const beyond = await outcome(
+        async () =>
+          await h.gate.dispatch(cap, true, 'send', { to: theirs.id, body: 'x' }, transport),
       )
-      const unknown = await outcome(async () =>
-        await h.gate.dispatch(cap, true, 'send', { to: '#99999', body: 'x' }, transport),
+      const unknown = await outcome(
+        async () =>
+          await h.gate.dispatch(cap, true, 'send', { to: '#99999', body: 'x' }, transport),
       )
       expect(beyond).toEqual(unknown)
       // Non-vacuity: both must actually be the dead-letter answer, not two
@@ -437,8 +441,12 @@ describe('the tRPC arm and the relay arm reach the SAME answer', () => {
     // `pendingReminders` is relay-only (the stop hook). The relay serves it; the
     // tRPC arm must answer "no such proc", which is what an unexposed command
     // is indistinguishable from.
-    expect(await h.gate.dispatch(OPERATOR, undefined, 'pendingReminders', {}, 'relay')).toBeDefined()
-    expect(await h.gate.dispatch(OPERATOR, undefined, 'pendingReminders', {}, 'trpc')).toBeUndefined()
+    expect(
+      await h.gate.dispatch(OPERATOR, undefined, 'pendingReminders', {}, 'relay'),
+    ).toBeDefined()
+    expect(
+      await h.gate.dispatch(OPERATOR, undefined, 'pendingReminders', {}, 'trpc'),
+    ).toBeUndefined()
     // The counterfactual: a proc that IS exposed on trpc answers there.
     expect(await h.gate.dispatch(OPERATOR, undefined, 'ledger', {}, 'trpc')).toBeDefined()
   })
@@ -581,7 +589,9 @@ describe('the queued-send rejection is live through the COMPOSED pair, not just 
     // …and never silently dropped (ADR 3 D9). The reason is the one an id that
     // does not exist gives, so the queue is not an existence oracle one step
     // removed (D20.2).
-    const notices = (await h.svc.inbox([{ kind: 'session', id: 'sSender' }], { limit: 50 })).filter((m) => m.body.includes(accepted.id))
+    const notices = (await h.svc.inbox([{ kind: 'session', id: 'sSender' }], { limit: 50 })).filter(
+      (m) => m.body.includes(accepted.id),
+    )
     expect(notices.length).toBeGreaterThan(0)
     expect(notices.at(-1)?.body).toContain('issue no longer exists')
   })
@@ -672,9 +682,15 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
       },
     })
     // The issue is placed under a machine that REPORTED its repo (2b803efb5).
-    await o.store.repos.addRepo('/r', o.store.hostMachineId)
-    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'Target', startNow: false })
-    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, { worktreePath: '/r/.worktrees/t' })
+    await o.store.repos.addRepo('/r', o.store.hostMachine!.id)
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Target',
+      startNow: false,
+    })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, {
+      worktreePath: '/r/.worktrees/t',
+    })
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/t',
@@ -686,7 +702,7 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
         m.type === 'spawn' && m.sessionId === sessionId,
     )
     if (spawn?.observationGeneration === undefined) throw new Error('spawn was not fenced')
-    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -694,7 +710,7 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
       agentKind: 'claude-code',
       geometry: { cols: 80, rows: 24 },
     })
-    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'agentState',
       sessionId,
       state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -731,7 +747,7 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
     expect(requests).toHaveLength(1)
     const [request] = requests
     // The body is byte-faithful and appears once. No envelope assertion here: an
-    // OPERATOR send lands unwrapped by design ([spec:SP-34d7] deliversUnwrapped),
+    // OPERATOR send lands unwrapped by design (deliversUnwrapped),
     // so the id is not in the text — the reply below uses the id the SENDER was
     // handed, which is the operator's real affordance.
     expect(request!.text.split(BODY).length - 1).toBe(1)
@@ -745,7 +761,7 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
     expect(
       ((await o.call.messages.show({ id: sent.id })) as { deliveryStatus: string }).deliveryStatus,
     ).toBe('dispatched')
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'runtimeEvent',
       deliveryId: `delivery-${request!.rowId}`,
       sessionId,
@@ -817,9 +833,15 @@ describe('late proof of an unconfirmed message (POD-4840)', () => {
   type DurableSend = Extract<ControlMessage, { type: 'runtimeDurableSendRequest' }>
   const setup = async () => {
     const o = await makeOracle()
-    await o.store.repos.addRepo('/r', o.store.hostMachineId)
-    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'Target', startNow: false })
-    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, { worktreePath: '/r/.worktrees/t' })
+    await o.store.repos.addRepo('/r', o.store.hostMachine!.id)
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Target',
+      startNow: false,
+    })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, {
+      worktreePath: '/r/.worktrees/t',
+    })
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/t',
@@ -831,7 +853,7 @@ describe('late proof of an unconfirmed message (POD-4840)', () => {
     )
     if (spawn?.observationGeneration === undefined) throw new Error('spawn was not fenced')
     const observerGeneration = spawn.observationGeneration
-    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -839,7 +861,7 @@ describe('late proof of an unconfirmed message (POD-4840)', () => {
       agentKind: 'claude-code',
       geometry: { cols: 80, rows: 24 },
     })
-    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'agentState',
       sessionId,
       state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -848,7 +870,7 @@ describe('late proof of an unconfirmed message (POD-4840)', () => {
     /** One `delivery` runtime event from the driver, in stream order. */
     const outcome = async (rowId: string, event: Record<string, unknown>) => {
       seq += 1
-      await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+      await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
         type: 'runtimeEvent',
         deliveryId: `delivery-${rowId}-${seq}`,
         sessionId,

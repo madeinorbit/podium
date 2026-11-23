@@ -302,7 +302,7 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
       lastResumedAt: null,
       archived: false,
       workState: null,
-      machineId: store.hostMachineId,
+      machineId: store.hostMachine!.id,
       headless: false,
       issueId: null,
       stoppedAt: null,

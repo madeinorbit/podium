@@ -204,6 +204,7 @@ const DISPATCH: Dispatcher = {
   // resolved from the AUTHENTICATED TRANSPORT, which the correlator checks
   // against the machine the request was sent to (POD-1175).
   scanReposResult: toRpc,
+  transcriptPathsResult: toRpc,
   browseDirsResult: toRpc,
   dirOpResult: toRpc,
   githubCliResult: toRpc,

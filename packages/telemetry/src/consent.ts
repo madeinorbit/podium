@@ -1,6 +1,6 @@
 /**
  * Consent: the tri-state, its kill switches, and the only writer of
- * `config.telemetry` [spec:SP-f933].
+ * `config.telemetry`.
  *
  * Tri-state per tier (D2): `on` | `off` | ABSENT. Absent takes the tier's
  * default (POD-5922, 0.2.0): usage reports are OPT-OUT, so absent usage counts

@@ -335,7 +335,7 @@ const listResult = (rows: Row[], empty: string): IssueCommandResult => ({
  */
 type ShowWire = IssueShowWire<ShowSession>
 
-/** Compact session fields the show/tree renderers need [spec:SP-99d3]. */
+/** Compact session fields the show/tree renderers need. */
 /**
  * The tree/show session line as this client reads it: the shared
  * {@link IssueTreeSession} definition plus five VERSION-SKEW keys.
@@ -388,7 +388,7 @@ async function fetchComments(c: IssueTrpc, id: string): Promise<ShowComment[]> {
 
 /**
  * Actionable session state for managers: process status when not live, else
- * agent phase. `needs_user` → `blocked` (the spawn-check vocabulary) [spec:SP-99d3].
+ * agent phase. `needs_user` → `blocked` (the spawn-check vocabulary).
  */
 export function sessionStateLabel(s: {
   status: string
@@ -407,7 +407,7 @@ export function sessionStateLabel(s: {
   return s.status === 'live' ? 'unknown' : s.status
 }
 
-/** One compact session line for tree/show [spec:SP-99d3]. */
+/** One compact session line for tree/show. */
 function formatSessionLine(
   s: ShowSession & { coordinator?: boolean },
   opts?: { coordinatorSessionId?: SessionId | null },
@@ -450,7 +450,7 @@ async function profileNamesFor(
 
 /** The single-issue `show` rendering — shared verbatim by single and bulk show.
  *  `comments` is fetched separately (#175); empty ⇒ no comments section.
- *  Sessions list sibling agents on the issue [spec:SP-99d3]. */
+ *  Sessions list sibling agents on the issue. */
 function renderShow(
   i: ShowWire,
   comments: ShowComment[] = [],
@@ -526,7 +526,7 @@ function issueTypeArg(raw: unknown): string | undefined {
  *
  * Two members are re-declared, and both are VERSION SKEW rather than contract:
  * this client also runs against a REMOTE relay, so it can meet an older server
- * that predates the compact `sessions` array [spec:SP-99d3]. The current server
+ * that predates the compact `sessions` array. The current server
  * always sends it. Tightening the read to the server's required `sessions` would
  * be a behaviour change dressed as a refactor, so the tolerance stays — spelled
  * as tolerance instead of looking like part of the contract. `children` recurses
@@ -645,7 +645,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'show',
     summary:
-      'Show issues in full: show <id> [<id>...] or show --ids a,b,c. One call surveys many issues (each rendered like single show), including every agent currently on the issue with actual harness/model/effort/context/state/coordinator [spec:SP-99d3].',
+      'Show issues in full: show <id> [<id>...] or show --ids a,b,c. One call surveys many issues (each rendered like single show), including every agent currently on the issue with actual harness/model/effort/context/state/coordinator.',
     args: z.strictObject({ id: idArg.optional(), ids: z.string().optional() }),
     positionals: ['id'],
     restKey: 'ids',
@@ -708,7 +708,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'tree',
     summary:
-      'Whole epic in ONE call: tree <id> [--max-depth n] [--max-nodes n] — the issue + all descendants (default depth ≤3, ≤100 nodes; raise with the flags) with stage/priority/assignee/branch/needs-human/blocking deps, a description snippet, and every agent’s actual harness/model/effort/context/state/coordinator. Prefer this over per-child show when surveying an epic — check sessions before spawn [spec:SP-99d3].',
+      'Whole epic in ONE call: tree <id> [--max-depth n] [--max-nodes n] — the issue + all descendants (default depth ≤3, ≤100 nodes; raise with the flags) with stage/priority/assignee/branch/needs-human/blocking deps, a description snippet, and every agent’s actual harness/model/effort/context/state/coordinator. Prefer this over per-child show when surveying an epic — check sessions before spawn.',
     args: z.strictObject({
       id: idArg,
       maxDepth: z.coerce.number().int().min(0).max(20).optional(),
@@ -752,7 +752,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
           `${pad}#${n.seq} P${n.priority} [${statusWord(n)}] ${n.title} — ${status}${extras.length ? ` (${extras.join(' ')})` : ''}`,
         )
         if (n.description) out.push(`${pad}    ${n.description}`)
-        // Sessions nest under their issue so sibling agents are visible before spawn [spec:SP-99d3].
+        // Sessions nest under their issue so sibling agents are visible before spawn.
         for (const s of n.sessions ?? []) {
           out.push(`${pad}    ${formatSessionLine(s)}`)
         }

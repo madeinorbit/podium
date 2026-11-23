@@ -89,18 +89,14 @@ export class IssueStore {
   /**
    * Freeze the machine choice an implicit operation would otherwise make inside
    * DaemonRpcService. Explicit pins already bypass that resolver and keep winning.
-   * The fallback preserves lightweight test fixtures that do not wire the port;
-   * the relay always supplies MachinesService.resolveMachine.
    */
   async resolveWorktreeMachine(
     machineId: MachineId | null | undefined,
     cwd: string,
   ): Promise<MachineId> {
-    return (
-      machineId ??
-      (await this.deps.resolveMachine?.(undefined, cwd)) ??
-      this.deps.store.hostMachineId
-    )
+    const resolved = machineId ?? (await this.deps.resolveMachine(undefined, cwd))
+    if (resolved === undefined) throw new IssueRefusal(`no machine for this worktree: ${cwd}`)
+    return resolved
   }
 
   /**
@@ -909,7 +905,7 @@ export class IssueStore {
 
   /** persist() plus an extra repository write (labels/comments/deps/mail) that
    *  must land inside the SAME transaction as the row upsert. The ledger's
-   *  commit ([spec:SP-3fe2] #255) binds the write and its declared change row
+   *  commit (#255) binds the write and its declared change row
    *  into one transact span — the durable change log can never say something
    *  the issue table doesn't — then the funnel fans the committed changes out. */
   async persistWith(

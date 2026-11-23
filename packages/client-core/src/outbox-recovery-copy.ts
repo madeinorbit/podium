@@ -479,7 +479,7 @@ export function replaceAuthoredText(input: unknown, next: string): Record<string
  *
  *   `confirm` — yes. A durable confirmation on the envelope (D8 outcome 3) is
  *               exactly what the retry needs, and the user can supply it.
- *   `broker`  — NO. The approval broker ([spec:SP-edbb]) is the confirmation
+ *   `broker`  — NO. The approval broker is the confirmation
  *               executor; a checkbox in this dialog is not that, and offering
  *               one produces a retry refused identically — the button the
  *               affordance rule exists to forbid.

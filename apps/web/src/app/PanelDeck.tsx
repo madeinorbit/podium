@@ -90,7 +90,7 @@ export function usePreviewPromotion(
 }
 
 /**
- * Renders the panel deck [POD-782] [spec:SP-0b2e] as ONE flat keyed list so a
+ * Renders the panel deck [POD-782] as ONE flat keyed list so a
  * session that moves between the current-tab group and the foreign-warm group
  * keeps its component identity across an issue switch (no remount → the terminal
  * and the POD-725 transcript window survive; re-selecting it is a warm reveal

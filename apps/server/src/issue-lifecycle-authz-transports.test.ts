@@ -31,7 +31,7 @@ interface LifecycleFixture {
 async function fixture(registry: SessionRegistry): Promise<LifecycleFixture> {
   // An issue's repo resolves only through a machine that reported it (2b803efb5),
   // so the fixture repo is reported by the host machine.
-  await registry.sessionStore.repos.addRepo('/repo', registry.sessionStore.hostMachineId)
+  await registry.sessionStore.repos.addRepo('/repo', registry.sessionStore.hostMachine!.id)
   const create = async (title: string, parentId?: IssueId) =>
     await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/repo',

@@ -6,7 +6,7 @@
  * from payload."* ADR 4 Amendment 1 D9.3 adds the shape rule: the two halves are
  * DIFFERENTLY BRANDED, so the pair cannot collapse into one nullable id without
  * losing the distinction the product already depends on — human-set `name`
- * outranks agent-set ([spec:SP-eb60] `nameSource`), and `humanQuestionAskedBy`
+ * outranks agent-set (`nameSource`), and `humanQuestionAskedBy`
  * is server-authoritative precisely so "did a person or an agent ask this?"
  * stays answerable.
  *

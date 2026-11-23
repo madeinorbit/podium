@@ -570,7 +570,7 @@ describe('MessagingService', () => {
     })
   })
 
-  describe('ambient session working typing [spec:SP-62c3]', () => {
+  describe('ambient session working typing', () => {
     afterEach(() => {
       vi.useRealTimers()
     })
@@ -919,7 +919,7 @@ describe('MessagingService', () => {
     expect((await h.topics.getByThreadRef('42', '9001'))?.superagentThreadId).toBe('btw_sess_1')
   })
 
-  it('posts a transcript recap when creating an issue topic [spec:SP-62c3]', async () => {
+  it('posts a transcript recap when creating an issue topic', async () => {
     const h = await makeHarness({
       topicRecap: true,
       issues: { list: async () => [liveIssue()] as never },
@@ -940,7 +940,7 @@ describe('MessagingService', () => {
     expect(h.sent[1]!.text).toContain('Agent: Root cause is a stale lease.')
   })
 
-  it('posts a recap on issue-button re-tap of an existing topic [spec:SP-62c3]', async () => {
+  it('posts a recap on issue-button re-tap of an existing topic', async () => {
     const h = await makeHarness({
       topicRecap: true,
       issues: { list: async () => [liveIssue()] as never },
@@ -960,7 +960,7 @@ describe('MessagingService', () => {
     expect(h.readTranscript).toHaveBeenCalled()
   })
 
-  it('posts inactivity recap before dispatching a topic message after 30min [spec:SP-62c3]', async () => {
+  it('posts inactivity recap before dispatching a topic message after 30min', async () => {
     const h = await makeHarness({
       topicRecap: true,
       issues: { list: async () => [liveIssue()] as never },

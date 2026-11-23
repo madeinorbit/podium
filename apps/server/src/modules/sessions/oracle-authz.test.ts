@@ -96,11 +96,23 @@ function classifyRelay(
 async function twoIssueOracle() {
   const o = await makeOracle()
   // Issues are placed on a machine that reported their repo (2b803efb5).
-  await o.store.repos.addRepo('/r', o.store.hostMachineId)
-  const a = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'issue A', startNow: false })
-  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, a.id, { worktreePath: '/r/.worktrees/a' })
-  const b = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'issue B', startNow: false })
-  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, b.id, { worktreePath: '/r/.worktrees/b' })
+  await o.store.repos.addRepo('/r', o.store.hostMachine!.id)
+  const a = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+    repoPath: '/r',
+    title: 'issue A',
+    startNow: false,
+  })
+  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, a.id, {
+    worktreePath: '/r/.worktrees/a',
+  })
+  const b = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+    repoPath: '/r',
+    title: 'issue B',
+    startNow: false,
+  })
+  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, b.id, {
+    worktreePath: '/r/.worktrees/b',
+  })
   // The AGENT: a session inside A's worktree ⇒ capability scoped to A's subtree.
   const agent = await o.reg.modules.sessions.createSession({
     agentKind: 'shell',
@@ -225,11 +237,10 @@ describe('oracle: the lifecycle commands an agent cannot reach', () => {
 /**
  * POD-1386 moved `sessions.handoff` from operator-only to agent-reachable, so it
  * left the list above. These pin the move itself rather than its consequences:
- * that it is now DISPATCHED, and that the other two endings remain expressible
- * and observable — an instrument that cannot say all three cannot say any of them
- * with meaning.
+ * that it is now DISPATCHED, and that the gate still refuses disallowed session
+ * mutations before their handlers.
  */
-describe('oracle: how a relayed call ends — refused by the gate, lost before dispatch, or handled', () => {
+describe('oracle: how a relayed call ends — refused by the gate or handled', () => {
   it(`${AGENT_ONLY}: sessions.handoff REACHES its handler — allowlisted and dispatched`, async () => {
     const { o, agentSessionId } = await twoIssueOracle()
 
@@ -261,26 +272,6 @@ describe('oracle: how a relayed call ends — refused by the gate, lost before d
       input: { sessionId: agentSessionId },
     })
     expect(classifyRelay(reply, 'sessions', 'kill')).toBe('gate-refused')
-  })
-
-  it(`${AGENT_ONLY}: the absent-from-dispatch ending is reachable, and it is NOT a refusal`, async () => {
-    // `specs` is allowlisted wholesale (`null` = any proc), so an unknown proc on
-    // it passes the gate and finds no arm. That is exactly the shape a mis-wired
-    // allowlist entry takes, which is why the classifier must name it rather than
-    // fold it in with the policy refusal above.
-    const { o, agentSessionId } = await twoIssueOracle()
-    const reply = await o.relay({
-      requestId: 'ending-absent-dispatch',
-      sessionId: agentSessionId,
-      router: 'specs',
-      proc: 'definitelyNotAProc',
-      input: {},
-    })
-    expect(classifyRelay(reply, 'specs', 'definitelyNotAProc')).toBe('absent-from-dispatch')
-    expect(reply.ok).toBe(false)
-    // Both endings answer ok:false. Only the classification separates them, and
-    // the point of separating them is that one is a decision and one is a bug.
-    expect(classifyRelay(reply, 'specs', 'definitelyNotAProc')).not.toBe('gate-refused')
   })
 })
 
@@ -328,7 +319,7 @@ describe('oracle: continue and stop ARE reachable by an agent, under different g
   it(`${AGENT_ONLY}: a self-stop is allowed, reports deferredKill, and the kill reaches the daemon strictly AFTER the reply`, async () => {
     const { o, agentSessionId } = await twoIssueOracle()
     // The session must be RUNNING for a kill to be deferred at all.
-    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId: agentSessionId,
       cmd: 'bash',
@@ -347,7 +338,7 @@ describe('oracle: continue and stop ARE reachable by an agent, under different g
     })
 
     expect(reply.ok).toBe(true)
-    // The contract the CLI depends on [spec:SP-9904]: the agent is TOLD its own
+    // The contract the CLI depends on: the agent is TOLD its own
     // stop succeeded, and told that the process kill is deferred.
     expect(reply.result).toMatchObject({ ok: true, deferredKill: true })
 

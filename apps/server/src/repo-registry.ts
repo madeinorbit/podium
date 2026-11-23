@@ -1,63 +1,9 @@
-import { readdir, realpath, stat } from 'node:fs/promises'
-import { homedir } from 'node:os'
-import { dirname, isAbsolute, join } from 'node:path'
-import { describeError } from '@podium/logger'
 import type { GitDiscoveryDiagnosticWire, MachineId } from '@podium/model'
-import { isAbsoluteMachinePath, isMachinePathWithinRoot } from '@podium/model'
+import { isAbsoluteMachinePath, isMachinePathWithinRoot, machinePathsEqual } from '@podium/model'
 import type { IssueWriter } from './modules/issues/service/types'
 import type { SessionRegistry } from './relay'
-import { readLocalOriginUrl } from './repo-id'
 import { normalizeRepoPath, type SessionStore } from './store'
-
-export type DirectoryBrowserEntry = {
-  name: string
-  path: string
-}
-
-export type DirectoryBrowserListing = {
-  path: string
-  homePath: string
-  parentPath: string | null
-  entries: DirectoryBrowserEntry[]
-}
-
-/** Server-side directory browser used by the web picker. */
-export async function browseDirectories(
-  path?: string,
-  options: { includeHidden?: boolean } = {},
-): Promise<DirectoryBrowserListing> {
-  const homePath = currentHomeDir()
-  const requested = expandHome(path?.trim() || homePath, homePath)
-  if (!isAbsolute(requested)) throw new Error(`directory path must be absolute: ${requested}`)
-
-  let current = requested
-  try {
-    const s = await stat(current)
-    if (!s.isDirectory()) throw new Error('path is not a directory')
-    current = await realpath(current)
-  } catch (err) {
-    throw new Error(`Could not open directory ${requested}: ${describeError(err)}`)
-  }
-
-  let entries: DirectoryBrowserEntry[]
-  try {
-    entries = (await readdir(current, { withFileTypes: true }))
-      .filter((entry) => entry.isDirectory())
-      .filter((entry) => options.includeHidden || !entry.name.startsWith('.'))
-      .map((entry) => ({ name: entry.name, path: join(current, entry.name) }))
-      .sort((a, b) => a.name.localeCompare(b.name))
-  } catch (err) {
-    throw new Error(`Could not read directory ${current}: ${describeError(err)}`)
-  }
-
-  const parent = dirname(current)
-  return {
-    path: current,
-    homePath,
-    parentPath: parent === current ? null : parent,
-    entries,
-  }
-}
+import { afterCommit } from './store/executor/executor'
 
 /** The longest repo root among `roots` that contains `path` (cwd → repo inference).
  *  A root `r` contains `path` iff `path === r` or `path` starts with `r + '/'`,
@@ -106,6 +52,13 @@ export function isBranchName(name: string): boolean {
 /** What a repo write commits on (ADR 12 D9). */
 export type RepoWriter = IssueWriter
 
+/** Machine-side evidence gathered before opening a repository write transaction. */
+export interface PreparedRepoAdd {
+  readonly path: string
+  readonly machineId: MachineId
+  readonly originUrl: string | undefined
+}
+
 export class RepoRegistry {
   constructor(
     private readonly sessionReg: SessionRegistry,
@@ -115,6 +68,17 @@ export class RepoRegistry {
   /** Flat list of registered repo paths. Optionally filtered to a machine. */
   async list(machineId?: MachineId): Promise<string[]> {
     return await this.store.repos.listRepoPaths(machineId)
+  }
+
+  /** Machines that registered this root or a repository containing it. */
+  async machinesForRoot(root: string): Promise<MachineId[]> {
+    return [
+      ...new Set(
+        (await this.store.repos.listRepos())
+          .filter((repo) => isMachinePathWithinRoot(repo.path, root))
+          .map((repo) => repo.machineId),
+      ),
+    ]
   }
 
   /** The longest registered repo root that contains `path` (cwd → repo inference).
@@ -129,6 +93,10 @@ export class RepoRegistry {
     machineId?: MachineId,
     prefix?: string,
   ): Promise<void> {
+    await this.addPrepared(writer, await this.prepareAdd(path, machineId), prefix)
+  }
+
+  async prepareAdd(path: string, machineId?: MachineId): Promise<PreparedRepoAdd> {
     const p = normalizeRepoPath(path)
     if (!p) throw new Error('repo path is empty')
     if (!isAbsoluteMachinePath(p)) throw new Error(`repo path must be absolute: ${p}`)
@@ -140,8 +108,27 @@ export class RepoRegistry {
     // nothing for a stale tab, a direct RPC call or a CLI, and a per-handler
     // guard is one someone can forget to copy.
     await this.sessionReg.modules.machines.requireRepoHostStructure(mid)
-    // Best-effort origin capture: reads <p>/.git locally, so it only yields a URL
-    // when the path exists on this host (remote repos get it later via scan).
+    // Inspect only this root on its machine, before the insert. An offline or
+    // failing daemon leaves a path-fallback id for a later checkout scan to upgrade.
+    // The structural gate above permits offline machines: don't wait for their RPC timeout.
+    let originUrl: string | undefined
+    if (this.sessionReg.modules.machines.hasDaemon(mid)) {
+      try {
+        const scan = await this.sessionReg.modules.rpc.scanRepos(
+          [p],
+          { includeHome: false, maxDepth: 0 },
+          mid,
+        )
+        originUrl = scan.repositories.find((repo) => machinePathsEqual(repo.path, p))?.originUrl
+      } catch {
+        // Registration remains available when machine-side origin discovery fails.
+      }
+    }
+    return { path: p, machineId: mid, originUrl }
+  }
+
+  /** The database-only registration, after machine-side evidence has been gathered. */
+  async addPrepared(writer: RepoWriter, repo: PreparedRepoAdd, prefix?: string): Promise<void> {
     // `prefix` (uppercased courtesy) overrides the derived nice-id prefix (#474).
     // A new repo mints a prefix (addRepo → ensurePrefixForRepoId), so it is a
     // new 'repo' entity on the feed [POD-822].
@@ -149,13 +136,13 @@ export class RepoRegistry {
       writer,
       async () =>
         await this.store.repos.addRepo(
-          p,
-          mid,
-          readLocalOriginUrl(p) ?? undefined,
+          repo.path,
+          repo.machineId,
+          repo.originUrl,
           prefix?.toUpperCase(),
         ),
     )
-    await this.checkoutsMoved(mid)
+    await this.checkoutsMoved(repo.machineId)
   }
 
   /** Register a checkout whose origin was established by a machine-side clone. */
@@ -309,7 +296,7 @@ export class RepoRegistry {
   private async checkoutsMoved(machineId: MachineId): Promise<void> {
     const checkouts = this.sessionReg.modules.checkouts
     await checkouts.registrationsChanged(machineId)
-    checkouts.rescanSoon(machineId)
+    afterCommit(() => checkouts.rescanSoon(machineId), 'scan registered repository')
   }
 
   /**
@@ -323,24 +310,18 @@ export class RepoRegistry {
    * scan walks the machine's filesystem through its daemon, which is the
    * code-execution boundary `use` draws.
    */
-  async rescanUsable(mayUse: (machineId: MachineId) => boolean): Promise<GitDiscoveryDiagnosticWire[]> {
+  async rescanUsable(
+    mayUse: (machineId: MachineId) => boolean,
+  ): Promise<GitDiscoveryDiagnosticWire[]> {
     const machineIds = this.sessionReg.modules.machines.onlineMachineIds().filter(mayUse)
     if (machineIds.length === 0) {
       return [{ severity: 'error', path: '', message: 'no daemons online' }]
     }
     const diagnostics = await Promise.all(
-      machineIds.map(async (machineId) => await this.sessionReg.modules.checkouts.rescan(machineId)),
+      machineIds.map(
+        async (machineId) => await this.sessionReg.modules.checkouts.rescan(machineId),
+      ),
     )
     return diagnostics.flat()
   }
-}
-
-function currentHomeDir(): string {
-  return process.env.HOME || homedir()
-}
-
-function expandHome(path: string, homePath: string): string {
-  if (path === '~') return homePath
-  if (path.startsWith('~/')) return join(homePath, path.slice(2))
-  return path
 }

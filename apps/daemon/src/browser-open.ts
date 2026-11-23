@@ -155,7 +155,7 @@ export async function executeLoopbackGet(url: URL): Promise<number> {
 /**
  * Owns the expiring callback capability on the daemon that owns the session.
  * The server/client only route an opaque request id; validation and execution
- * remain beside the remote loopback listener. [spec:SP-a43e]
+ * remain beside the remote loopback listener.
  */
 export function createBrowserOpenManager(
   send: (msg: DaemonMessage) => void,
@@ -192,7 +192,7 @@ export function createBrowserOpenManager(
       if (!url) return { ok: false, error: 'browser-open URL must be a valid HTTP(S) URL' }
       // Adapter verdict first; the generic redirect_uri heuristic is the
       // fallback. A 'link' verdict also withholds the callback capability —
-      // a plain link must not mint a paste-back target. [spec:SP-a43e]
+      // a plain link must not mint a paste-back target.
       const verdict = opts.classify?.(sessionId, url)
       const callbackTarget = verdict?.intent === 'link' ? undefined : deriveCallbackTarget(url)
       const request: PendingBrowserOpen = {

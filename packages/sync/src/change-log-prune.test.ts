@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { CHANGE_PRUNE_BATCH_ROWS, pruneChangeLog } from './change-log'
 
-describe('pruneChangeLog [spec:SP-c29e]', () => {
+describe('pruneChangeLog', () => {
   it('runs bounded delete units until the repository reports a short batch', async () => {
     const batches = [CHANGE_PRUNE_BATCH_ROWS, CHANGE_PRUNE_BATCH_ROWS, 17]
     const plan = { thresholdSeq: 217 }

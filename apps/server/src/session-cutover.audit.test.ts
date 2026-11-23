@@ -687,7 +687,7 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
     expect((await o.meta(sessionId)).name).toBe('human choice')
 
     // …and an AGENT acting for that human does NOT overwrite it, because the
-    // agent-naming path enforces [spec:SP-eb60]'s precedence. The distinction is
+    // agent-naming path enforces precedence. The distinction is
     // read off the principal's pair, not off which transport was used — and the
     // payload's own `humanDirect` / `actor` claims are not even representable.
     const result = await renameOnTargetPath(
@@ -890,7 +890,7 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
     // A session on the host this server runs on, exactly as a single-machine
     // install produces it (no explicit placement).
     const target = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
-    expect((await o.meta(target.sessionId)).machineId).toBe(o.store.hostMachineId)
+    expect((await o.meta(target.sessionId)).machineId).toBe(o.store.hostMachine!.id)
     // A colleague authenticated to this instance: not the installer, no grant.
     const ctx = await ctxFor(o, human(COLLEAGUE), { ownership: ownershipTable(new Map()) })
     const before = (await o.meta(target.sessionId)).status
@@ -911,10 +911,10 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
       dispatchSessionCommand(ctx, 'create', {
         agentKind: 'shell',
         cwd: '/p',
-        machineId: o.store.hostMachineId,
+        machineId: o.store.hostMachine!.id,
       }),
     )
-    expect(message).toBe(`unknown machine '${o.store.hostMachineId}'`)
+    expect(message).toBe(`unknown machine '${o.store.hostMachine!.id}'`)
   })
 
   it('HANDOFF gates both machines, and its contract says so', () => {

@@ -7,7 +7,7 @@ export interface StaticHtmlPreviewOptions {
   fileDir: string
   resolveAsset: ResolveAsset
   readTextAsset: (absPath: string) => string | undefined
-  /** Artifact scope only ([spec:SP-0fc9]): keep scripts so an agent-authored prototype is
+  /** Artifact scope only: keep scripts so an agent-authored prototype is
    *  actually clickable. The iframe grants allow-scripts (opaque origin — no app DOM, no
    *  cookies, no storage) and the CSP below blocks egress. Every other scope stays static:
    *  a worktree .html is arbitrary content (node_modules, fetched fixtures), not a deliverable. */

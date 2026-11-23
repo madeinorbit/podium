@@ -51,7 +51,7 @@ Citation conventions used below: **[help]** = the installed `grok --help` / subc
   - `--sandbox <off|workspace|read-only|strict|custom>` (Landlock on Linux / Seatbelt on macOS; also `GROK_SANDBOX`; custom profiles `~/.grok/sandbox.toml`). Default `off`. *(established)*
 - **Model / reasoning effort at launch:** `-m/--model <MODEL_ID>` and `--effort <low|medium|high|xhigh|max>`. The authenticated 0.2.101 catalog exposes exactly `grok-4.5` (default) and `grok-composer-2.5-fast` (Composer 2.5 Fast); Podium forwards either exact ID unchanged. *(established)*
   - **Conflicts / open questions:** one source reports no agent-specific model/effort/fast-mode flags at all (free-form CLI-args only). The CLI in fact exposes `-m`, `--effort`, `--reasoning-effort` directly; use them.
-- **Podium intra-issue mode [spec:SP-79c5]:** coordinators spawn `podium agent spawn --issue <id> --harness grok --model <id> --prompt <task>`. The adapter appends the issue/spec/workflow contract through `--rules`; every child receives `PODIUM_SESSION_ID` and `PODIUM_ISSUE_RELAY`, so `podium issue prime`, workflow checkpoints, and durable `podium issue mail` / `podium mail reply` commands work without harness-specific setup.
+- **Podium intra-issue mode:** coordinators spawn `podium agent spawn --issue <id> --harness grok --model <id> --prompt <task>`. The adapter appends the issue/spec/workflow contract through `--rules`; every child receives `PODIUM_SESSION_ID` and `PODIUM_ISSUE_RELAY`, so `podium issue prime`, workflow checkpoints, and durable `podium issue mail` / `podium mail reply` commands work without harness-specific setup.
 
 ---
 
@@ -138,7 +138,7 @@ Citation conventions used below: **[help]** = the installed `grok --help` / subc
 
 ## 8. Hooks & instrumentation install
 
-- **Managed install [spec:SP-79c5]:** production daemons idempotently maintain `$GROK_HOME/hooks/podium.json`. Personal hooks need no project trust. Foreign groups in the dedicated file are preserved; corrupt content is left untouched; hosts without a Grok home are skipped.
+- **Managed install:** production daemons idempotently maintain `$GROK_HOME/hooks/podium.json`. Personal hooks need no project trust. Foreign groups in the dedicated file are preserved; corrupt content is left untouched; hosts without a Grok home are skipped.
 - **Per-session binding:** every handler is the same env-gated command. Podium-spawned sessions inherit `PODIUM_GROK_HOOK_URL`; other Grok runs exit successfully before any network access. The command POSTs stdin JSON to the loopback ingest with a two-second curl bound and fails open.
 - **Native payload and lifecycle:** Grok sends camelCase `hookEventName`, `sessionId`, `cwd`, `workspaceRoot`, and tool fields. Podium registers SessionStart/End, UserPromptSubmit, Pre/PostToolUse, PostToolUseFailure, PermissionDenied, Notification, Stop/StopFailure, SubagentStart/Stop, and Pre/PostCompact.
 - **Blocking contract:** only PreToolUse consumes stdout decisions, using `{"decision":"deny","reason":"…"}`; passive Stop output is ignored by Grok. Durable unread mail and acknowledgement reminders therefore deny one PreToolUse call with the Podium inbox/reply pointer, then the cooldown allows the agent's retry. Stop remains an authoritative completion signal.

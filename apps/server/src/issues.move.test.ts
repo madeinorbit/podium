@@ -17,13 +17,13 @@ async function fixture() {
   registries.push(registry)
   await registry.sessionStore.repos.addRepo(
     '/r',
-    registry.sessionStore.hostMachineId,
+    registry.sessionStore.hostMachine!.id,
     undefined,
     'POD',
   )
   await registry.sessionStore.repos.addRepo(
     '/other',
-    registry.sessionStore.hostMachineId,
+    registry.sessionStore.hostMachine!.id,
     undefined,
     'OTH',
   )

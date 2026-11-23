@@ -301,7 +301,7 @@ export const discoveryScanMachineInput = z.object({
   machineId: MachineIdField,
   deep: z.boolean().optional(),
   /** The folder the user is browsing — scanned as an extra root ("scan here",
-   *  POD-855) [spec:SP-5eb6] alongside the always-on known-repo tiers. */
+   *  POD-855) alongside the always-on known-repo tiers. */
   atPath: z.string().optional(),
 })
 

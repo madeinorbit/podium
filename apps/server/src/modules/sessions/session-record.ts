@@ -466,7 +466,7 @@ export function projectSessionMeta(s: SessionIdentity, d: SessionDurableFields):
     ...(attachKinds ? { attachKinds: [...attachKinds] } : {}),
     ...(d.draftUpdatedAt !== undefined ? { draftUpdatedAt: d.draftUpdatedAt } : {}),
     ...(d.draftSyncEngine ? { draftSyncEngine: true } : {}),
-    ...(d.offer !== undefined ? { offer: d.offer } : {}), // [spec:SP-c7f1]
+    ...(d.offer !== undefined ? { offer: d.offer } : {}),
     ...(d.handoffTargetMachineId ? { handoffTargetMachineId: d.handoffTargetMachineId } : {}),
     ...(driverId ? { driverId } : {}),
     ...(d.requestedDriverId ? { requestedDriverId: d.requestedDriverId } : {}),

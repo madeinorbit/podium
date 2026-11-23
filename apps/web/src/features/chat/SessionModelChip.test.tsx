@@ -132,6 +132,77 @@ describe('a session whose driver can change model mid-conversation', () => {
     expect(configure).toHaveBeenCalledWith('s1', { model: 'claude-sonnet-5-5' })
   })
 
+  it('resets an incompatible effort in the same change when picking another model', async () => {
+    modelCatalogFixture.current['claude-code']!.push({
+      value: 'claude-haiku',
+      label: 'Haiku',
+      efforts: [],
+    })
+    render(<SessionModelChip session={configurable()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Haiku' }))
+    await waitFor(() =>
+      expect(configure).toHaveBeenCalledWith('s1', { model: 'claude-haiku', effort: 'auto' }),
+    )
+    expect((screen.getByRole('button', { name: 'Model' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+  })
+
+  it('resets effort when returning the model to Auto', async () => {
+    render(<SessionModelChip session={configurable()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^Auto/ }))
+    await waitFor(() =>
+      expect(configure).toHaveBeenCalledWith('s1', { model: 'auto', effort: 'auto' }),
+    )
+  })
+
+  it('switches Cursor effort by selecting the corresponding reported native model', async () => {
+    modelCatalogFixture.current.cursor = [
+      { value: 'opus-thinking-low', label: 'Opus Low', efforts: ['low', 'high'] },
+      { value: 'opus-thinking-high', label: 'Opus High', efforts: ['low', 'high'] },
+    ]
+    render(
+      <SessionModelChip
+        session={session({
+          agentKind: 'cursor',
+          configureFields: ['model', 'effort'],
+          requestedModel: 'opus-thinking-low',
+          requestedEffort: 'low',
+        })}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Effort' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'High' }))
+    await waitFor(() =>
+      expect(configure).toHaveBeenCalledWith('s1', { model: 'opus-thinking-high', effort: 'high' }),
+    )
+  })
+
+  it('keeps Cursor model and effort consistent when selecting a native model variant', async () => {
+    modelCatalogFixture.current.cursor = [
+      { value: 'opus-thinking-low', label: 'Opus Low', efforts: ['low', 'high'] },
+      { value: 'opus-thinking-high', label: 'Opus High', efforts: ['low', 'high'] },
+    ]
+    render(
+      <SessionModelChip
+        session={session({
+          agentKind: 'cursor',
+          configureFields: ['model', 'effort'],
+          requestedModel: 'opus-thinking-low',
+          requestedEffort: 'low',
+        })}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Opus High' }))
+    await waitFor(() =>
+      expect(configure).toHaveBeenCalledWith('s1', { model: 'opus-thinking-high', effort: 'high' }),
+    )
+  })
+
   it('shows the chosen model while the change is on its way, then the record says how it ended', async () => {
     const { rerender } = render(<SessionModelChip session={configurable()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))

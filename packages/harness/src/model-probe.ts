@@ -14,6 +14,7 @@ import { cursorModelProbeArgv, parseCursorModels } from './adapters/cursor/model
 import {
   grokModelProbeArgv,
   grokModelProbeContainment,
+  grokModelProbeInput,
   parseGrokModels,
 } from './adapters/grok/model-probe.js'
 import {
@@ -21,6 +22,7 @@ import {
   opencodeModelProbeContainment,
   parseOpencodeModels,
 } from './adapters/opencode/model-probe.js'
+import { probeOpencode2Models } from './adapters/opencode/model-probe-v2.js'
 import {
   parsePiModels,
   piModelProbeArgv,
@@ -34,7 +36,8 @@ const log = createLogger('harness:model-probe')
 
 /**
  * Live model enumeration for every agent:
- *   grok/cursor/opencode → `<cli> models`
+ *   cursor/opencode      → `<cli> models` (OpenCode includes variant metadata)
+ *   grok                 → ACP initialize modelState (no session or prompt)
  *   codex                → `codex debug models` (JSON)
  *   claude               → Anthropic `GET /v1/models`, matching the agent's auth: an
  *                          Anthropic API key if the user runs API-based Claude, else
@@ -71,8 +74,8 @@ export interface ModelChoice {
   label: string
   /** Reasoning-effort levels this specific model supports, when the source reports
    *  them authoritatively (claude `capabilities.effort`, codex `supported_reasoning_levels`).
-   *  `[]` = the model supports no effort (e.g. claude haiku). `undefined` = unknown
-   *  (grok/cursor/opencode don't expose it) → the web falls back to its agent-level list. */
+   *  `[]` = the model supports no effort (e.g. Claude Haiku). `undefined` = unknown;
+   *  the picker offers no effort until a model reports its levels. */
   efforts?: string[]
 }
 
@@ -92,6 +95,10 @@ const MODEL_PROBES = {
 } as const satisfies Record<string, readonly string[]>
 
 export type ProbeableAgent = keyof typeof MODEL_PROBES
+
+/** What a probe writes to the harness's stdin, when its listing is a protocol
+ *  exchange (Grok's ACP initialize) rather than a plain command. */
+const MODEL_PROBE_INPUT: Partial<Record<ProbeableAgent, string>> = { grok: grokModelProbeInput }
 
 export const PROBEABLE_AGENTS = Object.keys(MODEL_PROBES) as ProbeableAgent[]
 
@@ -115,17 +122,19 @@ export function parseModels(kind: ProbeableAgent, out: string): ModelChoice[] {
 
 /** Runs a probe argv → stdout under `env` (the account env, when the probe
  *  has a context), in `cwd` when one is given (a contained probe's own empty
- *  folder). Injectable so tests never shell out. */
+ *  folder), with `stdin` written to the program when given. Injectable so
+ *  tests never shell out. */
 export type ModelProbeExec = (
   argv: readonly string[],
   timeoutMs: number,
   env?: Readonly<Record<string, string>>,
   cwd?: string,
+  stdin?: string,
 ) => Promise<string>
 
-const defaultExec: ModelProbeExec = async (argv, timeoutMs, env, cwd) => {
+const defaultExec: ModelProbeExec = async (argv, timeoutMs, env, cwd, stdin) => {
   const [cmd, ...args] = argv
-  const { stdout } = await execFileAsync(cmd as string, args, {
+  const result = execFileAsync(cmd as string, args, {
     timeout: timeoutMs,
     maxBuffer: 16 * 1024 * 1024,
     // Never the daemon's inherited env: the default exec only runs with a
@@ -133,6 +142,8 @@ const defaultExec: ModelProbeExec = async (argv, timeoutMs, env, cwd) => {
     env: env ?? {},
     ...(cwd ? { cwd } : {}),
   })
+  if (stdin !== undefined) result.child.stdin?.end(stdin)
+  const { stdout } = await result
   return stdout
 }
 
@@ -200,15 +211,26 @@ const MODEL_PROBE_CONTAINMENT: Partial<
   pi: piModelProbeContainment,
 }
 
+/** What a probe is handed per harness: the installation and account env, and
+ *  for a contained listing (POD-7390) the account's home and folders too. A
+ *  caller that has only the first two (Cursor's selection) is listed in place. */
+export type ProbeContext = Pick<HarnessContext, 'installation' | 'env'> &
+  Partial<Pick<HarnessContext, 'home' | 'roots' | 'harnessHome'>>
+
+function isFullContext(context: ProbeContext): context is HarnessContext {
+  return context.home !== undefined && context.roots !== undefined
+}
+
 export interface ProbeOptions {
   exec?: ModelProbeExec
+  opencode2?: typeof probeOpencode2Models
   timeoutMs?: number
   /**
    * The account context per CLI-probed harness (POD-6534): the installation's
    * verified executable runs with the account env. A harness without a
    * context (not installed in this generation) is not probed.
    */
-  contexts?: Partial<Record<ProbeableAgent, HarnessContext>>
+  contexts?: Partial<Record<ProbeableAgent, ProbeContext>>
 }
 
 /** Enumerate one agent's models. Any failure (CLI absent, not logged in, timeout)
@@ -226,15 +248,34 @@ export async function probeAgentModels(
   const command =
     context?.installation.executable ?? (opts.exec ? MODEL_PROBES[kind][0] : undefined)
   if (!command) return []
+  // OpenCode's preview builds list through their metadata query, which
+  // containment was never measured on: they are listed as before.
+  if (
+    kind === 'opencode' &&
+    context &&
+    /^0\.0\.0-beta-(?:18743|18866)$/.test(context.installation.version ?? '')
+  ) {
+    try {
+      return await (opts.opencode2 ?? probeOpencode2Models)(context, timeoutMs)
+    } catch {
+      return []
+    }
+  }
   // The person's own folders are contained; a Podium home is Podium's folder
   // and is listed in place (credential management §10).
-  const contain = context && !context.harnessHome ? MODEL_PROBE_CONTAINMENT[kind] : undefined
-  if (context && contain) {
+  const contain =
+    context && isFullContext(context) && !context.harnessHome
+      ? MODEL_PROBE_CONTAINMENT[kind]
+      : undefined
+  if (context && isFullContext(context) && contain) {
     const listed = await probeContained(kind, command, args, context, contain, exec, timeoutMs)
     if (listed !== IN_PLACE) return listed
   }
   try {
-    return parseModels(kind, await exec([command, ...args], timeoutMs, context?.env))
+    return parseModels(
+      kind,
+      await exec([command, ...args], timeoutMs, context?.env, undefined, MODEL_PROBE_INPUT[kind]),
+    )
   } catch {
     return []
   }
@@ -300,7 +341,10 @@ async function probeContained(
       }
     }
     const argv = [command, ...(containment.args ?? []), ...args]
-    return parseModels(kind, await exec(argv, timeoutMs, Object.freeze(env), work))
+    return parseModels(
+      kind,
+      await exec(argv, timeoutMs, Object.freeze(env), work, MODEL_PROBE_INPUT[kind]),
+    )
   } catch {
     return []
   } finally {

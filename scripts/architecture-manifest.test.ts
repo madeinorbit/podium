@@ -118,7 +118,7 @@ describe('MANIFEST coverage', () => {
 
 // ---------------------------------------------------------------------------
 // Ledger drift guard — same shape and rationale as
-// packages/telemetry/src/docs-drift.test.ts [spec:SP-f933].
+// packages/telemetry/src/docs-drift.test.ts.
 // ---------------------------------------------------------------------------
 
 describe('migration-ledger drift', () => {

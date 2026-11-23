@@ -358,8 +358,8 @@ export function checkDeclaredDeps(repoRoot: string): Violation[] {
 // must not import host-hook handlers or vice versa". The relay bakes session
 // identity into its URL path, so a host callback that reaches for relay code
 // (or a relay that reaches for hook code) re-homes identity, confuses authz and
-// breaks `PODIUM_NO_RELAY` hermetic tests — the failure [spec:SP-b85a],
-// [spec:SP-fccf] and [spec:SP-a43e] each re-derived independently.
+// breaks `PODIUM_NO_RELAY` hermetic tests — the failure,
+// and each re-derived independently.
 //
 // Both sets are deliberately narrow: the handler modules themselves, not their
 // composition roots. `apps/daemon/src/daemon.ts` wires both and is not a
@@ -413,7 +413,7 @@ function hostEdgeCrossImport(repoRoot: string, file: string, ref: ImportRef): Vi
     file,
     specifier: ref.specifier,
     rule: 'host-edge-separation',
-    message: `${file}: the ${from} channel must not import the ${to} channel ('${ref.specifier}' → ${target}) — ADR 7 D2 keeps host↔server traffic separate from the agent command relay ([spec:SP-b85a], [spec:SP-fccf], [spec:SP-a43e]); give the host feature its own typed frames instead`,
+    message: `${file}: the ${from} channel must not import the ${to} channel ('${ref.specifier}' → ${target}) — ADR 7 D2 keeps host↔server traffic separate from the agent command relay; give the host feature its own typed frames instead`,
   }
 }
 

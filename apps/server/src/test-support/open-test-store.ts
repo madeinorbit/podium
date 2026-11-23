@@ -65,7 +65,7 @@ import {
  */
 export async function openTestStore(
   path?: string,
-  hostMachineId?: MachineId,
+  hostMachineId?: MachineId | null,
   storeOptions?: Omit<NonNullable<Parameters<typeof SessionStore.open>[2]>, 'workspace'>,
   options: { workspace?: WorkspaceId } = {},
 ): Promise<SessionStore> {
@@ -77,13 +77,17 @@ export async function openTestStore(
   // store-level fixture seeds with no log to bypass.
   const clone = testStoreEngine() === 'pg' ? await postgresDatabase(path) : undefined
   const location = clone?.url ?? path
-  const store = await SessionStore.open(location, hostMachineId, {
-    ...storeOptions,
-    changeCapture: 'whenLogAttaches',
-    workspace: options.workspace ?? SELF_HOSTED_WORKSPACE_ID,
-    // A test file may hold many stores at once; the leg's server has 300 connections.
-    ...(clone === undefined ? {} : { poolSize: 3 }),
-  })
+  const store = await SessionStore.open(
+    location,
+    hostMachineId === undefined ? undefined : hostMachineId === null ? null : { id: hostMachineId },
+    {
+      ...storeOptions,
+      changeCapture: 'whenLogAttaches',
+      workspace: options.workspace ?? SELF_HOSTED_WORKSPACE_ID,
+      // A test file may hold many stores at once; the leg's server has 300 connections.
+      ...(clone === undefined ? {} : { poolSize: 3 }),
+    },
+  )
   // A store left open would still be querying when its database is dropped.
   if (clone !== undefined) closeBeforeDrop(clone.name, async () => await store.close())
   // The workspace's own first admin (POD-7019: members are the workspace's). A workspace the

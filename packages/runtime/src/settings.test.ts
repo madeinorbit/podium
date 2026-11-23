@@ -201,7 +201,7 @@ describe('normalizeSettings — coding.startScreen', () => {
   })
 })
 
-describe('normalizeSettings — coding.seedCliTheme [spec:SP-a04d]', () => {
+describe('normalizeSettings — coding.seedCliTheme', () => {
   it('defaults ON, including for old blobs without the field', () => {
     expect(normalizeSettings({}).roles.coding.seedCliTheme).toBe(true)
     expect(
@@ -447,7 +447,7 @@ describe('normalizeSettings — autoContinue', () => {
   })
 })
 
-describe('normalizeSettings — draftSync → experimental migration [spec:SP-f4b9] (POD-859)', () => {
+describe('normalizeSettings — draftSync → experimental migration (POD-859)', () => {
   // Draft Sync moved from the bespoke settings.draftSync.enabled key onto the
   // canonical experiments store (settings.experimental['draft-sync']). One source
   // of truth: the bespoke key is migrated forward then dropped.
@@ -524,7 +524,7 @@ describe('shouldPromptAutoContinue', () => {
   })
 })
 
-describe('normalizeSettings — experimental [spec:SP-f4b9]', () => {
+describe('normalizeSettings — experimental', () => {
   it('defaults experimental to empty object', () => {
     expect(DEFAULT_SETTINGS.experimental).toEqual({})
     expect(normalizeSettings({}).experimental).toEqual({})

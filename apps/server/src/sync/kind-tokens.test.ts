@@ -1,5 +1,5 @@
 import { HARNESS_VERSION_POLICIES } from '@podium/harness/browser'
-import { DEFAULT_FLEET_UPDATE_CHANNEL } from '@podium/model'
+import { DEFAULT_FLEET_UPDATE_CHANNEL, type Where } from '@podium/model'
 import { DEFAULT_SETTINGS } from '@podium/runtime'
 import type { SyncRepository } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -41,6 +41,7 @@ async function tokens(
     evidenceSummaryDefault?: string
     eventWindow?: number
     confirmedPerSession?: number
+    noIssueWhere?: Where
     generations?: { kind: string; generation: number }[]
   } = {},
 ) {
@@ -59,8 +60,18 @@ async function tokens(
   }))
   vi.doMock('@podium/model', async (original) => {
     const actual = await original<typeof import('@podium/model')>()
+    const current = actual.COLLECTIONS.get('session.noIssue')
+    if (current === undefined) throw new Error('session.noIssue fixture is missing')
+    const noIssue =
+      options.noIssueWhere === undefined ? current : { ...current, where: options.noIssueWhere }
     return {
       ...actual,
+      RECORDS: actual.RECORDS.map((record) =>
+        record.kind === 'session'
+          ? { ...record, collections: { ...record.collections, noIssue } }
+          : record,
+      ),
+      COLLECTIONS: new Map(actual.COLLECTIONS).set(noIssue.id, noIssue),
       DEFAULT_FLEET_UPDATE_CHANNEL: options.fleetChannel ?? DEFAULT_FLEET_UPDATE_CHANNEL,
       MAX_AGENT_PROFILE_CANDIDATES: options.candidateLimit ?? actual.MAX_AGENT_PROFILE_CANDIDATES,
       AgentCandidate:
@@ -130,6 +141,12 @@ function changedKinds(before: Record<string, string>, after: Record<string, stri
 }
 
 describe('record kind code inputs', () => {
+  it('device reload audit changes the session token when the no-issue collection rule changes', async () => {
+    // The rule before fd0c7568d0 included every unarchived session without an issue.
+    const before = await tokens({ noIssueWhere: { archived: false, issueId: { empty: true } } })
+    expect(changedKinds(before, await tokens())).toEqual(['session'])
+  })
+
   it('changes only machine when the fleet channel default changes', async () => {
     expect(changedKinds(await tokens(), await tokens({ fleetChannel: 'dev' }))).toEqual(['machine'])
   })

@@ -127,7 +127,6 @@ const LAUNCH_BOOL_FLAGS = ['--local', '--reconfigure', '--takeover']
 const HELP_DELEGATED = new Set([
   'issue',
   'session',
-  'spec',
   'worktree',
   'workspace',
   'mail',
@@ -213,7 +212,7 @@ export type DaemonAuthKind = 'machine'
 export type LaunchPlan =
   /** `podium help` / `--help` / `-h`: print usage and exit 0 — NEVER boot anything (#18). */
   | { kind: 'help' }
-  /** Approval broker [spec:SP-edbb]: agent-session management op → relay request. */
+  /** Approval broker: agent-session management op → relay request. */
   | { kind: 'approval-request'; op: ApprovalOp }
   | { kind: 'approval-status'; id: string }
   | { kind: 'version' }
@@ -225,7 +224,7 @@ export type LaunchPlan =
   | { kind: 'repair-payload'; serverUrl: string; pairedDaemon: boolean }
   | { kind: 'update-key'; args: string[] }
   | { kind: 'channel'; target: string | undefined }
-  /** `podium telemetry [status|on|off|show|reset-id]` [spec:SP-f933]. */
+  /** `podium telemetry [status|on|off|show|reset-id]`. */
   | { kind: 'telemetry'; args: string[] }
   /** `podium tunnel enable|disable`: the opt-in supervised quick tunnel (POD-4640). */
   | { kind: 'tunnel'; args: string[] }
@@ -266,7 +265,6 @@ export type LaunchPlan =
   | { kind: 'mail'; args: string[] }
   | { kind: 'offer'; args: string[] }
   | { kind: 'agent'; args: string[] }
-  | { kind: 'spec'; args: string[] }
   | { kind: 'auth'; args: string[] }
   | { kind: 'worktree'; args: string[] }
   | { kind: 'workspace'; args: string[] }
@@ -581,7 +579,7 @@ export function resolvePlan(
     }
   }
 
-  // ---- approval broker [spec:SP-edbb] ----
+  // ---- approval broker ----
   // Inside a Podium-managed agent session, management ops never execute here:
   // they become approval requests the operator decides in the UI (#410). The
   // daemon executes on approval. Status/logs/work tools stay direct.
@@ -758,7 +756,7 @@ export function resolvePlan(
   if (argv[0] === 'update-key') return { kind: 'update-key', args: argv.slice(1) }
   // `podium channel [stable|edge]`: show or switch the self-update channel.
   if (argv[0] === 'channel') return { kind: 'channel', target: argv[1] }
-  // `podium telemetry [...]`: read/change telemetry consent [spec:SP-f933].
+  // `podium telemetry [...]`: read/change telemetry consent.
   // Deliberately NOT an approval-brokered op: it only touches config.json, and a
   // user (or their agent) must always be able to turn it off without asking anyone.
   if (argv[0] === 'telemetry') return { kind: 'telemetry', args: argv.slice(1) }
@@ -804,7 +802,7 @@ export function resolvePlan(
     return { kind: 'server-transfer-retire-daemon' }
   }
   // The janitor was once a sibling component with its own process and unit
-  // [spec:SP-c29e]. It is now a worker thread every server owns (PDM-27), so
+  // It is now a worker thread every server owns (PDM-27), so
   // there is nothing here to start — a word an operator or an old script may
   // still type, answered with the reason rather than "unknown command".
   if (argv[0] === 'janitor') {
@@ -866,7 +864,6 @@ export function resolvePlan(
   if (argv[0] === 'mail') return { kind: 'mail', args: argv.slice(1) }
   if (argv[0] === 'offer') return { kind: 'offer', args: argv.slice(1) }
   if (argv[0] === 'agent') return { kind: 'agent', args: argv.slice(1) }
-  if (argv[0] === 'spec') return { kind: 'spec', args: argv.slice(1) }
   if (argv[0] === 'auth') return { kind: 'auth', args: argv.slice(1) }
   if (argv[0] === 'worktree') return { kind: 'worktree', args: argv.slice(1) }
   if (argv[0] === 'workspace') return { kind: 'workspace', args: argv.slice(1) }
@@ -1072,9 +1069,6 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '  instance rekey         Mint a fresh owner UUID for a copied state root',
     '  vault status           Where the credential vault key file is, and whether it opens',
     '  vault reset --confirm  Delete every stored secret after the key file was lost',
-    ...(enabledFeatures.has('specs')
-      ? ['  spec <command>        Read/maintain the living project spec (<repo>/pspec/)']
-      : []),
     '  session <command>     Send turns to agent sessions; status/read for a peek',
     '  machine <command>     List the machines this session can place work on',
     '  automation schedule --at <ISO> --message <text> [--session <id> | --fresh ...]',
@@ -1291,7 +1285,7 @@ async function runInProcess(
   onDaemonAdmitted?: () => void,
 ): Promise<void> {
   const { port, roles, modePlan } = plan
-  claimInstanceStateRoot({ instanceId: resolveInstanceId() }) // [spec:SP-15aa] claim before run-registry writes
+  claimInstanceStateRoot({ instanceId: resolveInstanceId() }) // claim before run-registry writes
   if (plan.claimRole === 'daemon' && plan.takeover) {
     const { liveRecord } = await import('@podium/runtime/run-registry')
     const coordinatorOwnsSuccessor = await yieldToDetachedDaemonSuccessor({
@@ -1811,7 +1805,7 @@ export async function main(
       }
       return
     }
-    // `podium telemetry <command>`: telemetry consent + audit [spec:SP-f933].
+    // `podium telemetry <command>`: telemetry consent + audit.
     case 'telemetry': {
       const { telemetryCliMain } = await import('./telemetry-cli')
       const code = telemetryCliMain(plan.args)
@@ -2345,7 +2339,7 @@ export async function main(
       await sessionCliMain(plan.args)
       return
     }
-    // `podium mail <command>`: the unified messaging surface (#237) [spec:SP-34d7].
+    // `podium mail <command>`: the unified messaging surface (#237).
     case 'offer': {
       const { offerCliMain } = await import('./offer-cli')
       await offerCliMain(plan.args)
@@ -2357,16 +2351,10 @@ export async function main(
       return
     }
     // `podium agent <command>`: cross-harness subagent spawn + bounded await
-    // (#237) [spec:SP-34d7 cross-harness].
+    // (#237).
     case 'agent': {
       const { agentCliMain } = await import('./agent-cli')
       await agentCliMain(plan.args)
-      return
-    }
-    // `podium spec <command>`: read/maintain the living project spec (<repo>/pspec/).
-    case 'spec': {
-      const { specCliMain } = await import('./spec-cli')
-      await specCliMain(plan.args)
       return
     }
     // `podium auth <command>`: the operator's own credential — mint/inspect/revoke the
@@ -2411,7 +2399,7 @@ export async function main(
       await interactionsCliMain(plan.args)
       return
     }
-    // `podium lock <command>`: advisory named lease locks [spec:SP-85d1].
+    // `podium lock <command>`: advisory named lease locks.
     case 'lock': {
       const { lockCliMain } = await import('./lock-cli')
       await lockCliMain(plan.args)
@@ -2424,7 +2412,7 @@ export async function main(
       return
     }
     // `podium perf <command>`: the event-loop instrument's reader — level, the
-    // minute files, and an on-demand CPU profile [spec:SP-6144 §7.3].
+    // minute files, and an on-demand CPU profile.
     case 'perf': {
       const { perfCliMain } = await import('./perf-cli')
       await perfCliMain(plan.args)

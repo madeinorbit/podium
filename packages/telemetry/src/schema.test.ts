@@ -1,5 +1,5 @@
 /**
- * The schema-lint [spec:SP-f933]: a structural proof that the payload cannot
+ * The schema-lint: a structural proof that the payload cannot
  * carry free text.
  *
  * This is the test that makes "we never send your paths / repo names / prompts"

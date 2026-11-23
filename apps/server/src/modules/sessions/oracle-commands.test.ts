@@ -102,7 +102,7 @@ async function nextInterruptRequest(o: Oracle, sessionId: SessionId) {
 
 /** The daemon takes custody of a durable row, as a real one does. Not delivery. */
 const grantCustody = (o: Oracle, send: DurableSendRequest): Promise<void> =>
-  o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'runtimeSendResult',
     requestId: send.requestId,
     sessionId: send.sessionId,
@@ -219,7 +219,7 @@ async function answerThroughDriver(
   await waitFor(() => answerRequests(o.daemon).length > 0, 'the answer to reach the driver')
   // biome-ignore lint/style/noNonNullAssertion: waited for above.
   const request = answerRequests(o.daemon).at(-1)!
-  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'runtimeAnswerResult',
     requestId: request.requestId,
     sessionId: request.sessionId,
@@ -233,7 +233,7 @@ type AnswerResultOutcome =
 
 /** Bind a created session as a live plain shell (POD-4278): the raw PTY path. */
 async function goLiveShell(o: Oracle, sessionId: SessionId): Promise<void> {
-  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'bind',
     sessionId,
     cmd: 'bash',
@@ -251,7 +251,7 @@ const confirmUserTurn = (
   sessionId: SessionId,
   text: string,
 ): Promise<void> =>
-  o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'transcriptDelta',
     sessionId,
     items: [{ id: `turn-${text}`, role: 'user' as const, text, cursor: `c-${text}` }],
@@ -274,7 +274,7 @@ async function goLive(
   sessionId: SessionId,
   phase: 'idle' | 'working' | 'errored' = 'idle',
 ): Promise<void> {
-  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'bind',
     sessionId,
     cmd: 'claude',
@@ -282,13 +282,13 @@ async function goLive(
     agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 },
   })
-  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'sessionResumeRef',
     sessionId,
     resume: RESUME,
     confidence: 'exact',
   })
-  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'agentState',
     sessionId,
     state: { phase, since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -428,7 +428,7 @@ describe('oracle: hibernate', () => {
   it(`${MUST_NOT_CHANGE}: hibernate REFUSES with a reason (never a throw) when the session is not running`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'agentExit',
       sessionId,
       code: 0,
@@ -443,7 +443,7 @@ describe('oracle: hibernate', () => {
   it(`${MUST_NOT_CHANGE}: hibernate refuses a live session with no resume ref — parking it would lose the conversation`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId,
       cmd: 'claude',
@@ -500,7 +500,7 @@ describe('oracle: resurrect', () => {
 
   it(`${MUST_NOT_CHANGE}: Grok resurrection stays non-live until a ready bind and persists failure, retry, and pointer truth [POD-2942]`, async () => {
     const o = await makeOracle()
-    const machineId = o.reg.sessionStore.hostMachineId
+    const machineId = o.reg.sessionStore.hostMachine!.id
     const resume = { kind: 'grok-session', value: 'native-grok-pod-2942' } as const
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'grok',
@@ -628,7 +628,7 @@ describe('oracle: resurrect', () => {
     // frame ever told us its native id — so this row is bound and ref-less, the
     // case where a relaunch would silently discard the conversation.
     const bound = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId: bound.sessionId,
       cmd: 'claude',
@@ -637,7 +637,7 @@ describe('oracle: resurrect', () => {
       geometry: { cols: 80, rows: 24 },
     })
     await confirmUserTurn(o, bound.sessionId, 'a real turn')
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'agentExit',
       sessionId: bound.sessionId,
       code: 1,
@@ -645,13 +645,13 @@ describe('oracle: resurrect', () => {
     // Created and dead without ever binding a thread: the server minted the
     // 'never' claim itself, so a fresh start discards nothing.
     const neverBound = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'agentExit',
       sessionId: neverBound.sessionId,
       code: 1,
     })
     const shell = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'agentExit',
       sessionId: shell.sessionId,
       code: 1,
@@ -733,7 +733,7 @@ it(`${MUST_NOT_CHANGE}: coalesces resurrection while asynchronous worktree prepa
   const o = await makeOracle()
   const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
   await goLive(o, sessionId)
-  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+  await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
     type: 'agentExit',
     sessionId,
     code: 137,
@@ -794,7 +794,7 @@ describe('oracle: sendText / resumeAndSend', () => {
     const request = await nextInterruptRequest(o, sessionId)
     // A bare stop: no queued row to cancel rides along.
     expect(request.cancelRowId).toBeUndefined()
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'runtimeLifecycleResult',
       requestId: request.requestId,
       sessionId,
@@ -946,7 +946,7 @@ describe('oracle: sendText / resumeAndSend', () => {
    */
   it(`${MUST_NOT_CHANGE}: sendText after process-gone resurrects once and hands concurrent/replayed sends on as ONE fresh write each`, async () => {
     const o = await makeOracle()
-    const machineId = o.reg.sessionStore.hostMachineId
+    const machineId = o.reg.sessionStore.hostMachine!.id
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     await goLive(o, sessionId)
     await o.reg.gateway.routeDaemonFrame(machineId, { type: 'agentExit', sessionId, code: 137 })
@@ -954,8 +954,16 @@ describe('oracle: sendText / resumeAndSend', () => {
     o.daemon.length = 0
 
     const [first, second] = await Promise.all([
-      o.call.sessions.sendText({ sessionId, text: 'one', mutationId: 'msg_00000000-0000-4000-8000-00000000d001' }),
-      o.call.sessions.sendText({ sessionId, text: 'two', mutationId: 'msg_00000000-0000-4000-8000-00000000d002' }),
+      o.call.sessions.sendText({
+        sessionId,
+        text: 'one',
+        mutationId: 'msg_00000000-0000-4000-8000-00000000d001',
+      }),
+      o.call.sessions.sendText({
+        sessionId,
+        text: 'two',
+        mutationId: 'msg_00000000-0000-4000-8000-00000000d002',
+      }),
     ])
     expect(first).toMatchObject({ ok: true, queued: true })
     expect(second).toMatchObject({ ok: true, queued: true })
@@ -965,7 +973,11 @@ describe('oracle: sendText / resumeAndSend', () => {
       'the one wake spawn',
     )
 
-    await o.call.sessions.sendText({ sessionId, text: 'one', mutationId: 'msg_00000000-0000-4000-8000-00000000d001' })
+    await o.call.sessions.sendText({
+      sessionId,
+      text: 'one',
+      mutationId: 'msg_00000000-0000-4000-8000-00000000d001',
+    })
     expect(o.daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
     expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(2)
 
@@ -1028,7 +1040,7 @@ describe('oracle: sendText / resumeAndSend', () => {
       cwd: '/p',
     })
     await goLive(archived, archivedId)
-    await archived.reg.gateway.routeDaemonFrame(archived.reg.sessionStore.hostMachineId, {
+    await archived.reg.gateway.routeDaemonFrame(archived.reg.sessionStore.hostMachine!.id, {
       type: 'agentExit',
       sessionId: archivedId,
       code: 137,
@@ -1051,7 +1063,7 @@ describe('oracle: sendText / resumeAndSend', () => {
       agentKind: 'claude-code',
       cwd: '/p',
     })
-    await unsupported.reg.gateway.routeDaemonFrame(unsupported.reg.sessionStore.hostMachineId, {
+    await unsupported.reg.gateway.routeDaemonFrame(unsupported.reg.sessionStore.hostMachine!.id, {
       type: 'bind',
       sessionId: unsupportedId,
       cmd: 'claude',
@@ -1059,7 +1071,7 @@ describe('oracle: sendText / resumeAndSend', () => {
       agentKind: 'claude-code',
       geometry: { cols: 80, rows: 24 },
     })
-    await unsupported.reg.gateway.routeDaemonFrame(unsupported.reg.sessionStore.hostMachineId, {
+    await unsupported.reg.gateway.routeDaemonFrame(unsupported.reg.sessionStore.hostMachine!.id, {
       type: 'agentExit',
       sessionId: unsupportedId,
       code: 1,
@@ -1336,7 +1348,7 @@ describe('oracle: continue (the errored-agent retry)', () => {
     expect(runtimeSends(o.daemon, sessionId)).toEqual([])
     expect(durableSends(o.daemon, sessionId)).toEqual([])
 
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'agentState',
       sessionId,
       state: { phase: 'errored', since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -1365,7 +1377,7 @@ describe('oracle: continue (the errored-agent retry)', () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     await goLiveShell(o, sessionId)
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'agentState',
       sessionId,
       state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -1375,7 +1387,7 @@ describe('oracle: continue (the errored-agent retry)', () => {
     expect(await o.call.sessions.continue({ sessionId })).toEqual({ ok: false })
     expect(ptyFrames(o.daemon)).toEqual([])
 
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachine!.id, {
       type: 'agentState',
       sessionId,
       state: { phase: 'errored', since: new Date().toISOString(), nativeSubagentCount: 0 },
@@ -1415,7 +1427,7 @@ describe('oracle: stop (clean end, keep the branch)', () => {
 
     const row = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)
     expect(row).toMatchObject({ status: 'hibernated', stopReason: 'parent' })
-    // A terminal transition is new unread information [spec:SP-6144]: stop
+    // A terminal transition is new unread information: stop
     // resurfaces the session, where archive deliberately does not.
     // Per-user (POD-1076): the terminal transition clears EVERY reader's marker,
     // which is what nulling the one column used to mean.

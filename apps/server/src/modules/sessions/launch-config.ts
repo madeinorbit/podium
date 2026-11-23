@@ -101,7 +101,7 @@ export class SessionLaunchConfig {
         ? { subagentModel }
         : {}),
       // Per-session CLI theme seeding rides every (re)spawn so a resurrected
-      // session keeps the configured behaviour too [spec:SP-a04d].
+      // session keeps the configured behaviour too.
       ...(agentKind !== 'shell' ? { seedCliTheme: coding.seedCliTheme } : {}),
     }
   }

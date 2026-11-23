@@ -1,4 +1,3 @@
-import { AnswerRefresh } from '@podium/client-graph/answer-refresh'
 import { expect, it, vi } from 'vitest'
 import { FileTreeView } from '../files/file-tree-view'
 import { DiffView } from './diff-view'
@@ -73,27 +72,4 @@ it('a selected diff refetches on checkout changes; commit diffs are immutable wh
   expect(ports.gitCommitDiffFile).toHaveBeenCalledTimes(1)
   expect(stop).toHaveBeenCalledTimes(1)
   commit.close()
-})
-it('the spec list is fetched again after its checkout signal and no timer is needed', async () => {
-  let write!: () => void
-  let specs = ['SP-one']
-  const list = vi.fn(async () => specs)
-  let answer: string[] = []
-  const owner = new AnswerRefresh(
-    async () => {
-      answer = await list()
-    },
-    (changed) => {
-      write = changed
-      return () => {}
-    },
-  )
-  owner.open()
-  await settle()
-  specs = ['SP-one', 'SP-two']
-  write()
-  await settle()
-  expect(answer).toEqual(['SP-one', 'SP-two'])
-  expect(list).toHaveBeenCalledTimes(2)
-  owner.close()
 })

@@ -322,17 +322,28 @@ function fakeCursor(dir: string): string {
   return script(
     dir,
     'cursor-agent',
-    `if [ "$1" = create-chat ]; then
+    `if [ "$1" = models ]; then
+  echo "opus-thinking-low - Opus Low"
+  echo "opus-thinking-high - Opus High"
+  exit 0
+fi
+if [ "$1" = create-chat ]; then
   echo "allocating" >&2
   echo "11111111-2222-3333-4444-555555555555"
   exit 0
 fi
 chat=""
+model=""
 while [ $# -gt 0 ]; do
   if [ "$1" = "--resume" ]; then shift; chat="$1"; fi
+  if [ "$1" = "--model" ]; then shift; model="$1"; fi
   last="$1"
   shift
 done
+if [ "$CAPTURE_SELECTION" = 1 ]; then
+  printf 'selected %s\\n' "$model"
+  exit 0
+fi
 printf 'cursor answer in %s: %s\\n' "$chat" "$last"
 `,
   )
@@ -558,7 +569,7 @@ describe('a hosted one-shot turn', () => {
     expect((error as HeadlessTurnError).harnessSessionId).toBe('resumed-1')
   })
 
-  it('cursor: allocates the chat in its own hosted run, then pins the turn to it', async () => {
+  it('cursor: pins its first turn to a minted chat id without a separate allocation process', async () => {
     fakes = createFakeHosts()
     const dir = tempDir()
     const snapshot = testHarnessSnapshot({ cursor: fakeCursor(dir) })
@@ -569,19 +580,31 @@ describe('a hosted one-shot turn', () => {
       snapshot,
     })
     const outcome = await handle.done
+    expect(outcome.harnessSessionId).toMatch(/^[\da-f-]{36}$/)
     expect(outcome).toEqual({
-      harnessSessionId: '11111111-2222-3333-4444-555555555555',
-      output: 'cursor answer in 11111111-2222-3333-4444-555555555555: go',
+      harnessSessionId: outcome.harnessSessionId,
+      output: `cursor answer in ${outcome.harnessSessionId}: go`,
     })
-    // Two runs under the one label: the allocation, released, then the turn.
-    expect(fakes.starts).toHaveLength(2)
-    expect(fakes.starts[0]?.args[3]).toContain(' alloc ')
-    expect(fakes.starts[1]?.args[3]).toContain(' turn ')
+    expect(fakes.starts).toHaveLength(1)
+    expect(fakes.starts[0]?.args[3]).toContain(' turn ')
     expect(events).toContainEqual({
       kind: 'status',
       status: 'running',
-      harnessSessionId: '11111111-2222-3333-4444-555555555555',
+      harnessSessionId: outcome.harnessSessionId,
     })
+  })
+
+  it('cursor: resolves a changed effort before launching the next turn', async () => {
+    fakes = createFakeHosts()
+    const dir = tempDir()
+    const { handle } = runTurn({
+      owner: fakes.owner,
+      spec: { agent: 'cursor', cwd: dir, prompt: 'go', model: 'opus-thinking-low', effort: 'high' },
+      sessionId: asSessionId('s-cursor-effort'),
+      snapshot: testHarnessSnapshot({ cursor: fakeCursor(dir) }),
+      env: { CAPTURE_SELECTION: '1' },
+    })
+    expect((await handle.done).output).toBe('selected opus-thinking-high')
   })
 })
 

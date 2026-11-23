@@ -10,7 +10,7 @@
  * live teardown after. A commit throw must leave the session fully alive —
  * still in the map, clients attached, PTY not signalled — and propagate.
  * The remove change commits in the SAME transaction as the tombstone
- * ([spec:SP-3fe2]). Reversing either is invisible to types and to a passing build.
+ * Reversing either is invisible to types and to a passing build.
  *
  * Survival table (what survives) lives on session-teardown.ts; kill is the only
  * arm that tombstones the row.
@@ -158,7 +158,7 @@ export class SessionKill {
     })
     // The remove change commits in the SAME transaction as the tombstone (and
     // the queued-send cleanup — a killed session can never deliver, so its rows
-    // would only orphan until the next boot's sweep) [spec:SP-3fe2] #256: the
+    // would only orphan until the next boot's sweep) #256: the
     // durable change log can never say something the sessions table doesn't.
     // So does the end of every message still waiting for it (POD-4816): the
     // queue it waited in goes here, and nothing else would ever settle it.
@@ -209,7 +209,7 @@ export class SessionKill {
     // after the row is gone.
     afterCommit(async () => {
       this.ports.broadcastSessions()
-      // Session-death notification [spec:SP-85d1] (lock auto-release et al.): a
+      // Session-death notification (lock auto-release et al.): a
       // kill deletes the row from the map BEFORE the daemon's agentExit
       // arrives, so the agentExit-path emit would be skipped — fire it here.
       // killSession is never the hibernate path (hibernateSession only flips

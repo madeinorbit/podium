@@ -103,7 +103,7 @@ test.skipIf(process.env.PODIUM_E2E_REAL_AGENTS !== '1')(
       daemon = await startDaemon({
         serverUrl: `ws://127.0.0.1:${linkB.port}`,
         machineToken: token,
-        machineId: server.registry.modules.machines.hostMachineId,
+        machineId: server.registry.modules.machines.hostMachine!.id,
         hooks: { port: 0 },
         agentRelay: { port: 0 },
         discovery: { homeDir: dirs.discoveryHomeDir, background: false, cachePath: ':memory:' },
@@ -123,7 +123,7 @@ test.skipIf(process.env.PODIUM_E2E_REAL_AGENTS !== '1')(
       await until(async () => {
         const machines = await runningServer().registry.modules.machines.listMachines()
         return (
-          machines.find((m) => m.id === runningServer().registry.modules.machines.hostMachineId)
+          machines.find((m) => m.id === runningServer().registry.modules.machines.hostMachine!.id)
             ?.inventory !== undefined
         )
       }, 'the private machine inventory did not arrive')
@@ -303,7 +303,7 @@ test.skipIf(process.env.PODIUM_E2E_REAL_AGENTS !== '1')(
           agentKind: 'claude-code',
           model: 'haiku',
           cwd: scratch,
-          machineId: runningServer().registry.modules.machines.hostMachineId,
+          machineId: runningServer().registry.modules.machines.hostMachine!.id,
         })
       ).sessionId as SessionId
       await until(() => session().status === 'live', 'Claude did not go live')

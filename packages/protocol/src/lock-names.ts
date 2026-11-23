@@ -1,5 +1,5 @@
 /**
- * Lock-name rules [spec:SP-85d1], stated once for every surface that accepts a
+ * Lock-name rules, stated once for every surface that accepts a
  * lock name (the server registry's zod schema, the `merge-lock` argv sugar, the
  * agent-facing prime text).
  *

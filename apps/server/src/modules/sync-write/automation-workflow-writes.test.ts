@@ -11,9 +11,6 @@ import { memberFacts } from '../../store/fixtures/test-support'
  * are thin adapters onto the entry point on tRPC and on the agent relay.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import {
   asMutationId,
   asUserId,
@@ -30,11 +27,11 @@ import {
 } from '../../command-principal'
 import { currentPlainCommand } from '../../plain-command-scope'
 import type { AutomationRow, AutomationRunRow } from '../../store/automations'
+import { seedRows } from '../../test-support/seed-rows'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { workflowRelayWrite } from '../workflows/rpc'
 import type { WorkflowServiceDeps } from '../workflows/service'
 import { appliedReply, envelope, expectAppliedOnPath, rowsOf, submit } from './outbox-test-support'
-import { seedRows } from '../../test-support/seed-rows'
 
 afterEach(() => disposeOracles())
 
@@ -490,11 +487,6 @@ describe("a worker's checkpoint and its coordinator notice", () => {
 type RelayResult = Extract<ControlMessage, { type: 'agentRelayResult' }>
 
 describe('the agent relay', () => {
-  const dirs: string[] = []
-  afterEach(() => {
-    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
-  })
-
   async function relay(
     o: Oracle,
     sessionId: SessionId,
@@ -503,7 +495,7 @@ describe('the agent relay', () => {
     proc: string,
     input: unknown,
   ): Promise<RelayResult> {
-    await o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+    await o.reg.gateway.routeDaemonFrame(o.store.hostMachine!.id, {
       type: 'agentRelayRequest',
       requestId,
       sessionId,
@@ -555,55 +547,52 @@ describe('the agent relay', () => {
     ])
   })
 
-  it('specs.create on the relay runs on the plain command path, not the sync write entry point', async () => {
+  it('lock.acquire on the relay runs on the plain command path, not the sync write entry point', async () => {
     const o = await makeOracle()
-    const repo = mkdtempSync(join(tmpdir(), 'podium-spec-relay-'))
-    dirs.push(repo)
-    await o.store.repos.addRepo(repo, o.store.hostMachineId)
+    await o.store.repos.addRepo('/r', o.store.hostMachine!.id)
     const agent = (
-      await o.reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: repo })
+      await o.reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/r' })
     ).sessionId
     const scopes: (string | undefined)[] = []
-    const create = o.reg.modules.specs.create.bind(o.reg.modules.specs)
-    vi.spyOn(o.reg.modules.specs, 'create').mockImplementation(async (input) => {
+    const acquire = o.reg.modules.locks.acquire.bind(o.reg.modules.locks)
+    vi.spyOn(o.reg.modules.locks, 'acquire').mockImplementation(async (caller, input) => {
       scopes.push(currentPlainCommand())
-      return await create(input)
+      return await acquire(caller, input)
     })
     const entry = vi.spyOn(o.reg.modules.syncWrite, 'submitDetailed')
 
-    const r = await relay(o, agent, 'r-spec', 'specs', 'create', {
-      repoPath: repo,
-      title: 'Relay rules',
-      parent: 'SP-root',
+    const r = await relay(o, agent, 'r-lock', 'lock', 'acquire', {
+      repoPath: '/r',
+      name: 'relay-plain',
     })
-    expect(r).toMatchObject({ ok: true, result: { title: 'Relay rules' } })
-    expect(scopes).toEqual(['specs.create'])
+    expect(r).toMatchObject({ ok: true, result: { granted: true, lock: { name: 'relay-plain' } } })
+    expect(scopes).toEqual(['lock.acquire'])
     expect(entry).not.toHaveBeenCalled()
 
-    // Its reads are the service's own, as before.
-    const list = await relay(o, agent, 'r-spec-list', 'specs', 'list', { repoPath: repo })
-    expect(list.ok).toBe(true)
+    const status = await relay(o, agent, 'r-lock-status', 'lock', 'status', {
+      repoPath: '/r',
+      name: 'relay-plain',
+    })
+    expect(status).toMatchObject({ ok: true, result: [{ name: 'relay-plain' }] })
   })
 
-  it('specs.create on tRPC runs on the plain path too, and sync.submit does not take it', async () => {
+  it('lock.acquire on tRPC runs on the plain path too, and sync.submit does not take it', async () => {
     const o = await makeOracle()
-    const repo = mkdtempSync(join(tmpdir(), 'podium-spec-trpc-plain-'))
-    dirs.push(repo)
-    await o.store.repos.addRepo(repo, o.store.hostMachineId)
+    await o.store.repos.addRepo('/r', o.store.hostMachine!.id)
     const scopes: (string | undefined)[] = []
-    const create = o.reg.modules.specs.create.bind(o.reg.modules.specs)
-    vi.spyOn(o.reg.modules.specs, 'create').mockImplementation(async (input) => {
+    const acquire = o.reg.modules.locks.acquire.bind(o.reg.modules.locks)
+    vi.spyOn(o.reg.modules.locks, 'acquire').mockImplementation(async (caller, input) => {
       scopes.push(currentPlainCommand())
-      return await create(input)
+      return await acquire(caller, input)
     })
 
-    const created = await o.call.specs.create({ repoPath: repo, title: 'Plain', parent: 'SP-root' })
-    expect(created).toMatchObject({ title: 'Plain' })
-    expect(scopes).toEqual(['specs.create'])
+    const acquired = await o.call.lock.acquire({ repoPath: '/r', name: 'trpc-plain' })
+    expect(acquired).toMatchObject({ granted: true, lock: { name: 'trpc-plain' } })
+    expect(scopes).toEqual(['lock.acquire'])
 
     const reply = await submit(
       o,
-      envelope('specs.create', { repoPath: repo, title: 'x', parent: 'SP-root' }, 'mut_spec'),
+      envelope('lock.acquire', { repoPath: '/r', name: 'outside-sync' }, 'mut_lock'),
     )
     expect(reply).toEqual({
       outcome: 'rejected',

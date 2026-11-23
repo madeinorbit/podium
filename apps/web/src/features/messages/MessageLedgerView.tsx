@@ -9,7 +9,7 @@ import { useOpeningView } from '@podium/client-graph/react/opening-view'
 import { observer } from 'mobx-react-lite'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 /**
- * The message ledger panel (#237) [spec:SP-34d7 web]: who sent what to whom,
+ * The message ledger panel (#237): who sent what to whom,
  * when, with the full delivery story — queued/delivered/expired/cancelled,
  * urgency + lifecycle, requested-vs-effective when the clamp matrix downgraded
  * a send, and the ack link. Scoped to the active session and/or its issue;

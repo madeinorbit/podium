@@ -82,7 +82,7 @@ const NOW = Date.parse('2026-11-17T12:00:00.000Z')
 function answeringRepoScans(reg: SessionRegistry): ControlSend {
   return (message) => {
     if (message.type !== 'scanReposRequest') return
-    void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
       type: 'scanReposResult',
       requestId: message.requestId,
       repositories: message.roots.map((path) => ({ path, kind: 'repository', worktrees: [] })),
@@ -147,7 +147,7 @@ async function sqliteCorpus(): Promise<SessionStore> {
         cwd,
         issueId: issue.id,
       })
-      await reg.gateway.routeDaemonFrame(store.hostMachineId, {
+      await reg.gateway.routeDaemonFrame(store.hostMachine!.id, {
         type: 'bind',
         sessionId,
         cmd: 'codex',

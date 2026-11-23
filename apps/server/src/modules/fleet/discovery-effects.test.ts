@@ -82,7 +82,7 @@ async function leftRunning(o: Oracle, kind: string, input: unknown): Promise<str
     {
       id,
       kind,
-      target: { kind: 'machine', id: o.store.hostMachineId },
+      target: { kind: 'machine', id: o.store.hostMachine!.id },
       input,
       deadlineAt: Date.now() + 60_000,
       createdBy: null,
@@ -102,11 +102,11 @@ describe('discovery.scanFolder runs as a folder.scan record', () => {
     expect(scan).toHaveBeenCalledWith(
       ['/src'],
       { includeHome: false, maxDepth: 6 },
-      o.store.hostMachineId,
+      o.store.hostMachine!.id,
     )
     const [record] = await records(o)
     expect([record?.kind, record?.status]).toEqual([FOLDER_SCAN_KIND, 'succeeded'])
-    expect(record?.target).toEqual({ kind: 'machine', id: o.store.hostMachineId })
+    expect(record?.target).toEqual({ kind: 'machine', id: o.store.hostMachine!.id })
     expect(record?.input).toEqual({ path: '/src' })
   })
 
@@ -132,7 +132,7 @@ describe('discovery.scanMachine runs as a machine.scan record', () => {
         ? scanned([repo('/home/u/src/x', 'https://github.com/o/x.git')])
         : scanned([]),
     )
-    const host = o.store.hostMachineId
+    const host = o.store.hostMachine!.id
     expect(await o.call.discovery.lastMachineScan({ machineId: host })).toBeNull()
     const answer = await o.call.discovery.scanMachine({ machineId: host, deep: false })
     expect(answer.repos).toEqual([
@@ -151,7 +151,7 @@ describe('discovery.scanMachine runs as a machine.scan record', () => {
       release = resolve
     })
     const scan = vi.spyOn(rpc(o), 'scanRepos').mockImplementation(async () => await gate)
-    const host = o.store.hostMachineId
+    const host = o.store.hostMachine!.id
     const first = o.call.discovery.scanMachine({ machineId: host, deep: true })
     await vi.waitFor(() => expect(scan).toHaveBeenCalled())
     const second = o.call.discovery.scanMachine({ machineId: host, deep: true })
@@ -167,7 +167,7 @@ describe('discovery.scanMachine runs as a machine.scan record', () => {
   it("the server's connect scan is a record with no creator, read as the last scan", async () => {
     const o = await makeOracle()
     vi.spyOn(rpc(o), 'scanRepos').mockResolvedValue(scanned([]))
-    const host = o.store.hostMachineId
+    const host = o.store.hostMachine!.id
     await connectScanThroughEffect(o.reg.modules, host)
     const record = await o.store.effects.newestOnTarget(
       MACHINE_SCAN_KIND,
@@ -189,7 +189,7 @@ describe('discovery.scanMachine runs as a machine.scan record', () => {
   it("an hour of connect scans adds no effect row to the log; a person's scan still does (POD-6941)", async () => {
     const o = await makeOracle()
     vi.spyOn(rpc(o), 'scanRepos').mockResolvedValue(scanned([repo('/src/a')]))
-    const host = o.store.hostMachineId
+    const host = o.store.hostMachine!.id
     const effectRows = async () => (await changeRows(o)).filter((row) => row.entity === 'effect')
     // The janitor scans each connected machine about once a minute.
     for (let minute = 0; minute < 60; minute++) await connectScanThroughEffect(o.reg.modules, host)
@@ -226,7 +226,7 @@ describe('discovery.scanMachine runs as a machine.scan record', () => {
 
 describe('repos.cloneGithub runs as a repo.clone record', () => {
   const input = (o: Oracle) => ({
-    machineId: o.store.hostMachineId,
+    machineId: o.store.hostMachine!.id,
     repository: 'octo/app',
     destination: '/src/app',
   })
@@ -238,13 +238,13 @@ describe('repos.cloneGithub runs as a repo.clone record', () => {
       .spyOn(rpc(o), 'githubCli')
       .mockResolvedValue({ status: READY, path: '/src/app' })
     const answer = await o.call.repos.cloneGithub(input(o))
-    expect(clone).toHaveBeenCalledWith('clone', o.store.hostMachineId, {
+    expect(clone).toHaveBeenCalledWith('clone', o.store.hostMachine!.id, {
       repository: 'octo/app',
       destination: '/src/app',
     })
     expect(answer.path).toBe('/src/app')
     expect(answer.repos).toContain('/src/app')
-    const registered = await o.store.repos.listRepos(o.store.hostMachineId)
+    const registered = await o.store.repos.listRepos(o.store.hostMachine!.id)
     expect(registered.find((r) => r.path === '/src/app')?.originUrl).toBe(
       'https://github.com/octo/app.git',
     )
@@ -278,9 +278,9 @@ describe('repos.cloneGithub runs as a repo.clone record', () => {
     expect(probe).toHaveBeenLastCalledWith(
       ['/src/app'],
       { includeHome: false, maxDepth: 0 },
-      o.store.hostMachineId,
+      o.store.hostMachine!.id,
     )
-    expect((await o.store.repos.listRepos(o.store.hostMachineId)).map((r) => r.path)).toContain(
+    expect((await o.store.repos.listRepos(o.store.hostMachine!.id)).map((r) => r.path)).toContain(
       '/src/app',
     )
   })
@@ -299,9 +299,9 @@ describe('repos.cloneGithub runs as a repo.clone record', () => {
     })
     const [record] = await records(o)
     expect([record?.status, record?.error?.code]).toEqual(['unknown', 'lost-track'])
-    expect((await o.store.repos.listRepos(o.store.hostMachineId)).map((r) => r.path)).not.toContain(
-      '/src/app',
-    )
+    expect(
+      (await o.store.repos.listRepos(o.store.hostMachine!.id)).map((r) => r.path),
+    ).not.toContain('/src/app')
   })
 
   it('a clone left running by a stopped server is registered when the checkout is there', async () => {
@@ -319,7 +319,7 @@ describe('repos.cloneGithub runs as a repo.clone record', () => {
     const row = await o.store.effects.get(id)
     expect(row?.status).toBe('succeeded')
     expect(row?.result).toEqual({ path: '/src/app' })
-    expect((await o.store.repos.listRepos(o.store.hostMachineId)).map((r) => r.path)).toContain(
+    expect((await o.store.repos.listRepos(o.store.hostMachine!.id)).map((r) => r.path)).toContain(
       '/src/app',
     )
     // Checked, never cloned again.

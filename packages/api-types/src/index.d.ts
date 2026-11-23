@@ -448,7 +448,7 @@ declare const PodiumSettings: z.ZodObject<{
         assistantEnabled?: boolean | undefined;
     }>>;
     /** The steward: the orchestrator's trigger queue over the durable event log
-     *  (deterministic unblock nudges etc.). On by default (#470) [spec:SP-17db]:
+     *  (deterministic unblock nudges etc.). On by default (#470):
      *  the feature has been live long enough to be trusted, and the dark default
      *  only broke NEW installs — their Notification triggers silently never fired.
      *  Existing installs are unaffected (the persisted `meta` value wins). */
@@ -473,7 +473,7 @@ declare const PodiumSettings: z.ZodObject<{
         promptDismissed?: boolean | undefined;
     }>>;
     /**
-     * User toggles for experimental features [spec:SP-f4b9].
+     * User toggles for experimental features.
      *
      * Draft Sync v2 (POD-859) lives here under `'draft-sync'`; the legacy bespoke
      * `draftSync.enabled` key is migrated onto it by `normalizeSettings` and dropped.
@@ -1032,27 +1032,6 @@ interface TelemetryState {
     endpoint: string;
 }
 
-interface SpecComponentMeta {
-    id: string;
-    title: string;
-    /** Parent component id; empty for the root. */
-    parent: string;
-    /** Sort position among siblings. */
-    order: number;
-    status: 'active' | 'superseded' | 'draft';
-    updatedAt: number;
-}
-interface SpecComponent extends SpecComponentMeta {
-    /** Inner HTML of the component's <section> — the editable body. */
-    body: string;
-}
-interface SpecSearchHit {
-    id: string;
-    title: string;
-    /** Plain-text snippet around the first match. */
-    snippet: string;
-}
-
 /**
  * Live per-agent model lists for ONE machine.
  *
@@ -1078,16 +1057,6 @@ interface ModelCatalogSnapshot {
     /** Shape version — a persisted snapshot with a different version is discarded. */
     version?: number;
 }
-
-/**
- * THE CHATGPT PLAN MODULE (credential management §11; epic Task 14): the
- * sign-in, the keeper, and the daemon that listens for the browser's return.
- * The credential commands reach it as `CredentialsState.chatgpt`; the
- * composition root builds it with {@link composeChatgptPlan}
- * (`registry.modules.chatgptPlan`).
- */
-
-type ChatgptSignInVia = 'machine' | 'paste';
 
 interface WaveMachine {
     id: string;
@@ -1245,6 +1214,16 @@ interface TranscriptSlice {
         machineName: string;
     };
 }
+
+/**
+ * THE CHATGPT PLAN MODULE (credential management §11; epic Task 14): the
+ * sign-in, the keeper, and the daemon that listens for the browser's return.
+ * The credential commands reach it as `CredentialsState.chatgpt`; the
+ * composition root builds it with {@link composeChatgptPlan}
+ * (`registry.modules.chatgptPlan`).
+ */
+
+type ChatgptSignInVia = 'machine' | 'paste';
 
 interface SessionSpawnResult {
     sessionId: SessionId;
@@ -1619,11 +1598,6 @@ type CheckError = 'INVALID_URL' | 'DNS_FAILED' | 'PRIVATE_ADDRESS' | 'REDIRECTED
 /** Connect itself could not be reached or refused the request. Never a failed check. */
  | 'CONNECT_UNAVAILABLE';
 
-type DirectoryBrowserEntry = {
-    name: string;
-    path: string;
-};
-
 interface TelegramSetupStartResult {
     setupId: string;
     code: string;
@@ -1722,7 +1696,7 @@ type UpdateStartability = {
 };
 
 /**
- * [spec:SP-3701] Tiered repo discovery for a (newly paired or reconnecting) machine —
+ * Tiered repo discovery for a (newly paired or reconnecting) machine —
  * POD-787. Answers "what repos does this machine have?" without ever walking blindly:
  *
  *   T1 probe    — exact-path probes derived from repos registered on OTHER machines
@@ -2377,15 +2351,6 @@ type Input_setup_complete = {
         crash: "off" | "on";
         usage: "off" | "on";
     };
-};
-type Input_specs_save = {
-    body?: string | undefined;
-    id: string;
-    order?: number | undefined;
-    parent?: string | undefined;
-    repoPath: string;
-    status?: "active" | "draft" | "superseded" | undefined;
-    title?: string | undefined;
 };
 type Input_superagent_concierge = {
     focus?: undefined | {
@@ -3195,6 +3160,7 @@ type Output_hosts_reclaimInventory = {
         path: string;
         repoPath: string;
     }[];
+    skippedUnresolvedMachines: number;
 };
 type Output_interactions_answer = ({
     detail?: string | undefined;
@@ -5959,6 +5925,7 @@ type Output_machines_applyUpdate = {
                 version?: string | undefined;
             }[];
             arch: "arm64" | "x64";
+            homePath?: string | undefined;
             os: "darwin" | "linux" | "win32";
             podiumVersion?: string | undefined;
             runtimeDrivers?: undefined | {
@@ -6145,6 +6112,7 @@ type Output_machines_uninstall = {
                 version?: string | undefined;
             }[];
             arch: "arm64" | "x64";
+            homePath?: string | undefined;
             os: "darwin" | "linux" | "win32";
             podiumVersion?: string | undefined;
             runtimeDrivers?: undefined | {
@@ -6229,12 +6197,6 @@ type Output_operations_cancel = ({
     canceled: true;
     operation: Protocol.Operation;
 });
-type Output_repos_browse = {
-    entries: DirectoryBrowserEntry[];
-    homePath: string;
-    parentPath: null | string;
-    path: string;
-};
 type Output_repos_githubList = {
     error?: string | undefined;
     path?: string | undefined;
@@ -8490,12 +8452,12 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "browse": TRPC.TRPCQueryProcedure<{
-            input: (undefined) | ({
+            input: {
                 includeHidden?: boolean | undefined;
-                machineId?: string | undefined;
+                machineId: string;
                 path?: string | undefined;
-            });
-            output: Output_repos_browse;
+            };
+            output: _podium_model.DirectoryListingWire;
             meta: unknown;
         }>;
         "cloneGithub": TRPC.TRPCMutationProcedure<{
@@ -9024,55 +8986,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: {
                 [x: string]: null | string;
             };
-            meta: unknown;
-        }>;
-    };
-    "specs": {
-        "create": TRPC.TRPCMutationProcedure<{
-            input: {
-                parent: string;
-                repoPath: string;
-                title: string;
-            };
-            output: SpecComponent;
-            meta: unknown;
-        }>;
-        "get": TRPC.TRPCQueryProcedure<{
-            input: {
-                id: string;
-                repoPath: string;
-            };
-            output: (SpecComponent) | (null);
-            meta: unknown;
-        }>;
-        "list": TRPC.TRPCQueryProcedure<{
-            input: {
-                repoPath: string;
-            };
-            output: Array<SpecComponentMeta>;
-            meta: unknown;
-        }>;
-        "remove": TRPC.TRPCMutationProcedure<{
-            input: {
-                id: string;
-                repoPath: string;
-            };
-            output: {
-                ok: boolean;
-            };
-            meta: unknown;
-        }>;
-        "save": TRPC.TRPCMutationProcedure<{
-            input: Input_specs_save;
-            output: SpecComponent;
-            meta: unknown;
-        }>;
-        "search": TRPC.TRPCQueryProcedure<{
-            input: {
-                query: string;
-                repoPath: string;
-            };
-            output: Array<SpecSearchHit>;
             meta: unknown;
         }>;
     };

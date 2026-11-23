@@ -1,8 +1,7 @@
 import { existsSync, writeFileSync } from 'node:fs'
-import type { MachineId } from '@podium/model'
 import { createLogger, describeError } from '@podium/logger'
+import type { MachineId } from '@podium/model'
 import type { Operation as ProtocolOperation, ServerBindHost } from '@podium/protocol'
-import type { ServerTransferOutcome, TransferJournalEntry, TransferRecord } from './types'
 import type { OperationEngine } from '../operations/engine'
 import { ADOPTION_DEFERRED, type OperationKindDefinition } from '../operations/kinds'
 import { LIFECYCLE_EXCLUSION_GROUP } from '../operations/lifecycle'
@@ -11,6 +10,7 @@ import {
   ServerTransferError,
   type ServerTransferService,
 } from './service'
+import type { ServerTransferOutcome, TransferJournalEntry, TransferRecord } from './types'
 import {
   type ServerTransferAuthorization,
   type ServerTransferInput,
@@ -81,18 +81,22 @@ interface ServerMoveRun {
   sealed: boolean
 }
 
+/** Test-only evidence injected at the durable journal boundary, before target acknowledgement. */
+export function serverMoveCommitEvidenceHook(
+  env: NodeJS.ProcessEnv = process.env,
+): (() => void) | undefined {
+  const path = env.PODIUM_SERVER_MOVE_COMMIT_EVIDENCE_FILE
+  return path ? () => writeFileSync(path, 'after-commit\n') : undefined
+}
+
 export function serverMoveFaultHook(
   env: NodeJS.ProcessEnv = process.env,
 ): ((point: ServerTransferCrashPoint) => void) | undefined {
   const crashPoint = env.PODIUM_SERVER_MOVE_CRASH_POINT
   const failPoint = env.PODIUM_SERVER_MOVE_FAIL_POINT
   const marker = env.PODIUM_SERVER_MOVE_FAULT_ONCE_FILE
-  const commitEvidence = env.PODIUM_SERVER_MOVE_COMMIT_EVIDENCE_FILE
-  if (!crashPoint && !failPoint && !commitEvidence) return undefined
+  if (!crashPoint && !failPoint) return undefined
   return (point) => {
-    if (point === 'after-commit' && commitEvidence) {
-      writeFileSync(commitEvidence, `${point}\n`)
-    }
     if (point !== crashPoint && point !== failPoint) return
     if (marker && existsSync(marker)) return
     if (marker) writeFileSync(marker, `${point}\n`)

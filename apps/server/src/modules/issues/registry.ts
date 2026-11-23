@@ -48,7 +48,7 @@ import { becameCoordinatorText, seatRefusal, seatText } from './service/seat'
 
 /**
  * THE ISSUE COMMAND TABLE: every issue command's handler, joined to its L1
- * contract (#248 [spec:SP-3fe2], split by POD-311, reduced to the table alone by
+ * contract (#248, split by POD-311, reduced to the table alone by
  * POD-1398).
  *
  * THIS FILE IS NOW ONE THING — a declaration table. It was three (POD-1398): the
@@ -380,13 +380,13 @@ function withWarning<T>(gate: { warning?: string }, result: T): T {
   return { ...result, warning: gate.warning }
 }
 
-/** Guardrail 2 [spec:SP-6144]: lifecycle moves on a proposed issue are
+/** Guardrail 2: lifecycle moves on a proposed issue are
  *  operator-only, and the check FAILS CLOSED — an id that doesn't resolve is
  *  rejected too, so a bad ref (or a hub mirror the local get() can't see) can
  *  never dodge the lane. A person (any member, POD-6288) passes through untouched.
  *  `verb` completes "only an operator may <verb> a proposed issue". */
 /**
- * M5 [spec:SP-6144]: who may start this issue. The whole proposal SUBTREE is
+ * M5: who may start this issue. The whole proposal SUBTREE is
  * inert: a sub-issue filed under a proposed parent cannot be started to run
  * work under an unapproved proposal, so the ancestor chain is checked, not
  * just the row. The `start` handler, and its answer with no machine
@@ -970,7 +970,7 @@ const defs = {
       }
       // Inline: an artifact op in a dispatcher a test builds by hand, with no
       // effect records wired (POD-6420): the permanent-store paths
-      // ([spec:SP-0fc9]). Add pulls a snapshot from the owning daemon before the
+      // Add pulls a snapshot from the owning daemon before the
       // panel commit; remove also deletes the snapshot dir.
       if (input.op === 'artifact-upload' && input.upload) {
         return await ctx.crud.panelArtifactTransfer(input.id, input.upload)
@@ -1013,7 +1013,7 @@ const defs = {
   create: def('create', {
     kind: 'mutation',
     handler: async (ctx, input) => {
-      // #198 [spec:SP-a859]: two provenance axes, both derived HERE so they can't be forged.
+      // #198: two provenance axes, both derived HERE so they can't be forged.
       //  - origin  = WHO CREATED it: the unconstrained operator (scope 'all', i.e.
       //    the web UI / human) → 'human'; any constrained agent → 'agent'.
       //  - audience = WHO IT IS FOR: operator creates are always human-facing; an
@@ -1021,10 +1021,10 @@ const defs = {
       //    opted onto the board only when the agent passes audience: 'human'.
       //
       // Top-level agent discoveries are human-facing proposals. Stage, audience,
-      // and start behavior are forced at this authenticated boundary. [spec:SP-6144]
+      // and start behavior are forced at this authenticated boundary.
       const isOperator = isPersonCapability(ctx.caller.capability)
       const origin: 'human' | 'agent' = isOperator ? 'human' : 'agent'
-      // B3 [spec:SP-6144]: a parentId is validated BEFORE anything persists.
+      // B3: a parentId is validated BEFORE anything persists.
       // Previously the row was persisted+broadcast first and reparent threw
       // after, leaving an orphan behind on a bogus parent — and an agent could
       // dodge the top-level/proposed rule by naming ANY existing issue (even a
@@ -1054,7 +1054,7 @@ const defs = {
       // POD-6106 (D3): an agent applies only labels that exist unless it passes
       // createLabels. Checked before anything persists, like the parent above.
       await ctx.crud.refuseUnknownLabels(input.labels, isOperator || input.createLabels === true)
-      // M5 [spec:SP-6144]: sub-creates under a proposed parent (or deeper in a
+      // M5: sub-creates under a proposed parent (or deeper in a
       // proposal subtree) stay inert — never auto-started, never board-facing.
       const underProposed =
         parent != null && !isOperator && (await ctx.hierarchy.inProposedSubtree(parent.id))
@@ -1140,7 +1140,7 @@ const defs = {
     kind: 'mutation',
     target: targetId,
     handler: async (ctx, input) => {
-      // M5 [spec:SP-6144]: the whole proposal SUBTREE is inert — a sub-issue
+      // M5: the whole proposal SUBTREE is inert — a sub-issue
       // filed under a proposed parent cannot be started to run work under an
       // unapproved proposal, so the ancestor chain is checked, not just the row.
       await assertStartable(ctx, input.id)
@@ -1173,7 +1173,7 @@ const defs = {
           ? memberMutationId(ctx, input.mutationId)
           : input.mutationId,
         async () => {
-          // B1/B2 [spec:SP-6144]: the update patch can move an issue out of the
+          // B1/B2: the update patch can move an issue out of the
           // lane through MORE than `stage` — archived (dismissal), closedReason
           // (close), parentId (no longer top-level). All of them are lifecycle
           // moves and all take the same operator-only guard.
@@ -1264,7 +1264,7 @@ const defs = {
       const origin: 'human' | 'agent' = isPersonCapability(ctx.caller.capability)
         ? 'human'
         : 'agent'
-      // B2/M5 [spec:SP-6144]: a session may not re-home onto (or file a
+      // B2/M5: a session may not re-home onto (or file a
       // sub-issue under) a proposed issue — the proposal subtree is inert.
       if (input.targetId != null) {
         await assertNotProposedForAgent(ctx, input.targetId, 'attach a session to')
@@ -1329,7 +1329,7 @@ const defs = {
     handler: async (ctx, input) => await ctx.gitWorkflow.cleanup(input.id, ctx.requirePrincipal()),
   }),
   // Stop every session on the issue and free the worktree, keeping the branch
-  // [spec:SP-9904]. Scope-gated like other issue writes (self/subtree free;
+  // Scope-gated like other issue writes (self/subtree free;
   // outside needs --outside-scope). Acts on THIS machine's sessions and worktree.
   stop: def('stop', {
     kind: 'mutation',
@@ -1743,7 +1743,7 @@ const defs = {
     // This lets an agent repair its own planning hierarchy without recreating issues.
     target: targetId,
     handler: async (ctx, input) => {
-      // B2 [spec:SP-6144]: reparenting a proposal pulls it out of the lane's
+      // B2: reparenting a proposal pulls it out of the lane's
       // structural definition (top-level), and reparenting work UNDER a
       // proposal runs activity beneath an unapproved item — both operator-only.
       await assertNotProposedForAgent(ctx, input.id, 'reparent')
@@ -1910,7 +1910,7 @@ const defs = {
   // no existing-target issue), so the role gate still applies.
   mailSend: def('mailSend', {
     kind: 'mutation',
-    // Unified substrate (#237) [spec:SP-34d7]: the send persists a `messages`
+    // Unified substrate (#237): the send persists a `messages`
     // row + delivery ledger and mirrors the legacy issue_messages row (same
     // id), so the wire shape (IssueMessageRow) is unchanged for the CLI/MCP.
     handler: async (ctx, input) => {

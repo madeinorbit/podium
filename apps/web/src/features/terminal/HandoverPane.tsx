@@ -37,7 +37,7 @@ export type HandoverView = {
 }
 
 /**
- * The move as the panel needs to render it ([spec:SP-3f7a]).
+ * The move as the panel needs to render it.
  *
  * `handoffTarget` is the server's in-flight overlay: present for the whole move,
  * gone the moment the session is either resumed on the target or rolled back to

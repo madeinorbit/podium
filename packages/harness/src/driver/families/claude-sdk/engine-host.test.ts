@@ -245,6 +245,63 @@ describe('the claude stream engine journal and a delivered credential (epic Task
 })
 
 describe('the claude stream engine host', () => {
+  it('reuses matching settings and resumes the conversation when model or effort changes', async () => {
+    const hooks = { spawn: fakeAttachment({ childPid: 4242 }), destroyed: [] as string[] }
+    const ports = fakePorts(hooks)
+    const host = createClaudeEngineHost(hostDeps(ports, journalStore()))
+    const input = turnInput('first', 'conversation-1')
+    const run = async (model: { model?: string; effort?: string }, fresh = false) => {
+      const users = () =>
+        hooks.spawn.writes.filter((line) => JSON.parse(line).type === 'user').length
+      const before = users()
+      const handle = host.startTurn({
+        ...input,
+        newConversation: fresh,
+        spec: { ...input.spec, model },
+      })
+      await vi.waitFor(() =>
+        expect(hooks.spawn.writes.some((line) => JSON.parse(line).type === 'control_request')).toBe(
+          true,
+        ),
+      )
+      if (!hooks.spawn.writes.some((line) => JSON.parse(line).type === 'user')) {
+        answerHandshake(hooks.spawn, 'conversation-1')
+      }
+      await vi.waitFor(() => expect(users()).toBe(before + 1))
+      endTurn(hooks.spawn)
+      await handle.done
+    }
+
+    await run({ model: 'opus', effort: 'high' }, true)
+    expect(ports.spawned).toHaveLength(1)
+    await run({ model: 'opus', effort: 'high' })
+    expect(ports.spawned).toHaveLength(1)
+
+    for (const policy of [
+      { model: 'sonnet', effort: 'high' },
+      { model: 'sonnet', effort: 'low' },
+      { model: 'auto', effort: 'auto' },
+    ]) {
+      hooks.spawn = fakeAttachment({ childPid: 5000 + ports.spawned.length })
+      const before = ports.spawned.length
+      await run(policy)
+      expect(ports.spawned).toHaveLength(before + 1)
+      const args = ports.spawned.at(-1)!.args
+      expect(args).toContain('--resume')
+      expect(args[args.indexOf('--resume') + 1]).toBe('conversation-1')
+      expect(args).not.toContain('--session-id')
+      if (policy.model === 'auto') {
+        expect(args).not.toContain('--model')
+        expect(args).not.toContain('--effort')
+      } else {
+        expect(args[args.indexOf('--model') + 1]).toBe(policy.model)
+        expect(args[args.indexOf('--effort') + 1]).toBe(policy.effort)
+      }
+    }
+    expect(hooks.destroyed).toHaveLength(3)
+    host.releaseEngines()
+  })
+
   it('spawns the engine under the host and journals the harness session id', async () => {
     const attachment = fakeAttachment({ childPid: 4242 })
     const { supervision, engines, spawned } = fakePorts({ spawn: attachment })

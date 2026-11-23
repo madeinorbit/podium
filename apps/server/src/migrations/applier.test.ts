@@ -1,5 +1,5 @@
 /**
- * Applier unit tests [spec:SP-4428]: `runDrizzleMigrations` / `appliedDrizzleNames`
+ * Applier unit tests: `runDrizzleMigrations` / `appliedDrizzleNames`
  * against SYNTHETIC migrations, so the behavior under test is the applier logic
  * itself, never the real
  * (60+ table) production schema — that convergence is covered separately in

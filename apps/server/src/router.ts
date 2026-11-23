@@ -73,7 +73,6 @@ import {
   GIT_QUERIES,
   QUOTA_QUERIES,
   SEARCH_QUERIES,
-  SPEC_QUERIES,
   SUPERAGENT_QUERIES,
   USAGE_QUERIES,
 } from './modules/misc-queries'
@@ -85,15 +84,12 @@ import { SESSION_QUERIES, SNOOZE_QUERIES } from './modules/sessions/queries'
 import { settingsAuthzDeps, settingsCommandsPermitted } from './modules/settings/authz'
 import { settingsFamilyProcedures } from './modules/settings/trpc'
 import { shellFamilyProcedures } from './modules/shells/trpc'
-import { specsInputs } from './modules/specs/service'
-import { specFamilyProcedures } from './modules/specs/trpc'
 import { superagentFamilyProcedures } from './modules/superagent/trpc'
 import { syncWriteProcedures } from './modules/sync-write/trpc'
 import { updateProcedures } from './modules/updates/trpc'
 import { vaultFamilyProcedures } from './modules/vault/trpc'
 import type { RegistryModules } from './relay'
 import { canonicalizeRepoOrigin } from './repo-id'
-import { browseDirectories } from './repo-registry'
 import { isAllowedRoot } from './root-allowlist'
 
 // The request Context, the shared `t` instance, and the ctx accessors live in
@@ -233,14 +229,8 @@ const sessionFamily = sessionFamilyProcedures()
  *  readable at the router while the CONTRACT TABLE decides the membership. */
 const superagentFamily = superagentFamilyProcedures()
 
-/** The three spec writes, built from their contracts at module load (POD-386).
- *  Built here for the same reason as `sessionFamily` and `superagentFamily`: the
- *  spread stays readable beside the three reads the `specs` router also serves,
- *  while the CONTRACT TABLE decides the membership. */
-const specFamily = specFamilyProcedures()
-
 /** The four settings writes, built from their contracts at module load
- *  (POD-420). Same shape as `specFamily`: the CONTRACT TABLE decides membership,
+ *  (POD-420). The CONTRACT TABLE decides membership,
  *  and the spread stays readable beside the read and the three hand-written
  *  procedures the `settings` router also serves. */
 const settingsFamily = settingsFamilyProcedures()
@@ -381,7 +371,7 @@ export const appRouter = t.router({
     ...settingsFamily,
   }),
   perf: t.router(perfFamilyProcedures()),
-  // Experimental feature flags [spec:SP-f4b9], resolved by the server: the CLI's
+  // Experimental feature flags, resolved by the server: the CLI's
   // read. The apps resolve them from `welcome` and the instance settings record.
   features: t.router(queryProcedures('features', FEATURE_QUERIES)),
   telemetry: t.router(telemetryFamilyProcedures()),
@@ -489,18 +479,18 @@ export const appRouter = t.router({
    */
   auth: t.router(authFamilyProcedures()),
   // The issues surface is DERIVED from the command registry (#248
-  // [spec:SP-3fe2]): one definition per command (modules/issues/registry.ts)
+  //): one definition per command (modules/issues/registry.ts)
   // carries input schema, action/scope/target authz, and the handler; the
   // capability guard reads authz from the DEFINITION (no path-string parsing),
   // and the daemon relay + MCP dispatch run the SAME pipeline.
   issues: routerFromCommands(issueRegistry),
-  // Advisory named lease locks [spec:SP-85d1] — same derivation pattern, over
+  // Advisory named lease locks — same derivation pattern, over
   // the lock registry (role-gated only; no issue-scope targets).
   lock: lockRouterFromCommands(lockRegistry),
-  // Unified agent messaging (#237) [spec:SP-34d7]: the `podium mail` surface.
+  // Unified agent messaging (#237): the `podium mail` surface.
   // Input validation + authz live in the MessageGate (shared verbatim with the
   // daemon relay arm); the gate stamps the sender from ctx.capability.
-  // Unified agent messaging (#237) [spec:SP-34d7]: the `podium mail` surface.
+  // Unified agent messaging (#237): the `podium mail` surface.
   //
   // DERIVED (POD-729). Every procedure below is built from its contract in
   // `@podium/commands` — input schema, wire verb and authz all come from the one
@@ -535,11 +525,11 @@ export const appRouter = t.router({
     // A device's own chat messages by id, when the feed no longer carries them
     // (POD-4811): the sender's and the target session owner's, as on the feed.
     records: mailQuery<{ records: MessageRecordWire[] }>('records'),
-    // The web ledger view (#237) [spec:SP-34d7 web]: per-issue / per-session
+    // The web ledger view (#237): per-issue / per-session
     // delivery ledger. Own traffic for a member, cross-user at admin grade.
     ledger: mailQuery('ledger'),
     reply: mailMutation('reply'),
-    // Cross-harness subagents (#237) [spec:SP-34d7 cross-harness]: `podium
+    // Cross-harness subagents (#237): `podium
     // agent spawn/await`. The child is a full Podium session; await is BOUNDED
     // (returns a snapshot, never hangs).
     spawnAgent: mailMutation('spawnAgent'),
@@ -555,10 +545,6 @@ export const appRouter = t.router({
   logs: t.router(logsFamilyProcedures()),
   git: t.router(queryProcedures('git', GIT_QUERIES)),
   files: t.router(fileFamilyProcedures()),
-  // pspec — the living spec tree in <repo>/pspec/ (modules/specs over
-  // apps/server/src/pspec.ts). Prototype scope: local-filesystem repos only
-  // (reads/writes on the server host). The repo-root allowlist gate lives in
-  // the SpecsService so the daemon-relay path enforces the identical check.
   /**
    * THE WORKFLOW SURFACE IS DERIVED (POD-732, the 3.10 cutover).
    *
@@ -569,7 +555,7 @@ export const appRouter = t.router({
    */
   workflows: t.router(workflowFamilyProcedures()),
   /**
-   * SCHEDULED AUTOMATIONS (#470) [spec:SP-17db] — the cron half of the Automations
+   * SCHEDULED AUTOMATIONS (#470) — the cron half of the Automations
    * tab, and a DERIVED SURFACE since POD-735 (the 3.11 cutover).
    *
    * The four writes — create · update · setEnabled · remove — are built from
@@ -590,14 +576,6 @@ export const appRouter = t.router({
     ...queryProcedures('automations', AUTOMATION_QUERIES),
     ...automationProcedures(),
   }),
-  /**
-   * THE SPEC SURFACE IS DERIVED (POD-386, the 3.3d cutover). `create · save ·
-   * remove` are built from `SPEC_CONTRACTS` by `specFamilyProcedures()`; the
-   * three reads carry no contract — a `visibility` class describes what a command
-   * WRITES — and are authorized by the identical `requireRepoRoot` call inside
-   * the service.
-   */
-  specs: t.router({ ...queryProcedures('specs', SPEC_QUERIES), ...specFamily }),
   /** The PendingInteraction aggregate (POD-2020, spec §4) — `answer` plus the
    *  two reads the headless answering path needs. */
   interactions: t.router(interactionFamilyProcedures()),

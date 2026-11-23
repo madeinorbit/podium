@@ -80,7 +80,7 @@ function initialState(defaultTarget: string): AutomationFormState {
 }
 
 /**
- * The "New automation" composer (POD-470) [spec:SP-17db], rendered from the
+ * The "New automation" composer (POD-470), rendered from the
  * subform CONFIGS in `automation-form.ts` (POD-409) rather than from a per-type
  * branch. The dialog's job is now state, submission and the delegation notice;
  * which controls exist for a given trigger kind and frequency is data.

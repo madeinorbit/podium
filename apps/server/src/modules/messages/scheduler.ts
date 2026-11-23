@@ -39,7 +39,7 @@ import {
 const log = createLogger('server:messages')
 
 /** The low-frequency sweep remains a bounded safety net while event coverage is
- * proven. One pass never revisits an unbounded historical queue. [spec:SP-c29e] */
+ * proven. One pass never revisits an unbounded historical queue. */
 export const DELIVERY_RETRY_BACKSTOP_LIMIT = 100
 /** Five minutes: event triggers are primary; this only heals a missed edge. */
 export const DELIVERY_RETRY_BACKSTOP_MS = 5 * 60_000
@@ -291,7 +291,7 @@ export class DeliveryScheduler {
   // ---- entry path 3: the slow retry backstop -------------------------------
 
   /** Slow delivery backstop. Calendar expiry belongs exclusively to the fenced
-   *  janitor; this actor-owned retry may resolve live session state. [spec:SP-c29e] */
+   *  janitor; this actor-owned retry may resolve live session state. */
   async sweep(): Promise<void> {
     const now = this.deps.now()
     // SINGLE-FLIGHT ON THE PASS, NOT ON THE TIMER HANDLE (POD-3258). A retry

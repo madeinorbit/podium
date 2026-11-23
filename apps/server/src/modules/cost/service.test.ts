@@ -13,19 +13,44 @@ import { join } from 'node:path'
 import { costCohort, taskCostView } from '@podium/client-core/values'
 import type { IssueId, MachineId, SessionId, UsageSourceWire } from '@podium/model'
 import { asMachineId, asUserId } from '@podium/model'
+import { CAP_TRANSCRIPT_PATHS } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import type { IssueRow, SessionRow } from '../../store/types'
 import { openTestStore } from '../../test-support/open-test-store'
+import { DaemonRpcService } from '../machines/rpc'
 import { CostService } from './service'
 
 let store: SessionStore
 let service: CostService
 let machineId: MachineId
+let daemon: ReturnType<typeof daemonHarness>
+
+function daemonHarness() {
+  const state = { online: true, capable: true, reply: true }
+  const missing = new Map<MachineId, Set<string>>()
+  const toMachine = vi.fn((id: MachineId, msg: ControlMessage) => {
+    if (msg.type !== 'transcriptPathsRequest' || !state.reply) return
+    queueMicrotask(() =>
+      rpc.settleDaemonReply(id, {
+        type: 'transcriptPathsResult',
+        requestId: msg.requestId,
+        missingPaths: msg.paths.filter((path) => missing.get(id)?.has(path) ?? !existsOnDisk(path)),
+      }),
+    )
+  })
+  const rpc = new DaemonRpcService({
+    toMachine,
+    hasDaemon: () => state.online,
+    daemonSupports: (_id: MachineId, cap: string) => state.capable && cap === CAP_TRANSCRIPT_PATHS,
+  } as never)
+  return { state, missing, toMachine, rpc }
+}
 
 // A REAL directory, because `not-recorded` now means the file is actually gone
-// and the service stats it. A fixture of invented paths would put every session
+// and the simulated daemon stats it. Invented paths would put every session
 // in that state and prove nothing about the ones that are merely unread.
 const tmpDirs: string[] = []
 let CLAUDE_DIR = ''
@@ -33,14 +58,16 @@ let CLAUDE_DIR = ''
 afterAll(() => {
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
 })
+afterEach(() => vi.restoreAllMocks())
 
 beforeEach(async () => {
   store = await openTestStore(':memory:')
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the fixture's repo is reported by the host machine.
-  await store.repos.addRepo('/repo', store.hostMachineId)
-  service = new CostService(store)
-  machineId = store.hostMachineId
+  await store.repos.addRepo('/repo', store.hostMachine!.id)
+  daemon = daemonHarness()
+  service = new CostService(store, daemon.rpc)
+  machineId = store.hostMachine!.id
   const home = mkdtempSync(join(tmpdir(), 'podium-cost-'))
   tmpDirs.push(home)
   CLAUDE_DIR = join(home, '.claude', 'projects', '-repo')
@@ -117,7 +144,7 @@ async function session(over: Partial<SessionRow> = {}): Promise<SessionRow> {
  */
 async function transcript(
   nativeId: string,
-  opts: { parentNativeId?: string; onDisk?: boolean } = {},
+  opts: { parentNativeId?: string; onDisk?: boolean; machineId?: MachineId } = {},
 ): Promise<string> {
   const dir = opts.parentNativeId ? join(CLAUDE_DIR, opts.parentNativeId, 'subagents') : CLAUDE_DIR
   const path = join(dir, `${nativeId}.jsonl`)
@@ -129,7 +156,7 @@ async function transcript(
     ? await store.conversations.registry.podiumId(machineId, opts.parentNativeId)
     : undefined
   await store.conversations.registry.ensure({
-    machineId,
+    machineId: opts.machineId ?? machineId,
     nativeId,
     providerId: 'claude-code',
     path,
@@ -348,17 +375,121 @@ describe('states', () => {
     const task = await issue()
     await session({ issueId: task.id }) // no registry row: nothing to read
     expect((await service.task(task.id)).state).toBe('not-recorded')
+    expect(daemon.toMachine).not.toHaveBeenCalled()
+  })
+
+  it('does not ask a daemon about an empty registered path', async () => {
+    const task = await issue()
+    const ses = await session({ issueId: task.id })
+    await store.conversations.registry.ensure({
+      machineId,
+      nativeId: ses.resumeValue as string,
+      providerId: 'claude-code',
+      path: '',
+    })
+    expect((await service.task(task.id)).state).toBe('not-recorded')
+    expect(daemon.toMachine).not.toHaveBeenCalled()
   })
 
   // A registry row naming a path is not evidence the file exists. 165 of the 488
   // transcripts behind sampled tasks on this machine are already pruned, and
   // every one of them read as pending — a slot that will never fill, drawn as
   // one that is about to.
-  it('reads a PRUNED transcript as not-recorded, not as pending', async () => {
+  it.each([
+    'host',
+    'other',
+  ])('reads a pruned transcript on the %s machine as missing', async (location) => {
+    const task = await issue()
+    const id = location === 'host' ? machineId : asMachineId('other-machine')
+    const ses = await session({ issueId: task.id, machineId: id })
+    const path = await transcript(ses.resumeValue as string, { onDisk: false, machineId: id })
+    expect((await service.task(task.id)).state).toBe('not-recorded')
+    expect(daemon.toMachine).toHaveBeenCalledExactlyOnceWith(id, {
+      type: 'transcriptPathsRequest',
+      requestId: expect.any(String),
+      paths: [path],
+    })
+  })
+
+  it.each([
+    'offline',
+    'old',
+    'timeout',
+  ])('credits a transcript as recorded when its daemon is %s', async (mode) => {
+    const task = await issue()
+    const ses = await session({ issueId: task.id })
+    await transcript(ses.resumeValue as string, { onDisk: false })
+    if (mode === 'offline') daemon.state.online = false
+    if (mode === 'old') daemon.state.capable = false
+    if (mode === 'timeout') daemon.state.reply = false
+    expect((await service.task(task.id)).state).toBe('pending')
+    expect(daemon.toMachine).toHaveBeenCalledTimes(mode === 'timeout' ? 1 : 0)
+  })
+
+  it('batches distinct paths once per machine and scopes same-path observations by machine', async () => {
+    const task = await issue()
+    const hostTask = await issue({ parentId: task.id })
+    const remoteTask = await issue({ parentId: task.id })
+    const remote = asMachineId('other-machine')
+    const nativeId = 'same-conversation'
+    const path = await transcript(nativeId, { onDisk: false })
+    await transcript(nativeId, { onDisk: false, machineId: remote })
+    daemon.missing.set(remote, new Set())
+    await session({ issueId: hostTask.id, resumeValue: nativeId })
+    await session({ issueId: hostTask.id, resumeValue: nativeId })
+    await session({ issueId: remoteTask.id, resumeValue: nativeId, machineId: remote })
+    const another = await session({ issueId: hostTask.id })
+    const anotherPath = await transcript(another.resumeValue as string, { onDisk: false })
+    const result = await service.task(task.id)
+    expect(result.state).toBe('pending')
+    expect((await service.task(hostTask.id)).state).toBe('not-recorded')
+    expect((await service.task(remoteTask.id)).state).toBe('pending')
+    expect(daemon.toMachine).toHaveBeenCalledTimes(2)
+    expect(daemon.toMachine).toHaveBeenCalledWith(machineId, {
+      type: 'transcriptPathsRequest',
+      requestId: expect.any(String),
+      paths: expect.arrayContaining([path, anotherPath]),
+    })
+    const hostCall = daemon.toMachine.mock.calls.find(([id]) => id === machineId)?.[1]
+    expect(hostCall && 'paths' in hostCall ? hostCall.paths : []).toHaveLength(2)
+    expect(daemon.toMachine).toHaveBeenCalledWith(remote, {
+      type: 'transcriptPathsRequest',
+      requestId: expect.any(String),
+      paths: [path],
+    })
+  })
+
+  it('shares concurrent reads and expires transcript presence after 15 seconds', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now())
+    const task = await issue()
+    const ses = await session({ issueId: task.id })
+    const path = await transcript(ses.resumeValue as string)
+    expect(
+      (await Promise.all([service.task(task.id), service.task(task.id)])).map(
+        (result) => result.state,
+      ),
+    ).toEqual(['pending', 'pending'])
+    expect(daemon.toMachine).toHaveBeenCalledTimes(1)
+    rmSync(path)
+    expect((await service.task(task.id)).state).toBe('pending')
+    expect(daemon.toMachine).toHaveBeenCalledTimes(1)
+    clock.mockReturnValue(Date.now() + 15_001)
+    expect((await service.task(task.id)).state).toBe('not-recorded')
+    expect(daemon.toMachine).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    'offline',
+    'old',
+  ])('credits a cached missing path when the daemon becomes %s', async (mode) => {
     const task = await issue()
     const ses = await session({ issueId: task.id })
     await transcript(ses.resumeValue as string, { onDisk: false })
     expect((await service.task(task.id)).state).toBe('not-recorded')
+    if (mode === 'offline') daemon.state.online = false
+    else daemon.state.capable = false
+    expect((await service.task(task.id)).state).toBe('pending')
+    expect(daemon.toMachine).toHaveBeenCalledTimes(1)
   })
 
   it('reads an unread transcript that IS on disk as pending', async () => {

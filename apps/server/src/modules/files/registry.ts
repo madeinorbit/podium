@@ -17,9 +17,7 @@
  * THE ROOT ALLOWLIST STAYS IN THE HANDLER, deliberately. It is the shipped gate,
  * moved verbatim: `isAllowedRoot(repos.list(), root)` throwing FORBIDDEN. It is
  * not promoted into the contract because a contract may not encode a rule that
- * has to READ OTHER ROWS — the registered repo set is state, not classification —
- * which is the same line `modules/specs` draws by leaving `requireRepoRoot`
- * inside `SpecsService`.
+ * has to READ OTHER ROWS — the registered repo set is state, not classification.
  */
 
 import {
@@ -37,6 +35,7 @@ import type { PrivateResourceAccess } from '../../private-resources'
 import type { RegistryModules } from '../../relay'
 import type { RepoRegistry } from '../../repo-registry'
 import { isAllowedRoot } from '../../root-allowlist'
+import { resolveFileRootMachine } from './root-machine'
 
 /** Exactly what the file family reaches, named. Nothing else is reachable from a
  *  handler here — in particular no capability and no registry. */
@@ -101,7 +100,9 @@ export const assertReadableRoot = async (
   root: string,
   machineId: MachineId | undefined,
 ): Promise<MachineId> => {
-  const target = machineId ?? (await state.rpc.answeringMachineId())
+  const target = await resolveFileRootMachine(root, machineId, (path) =>
+    state.repos.machinesForRoot(path),
+  )
   await assertMayReadMachineFiles(state, target)
   await assertAllowedRoot(state, root, target)
   return target

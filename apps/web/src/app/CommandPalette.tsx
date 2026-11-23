@@ -25,7 +25,6 @@ import {
   Bot,
   CalendarClock,
   Clipboard,
-  FileText,
   FolderPlus,
   GitBranch,
   LayoutPanelLeft,
@@ -283,7 +282,6 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
   const handOff = useSessionHandoff()
   const repoViews = data.repoViews
   const workflowsEnabled = useFeature('workflows')
-  const specsEnabled = useFeature('specs')
   const automationsEnabled = useFeature('automations')
   // Admin tabs only for a viewer the server offers them to (POD-6299).
   const { sections: adminSections } = useAdminSections()
@@ -662,14 +660,12 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
       ['workspace', 'Go to Work', ['workspace', 'terminal', 'agents'], LayoutPanelLeft],
       ['issues', 'Go to Tasks', ['kanban', 'board', 'tracker', 'issues'], SquareKanban],
       ['workflows', 'Go to Workflows', ['process', 'steps'], Workflow],
-      ['specs', 'Go to Specs', ['living spec', 'sp-'], FileText],
       ['automations', 'Go to Automations', ['schedule', 'cron', 'routine'], CalendarClock],
       ['usage', 'Go to Usage', ['quota', 'cost', 'analytics', 'spend'], BarChart3],
       ['settings', 'Go to Settings', ['preferences', 'config'], Settings],
     ]
     for (const [view, label, keywords, icon] of views) {
       if (view === 'workflows' && !workflowsEnabled) continue
-      if (view === 'specs' && !specsEnabled) continue
       if (view === 'automations' && !automationsEnabled) continue
       add({
         id: `action:view-${view}`,

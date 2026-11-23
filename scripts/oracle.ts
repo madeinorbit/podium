@@ -2,7 +2,7 @@
 /**
  * The migration oracle [POD-295]: the behavioral contract every rewrite phase
  * must preserve. Lane definitions are NOT restated here — docs/agents/testing.md
- * is the source of truth [spec:SP-0be7]; this file only names which lanes the
+ * is the source of truth; this file only names which lanes the
  * oracle is made of and runs them.
  *
  * Land-flow convention (docs/rearchitecture-v3.md): acquiring the merge lock for

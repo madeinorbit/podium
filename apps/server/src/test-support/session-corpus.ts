@@ -118,7 +118,7 @@ export async function plantSatellites(
     const resume = resumes.get(raw)
     if (resume && index % 3 === 0) {
       await store.conversations.registry.ensure({
-        machineId: store.hostMachineId,
+        machineId: store.hostMachine!.id,
         nativeId: resume,
         providerId: 'claude-code',
       })
@@ -136,7 +136,7 @@ export async function plantSatellites(
  */
 export async function seedCorpusSessions(store: SessionStore) {
   const corpus = await corpusSessions()
-  for (const repo of corpus.repos) await store.repos.addRepo(repo, store.hostMachineId)
+  for (const repo of corpus.repos) await store.repos.addRepo(repo, store.hostMachine!.id)
   const resumes = new Map<string, string>()
   const admin = await firstAdminMemberId(store)
   await store.transact(async () => {
@@ -164,7 +164,7 @@ export async function seedCorpusSessions(store: SessionStore) {
         lastResumedAt: null,
         archived: s.archived,
         workState: index % 9 === 0 ? 'done' : null,
-        machineId: store.hostMachineId,
+        machineId: store.hostMachine!.id,
         headless: s.headless,
         issueId: s.issueId === null ? null : asIssueId(s.issueId),
         stoppedAt: s.stoppedAt,

@@ -1,5 +1,5 @@
 /**
- * Read toolkit tiers 1–2 (#237) [spec:SP-34d7 read-toolkit]: the escalation
+ * Read toolkit tiers 1–2 (#237): the escalation
  * ladder's cheap rungs.
  *
  *  - status: structured snapshot — phase, issue stage/todos, last commits on
@@ -549,7 +549,7 @@ export class SessionReadToolkit {
     }
   }
 
-  /** Event-log every cross-session read [spec:SP-34d7 read-toolkit authz]. */
+  /** Event-log every cross-session read. */
   private async logRead(kind: string, sessionId: SessionId, reader: ReaderRef): Promise<void> {
     try {
       await this.deps.events.appendEvent({

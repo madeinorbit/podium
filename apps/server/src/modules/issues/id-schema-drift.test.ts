@@ -20,22 +20,22 @@ import { describe, expect, it } from 'vitest'
 
 type MutuallyAssignable<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 
-// MachineId's model and protocol brand tags remain mutually assignable [spec:SP-3fe2].
+// MachineId's model and protocol brand tags remain mutually assignable.
 const machineIdBrandsMatch = true satisfies MutuallyAssignable<
   ModelMachineIdType,
   ProtocolMachineIdType
 >
-// SessionId's model and protocol brand tags remain mutually assignable [spec:SP-3fe2].
+// SessionId's model and protocol brand tags remain mutually assignable.
 const sessionIdBrandsMatch = true satisfies MutuallyAssignable<
   ModelSessionIdType,
   ProtocolSessionIdType
 >
-// IssueId's model and protocol brand tags remain mutually assignable [spec:SP-3fe2].
+// IssueId's model and protocol brand tags remain mutually assignable.
 const issueIdBrandsMatch = true satisfies MutuallyAssignable<ModelIssueIdType, ProtocolIssueIdType>
-// RepoId's model and protocol brand tags remain mutually assignable [spec:SP-3fe2].
+// RepoId's model and protocol brand tags remain mutually assignable.
 const repoIdBrandsMatch = true satisfies MutuallyAssignable<ModelRepoIdType, ProtocolRepoIdType>
 
-describe('model ↔ protocol branded id drift [spec:SP-3fe2]', () => {
+describe('model ↔ protocol branded id drift', () => {
   it('keeps every brand tag mutually assignable', () => {
     // MachineId's brand tag is identical across model and protocol.
     expect(machineIdBrandsMatch).toBe(true)

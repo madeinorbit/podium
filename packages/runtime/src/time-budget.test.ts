@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { runTimeBudgetedJob } from './time-budget'
 
-describe('runTimeBudgetedJob [spec:SP-c29e]', () => {
+describe('runTimeBudgetedJob', () => {
   it('yields by macrotask before starting the next bounded unit', async () => {
     let nowMs = 0
     let units = 0

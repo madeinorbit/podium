@@ -247,6 +247,51 @@ describe('the answering machine is checked (POD-1175)', () => {
     await expect(toM2).resolves.toEqual({ answer: 'from m2' })
   })
 })
+describe('transcript presence RPC', () => {
+  it('accepts only the named machine reply and never resolves a default machine', async () => {
+    const sent: ControlMessage[] = []
+    const defaultMachine = vi.fn(() => {
+      throw new Error('no default machine')
+    })
+    const rpc = new DaemonRpcService({
+      toMachine: (_id: string, msg: ControlMessage) => sent.push(msg),
+      defaultMachine,
+      hasDaemon: () => true,
+      daemonSupports: () => true,
+    } as never)
+    const target = asMachineId('owner-machine')
+    const pending = rpc.missingTranscriptPaths(target, ['/transcripts/pruned.jsonl'])
+    await vi.waitFor(() => expect(sent).toHaveLength(1))
+    const request = sent[0]
+    if (request?.type !== 'transcriptPathsRequest') throw new Error('wrong request')
+    captureLogs()
+    rpc.settleDaemonReply(asMachineId('other-machine'), {
+      type: 'transcriptPathsResult',
+      requestId: request.requestId,
+      missingPaths: [],
+    })
+    rpc.settleDaemonReply(target, {
+      type: 'transcriptPathsResult',
+      requestId: request.requestId,
+      missingPaths: ['/transcripts/pruned.jsonl'],
+    })
+    expect(await pending).toEqual(['/transcripts/pruned.jsonl'])
+    expect(defaultMachine).not.toHaveBeenCalled()
+  })
+
+  it('credits a path if dispatch fails after the daemon was online', async () => {
+    const rpc = new DaemonRpcService({
+      toMachine: () => {
+        throw new Error('disconnected')
+      },
+      hasDaemon: () => true,
+      daemonSupports: () => true,
+    } as never)
+    expect(await rpc.missingTranscriptPaths(asMachineId('owner-machine'), ['/gone'])).toEqual([])
+    expect(vi.getTimerCount()).toBe(0)
+  })
+})
+
 describe('server transfer RPC', () => {
   it('subdivides source reads into bounded digest-bound chunks on the authenticated target', async () => {
     const sent: { machineId: string; msg: ControlMessage }[] = []

@@ -10,14 +10,36 @@ import type { ModelChoice, ModelProbeContainment, ModelProbeScope } from '../../
  */
 
 /** `opencode models` — one `provider/model` id per line. */
-export const opencodeModelProbeArgv = ['opencode', 'models'] as const
+export const opencodeModelProbeArgv = ['opencode', 'models', '--verbose'] as const
 
 /** opencode models → one `provider/model` id per line. */
 export function parseOpencodeModels(out: string): ModelChoice[] {
   const models: ModelChoice[] = []
-  for (const raw of out.split('\n')) {
+  const lines = out.split('\n')
+  for (let index = 0; index < lines.length; index += 1) {
+    const raw = lines[index] ?? ''
     const line = raw.trim()
-    if (/^[^\s/]+\/\S+$/.test(line)) models.push({ value: line, label: line })
+    if (!/^[^\s/]+\/\S+$/.test(line)) continue
+    const choice: ModelChoice = { value: line, label: line }
+    // --verbose prints one pretty-printed model object after each id.
+    // Only its named variants are effort choices; reasoning alone is not a ladder.
+    if (lines[index + 1]?.trim() === '{') {
+      const end = lines.indexOf('}', index + 2)
+      if (end !== -1) {
+        try {
+          const metadata = JSON.parse(lines.slice(index + 1, end + 1).join('\n')) as {
+            variants?: Record<string, { disabled?: boolean }>
+          }
+          choice.efforts = Object.entries(metadata.variants ?? {})
+            .filter(([, variant]) => !variant.disabled)
+            .map(([name]) => name)
+          index = end
+        } catch {
+          // Keep the id visible when an older CLI's metadata is unreadable.
+        }
+      }
+    }
+    models.push(choice)
   }
   return models
 }

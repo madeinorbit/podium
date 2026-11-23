@@ -13,9 +13,9 @@ import { disposeOracles, makeOracle } from './modules/sessions/oracle-support'
 import { SESSION_QUERIES } from './modules/sessions/queries'
 import { buildSuperagentTools } from './modules/superagent/tools'
 import { privateResourceAccess } from './private-resources'
+import { memberFacts } from './store/fixtures/test-support'
 import { worldSnapshot } from './test-support/bootstrap-snapshot'
 import { feedDelta } from './test-support/feed-delta'
-import { memberFacts } from './store/fixtures/test-support'
 
 const NOW = Date.parse('2026-10-02T12:00:00.000Z')
 const B = asUserId('user:b')
@@ -289,7 +289,7 @@ describe('S1 session companion records', () => {
     'inventory',
   ] as const)('compares machine records and never recaptures sessions on %s', async (verb) => {
     const f = await fixture()
-    const id = f.store.hostMachineId
+    const id = f.store.hostMachine!.id
     await f.sessions.flushBroadcasts()
     const before = await f.reg.changeLedger.cursor()
     const dirty = vi.spyOn(f.sessions.repository, 'markVolatileSessionDirty')
@@ -331,7 +331,7 @@ describe('S1 session companion records', () => {
 
   it('machine records publish once, remain member-visible, and channel changes do not dirty sessions', async () => {
     const f = await fixture()
-    const machine = f.store.hostMachineId
+    const machine = f.store.hostMachine!.id
     const cursor = await f.reg.changeLedger.cursor()
     await f.reg.modules.machines.renameMachine(machine, 'Renamed')
     const changes = await f.reg.changeLedger.changesSince(cursor)
@@ -372,7 +372,7 @@ describe('S1 session companion records', () => {
 
   it('machine inventory records carry logged-out harnesses without copying inventory', async () => {
     const f = await fixture()
-    await f.reg.modules.machines.recordInventory(f.store.hostMachineId, {
+    await f.reg.modules.machines.recordInventory(f.store.hostMachine!.id, {
       os: 'linux',
       arch: 'x64',
       agents: [{ kind: 'codex', installed: true, login: { state: 'out' } }],
@@ -381,13 +381,13 @@ describe('S1 session companion records', () => {
     const rows = await f.reg.changeLedger.authority.snapshot('machine')
     expect(rows).toContainEqual(
       expect.objectContaining({
-        id: f.store.hostMachineId,
+        id: f.store.hostMachine!.id,
         name: 'Host',
         loggedOutHarnesses: ['codex'],
         custodian: f.A,
       }),
     )
-    await f.reg.modules.machines.recordInventory(f.store.hostMachineId, {
+    await f.reg.modules.machines.recordInventory(f.store.hostMachine!.id, {
       os: 'linux',
       arch: 'x64',
       agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }],
@@ -395,7 +395,7 @@ describe('S1 session companion records', () => {
     })
     expect(await f.reg.changeLedger.authority.snapshot('machine')).toContainEqual(
       expect.objectContaining({
-        id: f.store.hostMachineId,
+        id: f.store.hostMachine!.id,
         name: 'Host',
         loggedOutHarnesses: [],
         custodian: f.A,
@@ -405,8 +405,8 @@ describe('S1 session companion records', () => {
 
   it('reference inputs describe drafts and birth issues even after a reattachment', async () => {
     const f = await fixture()
-    await f.store.repos.addRepo('/repo', f.store.hostMachineId)
-    const repoId = await f.store.repos.resolveRepoIdForPath('/repo', f.store.hostMachineId)
+    await f.store.repos.addRepo('/repo', f.store.hostMachine!.id)
+    const repoId = await f.store.repos.resolveRepoIdForPath('/repo', f.store.hostMachine!.id)
     await f.store.repos.ensurePrefixForRepoId(repoId, 'REF')
     // A start names its owner: with three members an ownerless start is refused
     // (POD-6285, design §2.3).

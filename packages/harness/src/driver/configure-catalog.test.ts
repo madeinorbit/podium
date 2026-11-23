@@ -28,7 +28,6 @@ const declaredFields = (caps: DriverCapabilities): readonly string[] =>
 const declaredAttach = (caps: DriverCapabilities): readonly string[] =>
   caps.attach.supported ? caps.attach.value.kinds : []
 
-
 describe('attachKindsForDriver', () => {
   it.each([
     ['codex-app-server', codexAppServerCapabilities],
@@ -67,15 +66,8 @@ describe('configureFieldsForDriver', () => {
     expect(configureFieldsForDriver(driverId)).toEqual(declaredFields(capabilities()))
   })
 
-  it('separates grok from its own FAMILY, which is the whole reason this exists', () => {
-    /**
-     * `grok-acp` and `opencode-server` are both `driverFamily: 'server'`, and a
-     * picker gated on the family would be offered on both. Grok sends no model
-     * on `session/new` OR `session/prompt`, so a model change there has nothing
-     * to change — and this is the assertion that says the two are distinguishable
-     * at the granularity a client actually needs.
-     */
-    expect(configureFieldsForDriver('grok-acp')).not.toContain('model')
+  it('reports Grok model and effort alongside its permission mode', () => {
+    expect(configureFieldsForDriver('grok-acp')).toEqual(['model', 'effort', 'permissionMode'])
     expect(configureFieldsForDriver('opencode-server')).toContain('model')
   })
 

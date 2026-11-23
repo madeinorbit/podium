@@ -1,5 +1,5 @@
 /**
- * SOCKET HUB CONSTRUCTION (#262 [spec:SP-3fe2]): the SocketHub in metadata
+ * SOCKET HUB CONSTRUCTION (#262): the SocketHub in metadata
  * delta mode, persisting after apply into the replica. Moved out of the old
  * engine wiring (POD-6681); the connection service (`./connection-service.ts`)
  * is its one caller.

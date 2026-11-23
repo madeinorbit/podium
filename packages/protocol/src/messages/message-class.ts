@@ -98,7 +98,7 @@ export const SERVER_PLANE_CLASS = {
   // `worktreesChanged` to `checkout`, POD-6644.)
   hostMetricsChanged: 'stream.live',
   attentionEvent: 'stream.live',
-  // Browser-open family (ADR 7 D8, [spec:SP-a43e]).
+  // Browser-open family (ADR 7 D8).
   sessionOpenUrl: 'stream.live',
   sessionOpenUrlResult: 'stream.live',
   // ADR 7 Amendment 1 D16.2. A room dies with the connection; snapshots,
@@ -230,10 +230,11 @@ export const CONTROL_PLANE_CLASS = {
   sessionBindingRetire: 'control.command',
   // Draft Sync v2 (POD-859): server→daemon "inject this chat draft into native".
   draftTarget: 'control.command',
-  // Host channel, NOT the agent relay ([spec:SP-fccf], ADR 7 D2).
+  // Host channel, NOT the agent relay (, ADR 7 D2).
   sessionResumeRefAck: 'control.command',
   sessionResumeRefConflict: 'control.command',
   transcriptMirrorRead: 'bulk.bulk',
+  transcriptPathsRequest: 'control.command',
   sessionPriority: 'control.command',
   // POD-4524: the server's attach-TUI warm-park verdict. A command: it asks the
   // daemon to close one session's client terminal, and a lost one is simply a
@@ -417,6 +418,7 @@ export const DAEMON_PLANE_CLASS = {
   dirOpResult: 'control.command',
   githubCliResult: 'control.command',
   transcriptMirrorResult: 'bulk.bulk',
+  transcriptPathsResult: 'control.command',
   hostMetrics: 'stream.live',
   memoryBreakdownResult: 'control.command',
   reclaimDiskEstimateResult: 'control.command',
