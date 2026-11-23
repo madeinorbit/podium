@@ -8,12 +8,19 @@
  * while routing tests run it through the composed daemon RPC.
  */
 
-import { asMachineId, firstAdminMemberId, type IssueId, mintDeviceId } from '@podium/model'
+import {
+  asCredentialId,
+  asMachineId,
+  firstAdminMemberId,
+  type IssueId,
+  mintDeviceId,
+} from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { fixtureCommitWriter, fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { attachDaemonWithInventory } from '../../test-support/daemon-inventory'
 import { EffectsRunner } from '../effects/runner'
+import type { CompleteInput } from '../inference/complete'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { changeRows } from '../sync-write/outbox-test-support'
 import { ISSUE_GIT_EFFECT_KIND } from './git-effects'
@@ -23,9 +30,9 @@ afterEach(() => {
   return disposeOracles()
 })
 
-async function withIssue(): Promise<{ o: Oracle; id: IssueId }> {
+async function withIssue(originUrl?: string): Promise<{ o: Oracle; id: IssueId }> {
   const o = await makeOracle()
-  await o.store.repos.addRepo('/p', o.machineId)
+  await o.store.repos.addRepo('/p', o.machineId, originUrl)
   const id = mintDeviceId('iss_') as IssueId
   await o.call.issues.create({ id, repoPath: '/p', title: 'merge me', startNow: false })
   return { o, id }
@@ -43,15 +50,22 @@ async function effectsOn(o: Oracle, issueId: string) {
   return await Promise.all([...ids].map(async (id) => await o.store.effects.get(id)))
 }
 
-describe('issue git actions stay on the pinned machine', () => {
+describe('issue git operations stay on the pinned machine', () => {
   const repoPath = '/p'
   const worktreePath = '/p/.worktrees/pinned'
   const branch = 'issue/pinned'
   const sha = 'abcdef0123456789abcdef0123456789abcdef0123'
   const prUrl = 'https://github.com/example/project/pull/42'
 
-  async function pinnedIssue() {
-    const { o, id } = await withIssue()
+  type RepoRequest = Extract<ControlMessage, { type: 'repoOpRequest' }>
+
+  async function pinnedIssue(
+    opts: {
+      originUrl?: string
+      reply?(msg: RepoRequest): { ok: boolean; output: string } | undefined
+    } = {},
+  ) {
+    const { o, id } = await withIssue(opts.originUrl)
     const machineId = asMachineId('mach_pinned_git')
     await o.store.machines.upsertMachine({
       id: machineId,
@@ -61,8 +75,8 @@ describe('issue git actions stay on the pinned machine', () => {
       ownerUserId: firstAdminMemberId(),
       assignment: { server: false, agentExecution: true },
     })
-    await o.store.repos.addRepo(repoPath, machineId)
-    const requests: Extract<ControlMessage, { type: 'repoOpRequest' }>[] = []
+    await o.store.repos.addRepo(repoPath, machineId, opts.originUrl)
+    const requests: RepoRequest[] = []
     await attachDaemonWithInventory(o.reg, machineId, (msg) => {
       if (msg.type !== 'repoOpRequest') return
       requests.push(msg)
@@ -79,8 +93,7 @@ describe('issue git actions stay on the pinned machine', () => {
       void o.reg.gateway.routeDaemonFrame(machineId, {
         type: 'repoOpResult',
         requestId: msg.requestId,
-        ok: msg.op !== 'isMergedInto',
-        output,
+        ...(opts.reply?.(msg) ?? { ok: msg.op !== 'isMergedInto', output }),
       })
     })
     await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, id, {
@@ -93,7 +106,7 @@ describe('issue git actions stay on the pinned machine', () => {
     expect(await o.reg.modules.machines.resolveMachine(undefined, repoPath)).toBe(o.machineId)
     o.daemon.length = 0
     requests.length = 0
-    return { o, id, requests }
+    return { o, id, machineId, requests }
   }
 
   it.each([
@@ -124,6 +137,184 @@ describe('issue git actions stay on the pinned machine', () => {
     expect(record).toMatchObject({ kind: ISSUE_GIT_EFFECT_KIND[kind], status: 'succeeded' })
     if (kind === 'pr') expect(reply.issue.prUrl).toBe(prUrl)
     if (kind === 'merge') expect(reply.issue.landedSha).toBe(sha)
+  })
+  it.each([
+    'fresh',
+    'existing',
+    'rebased',
+    'conflict',
+  ] as const)('integration keeps %s rebuilds and recovery on the issue machine', async (mode) => {
+    const intBranch = 'integrate/1-merge-me'
+    const intWorktree = '/p/.worktrees/integrate-1-merge-me'
+    const { o, id, machineId, requests } = await pinnedIssue({
+      reply: (msg) => {
+        if (msg.op === 'status' && mode === 'fresh')
+          return {
+            ok: false,
+            output: `fatal: cannot change to '${intWorktree}': No such file or directory`,
+          }
+        if (
+          msg.op === 'mergeFfOnly' &&
+          msg.args?.branch === sha &&
+          (mode === 'rebased' || mode === 'conflict')
+        )
+          return { ok: false, output: 'not a fast-forward' }
+        if (msg.op === 'rebase' && mode === 'conflict')
+          return { ok: false, output: 'CONFLICT: overlapping changes' }
+        return undefined
+      },
+    })
+    const crud = o.reg.issues.crud
+    const writer = o.reg.issues.reports.store.serverWriter
+    const child = await crud.create(writer, {
+      repoPath,
+      machineId,
+      title: 'Child',
+      parentId: id,
+      startNow: false,
+    })
+    const nested = await crud.create(writer, {
+      repoPath,
+      machineId,
+      title: 'Nested',
+      parentId: child.id,
+      startNow: false,
+    })
+    await crud.update(writer, child.id, { branch: 'issue/child' })
+    await crud.update(writer, nested.id, { branch: 'issue/nested' })
+    await crud.close(writer, nested.id)
+    await crud.close(writer, child.id)
+    await o.store.shipping.recordRootIntegrationReceipt({
+      rootIssueId: child.id,
+      approvedHeadSha: sha,
+      descendants: [{ issueId: nested.id, approvedHeadSha: sha }],
+    })
+    o.daemon.length = 0
+    requests.length = 0
+
+    const reply = await o.call.issues.integrate({ id })
+    await o.reg.modules.effects?.runner.idle()
+
+    expect(reply.ok).toBe(mode !== 'conflict')
+    expect(o.daemon.filter((msg) => msg.type === 'repoOpRequest')).toEqual([])
+    const calls = requests.map(({ op, cwd, args }) => ({ op, cwd, ...(args ? { args } : {}) }))
+    const temp = `integrate-tmp/${child.seq}`
+    expect(calls).toEqual([
+      { op: 'revParseVerify', cwd: repoPath, args: { ref: 'issue/child' } },
+      { op: 'revParseVerify', cwd: repoPath, args: { ref: 'issue/nested' } },
+      { op: 'status', cwd: intWorktree },
+      ...(mode === 'fresh'
+        ? [
+            {
+              op: 'worktreeAddReset',
+              cwd: repoPath,
+              args: { path: intWorktree, branch: intBranch, startPoint: 'main' },
+            },
+          ]
+        : [
+            { op: 'rebaseAbort', cwd: intWorktree },
+            {
+              op: 'checkoutReset',
+              cwd: intWorktree,
+              args: { branch: intBranch, startPoint: 'main' },
+            },
+          ]),
+      { op: 'mergeFfOnly', cwd: intWorktree, args: { branch: sha } },
+      ...(mode === 'rebased' || mode === 'conflict'
+        ? [
+            { op: 'checkoutReset', cwd: intWorktree, args: { branch: temp, startPoint: sha } },
+            { op: 'rebase', cwd: intWorktree, args: { parentBranch: intBranch } },
+            ...(mode === 'conflict' ? [{ op: 'rebaseAbort', cwd: intWorktree }] : []),
+            { op: 'checkout', cwd: intWorktree, args: { branch: intBranch } },
+            ...(mode === 'rebased'
+              ? [{ op: 'mergeFfOnly', cwd: intWorktree, args: { branch: temp } }]
+              : []),
+            { op: 'branchDeleteForce', cwd: intWorktree, args: { branch: temp } },
+          ]
+        : []),
+      ...(mode === 'conflict'
+        ? []
+        : [{ op: 'revParseVerify', cwd: intWorktree, args: { ref: intBranch } }]),
+    ])
+    const receipt = await o.store.shipping.rootIntegrationReceipt(id, sha)
+    if (mode === 'conflict') expect(receipt).toBeNull()
+    else
+      expect(receipt?.descendants).toEqual(
+        expect.arrayContaining([
+          { issueId: child.id, approvedHeadSha: sha },
+          { issueId: nested.id, approvedHeadSha: sha },
+        ]),
+      )
+  })
+
+  it('assistant status and history come from the issue checkout', async () => {
+    const { o, id, requests } = await pinnedIssue({
+      reply: (msg) =>
+        msg.op === 'log' ? { ok: true, output: 'pinned checkout history' } : undefined,
+    })
+    const complete = vi.fn(async (_input: CompleteInput) => ({
+      text: JSON.stringify({
+        activityNotes: 'Pinned checkout digest',
+        blockedBy: [],
+        dependencyNote: '',
+      }),
+      toolCalls: [],
+      servedBy: asCredentialId('cred_fake'),
+      label: 'fixture',
+    }))
+    o.reg.issues.reports.store.deps.complete = complete
+
+    await o.call.issues.refreshAssistant({ id })
+
+    expect(o.daemon.filter((msg) => msg.type === 'repoOpRequest')).toEqual([])
+    expect(requests.map(({ op, cwd }) => ({ op, cwd }))).toEqual([
+      { op: 'status', cwd: worktreePath },
+      { op: 'log', cwd: worktreePath },
+    ])
+    const messages = JSON.stringify(complete.mock.calls[0]?.[0].messages)
+    expect(messages).toContain('pinned checkout history')
+    expect(messages).toContain(`## ${branch}`)
+    expect((await o.store.issues.panel.state(id))?.text).toBe('Pinned checkout digest')
+  })
+
+  it.each([
+    true,
+    false,
+  ])('orphan history is isolated per checkout (pinned log succeeds: %s)', async (ok) => {
+    const { o, id, machineId, requests } = await pinnedIssue({
+      originUrl: 'https://github.com/example/project.git',
+      reply: (msg) => (msg.op === 'log' ? { ok, output: 'abc issue/1-pinned' } : undefined),
+    })
+    const crud = o.reg.issues.crud
+    const writer = o.reg.issues.reports.store.serverWriter
+    // The other checkout names this issue, but its own checkout never does.
+    await crud.create(writer, { repoPath, machineId, title: 'Unreferenced', startNow: false })
+    const other = await crud.create(writer, {
+      repoPath,
+      machineId: o.machineId,
+      title: 'Other checkout',
+      startNow: false,
+    })
+    await attachDaemonWithInventory(o.reg, o.machineId, (msg) => {
+      o.daemon.push(msg)
+      if (msg.type !== 'repoOpRequest') return
+      void o.reg.gateway.routeDaemonFrame(o.machineId, {
+        type: 'repoOpResult',
+        requestId: msg.requestId,
+        ok: true,
+        output: 'def issue/2-wrong-checkout and issue/3-other',
+      })
+    })
+    o.daemon.length = 0
+    requests.length = 0
+
+    const orphans = await o.call.issues.orphans({ repoPath })
+
+    expect(orphans.map((issue) => issue.id)).toEqual(ok ? [id, other.id] : [other.id])
+    expect(requests.map(({ op, cwd }) => ({ op, cwd }))).toEqual([{ op: 'log', cwd: repoPath }])
+    expect(o.daemon.filter((msg) => msg.type === 'repoOpRequest')).toMatchObject([
+      { op: 'log', cwd: repoPath },
+    ])
   })
 })
 

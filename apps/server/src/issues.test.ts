@@ -3716,6 +3716,52 @@ describe('IssueService assistant', () => {
     expect((await issues.getIssue(c.id))?.suggestedStage).toBe('in_progress')
   })
 
+  it('freezes one machine choice for an unpinned assistant refresh', async () => {
+    const { svc, deps } = await harnessWithLlm('{"activityNotes":"digest","blockedBy":[]}')
+    const c = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Legacy',
+      startNow: false,
+    })
+    await svc.crud.update(svc.reports.store.serverWriter, c.id, { worktreePath: '/r/wt' })
+    await svc.crud.update(svc.reports.store.serverWriter, c.id, { machineId: null })
+    const selected = asMachineId('assistant-checkout')
+    deps.resolveMachine = vi
+      .fn()
+      .mockResolvedValueOnce(selected)
+      .mockResolvedValue(asMachineId('other-checkout'))
+    vi.mocked(deps.repoOp).mockClear()
+
+    await svc.gitWorkflow.refreshAssistant(c.id)
+
+    expect(deps.resolveMachine).toHaveBeenCalledExactlyOnceWith(undefined, '/r/wt')
+    expect(vi.mocked(deps.repoOp).mock.calls).toEqual([
+      ['status', '/r/wt', undefined, selected],
+      ['log', '/r/wt', undefined, selected],
+    ])
+  })
+
+  it('leaves the digest unchanged when no checkout machine can be resolved', async () => {
+    const { svc, deps } = await harnessWithLlm('{"activityNotes":"new digest","blockedBy":[]}')
+    const c = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Legacy',
+      startNow: false,
+    })
+    await svc.crud.update(svc.reports.store.serverWriter, c.id, { worktreePath: '/r/wt' })
+    await svc.crud.update(svc.reports.store.serverWriter, c.id, { machineId: null })
+    deps.resolveMachine = vi.fn(async () => undefined)
+    vi.mocked(deps.repoOp).mockClear()
+    const complete = vi.spyOn(deps, 'complete')
+
+    const result = await svc.gitWorkflow.refreshAssistant(c.id)
+
+    expect(result.id).toBe(c.id)
+    expect(deps.repoOp).not.toHaveBeenCalled()
+    expect(complete).not.toHaveBeenCalled()
+    expect(await deps.store.issues.panel.state(c.id)).toBeUndefined()
+  })
+
   it('a refused server-AI call stays non-throwing but records the actionable error (POD-4805)', async () => {
     // The daemon's refusal (e.g. a ChatGPT login sent a model it does not
     // support) surfaces as a throw out of `complete` — the shape the
@@ -5085,6 +5131,30 @@ describe('IssueService orphans (P2b)', () => {
     expect(orphans[0]!.id).toBe(a.id)
   })
 
+  it('resolves and reads an unpinned checkout only once per report', async () => {
+    const { svc, deps } = await harness()
+    for (const title of ['First', 'Second']) {
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/r',
+        title,
+        startNow: false,
+      })
+    }
+    const selected = asMachineId('history-checkout')
+    deps.resolveMachine = vi
+      .fn()
+      .mockResolvedValueOnce(selected)
+      .mockResolvedValue(asMachineId('other-checkout'))
+    const log = vi
+      .fn<IssueDeps['repoOp']>()
+      .mockResolvedValue({ ok: true, output: 'abc issue/1-first issue/2-second' })
+    deps.repoOp = log
+
+    expect((await svc.reports.orphans('/r')).map((issue) => issue.seq)).toEqual([1, 2])
+    expect(deps.resolveMachine).toHaveBeenCalledExactlyOnceWith(undefined, '/r')
+    expect(log).toHaveBeenCalledExactlyOnceWith('log', '/r', undefined, selected)
+  })
+
   it('returns [] when repoOp(log) fails', async () => {
     const { svc, deps } = await harness()
     await svc.crud.create(svc.reports.store.serverWriter, {
@@ -6227,6 +6297,24 @@ describe('IssueService.integrate (issue #70)', () => {
     expect(r.ok).toBe(false)
     expect(r.output).toMatch(/no closed child .* recorded branch/)
     expect(calls).toEqual([])
+  })
+
+  it('freezes one machine choice for every git call in an unpinned integration', async () => {
+    const h = await harness()
+    const { epic } = await epicWith(h, [{}])
+    const selected = asMachineId('integration-checkout')
+    h.deps.resolveMachine = vi
+      .fn()
+      .mockResolvedValueOnce(selected)
+      .mockResolvedValue(asMachineId('other-checkout'))
+    scriptOps(h.deps, (op) => (op === 'status' ? GONE : undefined))
+
+    const result = await h.svc.gitWorkflow.integrate(epic.id, AS_OPERATOR)
+
+    expect(result.ok).toBe(true)
+    expect(h.deps.resolveMachine).toHaveBeenCalledExactlyOnceWith(undefined, '/r')
+    expect(vi.mocked(h.deps.repoOp).mock.calls.length).toBeGreaterThan(0)
+    expect(vi.mocked(h.deps.repoOp).mock.calls.every((call) => call[3] === selected)).toBe(true)
   })
 
   it('fresh run: rebuild-reset op order (worktreeAddReset from root, ff merges in worktree), comment + event', async () => {

@@ -125,6 +125,8 @@ export class IssueEpicIntegrationModule {
       )
     }
     const ordered = await this.topoOrderChildren(closed)
+    // One checkout owns the entire rebuild, including input refs and recovery.
+    const machineId = await this.store.resolveWorktreeMachine(row.machineId, row.repoPath)
     // Branch/worktree names share the `<seq>-<slug>` stem with issue branches.
     const stem = this.store.slug(row.seq, row.title).replace(/^issue\//, '')
     const intBranch = `integrate/${stem}`
@@ -141,9 +143,14 @@ export class IssueEpicIntegrationModule {
       provenDescendants: DescendantTip[]
     }> = []
     for (const child of ordered) {
-      const tip = await this.store.d.repoOp('revParseVerify', row.repoPath, {
-        ref: child.branch,
-      })
+      const tip = await this.store.d.repoOp(
+        'revParseVerify',
+        row.repoPath,
+        {
+          ref: child.branch,
+        },
+        machineId,
+      )
       if (!tip.ok) {
         return await refuse(
           `integrate: cannot resolve descendant #${child.seq} head: ${this.gitSummary(tip.output)}`,
@@ -160,9 +167,14 @@ export class IssueEpicIntegrationModule {
               `integrate: cannot mint receipt: nested descendant #${descendant.seq} is not a closed branch-backed integration input`,
             )
           }
-          const nestedTip = await this.store.d.repoOp('revParseVerify', row.repoPath, {
-            ref: descendant.branch,
-          })
+          const nestedTip = await this.store.d.repoOp(
+            'revParseVerify',
+            row.repoPath,
+            {
+              ref: descendant.branch,
+            },
+            machineId,
+          )
           if (!nestedTip.ok) {
             return await refuse(
               `integrate: cannot resolve nested descendant #${descendant.seq} head: ${this.gitSummary(nestedTip.output)}`,
@@ -193,13 +205,18 @@ export class IssueEpicIntegrationModule {
 
     // Reset-or-create the integration worktree at the parentBranch tip only
     // after the complete input/provenance snapshot has succeeded.
-    const st = await this.store.d.repoOp('status', worktree)
+    const st = await this.store.d.repoOp('status', worktree, undefined, machineId)
     if (!st.ok && /cannot change to .*: no such file or directory/i.test(st.output)) {
-      const add = await this.store.d.repoOp('worktreeAddReset', row.repoPath, {
-        path: worktree,
-        branch: intBranch,
-        startPoint: row.parentBranch,
-      })
+      const add = await this.store.d.repoOp(
+        'worktreeAddReset',
+        row.repoPath,
+        {
+          path: worktree,
+          branch: intBranch,
+          startPoint: row.parentBranch,
+        },
+        machineId,
+      )
       if (!add.ok) return await refuse(`integrate: worktree add failed: ${add.output}`)
     } else if (!st.ok) {
       return await refuse(`integrate: cannot inspect integration worktree: ${st.output}`)
@@ -208,11 +225,16 @@ export class IssueEpicIntegrationModule {
       // rebaseAbort errored), the worktree is stuck mid-rebase and checkoutReset
       // would refuse with a raw git error. A defensive abort first (result ignored
       // — "no rebase in progress" is the normal healthy outcome) un-wedges it.
-      await this.store.d.repoOp('rebaseAbort', worktree)
-      const reset = await this.store.d.repoOp('checkoutReset', worktree, {
-        branch: intBranch,
-        startPoint: row.parentBranch,
-      })
+      await this.store.d.repoOp('rebaseAbort', worktree, undefined, machineId)
+      const reset = await this.store.d.repoOp(
+        'checkoutReset',
+        worktree,
+        {
+          branch: intBranch,
+          startPoint: row.parentBranch,
+        },
+        machineId,
+      )
       if (!reset.ok) return await refuse(`integrate: branch reset failed: ${reset.output}`)
     }
 
@@ -222,38 +244,53 @@ export class IssueEpicIntegrationModule {
     let blockedWhy = ''
     for (const input of frozenInputs) {
       const child = input.issue
-      const ff = await this.store.d.repoOp('mergeFfOnly', worktree, {
-        branch: input.approvedHeadSha,
-      })
+      const ff = await this.store.d.repoOp(
+        'mergeFfOnly',
+        worktree,
+        {
+          branch: input.approvedHeadSha,
+        },
+        machineId,
+      )
       if (ff.ok) {
         integrated.push(child.seq)
         continue
       }
       // Not ff: rebase a TEMP copy of the child branch onto the integration head.
       const temp = `integrate-tmp/${child.seq}`
-      const co = await this.store.d.repoOp('checkoutReset', worktree, {
-        branch: temp,
-        startPoint: input.approvedHeadSha,
-      })
+      const co = await this.store.d.repoOp(
+        'checkoutReset',
+        worktree,
+        {
+          branch: temp,
+          startPoint: input.approvedHeadSha,
+        },
+        machineId,
+      )
       if (!co.ok) {
         blockedAt = child.seq
         blockedWhy = this.gitSummary(co.output)
         break
       }
-      const rb = await this.store.d.repoOp('rebase', worktree, { parentBranch: intBranch })
+      const rb = await this.store.d.repoOp(
+        'rebase',
+        worktree,
+        { parentBranch: intBranch },
+        machineId,
+      )
       if (!rb.ok) {
         // Conflict: abort cleanly, return to the last good integration head, drop
         // the temp ref. Never commits conflict markers (rebase stopped mid-way).
-        await this.store.d.repoOp('rebaseAbort', worktree)
-        await this.store.d.repoOp('checkout', worktree, { branch: intBranch })
-        await this.store.d.repoOp('branchDeleteForce', worktree, { branch: temp })
+        await this.store.d.repoOp('rebaseAbort', worktree, undefined, machineId)
+        await this.store.d.repoOp('checkout', worktree, { branch: intBranch }, machineId)
+        await this.store.d.repoOp('branchDeleteForce', worktree, { branch: temp }, machineId)
         blockedAt = child.seq
         blockedWhy = this.gitSummary(rb.output)
         break
       }
-      await this.store.d.repoOp('checkout', worktree, { branch: intBranch })
-      const mg = await this.store.d.repoOp('mergeFfOnly', worktree, { branch: temp })
-      await this.store.d.repoOp('branchDeleteForce', worktree, { branch: temp })
+      await this.store.d.repoOp('checkout', worktree, { branch: intBranch }, machineId)
+      const mg = await this.store.d.repoOp('mergeFfOnly', worktree, { branch: temp }, machineId)
+      await this.store.d.repoOp('branchDeleteForce', worktree, { branch: temp }, machineId)
       if (!mg.ok) {
         blockedAt = child.seq
         blockedWhy = this.gitSummary(mg.output)
@@ -272,7 +309,12 @@ export class IssueEpicIntegrationModule {
     // that did not commit. Failed/partial rebuilds retain their existing audit
     // summary but never mint proof.
     if (blockedAt == null) {
-      const rootHead = await this.store.d.repoOp('revParseVerify', worktree, { ref: intBranch })
+      const rootHead = await this.store.d.repoOp(
+        'revParseVerify',
+        worktree,
+        { ref: intBranch },
+        machineId,
+      )
       if (!rootHead.ok) {
         return await refuse(
           `integrate: cannot resolve rebuilt root head: ${this.gitSummary(rootHead.output)}`,

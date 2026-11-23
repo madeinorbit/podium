@@ -81,6 +81,10 @@ export class IssueAssistantDigestModule {
     // probes and the LLM completion — and is re-cut after them (POD-3375).
     let row = await this.store.draftOrThrow(id)
     if (!row.worktreePath) return await this.store.projection(row)
+    const machineId = await this.store
+      .resolveWorktreeMachine(row.machineId, row.worktreePath)
+      .catch(() => undefined)
+    if (machineId === undefined) return await this.store.projection(row)
     // WHOSE ROLE, WHOSE KEY (POD-469). The digest has no requesting user, so it
     // acts for the member whose settings name the background role, the first
     // admin. The same member's credential is spent below; nobody else's.
@@ -92,8 +96,12 @@ export class IssueAssistantDigestModule {
       tail: '',
     }))
     const [status, history] = await Promise.all([
-      this.store.d.repoOp('status', row.worktreePath).catch(() => ({ ok: false, output: '' })),
-      this.store.d.repoOp('log', row.worktreePath).catch(() => ({ ok: false, output: '' })),
+      this.store.d
+        .repoOp('status', row.worktreePath, undefined, machineId)
+        .catch(() => ({ ok: false, output: '' })),
+      this.store.d
+        .repoOp('log', row.worktreePath, undefined, machineId)
+        .catch(() => ({ ok: false, output: '' })),
     ])
     // The repository's other live, unarchived issues, in one SQL listing.
     const scope = (await this.store.deps.store.repos.issueRepoIdResolver())(row.repoPath)

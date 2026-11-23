@@ -1186,17 +1186,26 @@ export class IssueReportsModule {
     repoPath: string,
     reader: IssueReader = UNRESTRICTED_READER,
   ): Promise<OrphanIssue[]> {
-    const res = await this.store.deps
-      .repoOp('log', repoPath)
-      .catch(() => ({ ok: false, output: '' }))
-    if (!res.ok || !res.output) return []
-    const log = res.output
+    // A repository identity can have several checkouts with different history.
+    // Memoize only for this report, and match each issue on its own machine/path.
+    const logs = new Map<string, string>()
     const out: OrphanIssue[] = []
     for (const r of await this.listed(repoPath, reader, {
       live: true,
       state: 'open',
       order: 'seq',
     })) {
+      const checkout = JSON.stringify([r.machineId, r.repoPath])
+      let log = logs.get(checkout)
+      if (log === undefined) {
+        const res = await this.store
+          .resolveWorktreeMachine(r.machineId, r.repoPath)
+          .then((machineId) => this.store.deps.repoOp('log', r.repoPath, undefined, machineId))
+          .catch(() => ({ ok: false, output: '' }))
+        log = res.ok ? res.output : ''
+        logs.set(checkout, log)
+      }
+      if (!log) continue
       // Reference forms: the branch stem `issue/<seq>-`, or a `#<seq>` token.
       const hashRef = new RegExp(`#${r.seq}\\b`).exec(log)?.[0]
       const branchRef = log.includes(`issue/${r.seq}-`) ? `issue/${r.seq}-` : undefined
