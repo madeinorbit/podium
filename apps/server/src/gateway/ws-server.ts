@@ -81,7 +81,8 @@ export interface NativeServeOptions<T> {
   /** Seconds; see {@link HTTP_IDLE_TIMEOUT_S}. Bun's maximum is 255. */
   idleTimeout?: number
   tls?: { key: string; cert: string }
-  websocket: NativeWebSocketHandler<T>
+  /** Absent in a server process without the `sync` role (POD-7332): it upgrades nothing. */
+  websocket?: NativeWebSocketHandler<T>
   fetch(
     request: Request,
     server: NativeServer<T>,
