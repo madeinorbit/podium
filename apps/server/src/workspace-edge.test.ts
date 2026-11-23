@@ -19,6 +19,7 @@ import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { clientAuthGuard } from './auth-route'
 import { createMemberOfRequest, type MemberOfRequest } from './identity/member-of-request'
+import { identitySeamDeps } from './identity/server-identity'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { SessionStore } from './store'
 import { memberFacts } from './store/fixtures/test-support'
@@ -132,6 +133,7 @@ describe('hosted edge, two workspaces in one database', () => {
       status: 'active',
       account: { kind: 'new', name, email, password },
     })
+    await identity.catchUp()
     // A shared-account edition signs in only an address that was verified.
     const accountId = (await store.users.get(asUserId(view.memberId)))?.accountId
     if (!accountId) throw new Error(`${name} has no account`)
@@ -145,7 +147,7 @@ describe('hosted edge, two workspaces in one database', () => {
   }
 
   beforeEach(async () => {
-    ;[A, B] = await openWorkspaceStores(['ws_a', 'ws_b'])
+    ;[A, B] = await openWorkspaceStores(['ws_a', 'ws_b'], { path: ':memory:' })
     // ONE core and ONE secret for the process, as on hosted.
     const core = await createIdentityCore({
       database: A.identityDatabase(),
@@ -164,8 +166,18 @@ describe('hosted edge, two workspaces in one database', () => {
       rateLimit: { storage: 'memory' },
       newMemberId,
     })
-    identityA = core.workspace(A.workspaceId, { rows: A.users.memberRows, sameDatabase: true })
-    identityB = core.workspace(B.workspaceId, { rows: B.users.memberRows, sameDatabase: true })
+    // As on hosted, the memberships are the core's and each workspace's member
+    // rows are applied after the commit, by its own catch-up.
+    const bind = (store: SessionStore) => {
+      const deps = identitySeamDeps(store)
+      return core.workspace(store.workspaceId, {
+        rows: deps.memberRows,
+        sameDatabase: false,
+        cursor: deps.appliedCursor,
+      })
+    }
+    identityA = bind(A)
+    identityB = bind(B)
     aliceCookie = await admin(identityA, A, 'Alice', PASSWORDS.alice)
     beaCookie = await admin(identityB, B, 'Bea', PASSWORDS.bea)
     const resolver = (identity: WorkspaceIdentity, store: SessionStore) =>
@@ -287,6 +299,12 @@ describe('hosted edge, two workspaces in one database', () => {
         expect(await response.json(), entry.path).toEqual({ bound: 'ws_a' })
       }
     }
+    // The member resolution carries the workspace it was resolved in.
+    const own = new Request(`${ORIGIN}/trpc/x`, {
+      headers: { cookie: aliceCookie, 'Podium-Workspace': 'acme' },
+    })
+    await edge.bind(own)
+    expect(await memberOfRequest(own)).toMatchObject({ kind: 'member', workspaceId: 'ws_a' })
     expect(await upgrade('/client?workspace=acme', { cookie: aliceCookie })).toMatchObject({
       kind: 'bound',
       workspace: { id: 'ws_a' },

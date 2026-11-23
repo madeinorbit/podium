@@ -21,7 +21,7 @@
  */
 import type { ConnectionFacts, DeviceKind, WorkspaceIdentity } from '@podium/identity'
 import { createLogger } from '@podium/logger'
-import { asUserId, type UserId, type UserRole } from '@podium/model'
+import { asUserId, type UserId, type UserRole, type WorkspaceId } from '@podium/model'
 import { type HttpsRequiredRefusal, httpsRequiredRefusal, signInHttpsUrl } from '@podium/protocol'
 import { type UserCommandPrincipal, userCommandPrincipal } from '../command-principal'
 import type { HostMachine } from '../host-machine'
@@ -114,6 +114,12 @@ export type MemberResolution =
       deviceSignIn: { id: string; kind: DeviceKind; expiresAt: Date } | null
       /** The sign-in is due for its daily renewal. */
       renewDue: boolean
+      /**
+       * The workspace the member was resolved in: the request's bound
+       * workspace, stamped by the edge's resolver (workspace-edge.ts
+       * `boundMemberOfRequest`). Absent from a resolver used without the edge.
+       */
+      workspaceId?: WorkspaceId
     }
   | { kind: 'not-a-member'; accountId: string }
   | { kind: 'unauthenticated' }

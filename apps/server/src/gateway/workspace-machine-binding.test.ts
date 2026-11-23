@@ -110,7 +110,7 @@ async function attach(
 
 describe('a daemon enrolled in workspace A, attaching to workspace B with the same machine id', () => {
   it('is refused where B has no row for the machine, and accepted in A', async () => {
-    const [a, b] = await openWorkspaceStores(['ws_a', 'ws_b'])
+    const [a, b] = await openWorkspaceStores(['ws_a', 'ws_b'], { path: ':memory:' })
     opened.push(a)
     const inA = await workspaceMachines(a)
     const inB = await workspaceMachines(b)
@@ -122,7 +122,7 @@ describe('a daemon enrolled in workspace A, attaching to workspace B with the sa
   })
 
   it("is refused where B enrolled the same machine id with its own key, and B's key is not A's", async () => {
-    const [a, b] = await openWorkspaceStores(['ws_a', 'ws_b'])
+    const [a, b] = await openWorkspaceStores(['ws_a', 'ws_b'], { path: ':memory:' })
     opened.push(a)
     const inA = await workspaceMachines(a)
     const inB = await workspaceMachines(b)

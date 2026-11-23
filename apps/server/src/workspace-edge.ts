@@ -259,8 +259,9 @@ export const WORKSPACE_ENTRY_POINTS: readonly EntryPoint[] = [
 
 /**
  * A path no row names. A page load or a static file (the web shell, `/w/<slug>`
- * pages, icons) belongs to no workspace; any other method is bound and needs a
- * member, so a route added without a row fails closed.
+ * pages, icons) belongs to no workspace; any other method is bound, and on
+ * hosted the edge itself admits only a member of the bound workspace, so a
+ * route added without a row fails closed.
  */
 export function fallbackEntry(method: string): EntryPoint {
   return method === 'GET' || method === 'HEAD'
@@ -269,7 +270,7 @@ export function fallbackEntry(method: string): EntryPoint {
         transport: 'http',
         path: '*',
         binding: 'member',
-        why: 'any other route: bound, members only',
+        why: 'any other route (a plugin route, a route added without a row): bound; on hosted the edge itself admits only a member',
       }
 }
 
@@ -518,6 +519,14 @@ export function createWorkspaceEdge(options: WorkspaceEdgeOptions): WorkspaceEdg
     const found = workspaceOf(request)
     if ('refusal' in found) return { kind: 'refused', entry, refusal: found.refusal }
     bindings.set(request, found.workspace)
+    // A route nobody listed has no admission step of its own the edge knows
+    // of, so on hosted the edge admits only a member: it fails closed. A
+    // self-hosted server's plugins keep admitting their own callers.
+    if (mode === 'hosted' && entry.path === '*' && entry.binding === 'member') {
+      const member = await found.workspace.memberOfRequest(request)
+      if (member.kind !== 'member')
+        return { kind: 'refused', entry, refusal: refusalAnswer(member) }
+    }
     return { kind: 'bound', entry, workspace: found.workspace }
   }
 
@@ -564,13 +573,16 @@ export function createWorkspaceEdge(options: WorkspaceEdgeOptions): WorkspaceEdg
 export function boundMemberOfRequest(edge: Pick<WorkspaceEdge, 'served'>): MemberOfRequest {
   const [only] = edge.served
   const single = edge.served.length === 1 ? only : undefined
-  const resolverOf = (request: Request): MemberOfRequest | undefined =>
-    (bindings.get(request) ?? single)?.memberOfRequest
+  const workspaceOf = (request: Request): ServedWorkspace | undefined =>
+    bindings.get(request) ?? single
   const factsSource = single ?? only
   if (!factsSource) throw new Error('a server serves at least one workspace')
-  const memberOfRequest = (request: Request): Promise<MemberResolution> => {
-    const resolver = resolverOf(request)
-    return resolver ? resolver(request) : Promise.resolve({ kind: 'unauthenticated' as const })
+  const memberOfRequest = async (request: Request): Promise<MemberResolution> => {
+    const workspace = workspaceOf(request)
+    if (!workspace) return { kind: 'unauthenticated' }
+    const resolution = await workspace.memberOfRequest(request)
+    // A member is a member OF the workspace it was resolved in.
+    return resolution.kind === 'member' ? { ...resolution, workspaceId: workspace.id } : resolution
   }
   // The connection facts are the server's, the same in every workspace.
   return Object.assign(memberOfRequest, {

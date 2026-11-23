@@ -75,6 +75,17 @@ function bootFixture(engine: 'sqlite' | 'pg', mode: ServerMode) {
       ...(mode === 'hosted' ? { workspaceId: HOSTED_WORKSPACE, workspaceSlug: HOSTED_SLUG } : {}),
       janitorWorkerForTests: noJanitorWorkerForTests,
     })
+    // A hosted workspace is created with its first admin by the root (in the
+    // cloud, together with the creator's membership). Only the self-hosted
+    // install's `local` workspace has one from its migrations.
+    if (mode === 'hosted') {
+      await fixture.server.identity.memberships.adopt({
+        by: 'setup',
+        role: 'admin',
+        status: 'active',
+        account: { kind: 'new', name: 'Founder', email: 'founder@example.test' },
+      })
+    }
     const admin = await fixture.server.registry.sessionStore.users.earliestAdmin()
     if (!admin) throw new Error('Missing boot administrator')
     const principal = userCommandPrincipal(asUserId(admin.id), 'admin')
