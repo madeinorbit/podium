@@ -1,4 +1,4 @@
-export { allowImperativeRead, assertReactiveRead, keyedComputed, type KeyedComputed, type KeyedComputedOptions } from './keyed-computed'
+export { allowImperativeRead, assertReactiveRead, currentDerivation, keyedComputed, type KeyedComputed, type KeyedComputedOptions } from './keyed-computed'
 export { DeadlineClock, deadlineClock, nextUp, now, nowForAge, clockStore, refreshClocks, setClockWakeSource, type ClockWakeSource } from './clock'
 export { debugName, enableDebugNames } from './debug-name'
 export { configureDevelopmentChecks } from './development'

@@ -8,6 +8,15 @@ export function allowImperativeRead<T>(read: () => T): T {
   return _getGlobalState().trackingDerivation ? read() : runInAction(read)
 }
 
+/**
+ * The derivation tracking reads right now (a computed or a reaction), or
+ * `undefined` outside one, in an action and inside `untracked`. Opaque: only
+ * compared by identity (the side-state guard, POD-7454).
+ */
+export function currentDerivation(): object | undefined {
+  return _getGlobalState().trackingDerivation ?? undefined
+}
+
 /** Live render hooks must borrow their caller's reaction, even before data arrives. */
 export function assertReactiveRead(name: string): void {
   if (!_getGlobalState().trackingDerivation) {

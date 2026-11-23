@@ -1,3 +1,4 @@
+import { installSideStateGuard } from '@podium/client-graph/side-state-guard'
 import { configureDevelopmentChecks, setClockWakeSource } from '@podium/mobx-helpers'
 import type { JSX } from 'react'
 import { StrictMode, Suspense, useRef, useState } from 'react'
@@ -160,6 +161,8 @@ installVitePreloadErrorRecovery()
 installInterfaceIdentityResponder()
 startWebLogging()
 configureDevelopmentChecks(import.meta.env.DEV)
+// Development warns when a screen reads side state it cannot track (POD-7454).
+if (import.meta.env.DEV) installSideStateGuard('warn')
 restoreReloadRoute()
 
 const root = document.getElementById('root')

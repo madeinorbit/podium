@@ -303,6 +303,9 @@ export const sharedVitestConfig = {
       // The client's record declarations, loaded as the outbox's open loads
       // them in the app (POD-6423). No-op for server and daemon files.
       './test-record-declarations.ts',
+      // The side-state guard throws in client tests and fails a test that read
+      // untracked side state inside a derivation (POD-7454).
+      './test-side-state-guard.ts',
     ],
     // The other half of that fixture: build the schema image once per lane, in the
     // main process, so no fork ever loads the migration chain's module graph. An

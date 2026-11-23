@@ -1,3 +1,4 @@
+import { installSideStateGuard } from '@podium/client-graph/side-state-guard'
 import { configureDevelopmentChecks } from '@podium/mobx-helpers'
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
@@ -32,6 +33,8 @@ const PlatformStatusBar = StatusBar as ComponentType<{
 // Before the first navigation, not inside an effect: the web stack's keyboard
 // manager reaches for this on the very first page change [POD-402].
 configureDevelopmentChecks(process.env.NODE_ENV === 'development')
+// Development warns when a screen reads side state it cannot track (POD-7454).
+if (process.env.NODE_ENV === 'development') installSideStateGuard('warn')
 installBlurOnNavigate()
 
 // AT MODULE SCOPE, BEFORE REACT, and that is the whole point of the placement:

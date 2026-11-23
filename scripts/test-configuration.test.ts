@@ -300,6 +300,8 @@ describe('test lane configuration', () => {
       // POD-6423: client files get the record declarations the app loads when it
       // opens its outbox; a no-op for server and daemon files.
       './test-record-declarations.ts',
+      // POD-7454: client files fail on side state read inside a derivation.
+      './test-side-state-guard.ts',
     ])
     const bunfig = readFileSync(new URL('../bunfig.toml', import.meta.url), 'utf8')
     expect(bunfig).toContain('preload = ["./test-hermetic-env.ts", "./test-hermetic-bun-hooks.ts"]')

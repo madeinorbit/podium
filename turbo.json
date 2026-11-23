@@ -360,6 +360,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/test-side-state-guard.ts",
         "$TURBO_ROOT$/packages/*/src/**",
         "$TURBO_ROOT$/apps/daemon/src/**"
       ],
@@ -376,6 +377,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/test-side-state-guard.ts",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",
         "$TURBO_ROOT$/packages/model/src/**",
@@ -397,6 +399,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/test-side-state-guard.ts",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/client-graph/src/**",
         "$TURBO_ROOT$/packages/client-graph/package.json",
@@ -420,6 +423,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/test-side-state-guard.ts",
         "$TURBO_ROOT$/packages/model/src/**",
         "$TURBO_ROOT$/packages/protocol/src/**"
       ],
@@ -436,6 +440,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/test-side-state-guard.ts",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/model/src/**",
         "$TURBO_ROOT$/packages/protocol/src/**",
@@ -455,6 +460,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/test-side-state-guard.ts",
         "$TURBO_ROOT$/docs/measurements/pod-4906-opencode-command-events/**",
         "$TURBO_ROOT$/packages/model/src/**",
         "$TURBO_ROOT$/packages/protocol/src/**",
@@ -473,6 +479,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/test-side-state-guard.ts",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/model/src/**",
         "$TURBO_ROOT$/packages/protocol/src/**"
@@ -490,6 +497,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/test-side-state-guard.ts",
         "$TURBO_ROOT$/packages/model/src/**",
         "$TURBO_ROOT$/packages/protocol/src/**",
         "$TURBO_ROOT$/packages/runtime/src/**"
@@ -507,6 +515,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/test-side-state-guard.ts",
         "$TURBO_ROOT$/packages/model/src/**",
         "$TURBO_ROOT$/packages/protocol/src/**",
         "$TURBO_ROOT$/packages/pty/src/**",
@@ -525,6 +534,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/test-side-state-guard.ts",
         "$TURBO_ROOT$/apps/**/*.ts",
         "$TURBO_ROOT$/apps/**/*.tsx",
         "$TURBO_ROOT$/packages/**/*.ts",
@@ -543,6 +553,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/test-side-state-guard.ts",
         "$TURBO_ROOT$/packages/model/src/**"
       ],
       "outputs": []
@@ -558,6 +569,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/test-side-state-guard.ts",
         "$TURBO_ROOT$/packages/model/src/**",
         "$TURBO_ROOT$/packages/protocol/src/**",
         "$TURBO_ROOT$/packages/runtime/src/**"
@@ -575,6 +587,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/test-side-state-guard.ts",
         "$TURBO_ROOT$/packages/model/src/**",
         "$TURBO_ROOT$/packages/protocol/src/**"
       ],
@@ -591,6 +604,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/test-side-state-guard.ts",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/model/src/**",
         "$TURBO_ROOT$/packages/protocol/src/**",
@@ -609,6 +623,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/test-side-state-guard.ts",
         "$TURBO_ROOT$/packages/model/src/**",
         "$TURBO_ROOT$/packages/protocol/src/**",
         "$TURBO_ROOT$/packages/runtime/src/**",
@@ -627,6 +642,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/test-side-state-guard.ts",
         "$TURBO_ROOT$/packages/model/src/**",
         "$TURBO_ROOT$/packages/protocol/src/**",
         "$TURBO_ROOT$/packages/runtime/src/**",
@@ -645,6 +661,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/test-side-state-guard.ts",
         "$TURBO_ROOT$/packages/client-core/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/model/src/**",
@@ -671,6 +688,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/test-side-state-guard.ts",
         "$TURBO_ROOT$/packages/*/src/**",
         "$TURBO_ROOT$/tests/worklist/diagnostics/notice-fixture.ts",
         "$TURBO_ROOT$/tests/worklist/harness/src/fixture/**"
@@ -687,7 +705,8 @@
         "$TURBO_ROOT$/scripts/package-vitest-config.ts",
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
-        "$TURBO_ROOT$/test-hermetic-state-guard.ts"
+        "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/test-side-state-guard.ts"
       ],
       "outputs": []
     },
@@ -705,6 +724,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/test-side-state-guard.ts",
         "$TURBO_ROOT$/.github/**",
         "$TURBO_ROOT$/apps/**",
         "$TURBO_ROOT$/packages/**",

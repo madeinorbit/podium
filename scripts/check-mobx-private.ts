@@ -1,4 +1,4 @@
-/** MobX's private exports belong only to keyedComputed's one tracking check. */
+/** MobX's private exports belong only to keyed-computed.ts's tracking checks. */
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import ts from 'typescript'
