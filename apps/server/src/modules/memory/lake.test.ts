@@ -24,7 +24,9 @@ describe.each(LAKE_BACKENDS)('TranscriptLake mirror fence on the $name lake', (b
     const backend = backendKind.create()
     const sent: { machineId: string; message: ControlMessage }[] = []
     const daemonRequest = new DaemonRequestBroker({
-      toMachine: (machineId, message) => sent.push({ machineId, message }),
+      toMachine: (machineId, message) => {
+        sent.push({ machineId, message })
+      },
       defaultMachine: () => asMachineId('m1'),
     })
     const lake = new TranscriptLake(

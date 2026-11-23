@@ -49,7 +49,9 @@ describe('source transfer fence and the transcript mirror', () => {
         store: store.conversations,
         now: Date.now,
         daemonRequest: new DaemonRequestBroker({
-          toMachine: (_machineId, message) => sent.push(message),
+          toMachine: (_machineId, message) => {
+            sent.push(message)
+          },
           defaultMachine: () => machineId,
         }),
         parseForAgentKind: (agentKind) => transcriptRecordMapperFor(agentKind),

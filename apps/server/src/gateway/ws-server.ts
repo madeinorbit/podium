@@ -9,7 +9,18 @@
 
 import { createLogger } from '@podium/logger'
 import type { ServerReadiness, UserId, UserRole, WorkspaceId } from '@podium/model'
-import { CAP_SYNC_HTTP_V1, fencedMemberOf, memberFenceRefuses, WireVersionOffer, negotiateVersion, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION, DAEMON_WIRE_VERSION, MIN_DAEMON_WIRE_VERSION, SIGN_IN_ENDED_CLOSE } from '@podium/protocol'
+import {
+  CAP_SYNC_HTTP_V1,
+  CLIENT_WIRE_VERSION,
+  DAEMON_WIRE_VERSION,
+  fencedMemberOf,
+  MIN_CLIENT_WIRE_VERSION,
+  MIN_DAEMON_WIRE_VERSION,
+  memberFenceRefuses,
+  negotiateVersion,
+  SIGN_IN_ENDED_CLOSE,
+  WireVersionOffer,
+} from '@podium/protocol'
 import { measureTask } from '@podium/runtime/task-attribution'
 
 export interface NativeServer<T> {
@@ -86,8 +97,8 @@ export function serveNative<T>(options: NativeServeOptions<T>): NativeServer<T> 
 
 import type { SessionRegistry } from '../relay'
 import { routedPath } from '../workspace-edge'
-import { wireClientSocket } from './client-socket'
 import { userClientPrincipal } from './client-principal'
+import { wireClientSocket } from './client-socket'
 import {
   ACCEPT_PLAIN_DAEMON_LINKS,
   type DaemonLinkFacts,
@@ -513,20 +524,23 @@ export function attachWebSockets(
       if (pathname !== '/client' && pathname !== '/daemon' && pathname !== '/machine') return null
 
       const rawVersion = url.searchParams.get('v') ?? url.searchParams.get('pv')
-      const support = pathname === '/client'
-        ? { wire: CLIENT_WIRE_VERSION, min: MIN_CLIENT_WIRE_VERSION }
-        : { wire: DAEMON_WIRE_VERSION, min: MIN_DAEMON_WIRE_VERSION }
+      const support =
+        pathname === '/client'
+          ? { wire: CLIENT_WIRE_VERSION, min: MIN_CLIENT_WIRE_VERSION }
+          : { wire: DAEMON_WIRE_VERSION, min: MIN_DAEMON_WIRE_VERSION }
       const offered = {
         min: Number(url.searchParams.get('vmin') ?? rawVersion),
         max: Number(rawVersion),
       }
-      if (rawVersion !== null && (!WireVersionOffer.safeParse(offered).success || !negotiateVersion(offered, support).ok)) {
+      if (
+        rawVersion !== null &&
+        (!WireVersionOffer.safeParse(offered).success || !negotiateVersion(offered, support).ok)
+      ) {
         return new Response('Upgrade Required', { status: 426 })
       }
       // Capabilities must be advertised before upgrade as well as in hello:
       // an HTTP 426 cannot be sent once the WebSocket has been accepted.
-      if (pathname === '/client' &&
-        !url.searchParams.getAll('cap').includes(CAP_SYNC_HTTP_V1)) {
+      if (pathname === '/client' && !url.searchParams.getAll('cap').includes(CAP_SYNC_HTTP_V1)) {
         return new Response('Upgrade Required: sync.http.v1', { status: 426 })
       }
       const origin = request.headers.get('origin')
@@ -609,7 +623,8 @@ export function attachWebSockets(
         }
       } else {
         const link = deps.daemonLink?.(request)
-        if (link !== undefined && registry.daemonLinks.kindOf(link) === 'plain') {
+        // Judged with the bound workspace's trusted networks as they are now.
+        if (link !== undefined && (await registry.daemonLinks.kindOf(link)) === 'plain') {
           // LEGACY(remove-after: 2027-02): accepts a plain ws daemon connection from another computer so local-network installs survive the upgrade; removing it refuses such a daemon at connect
           const accepted = deps.acceptPlainDaemonLinks ?? ACCEPT_PLAIN_DAEMON_LINKS
           if (!accepted) {

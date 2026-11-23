@@ -104,7 +104,8 @@ export interface SessionRevivalPorts {
    *  projection (POD-6160: from the database where they are not resident). */
   readSessionFactsByMachine(machineId: MachineId): Promise<SessionFacts[]>
   broadcastSessions(): void
-  toMachine(machineId: MachineId, message: ControlMessage): void
+  /** Awaited for a frame that carries a secret: its link is judged at the send. */
+  toMachine(machineId: MachineId, message: ControlMessage): void | Promise<void>
   /** Fresh-mint path of resume — owned by SessionStart, task rule included. */
   spawn: SessionStart['spawn']
   startTask: SessionStart['startTask']
@@ -663,7 +664,8 @@ export class SessionRevival {
     // The durable commit suspends; retirement must still prevent a launch.
     if (session.archived) return { ok: false, reason: 'session is archived' }
     const observationLease = await this.ports.terminalProof.fence(session)
-    this.ports.toMachine(session.machineId, {
+    // Awaited: a spawn carrying a secret is judged against the link at the send.
+    await this.ports.toMachine(session.machineId, {
       type: 'spawn',
       sessionId,
       durableLabel: session.durableLabel,

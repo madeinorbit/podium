@@ -184,7 +184,7 @@ export class SessionClientPlane {
   /** Route a control message to the daemon that owns `machineId` (modules/machines);
    *  queued if that machine is briefly offline. Kept as a property so Session
    *  toDaemon closures and every internal call site bind through one seam. */
-  private readonly toMachine = (machineId: MachineId, msg: ControlMessage): void =>
+  private readonly toMachine = (machineId: MachineId, msg: ControlMessage): Promise<void> =>
     this.ports.machines.toMachine(machineId, msg)
 
   /**

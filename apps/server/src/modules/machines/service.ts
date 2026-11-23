@@ -155,6 +155,27 @@ function carriesVaultKey(message: ControlMessage): boolean {
   )
 }
 
+/** How often a send judges again a link whose socket was replaced while it was judged. */
+const LINK_JUDGE_ATTEMPTS = 3
+const LINK_KEPT_CHANGING = 'its daemon connection kept changing while the server judged it'
+
+/** What a send that went out, or was queued, at once returns. */
+const SENT: Promise<void> = Promise.resolve()
+
+/**
+ * A frame that may go only over a link the server judged safe, so its send
+ * reads the link's kind first (credential management §7, §8; POD-7484): an
+ * access with a secret, a login-file export or install, a server promotion.
+ */
+function judgedAtSend(message: ControlMessage): boolean {
+  return (
+    message.type === 'credentialExportRequest' ||
+    message.type === 'credentialInstallRequest' ||
+    carriesAccessSecret(message) ||
+    carriesVaultKey(message)
+  )
+}
+
 const sendControl = (transport: DaemonControlPeer, message: ControlMessage): void => {
   if (typeof transport === 'function') transport(message)
   else transport.send(message)
@@ -351,10 +372,11 @@ export interface MachinesDeps {
   instanceId: string
   /**
    * The server's judgement of a connected daemon's connection (credential
-   * management §8). Read at the send, so a frame carrying a secret never goes
-   * to a socket judged `plain`. Absent: only the capability is checked.
+   * management §8). Read at the send, from the workspace's settings as they are
+   * then (POD-7484), so a frame carrying a secret never goes to a socket judged
+   * `plain`. Absent: only the capability is checked.
    */
-  daemonLinkKind?: (machineId: MachineId) => DaemonLinkKind | undefined
+  daemonLinkKind?: (machineId: MachineId) => Promise<DaemonLinkKind | undefined>
   /** Public half of the server update-signing key, sent on every successful machine hello. */
   updatePubkey?: () => string
   /** Old-key-signed path published with the current update key. */
@@ -595,6 +617,14 @@ export class MachinesService {
   // forget spawn — and it is the layer BELOW the broker, which sends through
   // `toMachine` and never learns whether a message went out or was parked.
   private readonly pendingByMachine = new Map<string, PendingDaemonDelivery[]>()
+  /**
+   * THE SEND ORDER WHILE A LINK IS JUDGED (POD-7484). A frame that may go only
+   * over a safe link waits for the link's kind, which reads the workspace's
+   * settings. Every frame sent to that machine meanwhile waits behind it, so
+   * frames still reach a daemon in the order they were sent. The tail of each
+   * machine's chain, present only while one is in flight; never rejects.
+   */
+  private readonly sendOrder = new Map<MachineId, Promise<void>>()
   /**
    * Latest durable inventory report received while the server-transfer fence owns
    * SQLite. Inventory is a replaceable machine fact, so one entry per machine is
@@ -1116,32 +1146,55 @@ export class MachinesService {
     return this.daemonCaps.get(machineId)?.has(cap) === true
   }
 
-  /** Why a frame carrying a secret may not go to this machine now, if it may not. */
-  private secretUnsafe(machineId: MachineId): string | undefined {
+  /** Why a frame carrying a secret may not go to this machine's link of `kind`, if it may not. */
+  private secretUnsafe(machineId: MachineId, kind: DaemonLinkKind | undefined): string | undefined {
     if (!this.daemons.has(machineId)) return 'no daemon is connected'
     if (!this.daemonSupports(machineId, CAP_SESSION_ACCESS)) return 'its daemon is too old'
-    return this.linkUnsafe(machineId)
+    return this.linkUnsafe(machineId, kind)
   }
 
-  /** Why a secret may not go to `machineId`'s live daemon link now, if it may not. */
-  private linkUnsafe(machineId: MachineId): string | undefined {
+  /** Why a secret may not go to `machineId`'s live daemon link of `kind`, if it may not. */
+  private linkUnsafe(machineId: MachineId, kind: DaemonLinkKind | undefined): string | undefined {
     if (!this.daemons.has(machineId)) return 'no daemon is connected'
-    if (this.deps.daemonLinkKind?.(machineId) === 'plain') return 'its connection is not encrypted'
+    if (kind === 'plain') return 'its connection is not encrypted'
     return undefined
   }
 
   /**
-   * Why a login file may not cross `machineId`'s live daemon link now, if it may
-   * not (credential management §8; POD-6906 S2). Stricter than the access rule:
-   * a link the server has not classified is refused too, because a login file
-   * is a harness's whole sign-in, not one session's access.
+   * Why a login file may not cross a live daemon link of `kind`, if it may not
+   * (credential management §8; POD-6906 S2). Stricter than the access rule: a
+   * link the server has not classified is refused too, because a login file is
+   * a harness's whole sign-in, not one session's access.
    */
-  loginLinkUnsafe(machineId: MachineId): string | undefined {
+  private loginKindUnsafe(
+    machineId: MachineId,
+    kind: DaemonLinkKind | undefined,
+  ): string | undefined {
     if (!this.daemons.has(machineId)) return 'no daemon is connected'
-    const kind = this.deps.daemonLinkKind?.(machineId)
     if (kind === 'plain') return 'its connection is not encrypted'
     if (kind === undefined) return 'the server cannot tell whether its connection is encrypted'
     return undefined
+  }
+
+  /** The connected daemon's link kind, judged now; undefined without a judge or a daemon. */
+  private async linkKindNow(machineId: MachineId): Promise<DaemonLinkKind | undefined> {
+    return await this.deps.daemonLinkKind?.(machineId)
+  }
+
+  /**
+   * Why a login file may not cross `machineId`'s live daemon link now, if it
+   * may not, judged with the workspace's settings as they are now. A preflight:
+   * the send judges again.
+   */
+  async loginLinkUnsafe(machineId: MachineId): Promise<string | undefined> {
+    for (let attempt = 0; attempt < LINK_JUDGE_ATTEMPTS; attempt++) {
+      const transport = this.daemons.get(machineId)
+      if (transport === undefined) return 'no daemon is connected'
+      const kind = await this.linkKindNow(machineId)
+      // A socket that replaced the judged one is judged on its own.
+      if (this.daemons.get(machineId) === transport) return this.loginKindUnsafe(machineId, kind)
+    }
+    return LINK_KEPT_CHANGING
   }
 
   /** Wait briefly for the live daemon's first inventory, requesting it now. */
@@ -1171,9 +1224,76 @@ export class MachinesService {
     for (const settle of waiters ?? []) settle()
   }
 
-  /** Route a control message to the daemon that owns `machineId`; queue it if that
-   *  machine is briefly offline (flushed in order on its next attach). */
-  readonly toMachine = (machineId: MachineId, msg: ControlMessage): void => {
+  /**
+   * Route a control message to the daemon that owns `machineId`; queue it if
+   * that machine is briefly offline (flushed in order on its next attach).
+   *
+   * Settles once the frame was sent, queued or dropped. A refusal
+   * (`RefusedSendError` and the others below) means nothing was sent and
+   * nothing queued: a frame refused without waiting throws, one refused after
+   * waiting rejects. A frame that may go only over a safe link (one holding
+   * a secret, a login-file request, a server promotion) is judged against the
+   * workspace's settings as they are at the send (POD-7484), so its caller must
+   * await this; any other frame goes out before this returns unless one such
+   * judgement for the same machine is still in flight, and then right behind it.
+   */
+  readonly toMachine = (machineId: MachineId, msg: ControlMessage): Promise<void> => {
+    if (!judgedAtSend(msg) && !this.sendOrder.has(machineId)) {
+      // Refused at once, it throws at once, as every caller has relied on.
+      this.deliverControl(machineId, msg, undefined)
+      return SENT
+    }
+    return this.inSendOrder(machineId, async () => {
+      if (!judgedAtSend(msg)) {
+        this.deliverControl(machineId, msg, undefined)
+        return
+      }
+      for (let attempt = 0; ; attempt++) {
+        const transport = this.daemons.get(machineId)
+        const kind = transport === undefined ? undefined : await this.linkKindNow(machineId)
+        // Sent at once after the judgement, with no await between: the frame
+        // goes to the very socket that was judged.
+        if (this.daemons.get(machineId) === transport) {
+          this.deliverControl(machineId, msg, kind)
+          return
+        }
+        if (attempt + 1 >= LINK_JUDGE_ATTEMPTS) {
+          throw new RefusedSendError(
+            `refusing to send ${msg.type} to ${machineId}: ${LINK_KEPT_CHANGING}`,
+          )
+        }
+      }
+    })
+  }
+
+  /** Run `send` after every frame already waiting for `machineId`, in order. */
+  private inSendOrder(machineId: MachineId, send: () => Promise<void>): Promise<void> {
+    const sent = (this.sendOrder.get(machineId) ?? Promise.resolve()).then(send)
+    const tail = sent.then(
+      () => {},
+      () => {},
+    )
+    this.sendOrder.set(machineId, tail)
+    void tail.then(() => {
+      if (this.sendOrder.get(machineId) === tail) this.sendOrder.delete(machineId)
+    })
+    // A caller that does not await a frame it may drop (every frame that is
+    // not judged at the send) must not raise an unhandled rejection; a caller
+    // that awaits still receives the refusal.
+    sent.catch(() => {})
+    return sent
+  }
+
+  /**
+   * The send itself, synchronous: every fence, then the socket or the offline
+   * queue. `kind` is the judgement of the live link, made just before for a
+   * frame judged at the send.
+   */
+  private deliverControl(
+    machineId: MachineId,
+    msg: ControlMessage,
+    kind: DaemonLinkKind | undefined,
+  ): void {
     if (this.revokedMachines.has(machineId)) return
     // One-off context reads/cancellations belong to the currently connected
     // peer. Never queue a native probe for a later opening or older peer.
@@ -1187,7 +1307,7 @@ export class MachinesService {
     // the daemon to send it back over the same link. Both are judged at the send,
     // for propagation and for the legacy pairing copy alike.
     if (msg.type === 'credentialExportRequest' || msg.type === 'credentialInstallRequest') {
-      const unsafe = this.loginLinkUnsafe(machineId)
+      const unsafe = this.loginKindUnsafe(machineId, kind)
       if (unsafe) {
         throw new RefusedSendError(
           `refusing to ${msg.type === 'credentialExportRequest' ? 'ask for' : 'send'} a login file ${msg.type === 'credentialExportRequest' ? 'from' : 'to'} ${machineId}: ${unsafe}`,
@@ -1211,7 +1331,7 @@ export class MachinesService {
     // socket went away or was replaced by an older daemon or a plain link since,
     // the frame is refused here rather than parked for whatever connects next.
     if (carriesAccessSecret(msg)) {
-      const unsafe = this.secretUnsafe(machineId)
+      const unsafe = this.secretUnsafe(machineId, kind)
       if (unsafe) {
         throw new RefusedSendError(`refusing to send a credential to ${machineId}: ${unsafe}`)
       }
@@ -1225,7 +1345,7 @@ export class MachinesService {
     // the transfer's own preflight, so only the live link is judged here.
     if (msg.type === 'serverTransferPromoteRequest') {
       const unsafe = carriesVaultKey(msg)
-        ? this.linkUnsafe(machineId)
+        ? this.linkUnsafe(machineId, kind)
         : this.daemons.has(machineId)
           ? undefined
           : 'no daemon is connected'
@@ -1270,6 +1390,15 @@ export class MachinesService {
 
   /** Route canonical PTY bytes without re-encoding on a capable daemon transport. */
   readonly toPtyInput = (machineId: MachineId, input: DaemonPtyInputBatch): void => {
+    // Typed bytes keep their place behind a frame whose link is being judged.
+    if (this.sendOrder.has(machineId)) {
+      void this.inSendOrder(machineId, async () => this.deliverPtyInput(machineId, input))
+      return
+    }
+    this.deliverPtyInput(machineId, input)
+  }
+
+  private deliverPtyInput(machineId: MachineId, input: DaemonPtyInputBatch): void {
     if (this.revokedMachines.has(machineId)) return
     if (input.bytes.byteLength === 0) return
     const transport = this.daemons.get(machineId)

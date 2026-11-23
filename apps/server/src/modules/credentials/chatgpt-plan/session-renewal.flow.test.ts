@@ -112,7 +112,7 @@ async function world() {
       {
         store: s,
         daemonSupports: (_m, cap) => cap === CAP_SESSION_ACCESS,
-        daemonLinkKind: () => 'local',
+        daemonLinkKind: async () => 'local',
         issueToken: async (cid, to) => {
           const issued = await keeper.issue(cid, { minLeftMs: SESSION_TOKEN_MIN_LEFT_MS })
           expiryOf.set(issued.token, issued.expiresAt)

@@ -146,7 +146,8 @@ export interface SessionStartPorts {
     agentKind: AgentKind
     ownerUserId: UserId
   }): void
-  toMachine(machineId: MachineId, message: ControlMessage): void
+  /** Awaited for a frame that carries a secret: its link is judged at the send. */
+  toMachine(machineId: MachineId, message: ControlMessage): void | Promise<void>
   toPtyInput(machineId: MachineId, input: DaemonPtyInputBatch): void
   broadcastSessions(): void
   /** The issue that owns this cwd's worktree on `machineId`, if exactly one does. */
@@ -786,7 +787,8 @@ export class SessionStart {
     // sending first would tell the daemon to observe under one that does not
     // exist yet.
     const observationLease = await this.ports.terminalProof.fence(session)
-    this.ports.toMachine(machineId, {
+    // Awaited: a spawn carrying a secret is judged against the link at the send.
+    await this.ports.toMachine(machineId, {
       type: 'spawn',
       sessionId,
       durableLabel: session.durableLabel,

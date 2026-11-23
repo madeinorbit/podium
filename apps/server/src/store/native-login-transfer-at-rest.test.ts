@@ -164,7 +164,13 @@ describe('a native login transfer at rest', () => {
         }),
       )
     }
-    await store.nativeLogins.setOptIn(owner, 'codex', 'same-account', true, new Date(0).toISOString())
+    await store.nativeLogins.setOptIn(
+      owner,
+      'codex',
+      'same-account',
+      true,
+      new Date(0).toISOString(),
+    )
 
     const bundle = fakeLoginFile('propagated', 6000)
     const atInstall: { rows: string[]; bytes: number; received: PortableCredentialBundle[] } = {
@@ -179,7 +185,7 @@ describe('a native login transfer at rest', () => {
         capabilityRejection: async () => undefined,
         daemonSupports: () => true,
         // Both links are safe: this test is about the database, not the link.
-        loginLinkUnsafe: () => undefined,
+        loginLinkUnsafe: async () => undefined,
       },
       rpc: {
         credentialExport: async () => ({ bundles: [bundle], unavailable: [] }),

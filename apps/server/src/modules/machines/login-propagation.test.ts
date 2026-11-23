@@ -103,7 +103,7 @@ describe('login propagation coordinator', () => {
         capabilityRejection: async () => undefined,
         daemonSupports: (machineId) => (opts.capable ?? [...online]).includes(machineId),
         // As MachinesService.loginLinkUnsafe: offline, or a plain link, is unsafe.
-        loginLinkUnsafe: (machineId) =>
+        loginLinkUnsafe: async (machineId) =>
           !online.has(machineId)
             ? 'no daemon is connected'
             : (opts.plain ?? []).includes(machineId)

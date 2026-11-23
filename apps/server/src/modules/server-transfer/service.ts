@@ -115,7 +115,7 @@ export interface ServerTransferDeps {
    */
   vault?: TransferVault
   /** How the target's daemon reaches this server, as the server judged it (§8). */
-  targetLinkKind?(machineId: MachineId): DaemonLinkKind | undefined
+  targetLinkKind?(machineId: MachineId): Promise<DaemonLinkKind | undefined>
   /** Deletes the source's key file at finalize. Default: remove it; absent is fine. */
   removeVaultKeyFile?(path: string): Promise<void>
   now?: () => Date
@@ -1147,7 +1147,7 @@ export class ServerTransferService {
       )
     }
     // The server judged this link itself; nothing the daemon says about it counts.
-    if (this.deps.targetLinkKind?.(targetMachineId) === 'plain') {
+    if ((await this.deps.targetLinkKind?.(targetMachineId)) === 'plain') {
       throw fail(
         TRANSFER_FAILURE_CODES.TARGET_LINK_NOT_ENCRYPTED,
         "the target machine's connection to this server is not encrypted, so the server and its stored credentials do not move to it. Connect it over wss, or declare its network trusted.",

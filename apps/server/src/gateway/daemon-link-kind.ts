@@ -122,54 +122,83 @@ export const IN_PROCESS_DAEMON_LINK = 'in-process'
 export type DaemonLink = DaemonLinkFacts | typeof IN_PROCESS_DAEMON_LINK
 
 export interface DaemonLinksDeps {
-  /** The admin's trusted ranges as the instance holds them now. */
-  readonly trustedNetworks: () => readonly string[]
-  /** A connected machine's kind moved (its `machine.condition` changed). */
+  /**
+   * The admin's trusted ranges, read from the bound workspace's settings at
+   * each call (POD-7484; design 4.2: no settings object outlives a request).
+   */
+  readonly trustedNetworks: () => Promise<readonly string[]>
+  /** A connected machine's kind may have moved (its `machine.condition` changed). */
   readonly kindChanged: (machineId: MachineId) => void
 }
+
+/** How often a judgement is retried when the machine's socket is replaced while it is read. */
+const JUDGE_ATTEMPTS = 3
 
 /**
  * The link of every daemon connected to this server. Connection state, in
  * process only, kept for exactly as long as the socket that recorded it.
+ *
+ * Only the FACTS are kept. A kind is worked out when asked, with the trusted
+ * networks read from the store then, so an admin's change applies to the next
+ * send without a restart or a reconnect, in every process serving the
+ * workspace. A link that is encrypted or local whatever is trusted is judged
+ * without a read.
  */
 export class DaemonLinks {
   private readonly links = new Map<MachineId, { link: DaemonLink; owner: object }>()
-  private readonly lastKind = new Map<MachineId, DaemonLinkKind>()
 
   constructor(private readonly deps: DaemonLinksDeps) {}
 
-  kindOf(link: DaemonLink): DaemonLinkKind {
+  /** A link's kind, reading the trusted networks only when they decide it. */
+  async kindOf(link: DaemonLink): Promise<DaemonLinkKind> {
     if (link === IN_PROCESS_DAEMON_LINK) return 'local'
-    return classifyDaemonLink({ ...link, trustedNetworks: this.deps.trustedNetworks() })
+    if (!dependsOnTrustedNetworks(link)) return classifyDaemonLink({ ...link, trustedNetworks: [] })
+    return classifyDaemonLink({ ...link, trustedNetworks: await this.deps.trustedNetworks() })
   }
 
   /** Record the link of the socket `owner` that now speaks for `machineId`. */
   connected(machineId: MachineId, link: DaemonLink, owner: object): void {
     this.links.set(machineId, { link, owner })
-    this.lastKind.set(machineId, this.kindOf(link))
   }
 
   /** Forget it, unless a newer socket has replaced `owner` meanwhile. */
   disconnected(machineId: MachineId, owner: object): boolean {
     if (this.links.get(machineId)?.owner !== owner) return false
     this.links.delete(machineId)
-    this.lastKind.delete(machineId)
     return true
   }
 
-  /** The connected daemon's kind now; undefined when it is not connected. */
-  daemonLinkKind(machineId: MachineId): DaemonLinkKind | undefined {
-    const entry = this.links.get(machineId)
-    return entry === undefined ? undefined : this.kindOf(entry.link)
+  /**
+   * The connected daemon's kind now; undefined when it is not connected. The
+   * answer is for the socket connected when it returns: a socket that replaced
+   * the judged one during the read is judged again, and one that keeps being
+   * replaced reads `plain`, so no secret follows it.
+   */
+  async daemonLinkKind(machineId: MachineId): Promise<DaemonLinkKind | undefined> {
+    for (let attempt = 0; attempt < JUDGE_ATTEMPTS; attempt++) {
+      const entry = this.links.get(machineId)
+      if (entry === undefined) return undefined
+      const kind = await this.kindOf(entry.link)
+      if (this.links.get(machineId) === entry) return kind
+    }
+    return this.links.has(machineId) ? 'plain' : undefined
   }
 
-  /** The trusted networks may have changed: tell whoever shows a moved kind. */
+  /**
+   * The trusted networks may have changed: tell whoever shows the kind of a
+   * daemon whose kind they decide. Nothing remembers the earlier kind; the
+   * reader judges again.
+   */
   settingsChanged(): void {
     for (const [machineId, { link }] of this.links) {
-      const kind = this.kindOf(link)
-      if (this.lastKind.get(machineId) === kind) continue
-      this.lastKind.set(machineId, kind)
-      this.deps.kindChanged(machineId)
+      if (link !== IN_PROCESS_DAEMON_LINK && dependsOnTrustedNetworks(link)) {
+        this.deps.kindChanged(machineId)
+      }
     }
   }
+}
+
+/** Whether the trusted networks decide this link's kind: it is neither encrypted nor local. */
+function dependsOnTrustedNetworks(link: DaemonLinkFacts): boolean {
+  return classifyDaemonLink({ ...link, trustedNetworks: [] }) === 'plain'
 }

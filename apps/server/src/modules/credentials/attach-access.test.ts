@@ -49,7 +49,7 @@ function daemon(
   return {
     store: s,
     daemonSupports: (_machine, cap) => live?.caps.includes(cap) === true,
-    daemonLinkKind: () => live?.link,
+    daemonLinkKind: async () => live?.link,
   }
 }
 

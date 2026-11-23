@@ -115,7 +115,12 @@ export interface DaemonRequestPort {
 }
 
 export interface DaemonRequestBrokerDeps {
-  toMachine(machineId: MachineId, msg: ControlMessage): void
+  /**
+   * Send the request frame. A frame judged at the send (a login-file or
+   * credential request, a promotion) settles later and may reject with its
+   * refusal; the request then fails as not begun.
+   */
+  toMachine(machineId: MachineId, msg: ControlMessage): void | Promise<void>
   defaultMachine(): MachineId | Promise<MachineId>
 }
 
@@ -156,7 +161,7 @@ export class DaemonRequestBroker implements DaemonRequestPort {
     const targetMachineId = spec.machineId ?? (await this.deps.defaultMachine())
     const message = await spec.build(requestId)
     if (spec.cancellation?.signal.aborted) return spec.cancellation.onAbort()
-    return new Promise<T>((resolve) => {
+    return new Promise<T>((resolve, reject) => {
       const cleanup = () => {
         clearTimeout(timer)
         spec.cancellation?.signal.removeEventListener('abort', abort)
@@ -191,12 +196,17 @@ export class DaemonRequestBroker implements DaemonRequestPort {
         },
       })
       spec.cancellation?.signal.addEventListener('abort', abort, { once: true })
+      let sent: void | Promise<void>
       try {
-        this.deps.toMachine(targetMachineId, message)
+        sent = this.deps.toMachine(targetMachineId, message)
       } catch (error) {
         cleanup()
         throw error
       }
+      sent?.then(undefined, (error: unknown) => {
+        cleanup()
+        reject(error)
+      })
     })
   }
 

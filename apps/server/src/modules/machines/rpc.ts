@@ -232,7 +232,7 @@ interface DaemonRpcDeps {
     MemoryService,
     'canReadSession' | 'transcriptPathHint' | 'readTranscriptFromLake' | 'transcriptHasPredecessors'
   >
-  toMachine(machineId: MachineId, msg: ControlMessage): void
+  toMachine(machineId: MachineId, msg: ControlMessage): void | Promise<void>
   /** Explicit deployment placement; absence refuses local-machine operations. */
   serverPlacement?: ServerPlacement
   defaultMachine(): MachineId | Promise<MachineId>

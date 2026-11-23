@@ -350,7 +350,7 @@ export class LoginPropagationService {
     const entries = catalogEntriesForHarness(catalog, input.harness)
     // A donor whose link may carry the login file is preferred; one that may not
     // is still chosen when it is the only one, so the refusal below is logged.
-    const donorFor = (fingerprint: string): MachineId | undefined => {
+    const donorFor = async (fingerprint: string): Promise<MachineId | undefined> => {
       const holders =
         entries
           .find((entry) => entry.fingerprint === fingerprint)
@@ -358,14 +358,16 @@ export class LoginPropagationService {
             (machine) => machine.harness === input.harness && donorIds.has(machine.machineId),
           )
           .map((machine) => machine.machineId) ?? []
-      return (
-        holders.find((id) => this.deps.machines.loginLinkUnsafe(id) === undefined) ?? holders[0]
-      )
+      for (const id of holders) {
+        if ((await this.deps.machines.loginLinkUnsafe(id)) === undefined) return id
+      }
+      return holders[0]
     }
-    const fits = wanted.flatMap((choice) => {
-      const donor = donorFor(choice.fingerprint)
-      return donor ? [{ choice, donor }] : []
-    })
+    const fits: { choice: (typeof wanted)[number]; donor: MachineId }[] = []
+    for (const choice of wanted) {
+      const donor = await donorFor(choice.fingerprint)
+      if (donor) fits.push({ choice, donor })
+    }
     const [fit, ...more] = fits
     if (!fit) return { status: 'failed', reason: 'no online donor login found' }
     if (more.length > 0) {
@@ -401,9 +403,9 @@ export class LoginPropagationService {
     }
     // THE LINKS: the file leaves the donor and reaches the target only over a
     // link the server judged safe. Both are judged before anything is exported.
-    const donorUnsafe = this.deps.machines.loginLinkUnsafe(donor)
+    const donorUnsafe = await this.deps.machines.loginLinkUnsafe(donor)
     if (donorUnsafe) return refuseLink('donor', donor, donorUnsafe, input.input)
-    const targetUnsafe = this.deps.machines.loginLinkUnsafe(targetId)
+    const targetUnsafe = await this.deps.machines.loginLinkUnsafe(targetId)
     if (targetUnsafe) return refuseLink('target', targetId, targetUnsafe, input.input)
     // The transfer's age counts from the choice it was read under.
     const readAt = this.now()
@@ -442,7 +444,7 @@ export class LoginPropagationService {
       }
     }
     // The target may have reconnected over another link during the export.
-    const installUnsafe = this.deps.machines.loginLinkUnsafe(targetId)
+    const installUnsafe = await this.deps.machines.loginLinkUnsafe(targetId)
     if (installUnsafe) return refuseLink('target', targetId, installUnsafe, input.input)
     const installed = await this.deps.rpc.credentialInstall([bundle], targetId, {
       propagation: true,

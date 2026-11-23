@@ -50,8 +50,11 @@ export interface AttachAccessDeps {
   store: Pick<SessionStore, 'credentials' | 'vault' | 'settingsAudit'>
   /** Did the daemon connected for this machine negotiate `cap`? */
   daemonSupports(machineId: MachineId, cap: string): boolean
-  /** The server's own judgement of that daemon's connection; undefined: none. */
-  daemonLinkKind(machineId: MachineId): DaemonLinkKind | undefined
+  /**
+   * The server's own judgement of that daemon's connection, with the
+   * workspace's trusted networks read now; undefined: none.
+   */
+  daemonLinkKind(machineId: MachineId): Promise<DaemonLinkKind | undefined>
   /**
    * An access token for a credential whose type Podium renews, and when it
    * expires. Throws a refusal-carrying error (`CredentialRefusal`) when the
@@ -107,12 +110,12 @@ export async function attachAccess(
   }
   if (delivery.kind === 'home') {
     if (delivery.homeId === DEFAULT_HOME && !capable) return { ok: true }
-    if (!capable) return await refuse(deps.store, refusalForMissingCap(deps, to), context)
+    if (!capable) return await refuse(deps.store, await refusalForMissingCap(deps, to), context)
     await delivered(deps, credentialId, to, 'home')
     return { ok: true, access: { credentialId, delivery } }
   }
-  if (!capable) return await refuse(deps.store, refusalForMissingCap(deps, to), context)
-  if (deps.daemonLinkKind(to.machineId) === 'plain') {
+  if (!capable) return await refuse(deps.store, await refusalForMissingCap(deps, to), context)
+  if ((await deps.daemonLinkKind(to.machineId)) === 'plain') {
     return await refuse(deps.store, 'connection-not-encrypted', context)
   }
   let secret: string
@@ -151,8 +154,13 @@ function refusalOf(error: unknown): AccessRefusal | undefined {
 }
 
 /** No capability: either no daemon is there at all, or it is an older one. */
-function refusalForMissingCap(deps: AttachAccessDeps, to: AttachTarget): AccessRefusal {
-  return deps.daemonLinkKind(to.machineId) === undefined ? 'machine-offline' : 'daemon-too-old'
+async function refusalForMissingCap(
+  deps: AttachAccessDeps,
+  to: AttachTarget,
+): Promise<AccessRefusal> {
+  return (await deps.daemonLinkKind(to.machineId)) === undefined
+    ? 'machine-offline'
+    : 'daemon-too-old'
 }
 
 async function delivered(

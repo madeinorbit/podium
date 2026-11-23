@@ -110,7 +110,8 @@ export interface MachineReconcilerPorts {
     reason: string,
     fn: (session: Session | undefined) => Promise<T>,
   ): Promise<T>
-  toMachine(machineId: MachineId, message: ControlMessage): void
+  /** Awaited for a frame that carries a secret: its link is judged at the send. */
+  toMachine(machineId: MachineId, message: ControlMessage): void | Promise<void>
   /** Rank survivors: lower tier reattaches sooner. */
   viewTiers(sessionIds: Session['sessionId'][]): Map<Session['sessionId'], number>
   /** Headless sessions have no PTY; re-establish their daemon-side tails. */
@@ -322,9 +323,16 @@ export class SessionMachineReconciler {
         if (!s) return
         const message = await this.ports.reattachMessage(s, machineId)
         const refresh = await this.ports.accessRefresh?.(s, machineId)
-        if (s.machineId !== machineId || s.archived || (!awaitsRebind(s) && s.status !== 'exited'))
-          return
-        if (refresh) this.ports.toMachine(machineId, refresh)
+        const probed = () =>
+          s.machineId === machineId && !s.archived && (awaitsRebind(s) || s.status === 'exited')
+        if (!probed()) return
+        if (refresh) {
+          // The access's link is judged at the send, which reads the settings;
+          // the reattach follows only a refresh that went out, for a session
+          // that is still this machine's.
+          await this.ports.toMachine(machineId, refresh)
+          if (!probed()) return
+        }
         this.ports.toMachine(machineId, message)
       })
       return index === probes.length ? 'done' : 'continue'
@@ -477,8 +485,14 @@ export class SessionMachineReconciler {
     session.awaitingRebind = true
     const message = await this.ports.reattachMessage(session, machineId)
     const refresh = await this.ports.accessRefresh?.(session, machineId)
-    if (session.machineId !== machineId || session.archived || !awaitsRebind(session)) return
-    if (refresh) this.ports.toMachine(machineId, refresh)
+    const rebinding = () =>
+      session.machineId === machineId && !session.archived && awaitsRebind(session)
+    if (!rebinding()) return
+    if (refresh) {
+      // Judged at the send, as in the probe above.
+      await this.ports.toMachine(machineId, refresh)
+      if (!rebinding()) return
+    }
     this.ports.toMachine(machineId, message)
     this.ports.broadcastSessions()
   }

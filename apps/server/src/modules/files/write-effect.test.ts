@@ -51,6 +51,7 @@ function answeringWrites(o: Oracle) {
       ok: true,
       baseHash: '2:9',
     })
+    return Promise.resolve()
   })
   return machines
 }

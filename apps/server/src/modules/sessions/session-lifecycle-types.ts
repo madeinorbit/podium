@@ -264,7 +264,7 @@ export interface SessionLifecycleDeps {
    * management §8), `registry.daemonLinks.daemonLinkKind`. Absent: no daemon
    * reads as connected, so a vault credential is refused, never sent.
    */
-  daemonLinkKind?(machineId: MachineId): DaemonLinkKind | undefined
+  daemonLinkKind?(machineId: MachineId): Promise<DaemonLinkKind | undefined>
   /**
    * Issues the token a session on a type Podium renews runs on (the ChatGPT
    * plan keeper, epic Task 15). Absent: such a credential is refused.

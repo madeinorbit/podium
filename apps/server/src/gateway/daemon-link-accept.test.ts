@@ -115,33 +115,37 @@ describe('the link a daemon is judged on', () => {
       // And its own say-so in the hello: no field of the hello is read.
       hello: { linkKind: 'encrypted', secure: true, encrypted: true, protocol: 'wss:' },
     })
-    expect(reg.daemonLinks.daemonLinkKind(MACHINE)).toBe('plain')
+    expect(await reg.daemonLinks.daemonLinkKind(MACHINE)).toBe('plain')
   })
 
   it("trusting the daemon's network makes it trusted without a reconnect, and removing it makes it plain", async () => {
     const { reg, handle } = await setup()
     await connect(handle)
-    expect(reg.daemonLinks.daemonLinkKind(MACHINE)).toBe('plain')
+    expect(await reg.daemonLinks.daemonLinkKind(MACHINE)).toBe('plain')
     const publish = vi.spyOn(reg.topics, 'publish')
     const admin = firstAdminMemberId()
 
     await reg.modules.settings.updatePreferences(admin, {
       'daemonLink.trustedNetworks': ['192.168.7.0/24'],
     })
-    expect(reg.daemonLinks.daemonLinkKind(MACHINE)).toBe('trusted')
-    expect(publish).toHaveBeenCalledWith(
-      'machine.condition',
-      MACHINE,
-      expect.objectContaining({ online: true, linkKind: 'trusted' }),
+    expect(await reg.daemonLinks.daemonLinkKind(MACHINE)).toBe('trusted')
+    await vi.waitFor(() =>
+      expect(publish).toHaveBeenCalledWith(
+        'machine.condition',
+        MACHINE,
+        expect.objectContaining({ online: true, linkKind: 'trusted' }),
+      ),
     )
 
     publish.mockClear()
     await reg.modules.settings.updatePreferences(admin, { 'daemonLink.trustedNetworks': [] })
-    expect(reg.daemonLinks.daemonLinkKind(MACHINE)).toBe('plain')
-    expect(publish).toHaveBeenCalledWith(
-      'machine.condition',
-      MACHINE,
-      expect.objectContaining({ linkKind: 'plain' }),
+    expect(await reg.daemonLinks.daemonLinkKind(MACHINE)).toBe('plain')
+    await vi.waitFor(() =>
+      expect(publish).toHaveBeenCalledWith(
+        'machine.condition',
+        MACHINE,
+        expect.objectContaining({ linkKind: 'plain' }),
+      ),
     )
   })
 
@@ -156,7 +160,7 @@ describe('the link a daemon is judged on', () => {
     expect(hops).toBe(1)
     const { reg, handle } = await setup({ peer: '127.0.0.1', hops })
     await connect(handle, { url: 'http://127.0.0.1:18787/daemon' })
-    expect(reg.daemonLinks.daemonLinkKind(MACHINE)).toBe('local')
+    expect(await reg.daemonLinks.daemonLinkKind(MACHINE)).toBe('local')
   })
 
   /**
@@ -169,14 +173,14 @@ describe('the link a daemon is judged on', () => {
     const hops = resolveTrustedProxyHops(undefined, {}, '127.0.0.1')
     const { reg, handle } = await setup({ peer: '127.0.0.1', hops })
     await connect(handle, { url: 'http://podium.example/daemon' })
-    expect(reg.daemonLinks.daemonLinkKind(MACHINE)).toBe('plain')
+    expect(await reg.daemonLinks.daemonLinkKind(MACHINE)).toBe('plain')
   })
 
   it('a remote daemon a same-computer proxy forwards over http stays plain', async () => {
     const hops = resolveTrustedProxyHops(undefined, {}, '127.0.0.1')
     const { reg, handle } = await setup({ peer: '127.0.0.1', hops })
     await connect(handle, { headers: { 'x-forwarded-for': '203.0.113.9' } })
-    expect(reg.daemonLinks.daemonLinkKind(MACHINE)).toBe('plain')
+    expect(await reg.daemonLinks.daemonLinkKind(MACHINE)).toBe('plain')
   })
 
   it("a stale socket's close leaves the newer connection's link", async () => {
@@ -184,8 +188,8 @@ describe('the link a daemon is judged on', () => {
     const first = await connect(handle)
     const second = await connect(handle)
     first.close()
-    expect(reg.daemonLinks.daemonLinkKind(MACHINE)).toBe('plain')
+    expect(await reg.daemonLinks.daemonLinkKind(MACHINE)).toBe('plain')
     second.close()
-    expect(reg.daemonLinks.daemonLinkKind(MACHINE)).toBeUndefined()
+    expect(await reg.daemonLinks.daemonLinkKind(MACHINE)).toBeUndefined()
   })
 })

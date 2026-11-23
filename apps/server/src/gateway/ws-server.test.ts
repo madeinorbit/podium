@@ -138,7 +138,7 @@ describe('HTTP sync capability cutover', () => {
 describe('a daemon on a plain link from another computer', () => {
   const linksRegistry = () =>
     ({
-      daemonLinks: new DaemonLinks({ trustedNetworks: () => [], kindChanged: () => {} }),
+      daemonLinks: new DaemonLinks({ trustedNetworks: async () => [], kindChanged: () => {} }),
     }) as never
 
   async function upgradeFrom(peer: string, accept: boolean | undefined, path = '/daemon') {

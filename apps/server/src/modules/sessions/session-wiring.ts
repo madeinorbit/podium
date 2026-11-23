@@ -181,7 +181,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.launchConfig = new SessionLaunchConfig({
     store,
     daemonSupports: (machineId, cap) => machines.daemonSupports(machineId, cap),
-    daemonLinkKind: (machineId) => deps.daemonLinkKind?.(machineId),
+    daemonLinkKind: async (machineId) => await deps.daemonLinkKind?.(machineId),
     ...(deps.issueToken ? { issueToken: deps.issueToken } : {}),
   })
   bag.naming = new SessionNaming({

@@ -173,7 +173,7 @@ export class SessionLifecycle {
   private readonly now!: () => number
   private readonly bus!: EventBus
   private readonly machines!: MachinesService
-  private readonly toMachine = (machineId: MachineId, msg: ControlMessage): void =>
+  private readonly toMachine = (machineId: MachineId, msg: ControlMessage): Promise<void> =>
     this.machines.toMachine(machineId, msg)
   private readonly rpc!: DaemonRpcService
   private readonly toPtyInput = (machineId: MachineId, input: DaemonPtyInputBatch): void =>

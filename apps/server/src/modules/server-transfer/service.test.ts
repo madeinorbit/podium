@@ -638,7 +638,7 @@ describe('ServerTransferService vault key hand-over', () => {
     const result = await makeService(fake.rpc, {
       vault: vault(),
       targetState: capableTarget,
-      targetLinkKind: () => 'encrypted',
+      targetLinkKind: async () => 'encrypted',
     }).transfer(input, allow)
 
     expect(result).toMatchObject({ ok: true, state: 'committed' })
@@ -662,7 +662,7 @@ describe('ServerTransferService vault key hand-over', () => {
       fence,
       vault: vault(),
       targetState: capableTarget,
-      targetLinkKind: () => 'plain',
+      targetLinkKind: async () => 'plain',
     })
 
     await expect(service.transfer(input, allow)).rejects.toMatchObject({
@@ -681,7 +681,7 @@ describe('ServerTransferService vault key hand-over', () => {
     const service = makeService(fake.rpc, {
       vault: vault('ready'),
       targetState: () => ({ ...capableTarget(), vaultKeyHandover: false }),
-      targetLinkKind: () => 'encrypted',
+      targetLinkKind: async () => 'encrypted',
     })
 
     await expect(service.transfer(input, allow)).rejects.toMatchObject({
@@ -698,7 +698,7 @@ describe('ServerTransferService vault key hand-over', () => {
     const result = await makeService(fake.rpc, {
       vault: vault('empty'),
       targetState: () => ({ ...capableTarget(), vaultKeyHandover: false }),
-      targetLinkKind: () => 'local',
+      targetLinkKind: async () => 'local',
     }).transfer(input, allow)
 
     expect(result).toMatchObject({ ok: true, state: 'committed' })
@@ -722,7 +722,7 @@ describe('ServerTransferService vault key hand-over', () => {
       demoteSource,
       vault: vault(),
       targetState: capableTarget,
-      targetLinkKind: () => 'trusted',
+      targetLinkKind: async () => 'trusted',
     })
 
     const result = await service.transfer(input, allow)
@@ -749,7 +749,7 @@ describe('ServerTransferService vault key hand-over', () => {
     // MachinesService.toMachine, with the target's daemon gone since the preflight.
     const machines = new MachinesService({
       instanceId: 'default',
-      daemonLinkKind: () => 'encrypted',
+      daemonLinkKind: async () => 'encrypted',
       store: {
         machines: {
           getMachine: async () => ({ revokedAt: null }),
@@ -774,7 +774,7 @@ describe('ServerTransferService vault key hand-over', () => {
       demoteSource,
       vault: vault(),
       targetState: capableTarget,
-      targetLinkKind: () => 'encrypted',
+      targetLinkKind: async () => 'encrypted',
     })
 
     const result = await service.transfer(input, allow)
@@ -816,7 +816,7 @@ describe('ServerTransferService vault key hand-over', () => {
       demoteSource,
       vault: vault(),
       targetState: capableTarget,
-      targetLinkKind: () => 'encrypted',
+      targetLinkKind: async () => 'encrypted',
     })
 
     const result = await service.transfer(input, allow)
@@ -832,7 +832,7 @@ describe('ServerTransferService vault key hand-over', () => {
     const result = await makeService(fake.rpc, {
       vault: vault(),
       targetState: capableTarget,
-      targetLinkKind: () => 'encrypted',
+      targetLinkKind: async () => 'encrypted',
       removeVaultKeyFile: async () => {
         throw Object.assign(new Error('read-only file system'), { code: 'EROFS' })
       },
@@ -852,7 +852,7 @@ describe('ServerTransferService vault key hand-over', () => {
     const result = await makeService(fake.rpc, {
       vault: vault('locked'),
       targetState: capableTarget,
-      targetLinkKind: () => 'encrypted',
+      targetLinkKind: async () => 'encrypted',
     }).transfer(input, allow)
 
     expect(result).toMatchObject({ ok: true, state: 'committed' })

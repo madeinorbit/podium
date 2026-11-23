@@ -226,46 +226,79 @@ describe('DaemonLinks', () => {
 
   function links(initial: readonly string[] = []) {
     let trusted = initial
+    let reads = 0
     const changed: string[] = []
     const registry = new DaemonLinks({
-      trustedNetworks: () => trusted,
+      trustedNetworks: async () => {
+        reads++
+        return trusted
+      },
       kindChanged: (machineId) => changed.push(machineId),
     })
-    return { registry, changed, trust: (next: readonly string[]) => (trusted = next) }
+    return {
+      registry,
+      changed,
+      reads: () => reads,
+      trust: (next: readonly string[]) => (trusted = next),
+    }
   }
 
-  it("reads the server's own in-process daemon link as local, whatever is trusted", () => {
-    const { registry } = links()
+  it("reads the server's own in-process daemon link as local, whatever is trusted", async () => {
+    const { registry, reads } = links()
     registry.connected(m1, IN_PROCESS_DAEMON_LINK, {})
-    expect(registry.daemonLinkKind(m1)).toBe('local')
+    expect(await registry.daemonLinkKind(m1)).toBe('local')
+    expect(reads()).toBe(0)
   })
 
-  it('is undefined for a machine with no connected daemon', () => {
-    expect(links().registry.daemonLinkKind(m1)).toBeUndefined()
+  it('is undefined for a machine with no connected daemon', async () => {
+    expect(await links().registry.daemonLinkKind(m1)).toBeUndefined()
   })
 
-  it('tells about a machine only when a settings change moved its kind', () => {
-    const { registry, changed, trust } = links()
+  it('reads the trusted networks at each judgement, and only when they decide it', async () => {
+    const { registry, reads, trust } = links()
     registry.connected(m1, base, {})
-    registry.connected(m2, { ...base, clientAddress: '10.9.9.9' }, {})
-    registry.settingsChanged()
-    expect(changed).toEqual([])
+    registry.connected(m2, { ...base, url: 'https://podium.example/daemon' }, {})
+    expect(await registry.daemonLinkKind(m1)).toBe('plain')
     trust(['192.168.1.0/24'])
+    expect(await registry.daemonLinkKind(m1)).toBe('trusted')
+    expect(reads()).toBe(2)
+    expect(await registry.daemonLinkKind(m2)).toBe('encrypted')
+    expect(reads()).toBe(2)
+  })
+
+  it('tells about the machines whose kind the trusted networks decide', () => {
+    const { registry, changed } = links()
+    registry.connected(m1, base, {})
+    registry.connected(m2, { ...base, url: 'https://podium.example/daemon' }, {})
     registry.settingsChanged()
     expect(changed).toEqual([m1])
-    expect(registry.daemonLinkKind(m1)).toBe('trusted')
-    expect(registry.daemonLinkKind(m2)).toBe('plain')
   })
 
-  it('forgets a link only for the socket that recorded it', () => {
+  it('judges again a socket that replaced the judged one during the read', async () => {
+    let release!: () => void
+    const registry = new DaemonLinks({
+      trustedNetworks: () =>
+        new Promise((resolve) => {
+          release = () => resolve(['192.168.1.0/24'])
+        }),
+      kindChanged: () => {},
+    })
+    registry.connected(m1, base, {})
+    const kind = registry.daemonLinkKind(m1)
+    registry.connected(m1, { ...base, url: 'https://podium.example/daemon' }, {})
+    release()
+    expect(await kind).toBe('encrypted')
+  })
+
+  it('forgets a link only for the socket that recorded it', async () => {
     const { registry } = links()
     const old = {}
     const current = {}
     registry.connected(m1, base, old)
     registry.connected(m1, base, current)
     expect(registry.disconnected(m1, old)).toBe(false)
-    expect(registry.daemonLinkKind(m1)).toBe('plain')
+    expect(await registry.daemonLinkKind(m1)).toBe('plain')
     expect(registry.disconnected(m1, current)).toBe(true)
-    expect(registry.daemonLinkKind(m1)).toBeUndefined()
+    expect(await registry.daemonLinkKind(m1)).toBeUndefined()
   })
 })

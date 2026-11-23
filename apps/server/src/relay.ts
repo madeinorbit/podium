@@ -353,14 +353,13 @@ export type { MemoryBreakdown }
  * The durable state the composition itself needs, read by
  * {@link SessionRegistry.create} before the graph exists (POD-3256).
  *
- * It holds only what cannot wait for {@link SessionRegistry.hydrate}. The
- * synchronous daemon-link policy remains here until POD-7484 moves its send
- * seam onto request-time reads; feature policy already reads the store.
+ * It holds only what cannot wait for {@link SessionRegistry.hydrate}. No
+ * settings are held here: the daemon-link policy and feature policy read the
+ * store at each use (POD-7484).
  */
 interface SessionRegistryBoot {
   readonly legacyReceiptCutoff: number
   readonly legacyReceiptOwner: UserId | null
-  readonly trustedNetworks: readonly string[]
   readonly updateRecovery: Awaited<ReturnType<SessionStore['updateRecovery']['read']>>
 }
 
@@ -880,7 +879,7 @@ export class SessionRegistry {
    * BUILD THE SERVER — the entry point, because composing the graph is not the
    * whole of booting it (POD-3256).
    *
-   * The daemon-link boot policy must exist before the graph is built. Recovery uses
+   * The boot facts must exist before the graph is built. Recovery uses
    * the constructed services, so {@link hydrate} runs afterward. The store
    * establishes machine identity before either set of readers (POD-318).
    */
@@ -893,7 +892,6 @@ export class SessionRegistry {
     // The registry's Ledger reads the store's change capture (POD-6920).
     await resolvedStore.attachChangeLog()
     const registry = new SessionRegistry(resolvedStore, notificationPushers, options, {
-      trustedNetworks: (await resolvedStore.settings.getSettings()).daemonLink.trustedNetworks,
       updateRecovery: await resolvedStore.updateRecovery.read(),
       legacyReceiptOwner: await resolvedStore.settings.retiredSoloMemberId(),
       legacyReceiptCutoff: await resolvedStore.settings.legacyMutationReceiptCutoff(
@@ -928,13 +926,6 @@ export class SessionRegistry {
     this.memberCredentials = options.memberCredentials
     this.now = options.now ?? Date.now
     const portableStateFence = options.portableStateFence ?? new PortableStateFence()
-    // POD-7484 moves this last synchronous settings consumer onto request-time
-    // reads with the credential send seam. Keep only its workspace's networks;
-    // feature policy below reads the store on every call.
-    let trustedNetworks = boot.trustedNetworks
-    this.bus.on('settings.changed', ({ next }) => {
-      trustedNetworks = next.daemonLink.trustedNetworks
-    })
     const featureEnabled = async (id: Parameters<typeof isFeatureEnabled>[0]) =>
       isFeatureEnabled(id, await this.store.settings.getSettings())
     // Delegation is resolved from durable session ownership on every apply. This
@@ -1022,14 +1013,22 @@ export class SessionRegistry {
     // The condition topic is composed below the machines service (POD-6644).
     let machineConditionChanged: ((machineId: MachineId) => void) | undefined
     // WHAT KIND OF CONNECTION EACH DAEMON IS ON (credential management §8).
-    // Judged from the facts recorded at accept and the trusted networks the
-    // instance holds NOW, so an admin's change applies without a reconnect.
+    // Judged from the facts recorded at accept and this workspace's trusted
+    // networks read from the store at each judgement (POD-7484), so an admin's
+    // change applies to the next send without a restart or a reconnect.
     this.daemonLinks = new DaemonLinks({
-      trustedNetworks: () => trustedNetworks,
+      trustedNetworks: async () =>
+        (await this.store.settings.getSettings()).daemonLink.trustedNetworks,
       kindChanged: (machineId) => machineConditionChanged?.(machineId),
     })
-    // Registered after the snapshot's own listener above, so it reads the new value.
-    this.bus.on('settings.changed', () => this.daemonLinks.settingsChanged())
+    // Only a move of the trusted networks can move a kind; the event names both sides.
+    this.bus.on('settings.changed', ({ previous, next }) => {
+      const before = previous.daemonLink.trustedNetworks
+      const after = next.daemonLink.trustedNetworks
+      if (before.length !== after.length || before.some((range, i) => range !== after[i])) {
+        this.daemonLinks.settingsChanged()
+      }
+    })
     // Forward-declared for the same reason `updates` is: the update SERVICE has
     // to be able to ask whether a durable operation holds the lifecycle group
     // (single-flight's other half, P6), and the operations module is composed
@@ -1506,10 +1505,8 @@ export class SessionRegistry {
       snapshot: (id: string) => topicLate.sessionLive?.snapshot(kind, asSessionId(id)),
     })
     const machineConditions = new MachineConditionTopic({
-      condition: (machineId) => {
-        const linkKind = this.daemonLinks.daemonLinkKind(machineId)
-        return { ...machines.condition(machineId), ...(linkKind ? { linkKind } : {}) }
-      },
+      condition: (machineId) => machines.condition(machineId),
+      linkKind: (machineId) => this.daemonLinks.daemonLinkKind(machineId),
       now: () => this.now(),
       publish: (machineId, value) =>
         this.bus.emit('machine.conditionChanged', { machineId, value }),

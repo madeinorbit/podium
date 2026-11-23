@@ -11,7 +11,7 @@
 import { asMachineId, asSessionId } from '@podium/model'
 import { CAP_CREDENTIAL_IDENTITY_GUARD, CAP_SESSION_ACCESS } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import type { DaemonLinkKind } from '../../gateway/daemon-link-kind'
 import type { Send } from '../sessions/session'
 import { isRefusedSend, RefusedSendError } from './refused-send'
@@ -24,7 +24,7 @@ const PLANTED = 'sk-FAKE-planted-queue-secret-0007'
 function makeService(link: { kind: DaemonLinkKind | undefined }): MachinesService {
   return new MachinesService({
     instanceId: 'default',
-    daemonLinkKind: () => link.kind,
+    daemonLinkKind: async () => link.kind,
     store: {
       machines: {
         getMachine: async () => ({ revokedAt: null }),
@@ -65,14 +65,14 @@ describe('toMachine with a frame that carries a secret', () => {
     const svc = makeService({ kind: 'local' })
     const daemon = recorder()
     await svc.attach(MACHINE, daemon.send, [CAP_SESSION_ACCESS])
-    svc.toMachine(MACHINE, spawnWith('env'))
+    await svc.toMachine(MACHINE, spawnWith('env'))
     expect(JSON.stringify(daemon.got)).toContain(PLANTED)
   })
 
   test('is refused, not queued, when no daemon is connected', async () => {
     const link: { kind: DaemonLinkKind | undefined } = { kind: undefined }
     const svc = makeService(link)
-    expect(() => svc.toMachine(MACHINE, spawnWith('env'))).toThrow('no daemon is connected')
+    await expect(svc.toMachine(MACHINE, spawnWith('env'))).rejects.toThrow('no daemon is connected')
     // A daemon that connects afterwards receives nothing from the queue.
     link.kind = 'local'
     const daemon = recorder()
@@ -84,10 +84,10 @@ describe('toMachine with a frame that carries a secret', () => {
   test('is refused for an older daemon and for a plain link', async () => {
     const older = makeService({ kind: 'encrypted' })
     await older.attach(MACHINE, recorder().send, [])
-    expect(() => older.toMachine(MACHINE, spawnWith('env'))).toThrow('too old')
+    await expect(older.toMachine(MACHINE, spawnWith('env'))).rejects.toThrow('too old')
     const plain = makeService({ kind: 'plain' })
     await plain.attach(MACHINE, recorder().send, [CAP_SESSION_ACCESS])
-    expect(() => plain.toMachine(MACHINE, spawnWith('env'))).toThrow('not encrypted')
+    await expect(plain.toMachine(MACHINE, spawnWith('env'))).rejects.toThrow('not encrypted')
   })
 
   test('a home delivery holds no secret and is not held back', async () => {
@@ -128,7 +128,7 @@ describe('toMachine with a promote frame that carries the vault key', () => {
     const svc = makeService(link)
     let refusal: unknown
     try {
-      svc.toMachine(MACHINE, promote(DATA_KEY))
+      await svc.toMachine(MACHINE, promote(DATA_KEY))
     } catch (error) {
       refusal = error
     }
@@ -146,8 +146,8 @@ describe('toMachine with a promote frame that carries the vault key', () => {
     const svc = makeService({ kind: 'plain' })
     const daemon = recorder()
     await svc.attach(MACHINE, daemon.send, [])
-    expect(() => svc.toMachine(MACHINE, promote(DATA_KEY))).toThrow(RefusedSendError)
-    expect(() => svc.toMachine(MACHINE, promote(DATA_KEY))).toThrow('not encrypted')
+    await expect(svc.toMachine(MACHINE, promote(DATA_KEY))).rejects.toThrow(RefusedSendError)
+    await expect(svc.toMachine(MACHINE, promote(DATA_KEY))).rejects.toThrow('not encrypted')
     expect(JSON.stringify(daemon.got)).not.toContain(DATA_KEY)
   })
 
@@ -156,7 +156,7 @@ describe('toMachine with a promote frame that carries the vault key', () => {
     const daemon = recorder()
     // No session-access capability: the transfer's own preflight judged the target.
     await svc.attach(MACHINE, daemon.send, [])
-    svc.toMachine(MACHINE, promote(DATA_KEY))
+    await svc.toMachine(MACHINE, promote(DATA_KEY))
     expect(JSON.stringify(daemon.got)).toContain(DATA_KEY)
   })
 
@@ -213,7 +213,7 @@ describe('toMachine with a frame that moves a login file', () => {
     for (const propagation of [true, false]) {
       let refusal: unknown
       try {
-        svc.toMachine(MACHINE, install(propagation))
+        await svc.toMachine(MACHINE, install(propagation))
       } catch (error) {
         refusal = error
       }
@@ -230,7 +230,9 @@ describe('toMachine with a frame that moves a login file', () => {
     const daemon = recorder()
     await svc.attach(MACHINE, daemon.send, caps)
     for (const propagation of [true, false]) {
-      expect(() => svc.toMachine(MACHINE, exportRequest(propagation))).toThrow(RefusedSendError)
+      await expect(svc.toMachine(MACHINE, exportRequest(propagation))).rejects.toThrow(
+        RefusedSendError,
+      )
     }
     expect(daemon.got.map((m) => m.type)).not.toContain('credentialExportRequest')
   })
@@ -239,8 +241,8 @@ describe('toMachine with a frame that moves a login file', () => {
     const svc = makeService({ kind: undefined })
     const daemon = recorder()
     await svc.attach(MACHINE, daemon.send, caps)
-    expect(() => svc.toMachine(MACHINE, install(false))).toThrow('cannot tell')
-    expect(() => svc.toMachine(MACHINE, exportRequest(false))).toThrow('cannot tell')
+    await expect(svc.toMachine(MACHINE, install(false))).rejects.toThrow('cannot tell')
+    await expect(svc.toMachine(MACHINE, exportRequest(false))).rejects.toThrow('cannot tell')
     expect(daemon.got).toEqual([])
   })
 
@@ -248,8 +250,10 @@ describe('toMachine with a frame that moves a login file', () => {
     const link: { kind: DaemonLinkKind | undefined } = { kind: undefined }
     const svc = makeService(link)
     // The legacy pairing copy carries no propagation flag and is held back all the same.
-    expect(() => svc.toMachine(MACHINE, install(false))).toThrow('no daemon is connected')
-    expect(() => svc.toMachine(MACHINE, exportRequest(false))).toThrow('no daemon is connected')
+    await expect(svc.toMachine(MACHINE, install(false))).rejects.toThrow('no daemon is connected')
+    await expect(svc.toMachine(MACHINE, exportRequest(false))).rejects.toThrow(
+      'no daemon is connected',
+    )
     link.kind = 'local'
     const daemon = recorder()
     await svc.attach(MACHINE, daemon.send, caps)
@@ -262,13 +266,106 @@ describe('toMachine with a frame that moves a login file', () => {
       const svc = makeService({ kind })
       const daemon = recorder()
       await svc.attach(MACHINE, daemon.send, caps)
-      svc.toMachine(MACHINE, exportRequest(true))
-      svc.toMachine(MACHINE, install(true))
+      await svc.toMachine(MACHINE, exportRequest(true))
+      await svc.toMachine(MACHINE, install(true))
       expect(daemon.got.map((m) => m.type)).toEqual([
         'credentialExportRequest',
         'credentialInstallRequest',
       ])
       expect(JSON.stringify(daemon.got)).toContain(LOGIN_FILE)
     }
+  })
+})
+
+/**
+ * THE LINK IS JUDGED AT THE SEND, AND THE SEND KEEPS ITS ORDER (POD-7484). The
+ * judgement reads the workspace's settings, so it waits. Frames sent to the
+ * same machine meanwhile wait behind it, and a socket that replaced the
+ * judged one is judged on its own before anything goes to it.
+ */
+describe('toMachine while a link is being judged', () => {
+  /** A judge whose answers the test releases one at a time. */
+  function slowJudge(kinds: (DaemonLinkKind | undefined)[]) {
+    const waiting: (() => void)[] = []
+    let calls = 0
+    const daemonLinkKind = () =>
+      new Promise<DaemonLinkKind | undefined>((resolve) => {
+        const kind = kinds[Math.min(calls++, kinds.length - 1)]
+        waiting.push(() => resolve(kind))
+      })
+    const release = async () => {
+      await vi.waitFor(() => expect(waiting.length).toBeGreaterThan(0))
+      waiting.shift()?.()
+    }
+    return { daemonLinkKind, release, calls: () => calls }
+  }
+
+  function serviceJudgedBy(daemonLinkKind: MachinesDeps['daemonLinkKind']): MachinesService {
+    return new MachinesService({
+      instanceId: 'default',
+      ...(daemonLinkKind ? { daemonLinkKind } : {}),
+      store: {
+        machines: {
+          getMachine: async () => ({ revokedAt: null }),
+          addMachineComponent: () => false,
+          setAvailability: async () => {},
+          setPresenceSource: () => {},
+          committed: { subscribe: () => () => {} },
+        },
+      } as unknown as MachinesDeps['store'],
+      hostMachine: { id: asMachineId('host-under-test') },
+    } satisfies MachinesDeps)
+  }
+
+  const kill = (n: number): ControlMessage => ({
+    type: 'kill',
+    sessionId: asSessionId(`00000000-0000-4000-8000-00000000000${n}`),
+  })
+
+  test('a frame sent while a secret waits for its judgement goes out after it', async () => {
+    const judge = slowJudge(['encrypted'])
+    const svc = serviceJudgedBy(judge.daemonLinkKind)
+    const daemon = recorder()
+    await svc.attach(MACHINE, daemon.send, [CAP_SESSION_ACCESS])
+    const secret = svc.toMachine(MACHINE, spawnWith('env'))
+    void svc.toMachine(MACHINE, kill(1))
+    expect(daemon.got).toEqual([])
+    await judge.release()
+    await secret
+    await vi.waitFor(() => expect(daemon.got.map((m) => m.type)).toEqual(['spawn', 'kill']))
+    // Once nothing waits, a frame goes out before toMachine returns, as before.
+    void svc.toMachine(MACHINE, kill(2))
+    expect(daemon.got.map((m) => m.type)).toEqual(['spawn', 'kill', 'kill'])
+  })
+
+  test('a frame sent behind a refused secret still goes, in its place', async () => {
+    const judge = slowJudge(['plain'])
+    const svc = serviceJudgedBy(judge.daemonLinkKind)
+    const daemon = recorder()
+    await svc.attach(MACHINE, daemon.send, [CAP_SESSION_ACCESS])
+    const secret = svc.toMachine(MACHINE, spawnWith('env'))
+    const after = svc.toMachine(MACHINE, kill(1))
+    await judge.release()
+    await expect(secret).rejects.toThrow('not encrypted')
+    await after
+    expect(daemon.got.map((m) => m.type)).toEqual(['kill'])
+    expect(JSON.stringify(daemon.got)).not.toContain(PLANTED)
+  })
+
+  test('a socket that replaced the judged one is judged again before the secret goes', async () => {
+    const judge = slowJudge(['encrypted', 'plain'])
+    const svc = serviceJudgedBy(judge.daemonLinkKind)
+    const first = recorder()
+    const second = recorder()
+    await svc.attach(MACHINE, first.send, [CAP_SESSION_ACCESS])
+    const secret = svc.toMachine(MACHINE, spawnWith('env'))
+    await vi.waitFor(() => expect(judge.calls()).toBe(1))
+    // While the first judgement reads, a new socket over a plain link takes over.
+    await svc.attach(MACHINE, second.send, [CAP_SESSION_ACCESS])
+    await judge.release()
+    await judge.release()
+    await expect(secret).rejects.toThrow('not encrypted')
+    expect(judge.calls()).toBe(2)
+    expect(JSON.stringify([...first.got, ...second.got])).not.toContain(PLANTED)
   })
 })

@@ -26,7 +26,9 @@ const OTHER = daemonRequestKind<{ answer: string }>('o')
 function harness(defaultMachine = 'm1') {
   const sent: { machineId: string; msg: ControlMessage }[] = []
   const broker = new DaemonRequestBroker({
-    toMachine: (machineId, msg) => sent.push({ machineId, msg }),
+    toMachine: (machineId, msg) => {
+      sent.push({ machineId, msg })
+    },
     defaultMachine: async () => asMachineId(defaultMachine),
   })
   const ask = async (machineId?: string) =>
@@ -75,6 +77,25 @@ describe('correlation', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('a refusal at the send, after the link was judged, rejects the same way (POD-7484)', async () => {
+    const broker = new DaemonRequestBroker({
+      defaultMachine: () => asMachineId('m1'),
+      toMachine: async () => {
+        throw new Error('refusing to send a login file to m1: its connection is not encrypted')
+      },
+    })
+    await expect(
+      broker.request({
+        kind: PROBE,
+        timeoutMs: 1_000,
+        onTimeout: () => ({ answer: 'timeout' }),
+        build: (requestId) => ({ type: 'scanRequest', requestId }),
+      }),
+    ).rejects.toThrow('not encrypted')
+    expect(broker.inFlight).toBe(0)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('sends to the named machine and settles that machine`s answer', async () => {
     const h = harness()
     const p = h.ask('m2')
@@ -93,7 +114,9 @@ describe('correlation', () => {
     let current = 'm1'
     const sent: { machineId: string; msg: ControlMessage }[] = []
     const broker = new DaemonRequestBroker({
-      toMachine: (machineId, msg) => sent.push({ machineId, msg }),
+      toMachine: (machineId, msg) => {
+        sent.push({ machineId, msg })
+      },
       defaultMachine: () => asMachineId(current),
     })
     const p = broker.request({
@@ -254,7 +277,9 @@ describe('transcript presence RPC', () => {
       throw new Error('no default machine')
     })
     const rpc = new DaemonRpcService({
-      toMachine: (_id: string, msg: ControlMessage) => sent.push(msg),
+      toMachine: (_id: string, msg: ControlMessage) => {
+        sent.push(msg)
+      },
       defaultMachine,
       hasDaemon: () => true,
       daemonSupports: () => true,

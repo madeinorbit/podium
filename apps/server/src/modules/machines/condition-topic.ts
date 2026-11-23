@@ -11,12 +11,22 @@
  * no invented time.
  */
 
+import { createLogger } from '@podium/logger'
 import type { MachineId } from '@podium/model'
 import type { MachineConditionPayload } from '@podium/protocol'
+import type { DaemonLinkKind } from '../../gateway/daemon-link-kind'
+
+const log = createLogger('server:machine-condition')
 
 export interface MachineConditionTopicDeps {
-  /** The machine's condition now, without `since` (this topic's own memory). */
+  /** The machine's condition now, without `since` (this topic's own memory) or `linkKind`. */
   readonly condition: (machineId: MachineId) => Omit<MachineConditionPayload, 'since'>
+  /**
+   * The server's judgement of the connected daemon's link, read when a value
+   * is built (POD-7484: it reads the workspace's trusted networks). Absent: no
+   * value names a link.
+   */
+  readonly linkKind?: (machineId: MachineId) => Promise<DaemonLinkKind | undefined>
   readonly now: () => number
   /** Hand the newest value to the topic routing (dropped when nobody holds it). */
   readonly publish: (machineId: MachineId, value: MachineConditionPayload) => void
@@ -24,13 +34,19 @@ export interface MachineConditionTopicDeps {
 
 export class MachineConditionTopic {
   private readonly since = new Map<MachineId, string>()
+  private readonly online = new Map<MachineId, boolean>()
+  /** Per machine, the newest change; a value built for an older one is not published. */
+  private readonly changes = new Map<MachineId, number>()
+  private changeCount = 0
 
   constructor(private readonly deps: MachineConditionTopicDeps) {}
 
-  private readonly online = new Map<MachineId, boolean>()
-
-  snapshot(machineId: MachineId): MachineConditionPayload {
-    return { ...this.deps.condition(machineId), since: this.since.get(machineId) ?? null }
+  /** The value now. A promise when the link kind has to be read. */
+  snapshot(machineId: MachineId): MachineConditionPayload | Promise<MachineConditionPayload> {
+    const value = { ...this.deps.condition(machineId), since: this.since.get(machineId) ?? null }
+    const linkKind = this.deps.linkKind
+    if (linkKind === undefined) return value
+    return linkKind(machineId).then((kind) => (kind ? { ...value, linkKind: kind } : value))
   }
 
   /**
@@ -43,6 +59,23 @@ export class MachineConditionTopic {
       this.online.set(machineId, online)
       this.since.set(machineId, new Date(this.deps.now()).toISOString())
     }
-    this.deps.publish(machineId, this.snapshot(machineId))
+    const value = this.snapshot(machineId)
+    if (!(value instanceof Promise)) {
+      this.deps.publish(machineId, value)
+      return
+    }
+    const change = ++this.changeCount
+    this.changes.set(machineId, change)
+    void value.then(
+      (built) => {
+        if (this.changes.get(machineId) !== change) return
+        this.changes.delete(machineId)
+        this.deps.publish(machineId, built)
+      },
+      (err: unknown) => {
+        if (this.changes.get(machineId) === change) this.changes.delete(machineId)
+        log.warn('machine condition not published: its link could not be judged', { err })
+      },
+    )
   }
 }
