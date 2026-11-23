@@ -47,6 +47,7 @@ import {
   writeBuildRecord,
 } from './build-record'
 import { devBuildCommand, devBuildScopeUnit, runLowTierBuild } from './build-scope'
+import { commitRev } from './commit-rev'
 import { type DevBuildSnapshot, withDevBuildSnapshot } from './dev-build-snapshot'
 import {
   readDevPublisherState,
@@ -106,7 +107,7 @@ async function git(root: string, args: readonly string[]): Promise<string> {
 
 /** Read the advertised range from the artifact's commit, never the publisher binary. */
 export async function readDaemonWireAt(root: string, sha: string): Promise<WireVersionRange> {
-  const source = await git(root, ['show', `${sha}:packages/protocol/src/version.ts`])
+  const source = await git(root, ['show', `${commitRev(sha)}:packages/protocol/src/version.ts`])
   const read = (name: string): number =>
     Number(source.match(new RegExp(`export const ${name}\\s*=\\s*(\\d+)`))?.[1])
   return WireVersionRange.parse({
@@ -127,7 +128,7 @@ export async function readReleaseNotesAt(
   version: string,
 ): Promise<UpdateNotes | undefined> {
   try {
-    const markdown = await git(root, ['show', `${sha}:CHANGELOG.md`])
+    const markdown = await git(root, ['show', `${commitRev(sha)}:CHANGELOG.md`])
     return releaseNotesFor(markdown, version) ?? undefined
   } catch {
     return undefined
@@ -1730,7 +1731,12 @@ export async function migrationsAtRevision(
   sha: string,
 ): Promise<string[] | undefined> {
   try {
-    const stdout = await git(root, ['ls-tree', '-d', '--name-only', `${sha}:${MIGRATIONS_TREE}`])
+    const stdout = await git(root, [
+      'ls-tree',
+      '-d',
+      '--name-only',
+      `${commitRev(sha)}:${MIGRATIONS_TREE}`,
+    ])
     const names = stdout
       .split('\n')
       .map((line) => line.trim())
@@ -2512,6 +2518,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
     })
   }
 
+  let loggedProposalFailure: string | undefined
   const proposal = async (): Promise<ReleaseProposal | undefined> => {
     // A proposal is ABOUT committed HEAD. A dirty working tree is a build
     // refusal, not a reason to hide the commit or the failure from the card.
@@ -2551,6 +2558,13 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       }
     } catch (error) {
       recordFailure(error, headSha)
+      // The card disappears on this path, so the reason must reach the log.
+      // Once per commit and reason: every open update screen polls this.
+      const key = `${headSha}\0${describeError(error)}`
+      if (loggedProposalFailure !== key) {
+        loggedProposalFailure = key
+        log.warn('could not read the development release proposal', { headSha, err: error })
+      }
       return undefined
     }
   }

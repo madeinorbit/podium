@@ -8,6 +8,7 @@ import {
 import { buildCleanup, buildTask } from './build-attempt'
 import { runBuildCommand } from './build-process'
 import { devBuildCommand } from './build-scope'
+import { commitRev } from './commit-rev'
 
 async function git(root: string, args: readonly string[]): Promise<string> {
   const { stdout } = await runBuildCommand('git', args, {
@@ -135,7 +136,7 @@ export async function withDevBuildSnapshot<T>(
           '--detach',
           '--force',
           snapshotRoot,
-          input.approvedSha,
+          commitRev(input.approvedSha),
         ]),
     )
     await timed(

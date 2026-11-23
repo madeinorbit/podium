@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -63,15 +64,15 @@ describe('releaseProposalFacts', () => {
       '-z',
       '--format=%H%x00%s',
       '--max-count=200',
-      'aaaaaaa..bbbbbbb',
+      'aaaaaaa^{commit}..bbbbbbb^{commit}',
     ])
     expect(calls).toContainEqual([
       'diff',
       '--diff-filter=A',
       '--name-only',
       '-z',
-      'aaaaaaa',
-      'bbbbbbb',
+      'aaaaaaa^{commit}',
+      'bbbbbbb^{commit}',
       '--',
       'apps/server/src/migrations/drizzle',
     ])
@@ -105,9 +106,9 @@ describe('releaseProposalFacts', () => {
       '-z',
       '--format=%H%x00%s',
       '--max-count=200',
-      'aaaaaaa..bbbbbbb',
+      'aaaaaaa^{commit}..bbbbbbb^{commit}',
     ])
-    expect(calls).toContainEqual(['rev-list', '--count', 'aaaaaaa..bbbbbbb'])
+    expect(calls).toContainEqual(['rev-list', '--count', 'aaaaaaa^{commit}..bbbbbbb^{commit}'])
   })
 
   it('uses the running server commit when the publisher is behind the build target', async () => {
@@ -221,6 +222,37 @@ describe('releaseProposalFacts', () => {
     const headSha = commit(root, 'touch existing migration')
 
     const facts = await releaseProposalFacts({ root, sinceSha: base, headSha })
+    expect(facts.addedMigrations).toEqual([])
+  })
+
+  it('reads a short head SHA that another git object shares as a commit', async () => {
+    // POD-7436: commit eed4495c49 shared its short form with tree eed44957f2,
+    // `git diff <short>` refused the ambiguous ID, and the proposal vanished.
+    // A 4-character prefix (git's minimum) makes the same collision cheap to
+    // build: hash candidate blobs in-process, write the one that matches.
+    const { root, base } = repository()
+    writeFileSync(join(root, 'head.txt'), 'proposed change\n')
+    const headSha = commit(root, 'proposed change')
+    const prefix = headSha.slice(0, 4)
+    let content = ''
+    for (let attempt = 0; ; attempt += 1) {
+      content = `collision ${attempt}\n`
+      const id = createHash('sha1')
+        .update(`blob ${Buffer.byteLength(content)}\0${content}`)
+        .digest('hex')
+      if (id.startsWith(prefix)) break
+    }
+    execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd: root, input: content })
+    expect(() =>
+      execFileSync('git', ['rev-parse', '--verify', '--quiet', prefix], {
+        cwd: root,
+        stdio: 'pipe',
+      }),
+    ).toThrow()
+
+    const facts = await releaseProposalFacts({ root, headSha: prefix, sinceSha: base })
+
+    expect(facts.commits.map((entry) => entry.summary)).toEqual(['proposed change'])
     expect(facts.addedMigrations).toEqual([])
   })
 })
