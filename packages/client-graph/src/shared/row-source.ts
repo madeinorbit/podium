@@ -50,6 +50,7 @@ import {
   workflowBindingRowId,
 } from '@podium/model'
 import { repositoriesFromCheckouts } from './checkout-repositories'
+import { ExitSignals } from './exit-signals'
 import { FeedDiagnostics } from './feed-diagnostics'
 import { issueInput } from './issue-input'
 import type { SliceIssue, SliceSession, SliceWorktree } from './slice-types'
@@ -310,6 +311,22 @@ const PER_USER_BY_REPLICA = new Map<string, PerUserKind>(
   ]),
 )
 const isPerUserKind = (kind: string): kind is PerUserKind => Object.hasOwn(PER_USER_KINDS, kind)
+/**
+ * POD-7422: the principal's own choices, keyed by what they choose about
+ * (`layoutRowId`, `pinRowId`, ...). Clearing one removes its row; choosing
+ * again writes the same key. While that write is painted, the row reads as
+ * the write, not as the removal the replica recorded: a removal of one's own
+ * choice hides nothing anyone else shared. Never an eviction (a revoked
+ * share stays gone however it is painted), and never a record with an
+ * identity of its own (an issue, a session, a thread).
+ */
+const RECREATABLE: ReadonlySet<string> = new Set<PerUserKind>([
+  'pin',
+  'userLayout',
+  'tabOrder',
+  'userPreferences',
+  'userReadPosition',
+])
 const NO_OVERLAYS: readonly PendingOverlay[] = []
 type PendingByRow = Record<OverlayTarget, PendingRows>
 
@@ -395,6 +412,7 @@ export function createRowSource(
   const listeners = new Set<(event: RowSourceEvent) => void>()
   let disposed = false
   const diagnostics = new FeedDiagnostics()
+  const exits = new ExitSignals()
 
   const userStateKeys = new Map<string, string>()
   function installUserKey(key: string): string {
@@ -1271,6 +1289,9 @@ export function createRowSource(
     // their rows through repaint. Feed changes above reconcile their own
     // overlays; unrelated pending rows need no work on this publication.
 
+    // The feed named these rows: their exits may have moved even where the
+    // payload did not (POD-7422).
+    for (const key of byKey.keys()) exits.moved(key)
     return publishUpdate(byKey.values())
   }
 
@@ -1290,7 +1311,10 @@ export function createRowSource(
 
   function emit(event: RowSourceEvent, recovering = false): void {
     stats.events += 1
-    if (event.type === 'replace') published.clear()
+    if (event.type === 'replace') {
+      published.clear()
+      exits.movedAll()
+    }
     for (const { kind, id, value } of event.rows) {
       seededKinds.add(kind)
       const key = `${kind}:${id}`
@@ -1371,6 +1395,13 @@ export function createRowSource(
     return retain(`${kind}:${id}`, resolve(kind, id, readPending()))
   }
 
+  /** POD-7422: the pending log makes a recreatable row again (not its removal). */
+  function paintedOverRemoval(kind: PerUserKind, id: string): boolean {
+    const target = PER_USER_KINDS[kind].target
+    if (target === undefined || !pooled.byRow(target).has(id)) return false
+    return perUserRow(kind, id, readPending()) !== undefined
+  }
+
   const source: RowSource = {
     diagnostics,
     issueSessionFact: issueSessionFacts.read,
@@ -1394,7 +1425,17 @@ export function createRowSource(
     row,
     exitKind(kind, id) {
       const entity = kind === 'issue' ? 'issueProjection' : kind
-      return replica.exitKind?.(entity, id)
+      const exit = replica.exitKind?.(entity, id)
+      if (exit === undefined) return undefined
+      // TRACKED from here (POD-7422): the row's way back moves this signal.
+      exits.observe(`${kind}:${id}`)
+      if (
+        exit === 'removed' &&
+        RECREATABLE.has(kind) &&
+        paintedOverRemoval(kind as PerUserKind, id)
+      )
+        return undefined
+      return exit
     },
     ...(replica.issueIdByRef
       ? {
@@ -1438,6 +1479,9 @@ export function createRowSource(
       const key = `${kind}:${id}`
       if (byKey.has(key)) continue
       stats.rowsVisited += 1
+      // A paint over a cleared choice reads as present (`exitKind`), and its
+      // retirement or refusal as removed again (POD-7422).
+      exits.moved(key)
       if (isPerUserKind(kind)) {
         // Warm companions may already be in the pool before their first feed
         // publication. A remove must compare against that existing truth.

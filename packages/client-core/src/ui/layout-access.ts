@@ -43,11 +43,11 @@ export class LayoutAccess {
       () => [...this.keys].map((key) => [key, this.read?.(key)] as const),
       (next, previous) => {
         const before = new Map(previous)
-        notify(
-          new Set(
-            next.filter(([key, value]) => !Object.is(before.get(key), value)).map(([key]) => key),
-          ),
+        const changed = new Set(
+          next.filter(([key, value]) => !Object.is(before.get(key), value)).map(([key]) => key),
         )
+        // A re-read that moved no value (a confirmation equal to its paint) is no change.
+        if (changed.size) notify(changed)
       },
     )
   }
