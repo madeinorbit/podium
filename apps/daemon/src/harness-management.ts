@@ -10,11 +10,16 @@ import {
   harnessInstallationFor,
   manifestFor,
   type ResolvedHarnessInventory,
+  withHarnessHome,
+  withHomeScope,
 } from '@podium/harness'
 import { makeQuotaFetcher } from '@podium/harness/inventory'
-import type { BuiltinHarnessKind } from '@podium/protocol'
+import { type BuiltinHarnessKind, type HomeHarness, podiumHomeId } from '@podium/protocol'
+import type { MachineHomeFacts } from './control/access'
 import type { DaemonContext } from './control/context'
 import type { DaemonHarnessRuntime } from './harness-runtime.js'
+import { ownLoginHomes, snapshotHomeFacts } from './homes/own-login'
+import type { HomeRegistry } from './homes/registry'
 import type { DaemonMachineRuntime } from './runtime/machine-runtime'
 
 /**
@@ -89,7 +94,7 @@ export type HarnessManagementContext = Pick<
  * instance agent HOME, then to undefined (real process HOME) when neither is set.
  */
 export function resolveManagementCredentialHome(
-  ctx: Pick<HarnessManagementContext, 'accountHome' | 'homeDir'>,
+  ctx: Partial<Pick<HarnessManagementContext, 'accountHome' | 'homeDir'>>,
 ): string | undefined {
   return ctx.accountHome?.path ?? ctx.homeDir
 }
@@ -112,9 +117,19 @@ export interface ManagementAccount {
    *  come from `home` alone. */
   readonly machineEnv: HarnessEnvironment
   readonly snapshot?: HarnessExecutableSnapshot
+  /**
+   * THE MACHINE'S OWN LOGIN WHERE IT IS THE PODIUM HOME (managed installs
+   * §4.2, POD-7494, POD-7496): by harness, the folder its `default` login
+   * lives in when that is not the person's own folder (`ownLoginInPodiumHome`).
+   * A read of the `default` login (its model list, quota, usage) goes there:
+   * {@link managementAccountFor}, {@link ownLoginContextFor}, and
+   * `AccountReadScope.homeDirs`. Empty or absent without homes or a snapshot.
+   */
+  readonly ownLoginHomes?: Readonly<Partial<Record<HomeHarness, string>>>
 }
 
 type ManagementAccountSource = Pick<HarnessManagementContext, 'accountHome' | 'homeDir'> & {
+  homes?: Pick<HomeRegistry, 'podiumHomeAt'> | undefined
   harnessRuntime?:
     | {
         current(): Promise<ResolvedHarnessInventory>
@@ -138,11 +153,29 @@ export async function resolveManagementAccount(
     opts.wait === false ? runtime?.settled?.() : await runtime?.current().catch(() => undefined)
   const home = resolveManagementCredentialHome(ctx) ?? snapshot?.commandEnvironment.machineHome
   if (!home) return undefined
+  const machineEnv = snapshot?.commandEnvironment.env ?? {}
   return {
     home,
-    machineEnv: snapshot?.commandEnvironment.env ?? {},
+    machineEnv,
     ...(snapshot ? { snapshot } : {}),
+    ownLoginHomes: snapshot
+      ? ownLoginHomes(ctx.homes, managementHomeFacts(ctx, { home, machineEnv, snapshot }))
+      : {},
   }
+}
+
+/**
+ * What the account's snapshot says of the machine's installs, with the login
+ * files of the machine's own login read for the account (`ownLoginInPodiumHome`).
+ */
+export function managementHomeFacts(
+  ctx: Pick<ManagementAccountSource, 'homes'>,
+  account: Pick<ManagementAccount, 'home' | 'machineEnv' | 'snapshot'>,
+): MachineHomeFacts {
+  return snapshotHomeFacts(account.snapshot ?? {}, {
+    homes: ctx.homes,
+    account: { home: account.home, env: account.machineEnv },
+  })
 }
 
 /**
@@ -162,17 +195,21 @@ export function managementQuotaFetcher(
         homeDir: account.home,
         env: account.machineEnv,
         ...(account.snapshot ? { snapshot: account.snapshot } : {}),
+        ...(account.ownLoginHomes ? { homeDirs: account.ownLoginHomes } : {}),
       }
     },
   })
 }
 
-/** One harness's account half (roots and env), installed or not. */
+/** One harness's account half (roots and env), installed or not: where the
+ *  machine's own login of it lives (`ownLoginHomes`). */
 export function managementAccountFor(
   account: ManagementAccount,
   kind: string,
 ): HarnessAccountScope {
-  return harnessAccount(kind, account.home, account.machineEnv)
+  const scope = harnessAccount(kind, account.home, account.machineEnv)
+  const dir = account.ownLoginHomes?.[kind as HomeHarness]
+  return dir ? withHomeScope(kind, scope, dir) : scope
 }
 
 /** One installed harness's full context on one side (managed installs §4.2;
@@ -185,6 +222,21 @@ export function managementContextFor(
 ): HarnessContext | undefined {
   if (!account.snapshot || !harnessInstallationFor(account.snapshot, kind, side)) return undefined
   return harnessContext(account.snapshot, kind, account.home, side)
+}
+
+/**
+ * The installed harness's context for the machine's own login (managed
+ * installs §4.2): the person's install in their own folder, or, where that
+ * login is the Podium home's (`ownLoginHomes`), Podium's install run there.
+ */
+export function ownLoginContextFor(
+  account: ManagementAccount,
+  kind: BuiltinHarnessKind,
+): HarnessContext | undefined {
+  const dir = account.ownLoginHomes?.[kind as HomeHarness]
+  if (!dir) return managementContextFor(account, kind)
+  const context = managementContextFor(account, kind, 'podium')
+  return context && withHarnessHome(context, { id: podiumHomeId(kind as HomeHarness), dir })
 }
 
 /**

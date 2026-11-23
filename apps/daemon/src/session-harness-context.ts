@@ -41,6 +41,7 @@ import { HomeHarness, parseHomeId, parsePodiumHomeId } from '@podium/protocol'
 import type { MachineHomeFacts } from './control/access'
 import type { DaemonContext } from './control/context'
 import { resolveManagementCredentialHome } from './harness-management'
+import { ownLoginInPodiumHome, snapshotHomeFacts } from './homes/own-login'
 import { type HarnessHome, isPodiumHome } from './homes/registry'
 import { prepareHomeLaunch, type ShareSource } from './homes/share'
 import { recordedInstallation } from './session-installs'
@@ -50,22 +51,13 @@ const log = createLogger('daemon:harness-context')
 type ContextSource = Pick<DaemonContext, 'harnessRuntime' | 'accountHome' | 'homeDir'> &
   Partial<Pick<DaemonContext, 'access' | 'homes' | 'sessionInstalls'>>
 
-type HomeSource = Partial<Pick<DaemonContext, 'access' | 'homes' | 'harnessRuntime'>>
+type HomeSource = Partial<
+  Pick<DaemonContext, 'access' | 'homes' | 'harnessRuntime' | 'accountHome' | 'homeDir'>
+>
 
 /** A session's credential names a home this machine does not hold. */
 export class HomeNotOnMachineError extends Error {
   override readonly name = 'HomeNotOnMachineError'
-}
-
-/** What a snapshot says of the machine's managed installs (managed installs §4.2). */
-export function snapshotHomeFacts(
-  snapshot: Pick<HarnessExecutableSnapshot, 'managed'> &
-    Partial<Pick<HarnessExecutableSnapshot, 'executables'>>,
-): MachineHomeFacts {
-  return {
-    managedInstall: (kind) => snapshot.managed?.has(kind) ?? false,
-    externalInstall: (kind) => snapshot.executables?.has(kind) ?? false,
-  }
 }
 
 /**
@@ -75,10 +67,26 @@ export function snapshotHomeFacts(
  */
 function settledHomeFacts(ctx: HomeSource): MachineHomeFacts {
   const settled = ctx.harnessRuntime?.settled?.()
-  return {
-    managedInstall: (kind) => settled?.managed?.has(kind) ?? false,
-    externalInstall: (kind) => settled?.executables.has(kind) ?? false,
-  }
+  return settled ? machineHomeFacts(ctx, settled) : { managedInstall: () => false }
+}
+
+/**
+ * The home facts of `snapshot` with the login files of the machine's own login
+ * read through the daemon's credential home (`ownLoginInPodiumHome`): what
+ * every launch path and account read of the `default` login decides by.
+ */
+export function machineHomeFacts(
+  ctx: HomeSource,
+  snapshot: Pick<HarnessExecutableSnapshot, 'managed'> &
+    Partial<Pick<HarnessExecutableSnapshot, 'executables' | 'commandEnvironment'>>,
+): MachineHomeFacts {
+  const home = resolveManagementCredentialHome(ctx) ?? snapshot.commandEnvironment?.machineHome
+  return snapshotHomeFacts(
+    snapshot,
+    home
+      ? { homes: ctx.homes, account: { home, env: snapshot.commandEnvironment?.env ?? {} } }
+      : {},
+  )
 }
 
 /**
@@ -111,34 +119,6 @@ export function sessionHomeFor(
     )
   }
   return home
-}
-
-/**
- * THE MACHINE'S OWN LOGIN WHERE ONLY PODIUM'S INSTALL IS THERE (POD-7494,
- * managed installs §4.2). A harness that keeps its state in a folder a
- * variable moves, installed on this machine by Podium alone, has no person's
- * own login to run: Podium's install never runs in the person's folder (M9).
- * Its own login is then the Podium home's. A session on no credential (or on
- * the `default` home) and the native login pane run there, on Podium's
- * install, so a sign-in made in that pane is the login those sessions read;
- * the inventory reports that home's login as the harness's (`withHomeLogins`).
- *
- * With the person's install there too, their own login stays on their side:
- * their binary, their folder, exactly as launches always chose. A harness
- * without a folder variable shares one folder either way (§4.7,
- * {@link defaultFolderSide}).
- *
- * Returns the harness when its own login runs in the Podium home.
- */
-export function ownLoginInPodiumHome(
-  kind: AgentKind,
-  machine: MachineHomeFacts,
-): HomeHarness | undefined {
-  const harness = HomeHarness.safeParse(kind)
-  if (!harness.success || !harnessHomeVariable(harness.data)) return undefined
-  if (!machine.managedInstall(harness.data) || machine.externalInstall?.(harness.data))
-    return undefined
-  return harness.data
 }
 
 /**
@@ -259,7 +239,7 @@ export async function buildSessionHarnessContext(
     sessionId,
     kind,
     (side) => harnessContext(snapshot, kind, home, side),
-    snapshotHomeFacts(snapshot),
+    machineHomeFacts(ctx, snapshot),
   )
 }
 
@@ -306,7 +286,7 @@ export function driverHarnessContextFrom(
       driverId === undefined
         ? harnessContext(snapshot, kind, home, side)
         : harnessDriverContext(snapshot, kind, home, driverId, side),
-    snapshotHomeFacts(snapshot),
+    machineHomeFacts(ctx, snapshot),
   )
 }
 

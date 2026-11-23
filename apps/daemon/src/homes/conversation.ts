@@ -27,6 +27,12 @@
  * way, and a switch between two passed-in credentials stays in one home and
  * copies nothing.
  *
+ * `default` WITHOUT A PASSED-IN CREDENTIAL is the machine's own login, and
+ * where that login is the Podium home's (`ownLoginInPodiumHome`, POD-7494,
+ * POD-7496) the conversation goes there too: the session on it runs there. A
+ * move away from it finds the conversation there, as every home of the harness
+ * is searched.
+ *
  * Nothing secret is read or written: a conversation file holds no credential,
  * and the request names credentials by id only.
  */
@@ -50,8 +56,10 @@ import {
   parsePodiumHomeId,
   podiumHomeId,
 } from '@podium/protocol'
+import type { MachineHomeFacts } from '../control/access'
 import type { ControlHandlers } from '../control/context'
-import { resolveManagementAccount } from '../harness-management'
+import { managementHomeFacts, resolveManagementAccount } from '../harness-management'
+import { ownLoginInPodiumHome } from './own-login'
 import { type HarnessHome, isPodiumHome } from './registry'
 
 const log = createLogger('daemon:conversation')
@@ -79,22 +87,28 @@ export interface ConversationDeps {
     list(): readonly HarnessHome[]
     ensurePodiumHome?(harness: HomeHarness): { home: HarnessHome }
   }
-  /** Whether the machine has a managed install of `harness` (§4.2). Absent: none. */
-  managedInstall?: (harness: HomeHarness) => boolean
+  /** What the machine's installs and own logins are (§4.2). Absent: no managed install. */
+  machine?: MachineHomeFacts
   now?: () => number
 }
 
 /**
  * The home a request's conversation goes to on this machine: `toHomeId`, or
- * the Podium home for a passed-in credential on Podium's side (§4.3).
+ * the Podium home for a passed-in credential on Podium's side (§4.3), or for
+ * the machine's own login where that is the Podium home's (§4.2).
  */
 export function placementHomeId(
   deps: ConversationDeps,
   request: ConversationPrepareRequest,
 ): string {
-  if (request.toHomeId !== DEFAULT_HOME_ID || request.toDelivery !== 'env') return request.toHomeId
+  if (request.toHomeId !== DEFAULT_HOME_ID || !deps.machine) return request.toHomeId
   const harness = HomeHarness.safeParse(request.agentKind)
-  if (!harness.success || !deps.managedInstall?.(harness.data)) return request.toHomeId
+  if (!harness.success) return request.toHomeId
+  const inPodiumHome =
+    request.toDelivery === 'env'
+      ? deps.machine.managedInstall(harness.data)
+      : ownLoginInPodiumHome(harness.data, deps.machine) !== undefined
+  if (!inPodiumHome) return request.toHomeId
   deps.homes?.ensurePodiumHome?.(harness.data)
   return podiumHomeId(harness.data)
 }
@@ -141,7 +155,10 @@ export async function prepareConversation(
   const roots = rootsFor(request.agentKind, deps)
   const target = roots.find((root) => root.homeId === toHomeId)
   if (!target) return { ok: false, error: `the home ${toHomeId} is not on this machine` }
-  const inPodiumHome = parsePodiumHomeId(toHomeId) !== null
+  // A credential passed in to the Podium home runs on Podium's provider there;
+  // the machine's own login in it is a sign-in like any other (POD-7496).
+  const ownLogin = request.toHomeId === DEFAULT_HOME_ID && request.toDelivery !== 'env'
+  const inPodiumHome = parsePodiumHomeId(toHomeId) !== null && !ownLogin
 
   let source: { root: HomeRoot; path: string; mtimeMs: number } | undefined
   for (const root of roots) {
@@ -269,12 +286,13 @@ export const conversationHandlers: Pick<ControlHandlers, 'conversationPrepareReq
           reply({ ok: false, error: 'this machine has no account home' })
           return
         }
-        const snapshot = account.snapshot
         const result = await prepareConversation(
           {
             account: { home: account.home, env: account.machineEnv },
             ...(ctx.homes ? { homes: ctx.homes } : {}),
-            managedInstall: (harness) => snapshot?.managed?.has(harness) ?? false,
+            // The installs and own logins the launch reads (§4.2), so the
+            // conversation lands in the home the session starts in.
+            machine: managementHomeFacts(ctx, account),
           },
           msg,
         )

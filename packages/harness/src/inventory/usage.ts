@@ -12,7 +12,7 @@
 import type { AgentKind, AgentQuotaWire, UsageBucketWire, UsageSourceWire } from '@podium/model'
 import type { QuotaHistorySampleWire } from '@podium/protocol'
 import type { HarnessExecutableSnapshot } from '../executable-runtime.js'
-import { harnessAccount, harnessInstallation } from '../harness-context.js'
+import { harnessAccount, harnessInstallation, withHomeScope } from '../harness-context.js'
 import {
   declaredValue,
   type HarnessAccountScope,
@@ -45,6 +45,20 @@ export interface AccountReadScope {
   homeDir: string
   env?: HarnessEnvironment
   snapshot?: HarnessExecutableSnapshot
+  /**
+   * The folder a harness's own login lives in where it is not the account's
+   * default folder, by harness (the daemon's Podium home where only Podium's
+   * install is there, managed installs §4.2): that harness's account is read
+   * with its directory variable pointed there.
+   */
+  homeDirs?: Readonly<Partial<Record<string, string>>>
+}
+
+/** One harness's account under `scope`: in its `homeDirs` folder when it names one. */
+function accountReadScopeFor(kind: string, scope: AccountReadScope): HarnessAccountScope {
+  const account = harnessAccount(kind, scope.homeDir, scope.env ?? {})
+  const dir = scope.homeDirs?.[kind]
+  return dir ? withHomeScope(kind, account, dir) : account
 }
 
 /** One quota probe with the account's optional native execution capability. */
@@ -102,10 +116,10 @@ function defaultQuotaFetchers(
       fetch: async (deps) => {
         // No account, no read: an error wire rather than a guess at a home.
         if (!scope) throw new Error('quota read refused: no account home')
-        const { homeDir, env, snapshot } = await scope()
-        return probeAccountQuota(manifest.kind, harnessAccount(manifest.kind, homeDir, env ?? {}), {
+        const account = await scope()
+        return probeAccountQuota(manifest.kind, accountReadScopeFor(manifest.kind, account), {
           ...deps,
-          ...(snapshot ? { snapshot } : {}),
+          ...(account.snapshot ? { snapshot: account.snapshot } : {}),
         })
       },
     })
@@ -269,7 +283,7 @@ export async function scanQuotaHistory(
       section.scan({
         sinceMs: opts.sinceMs,
         machineId: opts.machineId,
-        account: harnessAccount(kind, opts.homeDir, opts.env ?? {}),
+        account: accountReadScopeFor(kind, opts),
       }),
     ),
   )
@@ -318,7 +332,7 @@ export async function scanHostUsageSources(
     ...sections.map(async ({ kind, section }) =>
       section.scan({
         sinceMs: opts.sinceMs,
-        account: harnessAccount(kind, opts.homeDir, opts.env ?? {}),
+        account: accountReadScopeFor(kind, opts),
         ...(opts.cache ? { cache: opts.cache } : {}),
       }),
     ),

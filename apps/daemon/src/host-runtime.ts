@@ -160,6 +160,7 @@ import { DaemonHarnessRuntime } from './harness-runtime'
 import { withHarnessVersionReporting } from './harness-version-reporting'
 import { probeCodexLaunchHookTrust } from './homes/codex-hook-probe'
 import { CodexHookTrust } from './homes/codex-hook-trust'
+import { snapshotHomeFacts } from './homes/own-login'
 import { PodiumHomes, personFolderOf } from './homes/podium-home'
 import { homeQuotaReader } from './homes/probes'
 import { HomeRegistry, homeDiscoveryRoots } from './homes/registry'
@@ -213,8 +214,8 @@ import { SessionBinding } from './session-binding'
 import {
   driverHarnessContextFrom,
   engineSessionHarnessContext,
+  machineHomeFacts,
   sessionHomeSide,
-  snapshotHomeFacts,
 } from './session-harness-context'
 import { dropInstallsOfLostSessions, ledgerSessionInstalls } from './session-installs'
 import { createSessionObservers } from './session-observers'
@@ -1264,6 +1265,8 @@ export async function createDaemonHostRuntime(args: {
       ...(accountHome ? { accountHome } : {}),
       homeDir: homeDir ?? machineHome,
       ...(harnessRuntime ? { harnessRuntime } : {}),
+      // The machine's own login where it is the Podium home (POD-7496).
+      homes,
     }),
     // Each Podium home's quota, read in that home (credential management §10).
     homeQuota: homeQuotaReader({
@@ -1863,7 +1866,7 @@ export async function createDaemonHostRuntime(args: {
           return harnessInstallationFor(
             snapshot,
             agent as BuiltinHarnessKind,
-            sessionHomeSide(ctx, sessionId, agent, snapshotHomeFacts(snapshot)),
+            sessionHomeSide(ctx, sessionId, agent, machineHomeFacts(ctx, snapshot)),
           )?.executable
         } catch {
           return undefined

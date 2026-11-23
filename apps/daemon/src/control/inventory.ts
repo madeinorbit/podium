@@ -26,6 +26,7 @@ import {
   managementAccountFor,
   managementContextFor,
   managementInventoryCacheKey,
+  ownLoginContextFor,
   resolveManagementAccount,
   resolveManagementCredentialHome,
 } from '../harness-management.js'
@@ -34,7 +35,7 @@ import { withHomeLogins } from '../homes/logins'
 import { homeModelProbe } from '../homes/probes'
 import { isPodiumHome } from '../homes/registry'
 import { opencode2VersionProbe } from '../runtime/version-probe'
-import { snapshotHomeFacts } from '../session-harness-context'
+import { machineHomeFacts } from '../session-harness-context'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const log = createLogger('daemon:inventory')
@@ -272,9 +273,10 @@ export async function reportInventory(
                     resolveManagementCredentialHome(ctx) ?? snapshot.commandEnvironment.machineHome,
                   env: snapshot.commandEnvironment.env,
                 },
-                // The installs this wave found: a harness only Podium installed
-                // reports the Podium home's login as its own (POD-7494).
-                snapshotHomeFacts(snapshot),
+                // The installs this wave found and the logins on each side: a
+                // harness whose own login is the Podium home's reports that
+                // home's login as its own (POD-7494, POD-7496).
+                machineHomeFacts(ctx, snapshot),
               )
             : inventory),
           homePath: snapshot.commandEnvironment.machineHome,
@@ -421,8 +423,10 @@ export function startInventoryRefresh(
  * account. The Claude OAuth token comes from the account's credential folder.
  *
  * The first catalog read after a start (a client opening the app) lands here,
- * so these contexts name the person's own folders: the harness package lists
- * them contained (POD-7390), and a listing leaves those folders unchanged.
+ * so these contexts name the folders of the machine's own login: the
+ * person's own folders, or the Podium home where that login lives there
+ * (POD-7496). The harness package lists them contained (POD-7390), and a
+ * listing leaves those folders unchanged.
  */
 async function runModelProbe(
   ctx: HarnessManagementContext,
@@ -440,10 +444,13 @@ async function runModelProbe(
     // so it takes an account (asked for by its own kind), not a context. A
     // harness this generation did not install gets no context and no probe.
     // No harness named here.
+    // The machine's own login (POD-7496): where it is the Podium home, its
+    // models are read there on Podium's install (`ownLoginContextFor`), and
+    // Claude's through that home's login (`managementAccountFor`).
     const contexts: Partial<Record<ProbeableAgent, HarnessContext>> = {}
     if (account) {
       for (const kind of PROBEABLE_AGENTS) {
-        const context = managementContextFor(account, kind as BuiltinHarnessKind)
+        const context = ownLoginContextFor(account, kind as BuiltinHarnessKind)
         if (context) contexts[kind] = context
       }
     }

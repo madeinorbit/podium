@@ -10,17 +10,15 @@
  */
 
 import {
-  declaredValue,
   type HarnessEnvironment,
   type HarnessLogin,
   harnessAccount,
-  manifestFor,
   withHomeScope,
 } from '@podium/harness'
 import type { HomeLogin, Inventory } from '@podium/model'
 import { DEFAULT_HOME_ID, HOME_HARNESSES } from '@podium/protocol'
 import type { MachineHomeFacts } from '../control/access'
-import { ownLoginInPodiumHome } from '../session-harness-context'
+import { ownLoginInPodiumHome, readLoginIn } from './own-login'
 import { type HarnessHome, isPodiumHome } from './registry'
 
 export function withHomeLogins(
@@ -90,24 +88,8 @@ export function readHomeLogin(
   home: HarnessHome,
   account: { home: string; env: HarnessEnvironment },
 ): HarnessLogin {
-  const manifest = manifestFor(home.harness)
-  if (!manifest) return { state: 'unknown' }
-  const scope = withHomeScope(
+  return readLoginIn(
     home.harness,
-    harnessAccount(home.harness, account.home, account.env),
-    home.dir,
+    withHomeScope(home.harness, harnessAccount(home.harness, account.home, account.env), home.dir),
   )
-  let detected: HarnessLogin
-  try {
-    detected = manifest.inventory.detectLogin(scope.home, scope.env)
-  } catch {
-    return { state: 'unknown' }
-  }
-  try {
-    const identity =
-      detected.identity ?? declaredValue(manifest.inventory.loginIdentity)?.(scope.home, scope.env)
-    return identity ? { ...detected, identity } : detected
-  } catch {
-    return detected
-  }
 }

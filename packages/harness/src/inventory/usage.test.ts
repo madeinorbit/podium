@@ -262,6 +262,41 @@ describe('scanHostUsage', () => {
     expect(buckets[0]).toMatchObject({ model: 'gpt-5' })
   })
 })
+describe('homeDirs: one harness read in its own folder (managed installs §4.2)', () => {
+  it('moves that harness’s account into the folder and leaves the others in the home', async () => {
+    const home = trackTmp('podium-usage-home-dirs-')
+    const podium = trackTmp('podium-usage-podium-home-')
+    const rollout = (dir: string, model: string) => {
+      const day = join(dir, 'sessions', '2026', '06', '12')
+      mkdirSync(day, { recursive: true })
+      writeFileSync(
+        join(day, 'rollout-a.jsonl'),
+        [turnContextLine(model), tokenCountLine('2026-06-12T10:01:00.000Z', LAST)].join('\n'),
+      )
+    }
+    rollout(join(home, '.codex'), 'gpt-person')
+    rollout(podium, 'gpt-podium')
+    const claudeDir = join(home, '.claude', 'projects', '-src-app')
+    mkdirSync(claudeDir, { recursive: true })
+    writeFileSync(
+      join(claudeDir, 'conv.jsonl'),
+      assistantLine('2026-06-12T11:01:00.000Z', 'claude-sonnet-4-5', 10, 20),
+    )
+    const { sources } = await scanHostUsageSources({
+      sinceMs: 0,
+      homeDir: home,
+      homeDirs: { codex: podium },
+    })
+    expect(sources.map((source) => [source.harness, source.path.startsWith(podium)])).toEqual(
+      expect.arrayContaining([
+        ['codex', true],
+        ['claude-code', false],
+      ]),
+    )
+    expect(sources.filter((source) => source.harness === 'codex')).toHaveLength(1)
+  })
+})
+
 describe('scanHostUsageSources', () => {
   it('carries the path, the harness and the byte cursor out of the walk', async () => {
     const home = trackTmp('podium-usage-sources-')

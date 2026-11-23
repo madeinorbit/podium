@@ -114,6 +114,16 @@ export class HomeRegistry {
     return isDirectory(home.dir) ? home : undefined
   }
 
+  /**
+   * Where the Podium home of `harness` is, made or not, never making it: for
+   * a read of the login that lives there, which finds nothing while the home
+   * is not made yet (signed out, no transcripts) rather than reading another
+   * folder in its place.
+   */
+  podiumHomeAt(harness: HomeHarness): HarnessHome {
+    return this.podiumHomeFor(harness)
+  }
+
   /** The home `homeId` names, when it exists here. Never `default`. */
   get(homeId: string): HarnessHome | undefined {
     const podium = parsePodiumHomeId(homeId)

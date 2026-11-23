@@ -23,9 +23,10 @@ import { asSessionId, type BuiltinHarnessKind, type Inventory } from '@podium/mo
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { withHomeLogins } from '../homes/logins'
+import { snapshotHomeFacts } from '../homes/own-login'
 import { HomeRegistry } from '../homes/registry'
 import { stubDurable, testSessions } from '../session/testing'
-import { buildSessionHarnessContext, snapshotHomeFacts } from '../session-harness-context'
+import { buildSessionHarnessContext } from '../session-harness-context'
 import { testHarnessSnapshot } from '../test-support/harness-snapshot'
 import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
@@ -221,6 +222,24 @@ describe('the inventory reads the login where the pane signed in (POD-7494)', ()
     const after = withHomeLogins(reported(), homes.list(), account, facts)
     expect(after.agents[0]?.login.state).toBe('in')
     expect(after.agents[0]?.logins?.[0]).toMatchObject({ homeId: 'default', state: 'in' })
+  })
+
+  it('both installs, only Podium’s copy signed in: the Podium home keeps the login (POD-7496)', () => {
+    signIn(homes.ensurePodiumHome('codex').home.dir)
+    const account = { home: personHome, env: {} }
+    const facts = snapshotHomeFacts(snapshotFor('both'), { homes, account })
+    const after = withHomeLogins(reported(), homes.list(), account, facts)
+    expect(after.agents[0]?.login.state).toBe('in')
+    // Once the person signs in to their own copy, theirs is the login again:
+    // the inventory reports their folder's login, here signed out.
+    signIn(join(personHome, '.codex'))
+    const theirs = withHomeLogins(
+      reported(),
+      homes.list(),
+      account,
+      snapshotHomeFacts(snapshotFor('both'), { homes, account }),
+    )
+    expect(theirs.agents[0]?.login.state).toBe('out')
   })
 
   it('both installs: the person’s folder’s login stays the harness’s login', () => {
