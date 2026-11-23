@@ -116,16 +116,18 @@ function containerOffset(scroll: HTMLElement, container: HTMLElement): number {
   return top(container) - top(scroll)
 }
 
-/** Whether the scroller's top edge lies in the section (a direct child of the
- * scroller) that holds `container`, header included. A section below that
- * edge cannot tell a change above the viewport from one inside it. */
-function holdsViewportTop(scroll: HTMLElement, container: HTMLElement | null | undefined): boolean {
-  if (!container || container === scroll) return true
+/** Save the section's layout bounds with its viewport. After a whole fold
+ * above it closes, the old scroll offset may lie beyond its new bounds. */
+function sectionBounds(
+  scroll: HTMLElement,
+  container: HTMLElement | null | undefined,
+): { start: number; end: number } | null {
+  if (!container || container === scroll) return null
   let section: HTMLElement | null = container
   while (section && section.parentElement !== scroll) section = section.parentElement
-  if (!section) return true
+  if (!section) return null
   const start = containerOffset(scroll, section)
-  return start <= scroll.scrollTop && scroll.scrollTop < start + section.offsetHeight
+  return { start, end: start + section.offsetHeight }
 }
 
 /**
@@ -162,7 +164,13 @@ export function useBoundedVirtualList({
   }
   const layoutRef = useRef<Layout>(emptyLayout)
   const priorLayoutRef = useRef<Layout>(emptyLayout)
-  const priorViewportRef = useRef<{ top: number; scrollTop: number } | null>(null)
+  const priorViewportRef = useRef<{
+    top: number
+    scrollTop: number
+    section: { start: number; end: number } | null
+  } | null>(null)
+  const onScrollAnchorRef = useRef(onScrollAnchor)
+  onScrollAnchorRef.current = onScrollAnchor
   const [revision, setRevision] = useState(0)
   const [viewport, setViewport] = useState({ top: 0, height: 0 })
   const viewportFrameRef = useRef<number | null>(null)
@@ -205,14 +213,61 @@ export function useBoundedVirtualList({
   }, [keys, keyIndexes, estimateSize, gap, revision])
   layoutRef.current = layout
 
+  // Reconcile before replacing the saved viewport, both in React commits and
+  // in resize frames. A fold can move an unchanged window without rendering it.
+  const reconcileViewport = useCallback(() => {
+    const current = layoutRef.current
+    const prior = priorLayoutRef.current
+    const scroll = scrollRef.current
+    const container = containerRef?.current
+    const currentTop = localScrollTop(scroll, container)
+    const saved = priorViewportRef.current
+    const scrollTop = scroll?.scrollTop ?? 0
+    const maxScroll = scroll ? Math.max(0, scroll.scrollHeight - scroll.clientHeight) : 0
+    // Shrinking the scroll extent can clamp the browser's offset before any
+    // observer or effect runs. That movement is not a request to change rows.
+    const anchorScrollTop =
+      saved && scrollTop === maxScroll && saved.scrollTop > maxScroll ? saved.scrollTop : scrollTop
+    const top = saved ? saved.top + anchorScrollTop - saved.scrollTop : currentTop
+    const changed = prior !== current || top !== currentTop
+    if (
+      changed &&
+      saved &&
+      prior.keys.length > 0 &&
+      scroll &&
+      top < prior.totalSize &&
+      top + scroll.clientHeight > 0 &&
+      // Only the section that held the top edge may move a shared scroller.
+      // A section below it also shifts when rows leave inside the viewport.
+      (!saved.section ||
+        (saved.section.start <= anchorScrollTop && anchorScrollTop < saved.section.end))
+    ) {
+      const anchorIndex = itemAt(prior, Math.max(0, top))
+      const anchorKey = prior.keys[anchorIndex]
+      const currentIndex = anchorKey ? (current.indexes.get(anchorKey) ?? -1) : -1
+      if (currentIndex >= 0) {
+        const delta =
+          offsetAt(current, currentIndex) - offsetAt(prior, anchorIndex) + top - currentTop
+        if (delta !== 0) {
+          scroll.scrollTop += delta
+          onScrollAnchorRef.current?.()
+        }
+      }
+    }
+    priorLayoutRef.current = current
+    const nextTop = localScrollTop(scroll, container)
+    priorViewportRef.current =
+      scroll && (!containerRef || container)
+        ? { top: nextTop, scrollTop: scroll.scrollTop, section: sectionBounds(scroll, container) }
+        : null
+    return { top: nextTop, height: scroll?.clientHeight ?? 0, changed }
+  }, [scrollRef, containerRef])
+
   const publishViewport = useCallback(() => {
     if (viewportFrameRef.current !== null) return
     viewportFrameRef.current = window.requestAnimationFrame(() => {
       viewportFrameRef.current = null
-      const scroll = scrollRef.current
-      const top = localScrollTop(scroll, containerRef?.current)
-      const height = scroll?.clientHeight ?? 0
-      priorViewportRef.current = { top, scrollTop: scroll?.scrollTop ?? 0 }
+      const { top, height } = reconcileViewport()
       // The browser is about to paint the new scroll offset. A deferred React
       // commit can expose the spacer for a frame even though the rows are ready.
       // Still coalesce events to one publication per animation frame.
@@ -222,7 +277,7 @@ export function useBoundedVirtualList({
         ),
       )
     })
-  }, [scrollRef, containerRef])
+  }, [reconcileViewport])
 
   // A grouped window may mount before its parent's scroller ref is attached.
   // Passive setup sees every ref from the commit and cannot miss scroll events.
@@ -349,44 +404,7 @@ export function useBoundedVirtualList({
   // key of its own signals, so this checks every commit and returns early
   // when neither the rows nor the container moved.
   useLayoutEffect(() => {
-    const previous = layout
-    // layoutRef already points at the current render, so retain the prior
-    // render's geometry separately.
-    const prior = priorLayoutRef.current
-    const scroll = scrollRef.current
-    const currentTop = localScrollTop(scroll, containerRef?.current)
-    const saved = priorViewportRef.current
-    const top = saved && scroll ? saved.top + scroll.scrollTop - saved.scrollTop : currentTop
-    if (prior === previous && top === currentTop) return
-    // Only the section holding the viewport's top edge may move a shared
-    // grouped-list viewport. A section further down also sees its container
-    // shift when a row above it leaves, but that row may sit below the top
-    // edge too, and compensating for it scrolls the whole list (POD-2127).
-    if (
-      prior.keys.length > 0 &&
-      scroll &&
-      top < prior.totalSize &&
-      top + scroll.clientHeight > 0 &&
-      holdsViewportTop(scroll, containerRef?.current)
-    ) {
-      const anchorIndex = itemAt(prior, Math.max(0, top))
-      const anchorKey = prior.keys[anchorIndex]
-      const currentIndex = anchorKey ? (previous.indexes.get(anchorKey) ?? -1) : -1
-      if (currentIndex >= 0) {
-        const delta =
-          offsetAt(previous, currentIndex) - offsetAt(prior, anchorIndex) + top - currentTop
-        if (delta !== 0) {
-          scroll.scrollTop += delta
-          onScrollAnchor?.()
-        }
-      }
-    }
-    priorLayoutRef.current = previous
-    priorViewportRef.current = {
-      top: localScrollTop(scrollRef.current, containerRef?.current),
-      scrollTop: scrollRef.current?.scrollTop ?? 0,
-    }
-    publishViewport()
+    if (reconcileViewport().changed) publishViewport()
   })
 
   const focusKey =
@@ -410,7 +428,7 @@ export function useBoundedVirtualList({
     if (start < viewStart) scroll.scrollTop = start
     else if (end > viewEnd) scroll.scrollTop = Math.max(0, end - scroll.clientHeight)
     publishViewport()
-  }, [focusKey, layout, scrollRef, containerRef, estimateSize, publishViewport])
+  }, [focusKey, layout, scrollRef, containerRef, publishViewport])
 
   let start = 0
   let end = 0

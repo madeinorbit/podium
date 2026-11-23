@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
-import { Profiler, type JSX, useRef, useState } from 'react'
+import { type JSX, Profiler, useRef, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ISSUE_VIRTUAL_MAX_ITEMS, useBoundedVirtualList } from './use-bounded-virtual-list'
 
@@ -148,7 +148,7 @@ describe('bounded variable-height issue window', () => {
     scroll.scrollTop = 2000
     fireEvent.scroll(scroll)
     flushViewport()
-    const indexes = view.getAllByTestId('row').map(row => Number(row.dataset.index))
+    const indexes = view.getAllByTestId('row').map((row) => Number(row.dataset.index))
     expect(indexes[0]).toBeLessThanOrEqual(42)
     expect(indexes.at(-1)).toBeGreaterThanOrEqual(65)
     expect(indexes.length).toBeLessThanOrEqual(ISSUE_VIRTUAL_MAX_ITEMS)
@@ -162,7 +162,7 @@ describe('bounded variable-height issue window', () => {
     scroll.scrollTop = 8000
     fireEvent.scroll(scroll)
     flushViewport()
-    const indexes = view.getAllByTestId('row').map(row => Number(row.dataset.index))
+    const indexes = view.getAllByTestId('row').map((row) => Number(row.dataset.index))
     expect(indexes).toContain(200)
     expect(indexes).toContain(239)
     expect(indexes.length).toBeLessThanOrEqual(ISSUE_VIRTUAL_MAX_ITEMS)
@@ -179,12 +179,15 @@ describe('bounded variable-height issue window', () => {
     vi.spyOn(container, 'offsetTop', 'get').mockImplementation(() => precedingHeight)
     vi.spyOn(container, 'offsetHeight', 'get').mockReturnValue(KEYS.length * 40)
     scroll.scrollTop = 800
-    fireEvent.scroll(scroll); flushViewport()
+    fireEvent.scroll(scroll)
+    flushViewport()
     precedingHeight = 400
-    view.rerender(<NestedWindowHarness keys={[...KEYS]} />); flushViewport()
+    view.rerender(<NestedWindowHarness keys={[...KEYS]} />)
+    flushViewport()
     expect(scroll.scrollTop).toBe(1200)
     precedingHeight = 0
-    view.rerender(<NestedWindowHarness keys={[...KEYS]} />); flushViewport()
+    view.rerender(<NestedWindowHarness keys={[...KEYS]} />)
+    flushViewport()
     expect(scroll.scrollTop).toBe(800)
   })
 
@@ -215,7 +218,9 @@ describe('bounded variable-height issue window', () => {
     expect(anchored).toHaveBeenCalledTimes(1)
   })
 
-  it('leaves the viewport alone when a section below its top edge shifts (POD-2127)', () => {
+  it.each([
+    953, 0,
+  ])('leaves the viewport alone when a section below its top edge shifts to %i (POD-2127)', (height) => {
     vi.useFakeTimers()
     const view = render(<NestedWindowHarness />)
     const scroll = view.getByTestId('nested-scroll')
@@ -230,57 +235,57 @@ describe('bounded variable-height issue window', () => {
     scroll.scrollTop = 800
     fireEvent.scroll(scroll)
     flushViewport()
-    precedingHeight = 953
+    precedingHeight = height
     view.rerender(<NestedWindowHarness keys={[...KEYS]} />)
     flushViewport()
     expect(scroll.scrollTop).toBe(800)
   })
 
-  it.each(['commit', 'resize'] as const)(
-    'preserves a short section when a whole group above it closes via %s',
-    (delivery) => {
-      vi.useFakeTimers()
-      vi.stubGlobal('ResizeObserver', RecordingResizeObserver)
-      const keys = KEYS.slice(0, 14)
-      const anchored = vi.fn()
-      const view = render(<SectionedWindowHarness keys={keys} onScrollAnchor={anchored} />)
-      const scroll = view.getByTestId('sectioned-scroll')
-      const container = view.getByTestId('sectioned-container')
-      const section = container.parentElement as HTMLElement
-      sizeViewport(scroll, 320)
-      let precedingHeight = 3074
-      Object.defineProperty(container, 'offsetParent', { configurable: true, value: section })
-      Object.defineProperty(section, 'offsetParent', { configurable: true, value: scroll })
-      vi.spyOn(section, 'offsetTop', 'get').mockImplementation(() => precedingHeight)
-      vi.spyOn(section, 'offsetHeight', 'get').mockReturnValue(keys.length * 40)
-      scroll.scrollTop = precedingHeight + 80
-      fireEvent.scroll(scroll)
+  it.each([
+    'commit',
+    'resize',
+  ] as const)('preserves a short section when a whole group above it closes via %s', (delivery) => {
+    vi.useFakeTimers()
+    vi.stubGlobal('ResizeObserver', RecordingResizeObserver)
+    const keys = KEYS.slice(0, 14)
+    const anchored = vi.fn()
+    const view = render(<SectionedWindowHarness keys={keys} onScrollAnchor={anchored} />)
+    const scroll = view.getByTestId('sectioned-scroll')
+    const container = view.getByTestId('sectioned-container')
+    const section = container.parentElement as HTMLElement
+    sizeViewport(scroll, 320)
+    let precedingHeight = 3074
+    Object.defineProperty(container, 'offsetParent', { configurable: true, value: section })
+    Object.defineProperty(section, 'offsetParent', { configurable: true, value: scroll })
+    vi.spyOn(section, 'offsetTop', 'get').mockImplementation(() => precedingHeight)
+    vi.spyOn(section, 'offsetHeight', 'get').mockReturnValue(keys.length * 40)
+    scroll.scrollTop = precedingHeight + 80
+    fireEvent.scroll(scroll)
+    flushViewport()
+    const rows = () => view.getAllByTestId('sectioned-row').map((node) => node.textContent)
+    const visible = rows()
+
+    const changeHeight = (height: number) => {
+      precedingHeight = height
+      if (delivery === 'commit')
+        view.rerender(<SectionedWindowHarness keys={keys} onScrollAnchor={anchored} />)
+      else RecordingResizeObserver.resize(view.getByTestId('preceding-section'))
       flushViewport()
-      const rows = () => view.getAllByTestId('sectioned-row').map((node) => node.textContent)
-      const visible = rows()
+    }
+    // More than this section's entire height disappears. It no longer holds
+    // the *uncorrected* scroll offset, but it still owns the visible anchor.
+    changeHeight(0)
+    expect(scroll.scrollTop).toBe(80)
+    expect(rows()).toEqual(visible)
+    expect(anchored).toHaveBeenCalledTimes(1)
 
-      const changeHeight = (height: number) => {
-        precedingHeight = height
-        if (delivery === 'commit')
-          view.rerender(<SectionedWindowHarness keys={keys} onScrollAnchor={anchored} />)
-        else RecordingResizeObserver.resize(view.getByTestId('preceding-section'))
-        flushViewport()
-      }
-      // More than this section's entire height disappears. It no longer holds
-      // the *uncorrected* scroll offset, but it still owns the visible anchor.
-      changeHeight(0)
-      expect(scroll.scrollTop).toBe(80)
-      expect(rows()).toEqual(visible)
-      expect(anchored).toHaveBeenCalledTimes(1)
-
-      // Reopening above the same rows, including successive animation frames.
-      changeHeight(1000)
-      expect(scroll.scrollTop).toBe(1080)
-      changeHeight(3074)
-      expect(scroll.scrollTop).toBe(3154)
-      expect(rows()).toEqual(visible)
-    },
-  )
+    // Reopening above the same rows, including successive animation frames.
+    changeHeight(1000)
+    expect(scroll.scrollTop).toBe(1080)
+    changeHeight(3074)
+    expect(scroll.scrollTop).toBe(3154)
+    expect(rows()).toEqual(visible)
+  })
 
   it('does not treat browser scroll clamping during a fold as a user scroll', () => {
     vi.useFakeTimers()
@@ -307,19 +312,29 @@ describe('bounded variable-height issue window', () => {
     RecordingResizeObserver.resize(view.getByTestId('preceding-section'))
     flushViewport()
     expect(scroll.scrollTop).toBe(240)
-    expect(view.getAllByTestId('sectioned-row').map((node) => node.textContent)).toContain('issue-6')
+    expect(view.getAllByTestId('sectioned-row').map((node) => node.textContent)).toContain(
+      'issue-6',
+    )
   })
-  it.each([0, 48])('keeps selection redraw and scroll ID reads flat at 1x and 4x with height %i', height => {
+  it.each([
+    0, 48,
+  ])('keeps selection redraw and scroll ID reads flat at 1x and 4x with height %i', (height) => {
     vi.useFakeTimers()
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ top: 0, height } as DOMRect)
-    const counts = [1, 4].map(scale => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      top: 0,
+      height,
+    } as DOMRect)
+    const counts = [1, 4].map((scale) => {
       let reads = 0
-      const keys = new Proxy(Array.from({ length: 674 * scale }, (_, index) => `issue-${index}`), {
-        get(target, key, receiver) {
-          if (typeof key === 'string' && /^(0|[1-9]\d*)$/.test(key)) reads++
-          return Reflect.get(target, key, receiver)
+      const keys = new Proxy(
+        Array.from({ length: 674 * scale }, (_, index) => `issue-${index}`),
+        {
+          get(target, key, receiver) {
+            if (typeof key === 'string' && /^(0|[1-9]\d*)$/.test(key)) reads++
+            return Reflect.get(target, key, receiver)
+          },
         },
-      })
+      )
       const view = render(<WindowHarness keys={keys} />)
       const scroll = view.getByTestId('scroll')
       sizeViewport(scroll, 320)
@@ -337,7 +352,10 @@ describe('bounded variable-height issue window', () => {
       const scrolling = reads
       expect(view.getAllByTestId('row').length).toBeLessThanOrEqual(ISSUE_VIRTUAL_MAX_ITEMS + 1)
       view.unmount()
-      console.info('board viewport ID reads', JSON.stringify({ scale, height, selection, scrolling }))
+      console.info(
+        'board viewport ID reads',
+        JSON.stringify({ scale, height, selection, scrolling }),
+      )
       return { selection, scrolling }
     })
     expect(counts[0]!.selection).toBeLessThanOrEqual(ISSUE_VIRTUAL_MAX_ITEMS * 2)
@@ -405,7 +423,12 @@ describe('bounded variable-height issue window', () => {
     vi.useFakeTimers()
     let commits = 0
     const view = render(
-      <Profiler id="virtual" onRender={() => void (commits += 1)}>
+      <Profiler
+        id="virtual"
+        onRender={() => {
+          commits += 1
+        }}
+      >
         <WindowHarness />
       </Profiler>,
     )
@@ -453,7 +476,9 @@ describe('bounded variable-height issue window', () => {
     scroll.scrollTop = 322
     fireEvent.scroll(scroll)
     flushViewport()
-    expect(view.getAllByTestId('nested-row').map(node => node.textContent)).toEqual(KEYS.slice(0, 8))
+    expect(view.getAllByTestId('nested-row').map((node) => node.textContent)).toEqual(
+      KEYS.slice(0, 8),
+    )
   })
 
   it('mounts rows when a preceding section shrinks and scrolls this one into view', () => {

@@ -1,8 +1,10 @@
 /** Matched, offline fold comparison at the POD-7415 browser scale.
  * Run on an agent VM through validation-admission, with --before=<base SHA>.
- * Only work-folds.tsx is replaced for the control; all other code/data is shared.
+ * Default: replace only work-folds.tsx for the control. With --scroll-anchor,
+ * replace only the virtualizer instead, to compare viewport preservation.
  */
 import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { chromium, type Page } from '@playwright/test'
@@ -13,12 +15,23 @@ if (!before) throw new Error('Pass --before=<base SHA> for the matched control')
 const base = execFileSync('git', ['rev-parse', '--verify', `${before}^{commit}`], {
   encoding: 'utf8',
 }).trim()
-const foldPath = 'apps/web/src/features/worklist/work-folds.tsx'
-const original = execFileSync('git', ['show', `${base}:${foldPath}`], { encoding: 'utf8' })
-const out = resolve('.artifacts/sidebar-fold')
+const compareAnchoring = process.argv.includes('--scroll-anchor')
+const comparisonFile = compareAnchoring
+  ? 'apps/web/src/features/issues/use-bounded-virtual-list.ts'
+  : 'apps/web/src/features/worklist/work-folds.tsx'
+const original = execFileSync('git', ['show', `${base}:${comparisonFile}`], { encoding: 'utf8' })
+const out = resolve(`.artifacts/sidebar-${compareAnchoring ? 'scroll-anchor' : 'fold'}`)
 await mkdir(out, { recursive: true })
-const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] })
-const evidence: Record<string, unknown> = { base, viewport: { width: 1600, height: 950 } }
+const browserEnv = { ...process.env }
+const userLib = `${process.env.HOME}/.cache/podium-chromium-deps/root/usr/lib/x86_64-linux-gnu`
+if (existsSync(userLib)) browserEnv.LD_LIBRARY_PATH = userLib
+else delete browserEnv.LD_LIBRARY_PATH
+const browser = await chromium.launch({ headless: true, env: browserEnv, args: ['--no-sandbox'] })
+const evidence: Record<string, unknown> = {
+  base,
+  comparisonFile,
+  viewport: { width: 1600, height: 950 },
+}
 
 type Sample = {
   input: number
@@ -115,28 +128,66 @@ async function reopen(page: Page, index = 0) {
   await settle(page)
 }
 
-async function anchor(page: Page) {
-  await header(page, 1).evaluate((button) => button.scrollIntoView({ block: 'start' }))
+async function anchor(
+  page: Page,
+  mode: string,
+  name: string,
+  foldIndex = 0,
+  targetIndex = 1,
+  bottom = false,
+) {
+  if (bottom)
+    await page.getByTestId('work-scroll').evaluate((el) => {
+      el.scrollTop = el.scrollHeight
+    })
+  else
+    await header(page, targetIndex).evaluate((button) => button.scrollIntoView({ block: 'start' }))
   await settle(page)
-  const row = group(page, 1).locator('[data-window-row]').first()
-  const key = await row.getAttribute('data-window-row')
-  const box = await row.boundingBox()
-  if (!box) throw new Error('Missing visible anchor row')
-  const top = box.y
+  const visible = await page.getByTestId('work-scroll').evaluate((el) => {
+    const viewport = el.getBoundingClientRect()
+    return [...el.querySelectorAll<HTMLElement>('[data-window-row]')].flatMap((row) => {
+      const rect = row.getBoundingClientRect()
+      const key = row.dataset.windowRow
+      return key && rect.height > 0 && rect.bottom > viewport.top && rect.top < viewport.bottom
+        ? [{ key, top: rect.top }]
+        : []
+    })
+  })
+  const first = visible[0]
+  if (!first) throw new Error('Missing visible anchor row')
+  const { key, top } = first
   const scroll = await page.getByTestId('work-scroll').evaluate((el) => el.scrollTop)
+  if (name === 'large') await page.screenshot({ path: `${out}/${mode}-anchor-open.png` })
   // The header is above the viewport: do not let Playwright scroll it into view.
-  await header(page).evaluate((button) => {
+  await header(page, foldIndex).evaluate((button) => {
     if (button instanceof HTMLElement) button.click()
   })
-  await group(page).getByTestId('project-group-rows').waitFor({ state: 'detached' })
+  await group(page, foldIndex).getByTestId('project-group-rows').waitFor({ state: 'detached' })
   await settle(page)
   const finalRow = page.locator(`[data-window-row="${key}"]`)
   const finalTop = await finalRow.evaluateAll((rows) => rows[0]?.getBoundingClientRect().y ?? null)
   const finalScroll = await page.getByTestId('work-scroll').evaluate((el) => el.scrollTop)
-  await header(page).evaluate((button) => {
+  const positions = () =>
+    page.getByTestId('work-scroll').evaluate((el, rows) => {
+      const mounted = new Map(
+        [...el.querySelectorAll<HTMLElement>('[data-window-row]')].map((row) => [
+          row.dataset.windowRow,
+          row.getBoundingClientRect().top,
+        ]),
+      )
+      return rows.map(({ key, top }) => {
+        const position = mounted.get(key)
+        return { key, displacementPx: position === undefined ? null : position - top }
+      })
+    }, visible)
+  const closedRows = await positions()
+  if (name === 'large') await page.screenshot({ path: `${out}/${mode}-anchor-closed.png` })
+  await header(page, foldIndex).evaluate((button) => {
     if (button instanceof HTMLElement) button.click()
   })
   await settle(page)
+  const reopenedRows = await positions()
+  const reopenedScroll = await page.getByTestId('work-scroll').evaluate((el) => el.scrollTop)
   await page.getByTestId('work-scroll').evaluate((el) => {
     el.scrollTop = 0
   })
@@ -148,6 +199,9 @@ async function anchor(page: Page) {
     displacementPx: finalTop === null ? null : finalTop - top,
     scroll,
     finalScroll,
+    reopenedScroll,
+    closedRows,
+    reopenedRows,
   }
 }
 
@@ -231,7 +285,7 @@ try {
                 name: 'fold-control',
                 enforce: 'pre',
                 transform(_code, id) {
-                  if (id.split('?')[0] === resolve(foldPath)) return original
+                  if (id.split('?')[0] === resolve(comparisonFile)) return original
                 },
               },
             ]
@@ -265,18 +319,38 @@ try {
       }
       const small = await close(page, 1)
       await reopen(page, 1)
-      const scrollAnchor = await anchor(page)
+      const scrollAnchor = await anchor(page, mode, 'large')
+      const smallAnchor = await anchor(page, mode, 'small', 1, 2)
+      const belowAnchor = await anchor(page, mode, 'below', 15, 1)
+      const clampedAnchor = await anchor(page, mode, 'clamped', 0, 15, true)
       await page.emulateMedia({ reducedMotion: 'reduce' })
       const reduced = await close(page)
       await reopen(page)
+      const reducedAnchor = await anchor(page, mode, 'reduced')
       await page.emulateMedia({ reducedMotion: 'no-preference' })
       const behavior = mode === 'after' ? await interactions(page) : null
       if (errors.length) throw new Error(errors.join('\n'))
-      evidence[mode] = { counts, large, small, reduced, scrollAnchor, behavior }
+      const anchors = {
+        large: scrollAnchor,
+        small: smallAnchor,
+        below: belowAnchor,
+        clamped: clampedAnchor,
+        reduced: reducedAnchor,
+      }
+      evidence[mode] = { counts, large, small, reduced, scrollAnchor, anchors, behavior }
       console.log(
         `${mode}: 58-row commit-to-removal ms ${large.map((sample) => sample.commitToRemovalMs.toFixed(1)).join(', ')}; anchor ${JSON.stringify(scrollAnchor)}`,
       )
       await writeFile(`${out}/results.json`, JSON.stringify(evidence, null, 2))
+      if (mode === 'after' || !compareAnchoring)
+        for (const [name, sample] of Object.entries(anchors))
+          for (const state of ['closedRows', 'reopenedRows'] as const)
+            if (
+              sample[state].some(
+                (row) => row.displacementPx === null || Math.abs(row.displacementPx) > 1,
+              )
+            )
+              throw new Error(`${name} ${state} lost visible rows: ${JSON.stringify(sample)}`)
     } catch (error) {
       console.error({
         mode,
