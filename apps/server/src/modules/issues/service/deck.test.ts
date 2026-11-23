@@ -7,6 +7,7 @@ import {
 } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, expect, it } from 'vitest'
+import type { IssueRow } from '../../../store'
 import { TEST_MACHINE_ID } from '../../../test-support/machine-id'
 import { openTestStore } from '../../../test-support/open-test-store'
 import { sessionReadPorts } from '../../../test-support/session-facts'
@@ -257,22 +258,37 @@ it('lists formal and provenance proposals with author and placement, excluding d
   expect(JSON.stringify(deck)).not.toContain(active.id)
 })
 
-it('filters hidden issues, dependency targets and sessions before deriving state or counts', async () => {
+it.each([
+  'id',
+  'row',
+] as const)('filters hidden issues, dependency targets and sessions with the %s policy', async (policy) => {
   const { svc, create, seat } = await fixture()
   const root = await create('Visible mission')
   const hidden = await create('Private child', root.id, 'decision')
   const visible = await create('Visible task', root.id)
+  const external = await create('Private archived blocker')
+  await svc.crud.update(svc.reports.store.serverWriter, external.id, { archived: true })
   await svc.hierarchy.addDep(svc.reports.store.serverWriter, visible.id, hidden.id)
+  await svc.hierarchy.addDep(svc.reports.store.serverWriter, visible.id, external.id)
   seat('private-session', hidden.id, { agentState: agentState('errored') })
+  const mayRead = (id: string) => id !== hidden.id && id !== external.id
   const deck = await svc.reports.deck(root.id, {
     viewer: () => null,
-    mayRead: (id) => id !== hidden.id,
+    mayRead: (id) => {
+      if (policy === 'row') throw new Error('loaded rows must use the row policy')
+      return mayRead(id)
+    },
+    ...(policy === 'row' ? { mayReadRow: (row: IssueRow) => mayRead(row.id) } : {}),
   })
   expect(deck.counts).toMatchObject({ total: 1, 'not-started': 1, error: 0, blocked: 0 })
   expect(JSON.stringify(deck)).not.toContain('Private')
   expect(JSON.stringify(deck)).not.toContain('private-session')
   await expect(
-    svc.reports.deck(root.id, { viewer: () => null, mayRead: () => false }),
+    svc.reports.deck(root.id, {
+      viewer: () => null,
+      mayRead: () => false,
+      ...(policy === 'row' ? { mayReadRow: () => false } : {}),
+    }),
   ).rejects.toThrow()
 })
 

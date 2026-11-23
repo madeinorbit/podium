@@ -38,7 +38,7 @@ function deckEntry<K, V>(values: ReadonlyMap<K, V>, key: K, kind: string): V {
 export async function readDeck(
   store: IssueStore,
   ref: string,
-  mayRead: (id: string) => boolean | Promise<boolean>,
+  mayRead: (row: IssueRow) => boolean | Promise<boolean>,
   niceRef: (row: IssueRow) => Promise<string>,
   /** The reader the deck's seats are shown to: only their own sessions (POD-6285). */
   forUser?: UserId,
@@ -54,7 +54,7 @@ export async function readDeck(
   },
 ): Promise<IssueDeck> {
   const root = await store.rowOrThrow(await store.resolveRef(ref))
-  if (root.deletedAt || !(await mayRead(root.id))) throw new IssueNotFound(ref)
+  if (root.deletedAt || !(await mayRead(root))) throw new IssueNotFound(ref)
   const rows = new Map<IssueId, IssueRow>()
   // Every live, unarchived issue from the database in repository order
   // (repository path, then sequence), the order the in-memory issue map held
@@ -66,7 +66,7 @@ export async function readDeck(
     order: 'path-seq',
   })
   for (const row of candidates) {
-    if (row.deletedAt || row.archived || row.draft || !(await mayRead(row.id))) continue
+    if (row.deletedAt || row.archived || row.draft || !(await mayRead(row))) continue
     rows.set(row.id, row)
   }
   rows.set(root.id, root)
@@ -193,8 +193,7 @@ export async function readDeck(
     if (dep.type !== 'blocked-by' || !admitted.has(dep.fromId)) continue
     if (store.isClosed(deckEntry(rows, dep.fromId, 'issue'))) continue
     const target = targets.get(dep.toId)
-    if (!target || target.deletedAt || store.isClosed(target) || !(await mayRead(target.id)))
-      continue
+    if (!target || target.deletedAt || store.isClosed(target) || !(await mayRead(target))) continue
     const list = blockers.get(dep.fromId) ?? []
     list.push({
       id: target.id,

@@ -37,10 +37,10 @@ import {
   senderFromPrincipal,
 } from '../messages/service'
 import type { ShippingService } from '../shipping'
-import type { IssueAuthorityArbitration } from './authority-arbitration'
-import type { ExecutionFactsStore } from './execution-visibility'
 import type { SyncWriteEntry } from '../sync-write/entry'
 import type { IssueArtifactEffectPort } from './artifact-effect-record'
+import type { IssueAuthorityArbitration } from './authority-arbitration'
+import type { ExecutionFactsStore } from './execution-visibility'
 import type { IssueGitEffectPort } from './git-effects'
 import type {
   IssueAttentionCapability,
@@ -469,8 +469,7 @@ export class IssueCommandCtx {
    * dispatcher (`execution-visibility.ts`).
    */
   async mayReadIssue(id: string): Promise<boolean> {
-    this.readerUser()
-    return await this.reports.has(id)
+    return await this.issueReader().mayRead(id)
   }
 
   /**
@@ -479,9 +478,13 @@ export class IssueCommandCtx {
    * shows beside them, and `viewer` decides whose sessions ride the report.
    */
   issueReader(): IssueReader {
+    // Resolve the human once for this report. Every existing task is readable;
+    // a loaded row already proves existence (the same policy as `mayRead`).
+    const viewer = asUserId(this.readerUser())
     return {
-      viewer: () => asUserId(this.readerUser()),
-      mayRead: async (id) => await this.mayReadIssue(id),
+      viewer: () => viewer,
+      mayRead: async (id) => await this.reports.has(id),
+      mayReadRow: () => true,
     }
   }
 

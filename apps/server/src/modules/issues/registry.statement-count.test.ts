@@ -1,4 +1,4 @@
-import { asIssueId, asUserId, firstAdminMemberId } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, firstAdminMemberId, type IssueDeck } from '@podium/model'
 /**
  * Issue reports and listings run a fixed number of statements, whatever the
  * number of issues [POD-6149, server-data rule 8].
@@ -16,12 +16,19 @@ import { asIssueId, asUserId, firstAdminMemberId } from '@podium/model'
  * rows; `doctor` reads only its listing and the dependencies now.
  */
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import type { CommandPrincipal } from '../../command-principal'
 import type { IssueRow, SessionStore } from '../../store'
+import { probeStatements } from '../../store/executor/statement-probe'
 import { OPERATOR } from '../../test-support/capabilities'
 import { TEST_MACHINE_ID } from '../../test-support/machine-id'
 import { openTestStore } from '../../test-support/open-test-store'
-import { expectConstantStatements, type StatementPin } from '../../test-support/statement-count'
+import {
+  countStatements,
+  expectArmed,
+  expectConstantStatements,
+  type StatementPin,
+} from '../../test-support/statement-count'
 import { IssueCommandCtx } from './command-ctx'
 import { issueRegistry } from './registry'
 import { IssueStore } from './service/core'
@@ -83,6 +90,7 @@ function row(seq: number, patch: Partial<IssueRow> = {}): IssueRow {
 interface Fixture {
   store: SessionStore
   reports: IssueReportsModule
+  issueRowsRead: number
 }
 
 /**
@@ -134,7 +142,7 @@ async function fixture(size: number): Promise<Fixture> {
     readSessionFactsByIssue: async () => [],
     sessionsById: async () => [],
   } as unknown as IssueDeps)
-  return { store, reports: new IssueReportsModule(issues) }
+  return { store, reports: new IssueReportsModule(issues), issueRowsRead: 0 }
 }
 
 /** Children the reader may see: every one. Every member reads every task
@@ -142,10 +150,19 @@ async function fixture(size: number): Promise<Fixture> {
  *  children are listed too and the legacy grants decide nothing. */
 const readableChildren = (size: number) => size
 
-const call = async (f: Fixture, name: keyof typeof issueRegistry.defs, input: unknown) => {
+const call = async (
+  f: Fixture,
+  name: keyof typeof issueRegistry.defs,
+  input: unknown,
+  principal: CommandPrincipal | null = {
+    kind: 'user',
+    user: reader,
+    capability: OPERATOR,
+  },
+) => {
   const ctx = new IssueCommandCtx(
     { issues: { reports: f.reports } } as never,
-    { capability: OPERATOR, principal: { kind: 'user', user: reader, capability: OPERATOR } },
+    { capability: OPERATOR, ...(principal ? { principal } : {}) },
     name,
   )
   const handler = issueRegistry.defs[name].handler as (
@@ -170,6 +187,34 @@ const pin = (
 
 const lengthOf = (value: unknown) => (value as unknown[]).length
 
+const deckPin: StatementPin<Fixture> = {
+  name: 'issues.deck',
+  setup: fixture,
+  target: (f) => f.store,
+  run: (f) => call(f, 'deck', { id: 'iss_1' }),
+  count: async (f, run) => {
+    f.issueRowsRead = 0
+    const detach = probeStatements(f.store, (statement) => {
+      if (statement.sql.includes('from "issues"')) f.issueRowsRead += statement.rows
+    })
+    try {
+      return await countStatements(f.store, run)
+    } finally {
+      detach()
+    }
+  },
+  check: (result, f, size) => {
+    const deck = result as IssueDeck
+    expect(deck.root.children).toHaveLength(size)
+    expect(deck.counts.total).toBe(size)
+    expect(deck.root.children.some((child) => child.blockers.length > 0)).toBe(true)
+    // Root, listing, and distinct blocker targets. Authorization fetches no
+    // rows of its own, even for the other member's unshared issues.
+    expect(f.issueRowsRead).toBe(1 + (size + 1) + Math.floor((size - 1) / 2))
+  },
+  teardown: async (f) => await f.store.close(),
+}
+
 // POD-6218: the earliest admin is one statement (the row), not the id and then
 // the row: list, ready, blocked, graph and get each -1.
 // POD-6341, measured on the polaris VM over c2f8c0c3a6 and its fixes: tasks
@@ -183,6 +228,55 @@ const lengthOf = (value: unknown) => (value as unknown[]).length
 // checks failed first, because the listings now return every task.
 // Panel report DTOs read each normalized table once per batch.
 describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
+  it('deck: authorizes loaded rows without a query per issue or blocker', async () => {
+    await expectConstantStatements(deckPin, 7)
+  })
+
+  it('deck pin detects restoring the per-ID authorization loop', async () => {
+    await expectArmed(deckPin, 7, () => {
+      const issueReader = IssueCommandCtx.prototype.issueReader
+      const spy = vi
+        .spyOn(IssueCommandCtx.prototype, 'issueReader')
+        .mockImplementation(function () {
+          const reader = issueReader.call(this)
+          return { viewer: reader.viewer, mayRead: reader.mayRead }
+        })
+      return () => spy.mockRestore()
+    })
+  })
+
+  it('deck admits an agent acting for a human and rejects callers without one', async () => {
+    const f = await fixture(5)
+    try {
+      expect(
+        await call(
+          f,
+          'deck',
+          { id: 'iss_1' },
+          {
+            kind: 'agent',
+            agentSessionId: asSessionId('agent'),
+            onBehalfOf: reader,
+            capability: OPERATOR,
+            chain: [],
+          },
+        ),
+      ).toMatchObject({ counts: { total: 5 } })
+      const denied = await countStatements(f.store, async () => {
+        await expect(
+          call(f, 'deck', { id: 'iss_1' }, { kind: 'system', job: 'test' }),
+        ).rejects.toThrow('issue reads require a human principal')
+        await expect(call(f, 'deck', { id: 'iss_1' }, null)).rejects.toThrow(
+          'issue reads require a human principal',
+        )
+      })
+      expect(denied.statements).toBe(0)
+      await expect(call(f, 'deck', { id: 'iss_absent' })).rejects.toThrow()
+    } finally {
+      await f.store.close()
+    }
+  })
+
   it('list: labels, deps, comment counts and one grant read (was 9 at 5 issues, 204 at 200)', async () => {
     await expectConstantStatements(
       pin(

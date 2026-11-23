@@ -114,10 +114,17 @@ export interface IssueReader {
    *  reads. Throws when the caller has no human, as `mayRead` does. */
   readonly viewer: () => UserId | null
   readonly mayRead: IssueReadPredicate
+  /** The same policy when the operation already holds the row. Readers without
+   * this form keep their ID-based check. */
+  readonly mayReadRow?: (row: IssueRow) => boolean | Promise<boolean>
 }
 
 /** The server's own reads: every issue. */
-export const UNRESTRICTED_READER: IssueReader = { viewer: () => null, mayRead: () => true }
+export const UNRESTRICTED_READER: IssueReader = {
+  viewer: () => null,
+  mayRead: () => true,
+  mayReadRow: () => true,
+}
 
 /** A live child, a blocker or any row: finished by deletion, stage or reason. */
 function finished(row: ClosureFacts): boolean {
@@ -667,7 +674,7 @@ export class IssueReportsModule {
     return await readDeck(
       this.store,
       ref,
-      reader.mayRead,
+      reader.mayReadRow ?? ((row) => reader.mayRead(row.id)),
       async (row) => await this.niceRef(row),
       reader.viewer() ?? undefined,
       {
