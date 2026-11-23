@@ -203,6 +203,9 @@ describe('FirstTaskActivation', () => {
       </StrictMode>,
     )
 
+    expect(screen.getByText(/^Podium runs coding agents on/).textContent).toBe(
+      'Podium runs coding agents on studio. Pick the ones you want and Podium installs its own copy of each; your own installs stay as they are. Sign in now or later.',
+    )
     expect(screen.getByRole('region', { name: 'Not installed' })).toBeTruthy()
     expect(
       (screen.getByRole('checkbox', { name: 'Install Claude Code' }) as HTMLInputElement).checked,

@@ -93,6 +93,7 @@ function setup(
     origin?: AgentSetupOrigin
     focus?: BuiltinHarnessKind
     variant?: 'dialog' | 'embedded'
+    handBackKind?: 'select' | 'start'
     saved?: { id: string; label: string }[]
   } = {},
 ) {
@@ -118,6 +119,7 @@ function setup(
     <SetupAgentsPanel
       view={view}
       variant={options.variant ?? 'dialog'}
+      handBackKind={options.handBackKind}
       {...((options.variant ?? 'dialog') === 'dialog' ? { onClose } : {})}
     />,
   )
@@ -168,6 +170,18 @@ describe('Set up agents list', () => {
     )
   })
 
+  it('labels installed rows when sign-in is unknown, deferred, or confirmed', () => {
+    const { view, row } = setup([
+      { ...managed('pi', 'in'), login: { state: 'unknown' } },
+      managed('codex', 'out'),
+      managed('claude-code', 'in'),
+    ])
+    expect(within(row('pi')).getByText('Ready')).toBeTruthy()
+    act(() => view.itemFor('codex')?.signIn.chooseLater())
+    expect(within(row('codex')).getByText('Sign in later')).toBeTruthy()
+    expect(within(row('claude-code')).getByText('Signed in')).toBeTruthy()
+  })
+
   it('never moves the bar backwards when a second file starts downloading', () => {
     const { machine, row } = setup([downloading('codex', 40, 41)])
     expect(within(row('codex')).getByRole('progressbar').getAttribute('aria-valuenow')).toBe('97')
@@ -189,11 +203,15 @@ describe('Set up agents list', () => {
     ])
   })
 
-  it('opened from a menu on a harness, ticks it and starts it only once it is ready', async () => {
+  it.each([
+    [undefined, 'Start Codex session'],
+    ['select', 'Use Codex'],
+  ] as const)('hands back a menu’s harness only once ready (%s)', async (handBackKind, label) => {
     const onStart = vi.fn()
     const { machine, onClose } = setup([notInstalled('codex')], {
       origin: { kind: 'menu', onStart },
       focus: 'codex',
+      handBackKind,
     })
     expect(
       (screen.getByRole('checkbox', { name: 'Install Codex' }) as HTMLInputElement).checked,
@@ -202,14 +220,16 @@ describe('Set up agents list', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Install Codex' }))
     })
     act(() => machine.setAgents([installing('codex')]))
-    const start = screen.getByRole('button', { name: /Start Codex session/ })
+    const start = screen.getByRole('button', { name: label })
     expect((start as HTMLButtonElement).disabled).toBe(true)
     // Finished: the panel asks how it signs in, then hands it back.
     act(() => machine.setAgents([managed('codex', 'out')]))
     expect(screen.getByText('How should Codex sign in?')).toBeTruthy()
     expect(screen.getByText(/Installed Codex/)).toBeTruthy()
     fireEvent.click(screen.getByRole('radio', { name: /Later/ }))
-    fireEvent.click(screen.getByRole('button', { name: /Start Codex session/ }))
+    expect((screen.getByRole('button', { name: label }) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: /All agents/ }))
+    fireEvent.click(screen.getByRole('button', { name: label }))
     expect(onStart).toHaveBeenCalledWith('codex')
     expect(onClose).toHaveBeenCalled()
   })

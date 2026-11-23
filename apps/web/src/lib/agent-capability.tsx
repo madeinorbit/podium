@@ -150,6 +150,7 @@ export function CapabilityAgentMenu({
         ))}
         <SetupAgentsMenuItem
           {...setup}
+          handBackKind="select"
           onStart={(harness, machineId) => {
             if (setup.onStart) setup.onStart(harness, machineId)
             else onSelect(harness)

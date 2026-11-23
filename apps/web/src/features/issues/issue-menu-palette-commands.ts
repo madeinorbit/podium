@@ -1,4 +1,5 @@
 import type { PaletteCommand } from '@/app/command-palette'
+import { openSetupAgents } from '@/features/setup-agents/open-setup-agents'
 import { type IssueMenuCommandDeps, runIssueMenuCommand } from './issue-menu-commands'
 import { type IssueMenuData, issueMenuEntries, issueMenuEntryLabel } from './issue-menu-config'
 import { issueMenuIcon } from './issue-menu-icons'
@@ -16,7 +17,7 @@ export function issueMenuPaletteCommands(
   data: IssueMenuData,
   deps: IssueMenuCommandDeps,
 ): PaletteCommand[] {
-  return issueMenuEntries(data).flatMap((entry) => {
+  const commands: PaletteCommand[] = issueMenuEntries(data).flatMap((entry) => {
     const name = issueMenuEntryLabel(entry, data)
     const icon = issueMenuIcon(entry.icon)
     // The task's ref and title stay in `keywords` so typing "POD-745 colour"
@@ -51,4 +52,16 @@ export function issueMenuPaletteCommands(
         },
       }))
   })
+  if (data.setupMachineId) {
+    const machineId = data.setupMachineId
+    commands.push({
+      id: `issue-menu:${data.first.id}:setup-agents`,
+      group: 'on-task',
+      label: 'Set up agents…',
+      keywords: ['task', 'issue', data.first.title, 'agents', 'install', 'setup'],
+      icon: issueMenuIcon('agent'),
+      run: () => openSetupAgents({ machineId, origin: 'menu' }),
+    })
+  }
+  return commands
 }

@@ -42,6 +42,7 @@ import { Switch } from '@/components/ui/switch'
 import { agentIconFor } from '@/lib/agent-tone'
 import { useAgeNow } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
+import type { SetupAgentsRequest } from './open-setup-agents'
 
 // ---------------------------------------------------------------------------
 // Words the view model leaves to the screen
@@ -196,6 +197,7 @@ export interface SetupAgentsPanelProps {
   readonly view: AgentSetupView
   /** `onboarding`: embedded list with the host's install-and-continue footer. */
   readonly variant: 'dialog' | 'embedded' | 'onboarding'
+  readonly handBackKind?: SetupAgentsRequest['handBackKind']
   readonly onClose?: () => void
   /** Machines the person may set up; the header chip switches between them. */
   readonly machines?: readonly SetupAgentsMachineChoice[]
@@ -205,6 +207,7 @@ export interface SetupAgentsPanelProps {
 export const SetupAgentsPanel = observer(function SetupAgentsPanel({
   view,
   variant,
+  handBackKind,
   onClose,
   machines,
   onSwitchMachine,
@@ -251,6 +254,7 @@ export const SetupAgentsPanel = observer(function SetupAgentsPanel({
           item={signInItem}
           view={view}
           variant={variant}
+          handBackKind={handBackKind}
           justInstalled={justInstalled.has(signInItem.kind)}
           onBack={back}
           onClose={onClose}
@@ -259,6 +263,7 @@ export const SetupAgentsPanel = observer(function SetupAgentsPanel({
         <ListPage
           view={view}
           variant={variant}
+          handBackKind={handBackKind}
           onClose={onClose}
           onSignIn={openSignIn}
           machines={machines}
@@ -406,6 +411,7 @@ function Footer({ note, children }: { note?: ReactNode; children?: ReactNode }) 
 const ListPage = observer(function ListPage({
   view,
   variant,
+  handBackKind,
   onClose,
   onSignIn,
   machines,
@@ -413,6 +419,7 @@ const ListPage = observer(function ListPage({
 }: {
   view: AgentSetupView
   variant: SetupAgentsPanelProps['variant']
+  handBackKind?: SetupAgentsPanelProps['handBackKind']
   onClose?: () => void
   onSignIn: (harness: BuiltinHarnessKind) => void
   machines?: readonly SetupAgentsMachineChoice[]
@@ -457,7 +464,9 @@ const ListPage = observer(function ListPage({
           ))
         )}
       </div>
-      {variant !== 'onboarding' && <ListFooter view={view} variant={variant} onClose={onClose} />}
+      {variant !== 'onboarding' && (
+        <ListFooter view={view} variant={variant} handBackKind={handBackKind} onClose={onClose} />
+      )}
     </>
   )
 })
@@ -556,6 +565,7 @@ function RowControl({
         </Button>
       )
     case 'needs-sign-in':
+      if (item.signIn.state === 'later') return <Chip>Sign in later</Chip>
       return (
         <Button
           type="button"
@@ -570,11 +580,8 @@ function RowControl({
       )
     case 'ready':
       if (item.signIn.state === 'signed-in') return <Chip tone="ok">Signed in</Chip>
-      return (
-        <span className="inline-flex size-8 flex-none items-center justify-center text-success">
-          <Check size={16} aria-label="Ready" />
-        </span>
-      )
+      if (item.signIn.state === 'later') return <Chip>Sign in later</Chip>
+      return <Chip tone="ok">Ready</Chip>
     default:
       return null
   }
@@ -664,10 +671,12 @@ const Row = observer(function Row({
 const ListFooter = observer(function ListFooter({
   view,
   variant,
+  handBackKind,
   onClose,
 }: {
   view: AgentSetupView
   variant: SetupAgentsPanelProps['variant']
+  handBackKind?: SetupAgentsPanelProps['handBackKind']
   onClose?: () => void
 }) {
   const selected = view.selectedKinds
@@ -702,7 +711,9 @@ const ListFooter = observer(function ListFooter({
           onClose?.()
         }}
       >
-        {primary.label} session
+        {handBackKind === 'select' && view.focusItem
+          ? `Use ${view.focusItem.label}`
+          : `${primary.label} session`}
         <ArrowRight size={14} aria-hidden="true" />
       </Button>
     ) : null
@@ -1211,6 +1222,7 @@ const SignInPage = observer(function SignInPage({
   item,
   view,
   variant,
+  handBackKind,
   justInstalled,
   onBack,
   onClose,
@@ -1218,6 +1230,7 @@ const SignInPage = observer(function SignInPage({
   item: AgentSetupItem
   view: AgentSetupView
   variant: SetupAgentsPanelProps['variant']
+  handBackKind?: SetupAgentsPanelProps['handBackKind']
   justInstalled: boolean
   onBack: () => void
   onClose?: () => void
@@ -1379,7 +1392,7 @@ const SignInPage = observer(function SignInPage({
               onClose?.()
             }}
           >
-            Start {item.label} session
+            {handBackKind === 'select' ? `Use ${item.label}` : `Start ${item.label} session`}
             <ArrowRight size={14} aria-hidden="true" />
           </Button>
         ) : (

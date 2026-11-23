@@ -21,10 +21,18 @@ describe('openSetupAgents', () => {
 
   it('switching machine keeps the origin and drops the opener’s focus and hand-back', () => {
     const onStart = () => {}
-    openSetupAgents({ machineId: asMachineId('a'), origin: 'menu', focus: 'codex', onStart })
+    openSetupAgents({
+      machineId: asMachineId('a'),
+      origin: 'menu',
+      focus: 'codex',
+      handBackKind: 'select',
+      onStart,
+    })
+    expect(setupAgentsRequest()?.handBackKind).toBe('select')
     switchSetupAgentsMachine(asMachineId('b'))
     expect(setupAgentsRequest()).toMatchObject({ machineId: 'b', origin: 'menu' })
     expect(setupAgentsRequest()?.focus).toBeUndefined()
     expect(setupAgentsRequest()?.onStart).toBeUndefined()
+    expect(setupAgentsRequest()?.handBackKind).toBeUndefined()
   })
 })

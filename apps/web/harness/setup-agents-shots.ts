@@ -62,6 +62,8 @@ try {
     ['detail', 'dark', 390],
     ['signin', 'light', 1100],
     ['signin', 'dark', 390],
+    ['signin-select', 'light', 1100],
+    ['signin-select', 'light', 390],
     ['embedded', 'light', 1280],
     ['embedded', 'dark', 390],
   ]
@@ -70,10 +72,17 @@ try {
       const page = await browser.newPage({ viewport: { width, height: 900 } })
       const errors: string[] = []
       page.on('pageerror', (error) => errors.push(error.message))
-      await page.goto(`${origin}?state=${state}&theme=${theme}`)
+      const selecting = state === 'signin-select'
+      await page.goto(
+        `${origin}?state=${selecting ? 'signin' : state}&theme=${theme}${selecting ? '&handBack=select' : ''}`,
+      )
       try {
         await page.locator('[data-setup-agents]').waitFor()
-        if (state === 'signin') await page.getByText('How should Codex sign in?').waitFor()
+        if (state.startsWith('signin')) await page.getByText('How should Codex sign in?').waitFor()
+        if (selecting) {
+          await page.getByRole('radio', { name: /Later/ }).click()
+          await page.getByRole('button', { name: 'Use Codex' }).waitFor()
+        }
       } catch (error) {
         throw new Error(`${state}: ${String(error)}\n${errors.join('\n')}\n${logs}`)
       }
@@ -84,6 +93,16 @@ try {
         fullPage: true,
         animations: 'disabled',
       })
+      if (selecting) {
+        await page.getByRole('button', { name: /All agents/ }).click()
+        await page.getByText('Sign in later', { exact: true }).waitFor()
+        await page.getByRole('button', { name: 'Use Codex' }).waitFor()
+        await page.screenshot({
+          path: join(out, `list-select-${theme}-${width}.png`),
+          fullPage: true,
+          animations: 'disabled',
+        })
+      }
       if (errors.length) throw new Error(errors.join('\n'))
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth > document.documentElement.clientWidth,

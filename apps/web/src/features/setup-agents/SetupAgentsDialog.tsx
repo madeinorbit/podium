@@ -85,6 +85,7 @@ const OpenPanel = observer(function OpenPanel({
     <SetupAgentsPanel
       view={view}
       variant="dialog"
+      handBackKind={request.handBackKind}
       onClose={closeSetupAgents}
       machines={machines}
       onSwitchMachine={switchSetupAgentsMachine}

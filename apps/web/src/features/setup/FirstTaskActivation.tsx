@@ -155,12 +155,12 @@ export const FirstTaskActivation = observer(function FirstTaskActivation({
       title="Set up your agents."
       description={
         <>
-          Podium runs whichever coding agents are installed on{' '}
+          Podium runs coding agents on{' '}
           <code className="font-mono text-[13.5px] text-[#c3c8d0]">
             {selectedMachine?.hostname ?? selectedMachine?.name ?? 'this machine'}
           </code>
-          . Install an agent below, or continue with one already installed. Sign in now or later,
-          before you run one.
+          . Pick the ones you want and Podium installs its own copy of each; your own installs stay
+          as they are. Sign in now or later.
         </>
       }
       contentClassName="mt-7 max-w-[860px]"

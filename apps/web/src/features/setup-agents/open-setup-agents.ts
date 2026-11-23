@@ -7,6 +7,7 @@
  *     machineId,              // the machine whose agents the panel shows
  *     origin: 'menu',         // 'menu' | 'settings' | 'onboarding'
  *     focus: 'codex',         // optional: the harness the opener asked about
+ *     handBackKind: 'select', // optional: say "Use <harness>" for a picker
  *     onStart: (harness) => { // optional: the footer's "Start <harness>" hands it back
  *       launchSession(harness)
  *     },
@@ -14,6 +15,7 @@
  *
  * With `focus` and `onStart`, the footer offers "Start <harness>" once that
  * harness is installed and signed in (or the person chose to sign in later);
+ * `handBackKind: 'select'` labels that action "Use <harness>" instead;
  * pressing it calls `onStart` and closes the panel. Without them the footer
  * says Done. Opening never installs anything: the panel only ticks the focused
  * harness so one press installs it.
@@ -29,6 +31,8 @@ export interface SetupAgentsRequest {
   readonly machineId: MachineId
   readonly origin: 'menu' | 'settings' | 'onboarding'
   readonly focus?: BuiltinHarnessKind
+  /** Pickers select a harness; launch menus keep the shared primary label. */
+  readonly handBackKind?: 'select' | 'start'
   readonly onStart?: (harness: BuiltinHarnessKind) => void
 }
 

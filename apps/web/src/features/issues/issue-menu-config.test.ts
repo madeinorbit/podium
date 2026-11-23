@@ -1,5 +1,6 @@
-import { asIssueId, type MachineFacts } from '@podium/model'
-import { describe, expect, it, vi } from 'vitest'
+import { asIssueId, asMachineId, type MachineFacts } from '@podium/model'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { closeSetupAgents, setupAgentsRequest } from '@/features/setup-agents/open-setup-agents'
 import { makeIssue } from '@/lib/test-issue'
 import { type IssueMenuSurface, issueMenuEligibility } from './issue-context-menu'
 import {
@@ -8,7 +9,10 @@ import {
   issueMenuEntries,
   issueMenuEntryLabel,
 } from './issue-menu-config'
+import { paletteIssueMenuData } from './issue-menu-palette'
 import { issueMenuPaletteCommands } from './issue-menu-palette-commands'
+
+afterEach(closeSetupAgents)
 
 const deps = {
   trpc: {} as never,
@@ -79,6 +83,72 @@ describe('declarative issue menu projections', () => {
     expect(
       issueMenuPaletteCommands(data, deps).some((command) => command.label.includes('Cursor')),
     ).toBe(false)
+  })
+
+  it.each([
+    'pinned',
+    'repository',
+  ] as const)('projects capability choices and one setup command for the %s machine', (placement) => {
+    const machine = {
+      id: asMachineId('target'),
+      name: 'Workstation',
+      online: true,
+      serviceAssignment: { server: false, agentExecution: true },
+      availability: { daemon: true },
+      inventory: {
+        agents: [
+          { kind: 'codex', installed: false, management: { installable: true } },
+          { kind: 'cursor', installed: false, management: { installable: false } },
+          { kind: 'pi', installed: true, login: { state: 'out' } },
+          { kind: 'grok', installed: null },
+        ],
+      },
+    } as unknown as MachineFacts
+    const other = {
+      ...machine,
+      id: asMachineId('other'),
+      inventory: {
+        agents: [
+          { kind: 'codex', installed: true },
+          { kind: 'cursor', installed: true },
+        ],
+      },
+    } as unknown as MachineFacts
+    const issue = makeIssue({
+      defaultAgent: 'codex',
+      machineId: placement === 'pinned' ? machine.id : undefined,
+    })
+    const data = paletteIssueMenuData({
+      issues: [issue],
+      issueId: issue.id,
+      sessions: [],
+      repos: [],
+      repoViews: [
+        {
+          path: issue.repoPath,
+          name: 'Project',
+          machines: [{ machineId: machine.id, path: issue.repoPath }],
+          worktrees: [],
+        },
+      ],
+      machines: [other, machine],
+      handoffEnabled: false,
+    })
+    if (!data) throw new Error('missing palette menu data')
+    expect(data.agentMachines?.map((host) => host.id)).toEqual([machine.id])
+    const commands = issueMenuPaletteCommands(data, deps)
+    expect(
+      commands.some((command) => /Assign agent · (Codex|Cursor|Grok)/.test(command.label)),
+    ).toBe(false)
+    expect(commands.find((command) => command.label === 'Assign agent · Pi')).toMatchObject({
+      hint: 'signed out',
+    })
+    const setup = commands.filter((command) => command.label === 'Set up agents…')
+    expect(setup).toHaveLength(1)
+    setup[0]?.run()
+    expect(setupAgentsRequest()).toMatchObject({ machineId: machine.id, origin: 'menu' })
+    expect(setupAgentsRequest()?.focus).toBeUndefined()
+    expect(setupAgentsRequest()?.onStart).toBeUndefined()
   })
 
   it('uses identical action and option keys for the menu and palette', () => {

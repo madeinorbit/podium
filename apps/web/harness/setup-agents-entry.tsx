@@ -229,7 +229,12 @@ createRoot(document.getElementById('root')!).render(
   ) : (
     <main className="flex min-h-screen items-start justify-center bg-background/60 px-2 py-4 text-foreground sm:py-8">
       <div className="flex w-full max-w-[680px] flex-col overflow-hidden rounded-xl shadow-2xl ring-1 ring-foreground/10">
-        <SetupAgentsPanel view={view} variant="dialog" onClose={() => {}} />
+        <SetupAgentsPanel
+          view={view}
+          variant="dialog"
+          handBackKind={params.get('handBack') === 'select' ? 'select' : undefined}
+          onClose={() => {}}
+        />
       </div>
     </main>
   ),

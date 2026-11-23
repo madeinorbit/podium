@@ -28,6 +28,9 @@ try {
 
   await page.goto(`${base}/setup-harness.html#agent`)
   await expect(page.getByRole('heading', { name: 'Set up your agents.' })).toBeVisible()
+  await expect(page.getByText(/^Podium runs coding agents on/)).toHaveText(
+    'Podium runs coding agents on project-server.example.com. Pick the ones you want and Podium installs its own copy of each; your own installs stay as they are. Sign in now or later.',
+  )
   await expect(page.locator('[data-setup-agents="onboarding"]')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Not installed' })).toBeVisible()
   await expect(page.getByRole('checkbox', { name: 'Install Claude Code' })).toBeChecked()

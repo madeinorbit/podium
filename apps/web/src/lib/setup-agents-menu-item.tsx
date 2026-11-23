@@ -10,7 +10,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu'
-import { openSetupAgents } from '@/features/setup-agents/open-setup-agents'
+import { openSetupAgents, type SetupAgentsRequest } from '@/features/setup-agents/open-setup-agents'
 import { MENU_HINT, MENU_ITEM, MENU_RULE, MENU_SECTION_LABEL } from './menu-surface'
 
 type SetupMachine = { id: string; name: string }
@@ -18,6 +18,7 @@ type SetupMachine = { id: string; name: string }
 export interface SetupAgentsMenuTarget {
   machineId?: string | null
   machines: readonly SetupMachine[]
+  handBackKind?: SetupAgentsRequest['handBackKind']
   onStart?: (harness: BuiltinHarnessKind, machineId: MachineId) => void
 }
 
@@ -34,6 +35,7 @@ function InstallingHint({ machineId }: { machineId: string }): JSX.Element | nul
 export function SetupAgentsMenuItem({
   machineId,
   machines,
+  handBackKind,
   onStart,
   variant = 'dropdown',
   onOpen,
@@ -48,6 +50,7 @@ export function SetupAgentsMenuItem({
     openSetupAgents({
       machineId: target,
       origin: 'menu',
+      ...(handBackKind ? { handBackKind } : {}),
       ...(onStart ? { onStart: (harness: BuiltinHarnessKind) => onStart(harness, target) } : {}),
     })
     onOpen?.()
