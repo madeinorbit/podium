@@ -131,7 +131,7 @@ async function anchor(page: Page) {
   await group(page).getByTestId('project-group-rows').waitFor({ state: 'detached' })
   await settle(page)
   const finalRow = page.locator(`[data-window-row="${key}"]`)
-  const finalTop = (await finalRow.boundingBox())?.y ?? null
+  const finalTop = await finalRow.evaluateAll((rows) => rows[0]?.getBoundingClientRect().y ?? null)
   const finalScroll = await page.getByTestId('work-scroll').evaluate((el) => el.scrollTop)
   await header(page).evaluate((button) => {
     if (button instanceof HTMLElement) button.click()
@@ -277,6 +277,20 @@ try {
         `${mode}: 58-row commit-to-removal ms ${large.map((sample) => sample.commitToRemovalMs.toFixed(1)).join(', ')}; anchor ${JSON.stringify(scrollAnchor)}`,
       )
       await writeFile(`${out}/results.json`, JSON.stringify(evidence, null, 2))
+    } catch (error) {
+      console.error({
+        mode,
+        errors,
+        body: await page.locator('body').innerText(),
+        groups: await page.getByTestId('project-group').evaluateAll((groups) =>
+          groups.map((el) => ({
+            key: el.getAttribute('data-folder-key'),
+            label: el.textContent?.slice(0, 120),
+          })),
+        ),
+      })
+      await page.screenshot({ path: `${out}/${mode}-failure.png` })
+      throw error
     } finally {
       await page.close()
       await server.close()
