@@ -73,6 +73,7 @@ import type { WorkflowStepEvidence } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
+import { NO_SUCH_PROCEDURE } from '../issues/relay-gate'
 import { isWorkflowQueryExposedOn } from './queries'
 import { isWorkflowProcExposedOn } from './registry'
 import { dispatchWorkflowRpc } from './rpc'
@@ -3123,12 +3124,11 @@ describe('POD-730 workflow mutation characterization', () => {
      * because a contract declared it (ADR 3 D3 says the opposite). The relay arm
      * is now `dispatchWorkflowRpc`, and this pin moves to it UNCHANGED IN WHAT
      * IT CLAIMS: routes by proc name, parses through the ONE declared schema,
-     * unknown proc is `undefined`, and a schema failure throws SYNCHRONOUSLY out
-     * of dispatch rather than rejecting the returned promise.
+     * an unknown proc returns NO_SUCH_PROCEDURE, and invalid input rejects.
      *
      * ONE CLAIM IS ADDED, and it is the thing the old shape could not say: a
      * proc that EXISTS but does not declare this transport is REFUSED, not
-     * absent. `undefined` would fall through to "unknown proc", which tells a
+     * absent. NO_SUCH_PROCEDURE would report "unknown proc", which tells a
      * caller a command it may not reach does not exist — and stops telling them
      * the day someone adds `relay` to the exposure.
      */
@@ -3149,7 +3149,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).resolves.toMatchObject({
         workflow: { id: created.workflow.id },
       })
-      expect(await dispatchWorkflowRpc(h.service, operator, 'notAProc', {})).toBeUndefined()
+      expect(await dispatchWorkflowRpc(h.service, operator, 'notAProc', {})).toBe(NO_SUCH_PROCEDURE)
       await expect(dispatchWorkflowRpc(h.service, operator, 'get', {})).rejects.toThrow('Required')
     })
 

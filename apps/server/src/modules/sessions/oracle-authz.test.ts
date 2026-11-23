@@ -44,9 +44,12 @@
  * uniform command plane must reproduce the absence deliberately.
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { firstAdminMemberId } from '../../command-principal'
 import { OPERATOR } from '../../test-support/capabilities'
+import { type AnyIssueCommandDef, issueRegistry } from '../issues/registry'
+import { type AnyLockCommandDef, lockRegistry } from '../lock/registry'
+import { WORKFLOW_COMMANDS, type WorkflowCommand } from '../workflows/registry'
 import { disposeOracles, MUST_NOT_CHANGE, makeOracle, waitFor, willChange } from './oracle-support'
 
 afterEach(() => disposeOracles())
@@ -240,7 +243,147 @@ describe('oracle: the lifecycle commands an agent cannot reach', () => {
  * that it is now DISPATCHED, and that the gate still refuses disallowed session
  * mutations before their handlers.
  */
-describe('oracle: how a relayed call ends — refused by the gate or handled', () => {
+describe('oracle: how a relayed call ends — refused, absent, or handled', () => {
+  for (const router of ['issues', 'lock', 'workflows']) {
+    it(`${MUST_NOT_CHANGE}: unknown ${router} procedures are absent-from-dispatch`, async () => {
+      const { o, agentSessionId } = await twoIssueOracle()
+
+      for (const proc of ['definitelyNotAProc', 'constructor', 'toString', '__proto__']) {
+        const reply = await o.relay({
+          requestId: `missing-${router}-${proc}`,
+          sessionId: agentSessionId,
+          router,
+          proc,
+          input: {},
+        })
+
+        expect(reply.ok, `${router}.${proc}`).toBe(false)
+        expect(reply.error).toBe(`no such procedure: ${router}.${proc}`)
+        expect(classifyRelay(reply, router, proc)).toBe('absent-from-dispatch')
+      }
+    })
+  }
+
+  // Run real writes, discarding only their handlers' return values. A handler
+  // may return void without changing whether its procedure exists.
+  it(`${MUST_NOT_CHANGE}: a successful void issue write is dispatched over relay and MCP`, async () => {
+    const { o, a, agentSessionId } = await twoIssueOracle()
+    const def: AnyIssueCommandDef = issueRegistry.defs.setState
+    const handler = def.handler
+    const write = vi.spyOn(def, 'handler').mockImplementation(async (ctx, input) => {
+      await handler(ctx, input)
+    })
+    try {
+      const reply = await o.relay({
+        requestId: 'void-issue-write',
+        sessionId: agentSessionId,
+        router: 'issues',
+        proc: 'setState',
+        input: { id: a.id, text: 'Written through relay' },
+      })
+
+      expect(reply.ok, reply.error).toBe(true)
+      expect(reply.result).toBeUndefined()
+      expect(reply.error).toBeUndefined()
+      expect(classifyRelay(reply, 'issues', 'setState')).toBe('dispatched')
+      expect(await o.reg.issues.reports.get(a.id)).toMatchObject({
+        activityNotes: 'Written through relay',
+      })
+
+      await expect(
+        o.reg.issueCommands.asIssueTrpc(OPERATOR).issues.setState.mutate({
+          id: a.id,
+          text: 'Written through MCP',
+        }),
+      ).resolves.toBeUndefined()
+      expect(await o.reg.issues.reports.get(a.id)).toMatchObject({
+        activityNotes: 'Written through MCP',
+      })
+    } finally {
+      write.mockRestore()
+    }
+  })
+
+  it(`${MUST_NOT_CHANGE}: a successful void lock write is dispatched`, async () => {
+    const { o, agentSessionId } = await twoIssueOracle()
+    const def: AnyLockCommandDef = lockRegistry.defs.acquire
+    const handler = def.handler
+    const write = vi.spyOn(def, 'handler').mockImplementation(async (ctx, input) => {
+      await handler(ctx, input)
+    })
+    try {
+      const reply = await o.relay({
+        requestId: 'void-lock-write',
+        sessionId: agentSessionId,
+        router: 'lock',
+        proc: 'acquire',
+        input: { repoPath: '/r', name: 'void-write' },
+      })
+
+      expect(reply.ok, reply.error).toBe(true)
+      expect(reply.result).toBeUndefined()
+      expect(reply.error).toBeUndefined()
+      const status = await o.relay({
+        requestId: 'void-lock-status',
+        sessionId: agentSessionId,
+        router: 'lock',
+        proc: 'status',
+        input: { repoPath: '/r', name: 'void-write' },
+      })
+      expect(status.ok).toBe(true)
+      expect(status.result).toEqual([
+        expect.objectContaining({
+          name: 'void-write',
+          holder: expect.objectContaining({ sessionId: agentSessionId }),
+        }),
+      ])
+    } finally {
+      write.mockRestore()
+    }
+  })
+
+  it(`${MUST_NOT_CHANGE}: a successful void workflow write is dispatched`, async () => {
+    const { o, agentSessionId } = await twoIssueOracle()
+    const def: WorkflowCommand = WORKFLOW_COMMANDS.create
+    const handler = def.handler
+    const write = vi.spyOn(def, 'handler').mockImplementation(async (ctx, input) => {
+      await handler(ctx, input)
+    })
+    try {
+      const reply = await o.relay({
+        requestId: 'void-workflow-write',
+        sessionId: agentSessionId,
+        router: 'workflows',
+        proc: 'create',
+        input: {
+          name: 'Void workflow write',
+          scope: 'task',
+          scopeRef: agentSessionId,
+          description: '',
+          instructions: '',
+          steps: [],
+        },
+      })
+
+      expect(reply.ok, reply.error).toBe(true)
+      expect(reply.result).toBeUndefined()
+      expect(reply.error).toBeUndefined()
+      const listed = await o.relay({
+        requestId: 'void-workflow-list',
+        sessionId: agentSessionId,
+        router: 'workflows',
+        proc: 'list',
+        input: { scope: 'task', scopeRef: agentSessionId },
+      })
+      expect(listed.ok).toBe(true)
+      expect(listed.result).toEqual([
+        expect.objectContaining({ name: 'Void workflow write', scopeRef: agentSessionId }),
+      ])
+    } finally {
+      write.mockRestore()
+    }
+  })
+
   it(`${AGENT_ONLY}: sessions.handoff REACHES its handler — allowlisted and dispatched`, async () => {
     const { o, agentSessionId } = await twoIssueOracle()
 

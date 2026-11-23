@@ -43,6 +43,7 @@ import {
 import { withoutHiddenTaskFields } from './execution-visibility'
 import { issueReceiptCompaction } from './receipt-digest'
 import { type AnyIssueCommandDef, guardIssueCommand, issueRegistry } from './registry'
+import { NO_SUCH_PROCEDURE } from './relay-gate'
 import { answerMailSendAsBefore, startAfterCreate, submitIssueWrite } from './sync-write'
 import { isIssueWorkCommand } from './work-effects'
 
@@ -196,8 +197,8 @@ export class IssueCommandDispatcher {
 
   /**
    * Run one relayed/MCP command from RAW input: guard, parse, handle — the
-   * exact pipeline the derived router applies. Returns undefined for an unknown
-   * router/proc so callers can shape their own "no such procedure" reply.
+   * exact pipeline the derived router applies. Unknown router/proc pairs return
+   * NO_SUCH_PROCEDURE; a real command may successfully resolve to undefined.
    */
   async dispatch(
     caller: IssueCaller,
@@ -205,13 +206,13 @@ export class IssueCommandDispatcher {
     proc: string,
     rawInput: unknown,
     transport: 'relay' | 'mcp' = 'relay',
-  ): Promise<unknown | undefined> {
+  ): Promise<unknown> {
     if (router === 'repos') {
-      if (proc !== 'inferFromPath') return undefined
+      if (proc !== 'inferFromPath') return NO_SUCH_PROCEDURE
       const input = z.object({ path: z.string() }).parse(rawInput)
       return { repoPath: (await this.deps.inferRepoFromPath(input.path)) ?? null }
     }
-    if (router !== 'issues' || !Object.hasOwn(issueRegistry.defs, proc)) return undefined
+    if (router !== 'issues' || !Object.hasOwn(issueRegistry.defs, proc)) return NO_SUCH_PROCEDURE
     const effectiveCaller: IssueCaller = caller.principal
       ? caller
       : {
@@ -293,7 +294,8 @@ export class IssueCommandDispatcher {
     const proc = (router: 'issues' | 'repos', name: string): IssueProc => {
       const call = async (input?: unknown): Promise<unknown> => {
         const result = await this.dispatch(caller, router, name, input, 'mcp')
-        if (result === undefined) throw new Error(`no such issue procedure: ${router}.${name}`)
+        if (result === NO_SUCH_PROCEDURE)
+          throw new Error(`no such issue procedure: ${router}.${name}`)
         return result
       }
       return { query: call, mutate: call }

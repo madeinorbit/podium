@@ -4,6 +4,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 
 import { SessionRegistry } from '../../relay'
 import { OPERATOR } from '../../test-support/capabilities'
+import { NO_SUCH_PROCEDURE } from '../issues/relay-gate'
 import { lockRegistry } from './registry'
 
 /**
@@ -189,8 +190,8 @@ describe('lock registry', () => {
     )
   })
 
-  it('unknown procs return undefined (relay "no such procedure" shape)', async () => {
-    expect(await dispatch({ capability: OPERATOR }, 'nuke', {})).toBeUndefined()
+  it('unknown procs return the missing-procedure sentinel', async () => {
+    expect(await dispatch({ capability: OPERATOR }, 'nuke', {})).toBe(NO_SUCH_PROCEDURE)
   })
 
   it('invalid input fails zod validation with the shared schema', async () => {

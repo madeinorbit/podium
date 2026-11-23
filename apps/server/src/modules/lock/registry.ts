@@ -13,6 +13,7 @@ import { authorize } from '../../issue-authz'
 import { HostedModeRefusal } from '../../server-mode'
 import type { FrontDoorTransport } from '../front-door'
 import type { IssueCaller } from '../issues/command-ctx'
+import { NO_SUCH_PROCEDURE } from '../issues/relay-gate'
 import type { IssueService } from '../issues/service'
 import { runPlainDef } from '../plain-command/entry'
 import type { LockCallerIdentity, LockHolderId, LockService } from './service'
@@ -280,8 +281,9 @@ export class LockCommandDispatcher {
   }
 
   /**
-   * Run one relayed command from RAW input. Undefined = no such procedure. A
-   * write takes the plain command path; `status` is a read, behind the guard.
+   * Run one relayed command from RAW input. Unknown names return NO_SUCH_PROCEDURE,
+   * distinct from a successful void result. A write takes the plain command path;
+   * `status` is a read, behind the guard.
    */
   async dispatch(
     caller: IssueCaller,
@@ -291,8 +293,8 @@ export class LockCommandDispatcher {
      *  read as a principal when absent. */
     principal: () => Promise<CommandPrincipal> = async () =>
       resolvePrincipal(caller.capability, { parentSessionOf: () => undefined }),
-  ): Promise<unknown | undefined> {
-    if (!Object.hasOwn(lockRegistry.defs, proc)) return undefined
+  ): Promise<unknown> {
+    if (!Object.hasOwn(lockRegistry.defs, proc)) return NO_SUCH_PROCEDURE
     const def = (lockRegistry.defs as Record<string, AnyLockCommandDef>)[proc] as AnyLockCommandDef
     if (def.kind === 'mutation') {
       return await this.runPlain(caller, await principal(), 'relay', proc, rawInput)

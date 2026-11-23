@@ -73,7 +73,7 @@ export const WORKFLOW_COMMANDS = {
 export type WorkflowProcName = keyof typeof WORKFLOW_COMMANDS
 
 export const isWorkflowCommand = (proc: string): proc is WorkflowProcName =>
-  proc in WORKFLOW_COMMANDS
+  Object.hasOwn(WORKFLOW_COMMANDS, proc)
 
 /**
  * ADR 3 D3, enforced rather than documented. Default-closed: an unknown proc is

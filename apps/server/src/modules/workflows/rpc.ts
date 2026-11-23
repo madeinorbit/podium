@@ -17,9 +17,8 @@
  *     ledger;
  *   · a QUERY is served iff its `WORKFLOW_QUERIES` entry says so.
  *
- * An unknown proc returns `undefined`, which is what the relay's dispatcher
- * reads as "not my router" — unchanged, and the reason the return type is not
- * simply `Promise<unknown>`.
+ * An unknown proc returns `NO_SUCH_PROCEDURE`, distinct from a successful
+ * command's void result, so the relay can shape its missing-procedure reply.
  *
  * THE TRANSPORT IS A PARAMETER, not a literal in the body, and that is a
  * testability decision taken deliberately. Every workflow declaration currently
@@ -34,6 +33,7 @@
 import type { TransportTag } from '@podium/commands'
 import { refusalSentence } from '@podium/protocol'
 import type { CommandPrincipal } from '../../command-principal'
+import { NO_SUCH_PROCEDURE } from '../issues/relay-gate'
 import type { SyncWriteEntry } from '../sync-write/entry'
 import { mutationIdOf } from '../sync-write/route-adapter'
 import {
@@ -90,11 +90,10 @@ export async function dispatchWorkflowRpc(
   raw: unknown,
   transport: TransportTag = 'relay',
   write?: WorkflowRelayWrite,
-): Promise<unknown | undefined> {
+): Promise<unknown> {
   if (isWorkflowCommand(proc)) {
-    // NOT `undefined`. A proc that exists but is not served here is a REFUSAL,
-    // not an absence: returning `undefined` would let the relay fall through to
-    // the next router and report "unknown proc", which tells a caller that a
+    // A proc that exists but is not served here is a REFUSAL, not an absence:
+    // returning NO_SUCH_PROCEDURE would tell a caller that a
     // command it may not reach does not exist — and then stops telling them the
     // day someone adds `relay` to its exposure.
     if (!isWorkflowProcExposedOn(proc, transport)) {
@@ -114,5 +113,5 @@ export async function dispatchWorkflowRpc(
     const run = query.run as (s: WorkflowService, i: unknown, c: WorkflowCaller) => unknown
     return await Promise.resolve(run(service, input, caller))
   }
-  return undefined
+  return NO_SUCH_PROCEDURE
 }
