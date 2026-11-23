@@ -300,6 +300,19 @@ function reopensClosedTurn(event: RuntimeEvent): boolean {
   )
 }
 
+/**
+ * WHAT ONE SESSION-LEDGER TRANSACTION MAY CARRY SEVERAL OF (POD-7429).
+ *
+ * A complete transcript item changes no turn, state, ask or fence: its only
+ * durable effects are its event row, the restart head and the session's recency.
+ * A run of them from one session (a turn-end reconcile, a catch-up) commits as
+ * one transaction, so change capture rebuilds the session record once per batch
+ * instead of once per item. Every other arm keeps its own transaction.
+ */
+export function isBatchableRuntimeEvent(event: RuntimeEvent): boolean {
+  return event.t === 'item' && event.item.kind === 'complete'
+}
+
 function turnEpochMatches(event: RuntimeEvent): boolean {
   return event.t !== 'turn' || event.ev.turnEpoch === event.turnEpoch
 }
@@ -334,6 +347,142 @@ export class RuntimeEventGate {
       this.noteRejection(sessionId, event, result.reason)
     }
     return result
+  }
+
+  /**
+   * Record a run of {@link isBatchableRuntimeEvent} events of one session, in
+   * order, as {@link record} would one at a time, with the admitted ones in ONE
+   * commit (POD-7429). Each event is decided against the restart head the
+   * events before it leave; the commit writes their rows, the last head and the
+   * session's recency once. A failed commit rejects every event in it, and none
+   * is acknowledged, exactly as a failed single commit is.
+   *
+   * An event the batch cannot decide alone (another arm, a duplicate that
+   * rebases the generation) ends the batch: it and every later event go
+   * through {@link record} after the batch has committed.
+   */
+  async recordBatch(
+    sessionId: SessionId,
+    events: readonly RuntimeEvent[],
+  ): Promise<RuntimeEventGateResult[]> {
+    if (events.length <= 1) {
+      const results: RuntimeEventGateResult[] = []
+      for (const event of events) results.push(await this.record(sessionId, event))
+      return results
+    }
+    const results = await this.recordBatchUnlogged(sessionId, events)
+    for (const [index, result] of results.entries()) {
+      const event = events[index]!
+      if (result.kind === 'rejected' && event.provenance === 'live') {
+        this.noteRejection(sessionId, event, result.reason)
+      }
+    }
+    return results
+  }
+
+  private async recordBatchUnlogged(
+    sessionId: SessionId,
+    events: readonly RuntimeEvent[],
+  ): Promise<RuntimeEventGateResult[]> {
+    const session = this.ports.session(sessionId) ?? (await this.ports.readSession?.(sessionId))
+    if (!session) return events.map(() => ({ kind: 'rejected', reason: 'unknown-session' }))
+    const current = await this.ports.events.runtimeEventCheckpoint(sessionId)
+    if (current) this.readySessions.add(sessionId)
+    const results: RuntimeEventGateResult[] = []
+    const admitted: { index: number; event: RuntimeEvent }[] = []
+    let head = current
+    let cut = events.length
+    for (const [index, event] of events.entries()) {
+      if (!isBatchableRuntimeEvent(event)) {
+        cut = index
+        break
+      }
+      if (!Number.isFinite(Date.parse(event.at))) {
+        results[index] = { kind: 'rejected', reason: 'invalid-event-time' }
+        continue
+      }
+      if (!head && event.provenance !== 'bootstrap' && event.observerGeneration !== 1) {
+        results[index] = { kind: 'rejected', reason: 'replacement-requires-bootstrap' }
+        continue
+      }
+      if (head) {
+        const decision = this.decide(head, event)
+        if (decision.kind === 'rejected') {
+          results[index] = decision
+          continue
+        }
+        if (decision.kind === 'duplicate') {
+          if (decision.rebaseGeneration) {
+            cut = index
+            break
+          }
+          results[index] = { kind: 'duplicate' }
+          continue
+        }
+      }
+      admitted.push({ index, event })
+      // The head the next event is decided against: what record() would have
+      // committed for this one. An item never opens or closes a turn.
+      head = {
+        sessionId,
+        observerGeneration: event.observerGeneration,
+        cursor: event.cursor,
+        turnEpoch: event.turnEpoch,
+        closedTurnEpoch: head?.closedTurnEpoch ?? null,
+        updatedAt: new Date(this.ports.now()).toISOString(),
+      }
+    }
+    if (admitted.length > 0) {
+      const last = head!
+      const ids = await this.withSession(sessionId, async (resident) => {
+        if (!resident) return undefined
+        const ids: number[] = []
+        await this.ports.write(
+          sessionId,
+          (draft) => {
+            for (const { event } of admitted) resident.recordRuntimeActivity(event.at, draft)
+          },
+          async (draft) => {
+            for (const { event } of admitted) {
+              ids.push(
+                await this.ports.events.appendEvent(
+                  {
+                    ts: event.at,
+                    kind: RUNTIME_EVENT_LOG_KIND,
+                    subject: sessionId,
+                    payload: event,
+                  },
+                  { announce: false },
+                ),
+              )
+            }
+            await this.ports.events.saveRuntimeEventCheckpoint({
+              ...last,
+              turnState: draft.agentState ?? current?.turnState ?? null,
+            })
+          },
+        )
+        return ids
+      })
+      for (const [n, { index }] of admitted.entries()) {
+        const eventId = ids?.[n]
+        results[index] =
+          eventId === undefined
+            ? { kind: 'rejected', reason: 'unknown-session' }
+            : { kind: 'accepted', eventId }
+      }
+      if (ids) {
+        this.readySessions.add(sessionId)
+        for (const id of ids) await this.ports.events.announceEvent(id)
+      }
+    }
+    if (results.slice(0, cut).some((result) => result.kind !== 'rejected')) {
+      await this.scheduleBoardProjection()
+    }
+    for (let index = cut; index < events.length; index++) {
+      results[index] = await this.recordUnlogged(sessionId, events[index]!)
+    }
+    return results
   }
 
   /**

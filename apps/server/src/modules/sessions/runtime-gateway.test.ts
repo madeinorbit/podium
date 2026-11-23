@@ -244,6 +244,64 @@ describe('paced runtime ingress', () => {
     expect(called).toEqual([1, 2, 2])
     expect(folded).toEqual([1, 2])
   })
+  it('commits and folds a queued run of complete items as slices of at most 32 (POD-7429)', async () => {
+    const batches: number[][] = []
+    const { gateway } = makeGateway({
+      events: {
+        recordBatch: async (_sessionId, values) => {
+          batches.push(values.map((value) => Number(value.cursor.components.seq)))
+          return values.map((value) => ({
+            kind: 'accepted' as const,
+            eventId: Number(value.cursor.components.seq),
+          }))
+        },
+      },
+    })
+    const folds: number[][] = []
+    const each: number[] = []
+    gateway.onEvents(async (_sessionId, values) => {
+      folds.push(values.map((value) => Number(value.cursor.components.seq)))
+    })
+    gateway.onEvent(async (_sessionId, value) => {
+      each.push(Number(value.cursor.components.seq))
+    })
+    const results = await Promise.all(
+      Array.from({ length: 70 }, (_, n) =>
+        gateway.record(MACHINE, { sessionId: SESSION, event: event(n) }),
+      ),
+    )
+    expect(results.map((result) => result.kind === 'accepted' && result.eventId)).toEqual(
+      Array.from({ length: 70 }, (_, n) => n),
+    )
+    // Every frame queued before the first slice started: 32, 32, then 6.
+    expect(batches.map((batch) => batch.length)).toEqual([32, 32, 6])
+    expect(batches.flat()).toEqual(Array.from({ length: 70 }, (_, n) => n))
+    expect(folds).toEqual(batches)
+    expect(each).toEqual(Array.from({ length: 70 }, (_, n) => n))
+  })
+
+  it('retries a failed slice one event at a time, so one bad event fails alone', async () => {
+    const bad = new Error('bad event')
+    const { gateway } = makeGateway({
+      events: {
+        record: async (_sessionId, value) => {
+          if (Number(value.cursor.components.seq) === 5) throw bad
+          return { kind: 'accepted', eventId: Number(value.cursor.components.seq) }
+        },
+        recordBatch: async () => {
+          throw bad
+        },
+      },
+    })
+    const settled = await Promise.allSettled(
+      Array.from({ length: 10 }, (_, n) =>
+        gateway.record(MACHINE, { sessionId: SESSION, event: event(n) }),
+      ),
+    )
+    expect(settled.map((outcome) => outcome.status)).toEqual(
+      Array.from({ length: 10 }, (_, n) => (n === 5 ? 'rejected' : 'fulfilled')),
+    )
+  })
 })
 
 describe('attachment staging', () => {

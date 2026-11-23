@@ -50,7 +50,11 @@ import {
 } from '@podium/protocol/daemon'
 import type { LedgerWriter } from '@podium/sync'
 import type { InboxPrincipalReference, QueuedDelivery } from './inbox'
-import type { RuntimeEventGate, RuntimeEventGateResult } from './runtime-event-gate'
+import {
+  isBatchableRuntimeEvent,
+  type RuntimeEventGate,
+  type RuntimeEventGateResult,
+} from './runtime-event-gate'
 
 /** A session write's writer (the same shape as `SessionWriter`), named here
  *  without importing the lifecycle's types (POD-6602). */
@@ -206,10 +210,25 @@ export interface SessionRuntimeGatewayPorts {
   machineOf(sessionId: SessionId): MachineId | undefined
   now(): number
   /** The one durable coarse-event application gate. */
-  events: Pick<RuntimeEventGate, 'record' | 'ready' | 'recent' | 'replayBoardProjection'>
+  events: Pick<RuntimeEventGate, 'record' | 'ready' | 'recent' | 'replayBoardProjection'> &
+    Partial<Pick<RuntimeEventGate, 'recordBatch'>>
 }
 
 export type RuntimeEventListener = (sessionId: SessionId, event: RuntimeEvent) => Promise<void>
+/** One session's accepted events of one ingress slice, in order (POD-7429). */
+export type RuntimeEventBatchListener = (
+  sessionId: SessionId,
+  events: readonly RuntimeEvent[],
+) => Promise<void>
+
+/** Most complete items one session commits in one ingress transaction. */
+const INGRESS_SLICE_ITEMS = 32
+
+interface PendingRuntimeEvent {
+  event: RuntimeEvent
+  resolve: (result: RuntimeEventGateResult) => void
+  reject: (error: unknown) => void
+}
 
 /**
  * Fine delivery is WIRED as of POD-2293, and the two halves are named because a
@@ -236,9 +255,12 @@ export const RUNTIME_FINE_WATCH_AVAILABILITY = {
 export type RuntimeFineWatchAvailability = typeof RUNTIME_FINE_WATCH_AVAILABILITY
 
 export class SessionRuntimeGateway {
-  private readonly listeners = new Set<RuntimeEventListener>()
-  /** Pending work only; a session leaves this map as soon as its tail settles. */
-  private readonly inbound = new Map<SessionId, Promise<void>>()
+  /** Registration order is delivery order; a batch listener takes a slice at once. */
+  private readonly listeners = new Set<
+    { each: RuntimeEventListener } | { batch: RuntimeEventBatchListener }
+  >()
+  /** Pending work only; a session leaves this map as soon as its queue drains. */
+  private readonly inbound = new Map<SessionId, PendingRuntimeEvent[]>()
   private sliceItems = 0
   private sliceStarted = 0
   private sliceYield: Promise<void> | undefined
@@ -423,55 +445,114 @@ export class SessionRuntimeGateway {
     _machineId: MachineId,
     msg: { sessionId: SessionId; event: RuntimeEvent },
   ): Promise<RuntimeEventGateResult> {
-    if (isRuntimeFineEvent(msg.event)) return await this.recordAndPublish(msg)
+    if (isRuntimeFineEvent(msg.event)) {
+      const [result] = await this.recordAndPublish(msg.sessionId, [msg.event])
+      return result!
+    }
     // A yield must not let a later frame read the checkpoint or fold a reset
     // ahead of earlier work. Keep the durable gate AND its transcript listeners
     // in the same session's FIFO; a failed commit still rejects its own caller.
-    const completion = (this.inbound.get(msg.sessionId) ?? Promise.resolve()).then(async () => {
+    return await new Promise<RuntimeEventGateResult>((resolve, reject) => {
+      const queue = this.inbound.get(msg.sessionId)
+      const pending = { event: msg.event, resolve, reject }
+      if (queue) {
+        queue.push(pending)
+        return
+      }
+      this.inbound.set(msg.sessionId, [pending])
+      void this.drain(msg.sessionId)
+    })
+  }
+
+  /**
+   * One session's FIFO. Frames that arrived while the previous slice committed
+   * wait here, so under a replay burst the next slice finds a run of complete
+   * items and commits and folds them together (POD-7429); a quiet session still
+   * takes its frames one at a time.
+   */
+  private async drain(sessionId: SessionId): Promise<void> {
+    const queue = this.inbound.get(sessionId)
+    if (!queue) return
+    while (queue.length > 0) {
       await this.paceIngress()
-      return await this.recordAndPublish(msg)
-    })
-    const tail = completion.then(
-      () => {},
-      () => {},
+      let size = 1
+      if (this.ports.events.recordBatch && isBatchableRuntimeEvent(queue[0]!.event)) {
+        while (
+          size < queue.length &&
+          size < INGRESS_SLICE_ITEMS &&
+          isBatchableRuntimeEvent(queue[size]!.event)
+        )
+          size++
+      }
+      const slice = queue.splice(0, size)
+      this.chargeIngress(slice.length)
+      try {
+        const results = await this.recordAndPublish(
+          sessionId,
+          slice.map((pending) => pending.event),
+        )
+        for (const [index, pending] of slice.entries()) pending.resolve(results[index]!)
+      } catch (error) {
+        if (slice.length === 1) {
+          slice[0]!.reject(error)
+          continue
+        }
+        // One bad event must not fail its neighbours: retry each alone, in order.
+        for (const pending of slice) {
+          try {
+            const [result] = await this.recordAndPublish(sessionId, [pending.event])
+            pending.resolve(result!)
+          } catch (single) {
+            pending.reject(single)
+          }
+        }
+      }
+    }
+    this.inbound.delete(sessionId)
+  }
+
+  private sliceItemsCharged(): boolean {
+    return (
+      this.sliceItems >= INGRESS_SLICE_ITEMS ||
+      (this.sliceItems > 0 && performance.now() - this.sliceStarted >= 8)
     )
-    this.inbound.set(msg.sessionId, tail)
-    void tail.then(() => {
-      if (this.inbound.get(msg.sessionId) === tail) this.inbound.delete(msg.sessionId)
-    })
-    return await completion
   }
 
   private async paceIngress(): Promise<void> {
     // SQLite awaits can resolve entirely as microtasks. Share one budget and
     // one actual timer yield across sessions, including their post-commit folds.
-    if (
-      !this.sliceYield &&
-      (this.sliceItems >= 32 || (this.sliceItems > 0 && performance.now() - this.sliceStarted >= 8))
-    ) {
+    if (!this.sliceYield && this.sliceItemsCharged()) {
       this.sliceYield = new Promise<void>((resolve) => setTimeout(resolve, 0)).then(() => {
         this.sliceItems = 0
         this.sliceYield = undefined
       })
     }
     if (this.sliceYield) await this.sliceYield
-    if (this.sliceItems === 0) this.sliceStarted = performance.now()
-    this.sliceItems++
   }
 
-  private async recordAndPublish(msg: {
-    sessionId: SessionId
-    event: RuntimeEvent
-  }): Promise<RuntimeEventGateResult> {
-    const completion: Promise<RuntimeEventGateResult> = this.ports.events.record(
-      msg.sessionId,
-      msg.event,
-    )
-    const result = await completion
-    if (result.kind === 'accepted' || result.kind === 'fine-live-only') {
-      for (const listener of [...this.listeners]) await listener(msg.sessionId, msg.event)
+  private chargeIngress(items: number): void {
+    if (this.sliceItems === 0) this.sliceStarted = performance.now()
+    this.sliceItems += items
+  }
+
+  private async recordAndPublish(
+    sessionId: SessionId,
+    events: readonly RuntimeEvent[],
+  ): Promise<RuntimeEventGateResult[]> {
+    const results: RuntimeEventGateResult[] =
+      events.length > 1 && this.ports.events.recordBatch
+        ? await this.ports.events.recordBatch(sessionId, events)
+        : [await this.ports.events.record(sessionId, events[0]!)]
+    const published = events.filter((_event, index) => {
+      const kind = results[index]?.kind
+      return kind === 'accepted' || kind === 'fine-live-only'
+    })
+    if (published.length === 0) return results
+    for (const listener of [...this.listeners]) {
+      if ('batch' in listener) await listener.batch(sessionId, published)
+      else for (const event of published) await listener.each(sessionId, event)
     }
-    return result
+    return results
   }
 
   /** Subscribe to events that already reached the server, coarse and fine
@@ -480,9 +561,20 @@ export class SessionRuntimeGateway {
    * listener registered here sees fragments only for sessions somebody is
    * watching. Returns an unsubscribe. */
   onEvent(listener: RuntimeEventListener): () => void {
-    this.listeners.add(listener)
+    const entry = { each: listener }
+    this.listeners.add(entry)
     return () => {
-      this.listeners.delete(listener)
+      this.listeners.delete(entry)
+    }
+  }
+
+  /** {@link onEvent} for a consumer that folds a slice at once: the events of
+   *  one session committed together arrive in one call, in order (POD-7429). */
+  onEvents(listener: RuntimeEventBatchListener): () => void {
+    const entry = { batch: listener }
+    this.listeners.add(entry)
+    return () => {
+      this.listeners.delete(entry)
     }
   }
 

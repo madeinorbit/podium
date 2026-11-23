@@ -137,10 +137,23 @@ describe('durable runtime observation gate', () => {
       .mockImplementation(async (head) => {
         if (interruptReplay) throw new Error('interrupted replay commit')
         await save(head)
-        afterCommit(() => {
-          committed.add(Number(head.cursor.components.seq))
-        }, 'runtime-replay-test.committed-checkpoint')
       })
+    // A batch writes one head per commit (POD-7429), so each event's OWN row
+    // says when it committed.
+    const append = store.events.appendEvent.bind(store.events)
+    const runtimeCommits: number[] = []
+    const appended = vi.spyOn(store.events, 'appendEvent').mockImplementation(async (e, o) => {
+      const id = await append(e, o)
+      const payload = e.payload as RuntimeEvent | undefined
+      if (e.kind === RUNTIME_EVENT_LOG_KIND && payload?.cursor) {
+        afterCommit(() => {
+          committed.add(Number(payload.cursor.components.seq))
+        }, 'runtime-replay-test.committed-event')
+      }
+      return id
+    })
+    const saveCount = () => checkpoint.mock.calls.length
+    let savesBeforeReplay = 0
     let heartbeat: ReturnType<typeof setTimeout> | undefined
     try {
       const sessionId = await bindContract(
@@ -193,6 +206,7 @@ describe('durable runtime observation gate', () => {
       expect(acks).toHaveLength(64)
       expect((await store.events.runtimeEventCheckpoint(sessionId))?.cursor.components.seq).toBe(67)
       interruptReplay = false
+      savesBeforeReplay = saveCount()
       const replay = items.slice(64).map((_item, n) => send(replayEvent(n + 64)))
       const liveItem = {
         id: 'live',
@@ -215,6 +229,9 @@ describe('durable runtime observation gate', () => {
       expect(acksAtHeartbeat).toBeGreaterThanOrEqual(0)
       expect(acksAtHeartbeat).toBeLessThan(2_000)
       expect(earlyAcks).toEqual([])
+      // 1,936 queued items commit in slices of at most 32, plus the live turn's
+      // three events, rather than one transaction each (POD-7429).
+      expect(saveCount() - savesBeforeReplay).toBeLessThanOrEqual(Math.ceil(1_936 / 32) + 3 + 4)
       expect(acks.map((ack) => ack.deliveryId)).toEqual(
         Array.from({ length: 2_003 }, (_, n) => String(n + 4)),
       )
@@ -270,10 +287,88 @@ describe('durable runtime observation gate', () => {
     } finally {
       clearTimeout(heartbeat)
       checkpoint.mockRestore()
+      appended.mockRestore()
       await registry.dispose()
       await store.close()
     }
   }, 120_000)
+
+  it('decides each queued item against the head before it and commits the slice once (POD-7429)', async () => {
+    const store = await openTestStore(':memory:')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const acks: Extract<ControlMessage, { type: 'runtimeEventAck' }>[] = []
+    try {
+      const sessionId = await bindContract(
+        registry,
+        store,
+        (msg) => {
+          if (msg.type === 'runtimeEventAck') acks.push(msg)
+        },
+        'generic-pty',
+      )
+      const at = '2026-08-23T00:00:00.000Z'
+      const send = (event: RuntimeEvent, deliveryId: string) =>
+        registry.gateway.routeDaemonFrame(store.hostMachine!.id, {
+          type: 'runtimeEvent',
+          sessionId,
+          deliveryId,
+          event,
+        })
+      await send(stateEvent({ at, seq: 1, observerGeneration: 1, provenance: 'bootstrap' }), 'boot')
+      const item = (n: number) => ({
+        id: `slice-${n}`,
+        cursor: `native:slice-${n}`,
+        role: 'assistant' as const,
+        text: `Slice message ${n}`,
+        ts: new Date(Date.parse(at) + n * 1_000).toISOString(),
+      })
+      // The first item also makes the transcript available, a write of its own.
+      await send(terminalItemEvent({ at, seq: 2, item: item(2) }), 'first')
+      const before = (await store.sync.changesSince(0, 10_000)).at(-1)?.seq ?? 0
+      const saves = vi.spyOn(store.events, 'saveRuntimeEventCheckpoint')
+      acks.length = 0
+      await Promise.all([
+        send(terminalItemEvent({ at, seq: 3, item: item(3) }), 'a'),
+        send(terminalItemEvent({ at, seq: 4, item: item(4) }), 'b'),
+        // Same cursor as the event before it: decided against that event's head.
+        send(terminalItemEvent({ at, seq: 4, item: item(4) }), 'b-again'),
+        send({ ...terminalItemEvent({ at, seq: 5, item: item(5) }), at: 'not a time' }, 'bad-time'),
+        send(
+          { ...terminalItemEvent({ at, seq: 6, item: item(6) }), observerGeneration: 0 },
+          'stale',
+        ),
+        send(terminalItemEvent({ at, seq: 7, item: item(7) }), 'c'),
+      ])
+      expect(saves).toHaveBeenCalledTimes(1)
+      saves.mockRestore()
+      expect(acks.map((ack) => [ack.deliveryId, ack.outcome, ack.rejectionReason])).toEqual([
+        ['a', 'committed', undefined],
+        ['b', 'committed', undefined],
+        ['b-again', 'committed', undefined],
+        ['bad-time', 'rejected', 'invalid-event-time'],
+        ['stale', 'rejected', 'stale-observer-generation'],
+        ['c', 'committed', undefined],
+      ])
+      const events = await store.events.listRuntimeEvents(sessionId, 100)
+      expect(events.map((event) => event.cursor.components.seq)).toEqual([1, 2, 3, 4, 7])
+      expect((await store.events.runtimeEventCheckpoint(sessionId))?.cursor.components.seq).toBe(7)
+      // One transaction, so change capture rebuilt the session record once.
+      const sessionChanges = (await store.sync.changesSince(before, 10_000)).filter(
+        (change) => change.entity === 'session' && change.entityId === sessionId,
+      )
+      expect(sessionChanges).toHaveLength(1)
+      const terminal = registry.modules.sessions.sessions.get(sessionId)!.terminal
+      expect(terminal.transcriptItems().map((value) => value.id)).toEqual([
+        'slice-2',
+        'slice-3',
+        'slice-4',
+        'slice-7',
+      ])
+    } finally {
+      await registry.dispose()
+      await store.close()
+    }
+  })
 
   it('restores full state after a quiet restart and accepts bookkeeping after a closed turn', async () => {
     const store = await openTestStore(':memory:')

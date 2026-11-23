@@ -1157,18 +1157,36 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   // Complete runtime items are the shared terminal-to-transcript bridge. Capture
   // them at the accepted-event seam so live chat and restart hydration agree.
   // A parallel legacy transcriptDelta remains safe: SessionTerminal upserts it.
-  bag.runtimeGateway.onEvent(async (sessionId: SessionId, event: RuntimeEvent) => {
-    const delta = runtimeTranscriptDeltaFromEvent(event)
-    if (event.t !== 'draft' && !delta) return
+  //
+  // ONE FOLD PER SLICE (POD-7429). The gateway hands the complete items one
+  // ingress transaction committed together; merging them into both buffers at
+  // once replaces one full merge and sort per item. A reset or draft arrives in
+  // a slice of its own.
+  bag.runtimeGateway.onEvents(async (sessionId: SessionId, events: readonly RuntimeEvent[]) => {
+    const deltas = events.flatMap((event) => {
+      const delta = runtimeTranscriptDeltaFromEvent(event)
+      return delta ? [delta] : []
+    })
+    const drafts = events.filter((event) => event.t === 'draft')
+    if (deltas.length === 0 && drafts.length === 0) return
     await bag.residency.withSession(sessionId, 'runtime.transcript', async () => {
-      if (event.t === 'draft') {
-        await bag.state.handleNativeDraft(sessionId, event.text)
-        return
+      for (const event of drafts) {
+        if (event.t === 'draft') await bag.state.handleNativeDraft(sessionId, event.text)
       }
-      if (!delta) return
+      if (deltas.length === 0) return
       const session = bag.sessions.get(sessionId)
       if (!session) return
-      if (session.terminal.applyRuntimeDelta(delta.items, delta)) {
+      let becameAvailable = false
+      // Contiguous plain items fold together; a reset starts a new buffer.
+      for (let start = 0; start < deltas.length; ) {
+        const first = deltas[start]!
+        let end = start + 1
+        if (!first.reset) while (end < deltas.length && !deltas[end]!.reset) end++
+        const items = deltas.slice(start, end).flatMap((delta) => delta.items)
+        if (session.terminal.applyRuntimeDelta(items, first)) becameAvailable = true
+        start = end
+      }
+      if (becameAvailable) {
         await bag.repository.persist(bag.deps.writers.daemon, session)
         bag.broadcastSessions()
       }
