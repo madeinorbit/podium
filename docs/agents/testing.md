@@ -201,22 +201,29 @@ Core processes on the shared host. Register new Core process test files in the e
 pool, sync worker, and background worker. Postgres uses one disposable clone per cluster
 from the [Postgres test harness](#postgres-store-lane). SQLite runs one Core over a temporary
 database file and can restart that Core against the same file.
+Competition and cross-process failover assertions are Postgres-only. Use `size > 1` to
+run those assertions and exercise restart on SQLite.
 
-On a shared Linux validation VM with the Postgres container already running, the sample
-took 14.9 s wall time for both engines (7.4 s SQLite, 6.9 s Postgres). The test process tree
-peaked at 850 MiB summed RSS, sampled every 100 ms, within the 1,000 MB admission charge.
-The shared Postgres container peaked at 53 MiB above its starting memory during the run.
+On a shared Linux validation VM with the Postgres container already running, the smoke file
+took 19.1 s (7.0 s for SQLite, 7.2 s for Postgres, and 4.6 s for the exit check). While the
+Core children were active, the test process tree peaked at 853 MiB summed RSS, sampled
+every 100 ms, within the 1,000 MB admission charge. The shared Postgres container peaked
+at 62 MiB above its starting memory during the run.
 
 Import `startCoreTestCluster` from `apps/server/src/test-support/core-test-cluster.ts`.
 Set `postgresProcesses` in its options for a different Postgres process count.
 Use `client(index)` for authenticated tRPC and `route(index)` for HTTP and WebSocket URLs.
-For raw client requests, use the route's `clientHeaders` for authentication. Connect a daemon
-using the route's daemon socket URL and the test's protocol credentials.
+Use the route's `clientHeaders` for raw requests and socket reconnects. Every Core route
+uses the same browser device sign-in, including after a restart. `enrollDaemon(index)`
+pairs a test machine through that Core. `connectDaemon(index, daemon)` opens an authenticated
+socket to the chosen Core with the enrolled key. Close the socket when the test is done.
 `kill(index)` sends `SIGKILL` and waits for the child to exit. `start(index)` reopens a killed
-slot on the same database. `setWakeUpsDropped(index, true)` suppresses the current local
-feed wake-up while leaving the fallback timer active, and toggling it back returns the
-number of callbacks dropped. Close the cluster in `finally` so the remaining children are
-stopped before their database is dropped.
+slot on the same database. `setWakeUpsDropped(index, true)` gates only that Core's in-process
+scheduler-idle signal. The 50 ms frame flusher deadline still delivers the local feed, and
+toggling the gate back returns the number of callbacks dropped. POD-7292 moves the switch onto
+the cross-process workspace wake-up interface. Close the cluster in `finally` to stop the
+remaining children before dropping the database. `close()` reports unrequested exits with
+the Core process output.
 
 ### Server package shards
 

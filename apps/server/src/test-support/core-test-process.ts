@@ -1,20 +1,21 @@
 /** Bun child of the Core test cluster. The listener and server workers use production wiring. */
 import { setTimeout } from 'node:timers/promises'
+import { addSink, createConsoleSink } from '@podium/logger'
 import { startServer } from '../server'
 import type { CoreTestCommand, CoreTestReply } from './core-test-cluster'
 import { cookieOf } from './test-identity'
 
 if (!process.send) throw new Error('Core test process requires an IPC parent')
 process.once('disconnect', () => process.exit(1))
+addSink(createConsoleSink({ minLevel: 'info' }))
 
 // Exercise hosted authentication on loopback using the normal trusted proxy path.
 const server = await startServer({ port: 0, hostMachine: false, trustedProxyHops: 1 })
 const store = server.registry.sessionStore
 let dropWakeUps = false
 let dropped = 0
-// The store's idle signal is today's fast path for feed delivery. The fallback
-// timer and durable writes stay live. Move this gate to the workspace wake-up
-// transport when that replaces the local signal.
+// Gate the in-process scheduler-idle signal. The 50 ms frame flusher deadline
+// still delivers the local feed. POD-7292 moves this gate to workspace wake-up.
 const onIdle = store.onPublicationIdle.bind(store)
 store.onPublicationIdle = (listener) =>
   onIdle(() => {
@@ -43,16 +44,19 @@ process.once('SIGTERM', () => {
   )
 })
 
-const firstAdmin = await store.users.earliestAdmin()
-if (!firstAdmin?.accountId) throw new Error('Core fixture administrator has no account')
-const cookie = cookieOf(
-  await server.identity.core.deviceSignIns.create(
-    firstAdmin.accountId,
-    { kind: 'browser' },
-    'cookie',
-    { scheme: 'https', sameMachine: false, clientAddress: '127.0.0.1' },
-  ),
-)
+let cookie: string | undefined
+if (process.env.PODIUM_CORE_TEST_SIGN_IN === '1') {
+  const firstAdmin = await store.users.earliestAdmin()
+  if (!firstAdmin?.accountId) throw new Error('Core fixture administrator has no account')
+  cookie = cookieOf(
+    await server.identity.core.deviceSignIns.create(
+      firstAdmin.accountId,
+      { kind: 'browser' },
+      'cookie',
+      { scheme: 'https', sameMachine: false, clientAddress: '127.0.0.1' },
+    ),
+  )
+}
 
 // Server boot schedules its real threads off the listen path. Expose the route
 // only after both workers are running so tests can immediately exercise them.
@@ -63,4 +67,8 @@ while (true) {
   if (version.components?.janitor?.state === 'running') break
   await setTimeout(25)
 }
-process.send({ type: 'ready', port: server.port, cookie } satisfies CoreTestReply)
+process.send({
+  type: 'ready',
+  port: server.port,
+  ...(cookie ? { cookie } : {}),
+} satisfies CoreTestReply)

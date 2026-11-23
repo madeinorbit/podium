@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import { on } from 'node:events'
+import { setTimeout as delay } from 'node:timers/promises'
 import { asMutationId, mintDeviceId } from '@podium/model'
 import {
   CAP_METADATA_DELTA,
@@ -15,7 +16,6 @@ async function waitForFrame(socket: WebSocket, matches: (frame: ServerMessage) =
     const frame = JSON.parse(raw.toString()) as ServerMessage
     if (matches(frame)) return frame
   }
-  throw new Error('Core client socket closed before the expected frame')
 }
 
 test.each([
@@ -30,6 +30,16 @@ test.each([
     if (reader !== 0) {
       expect(readerRoute.pid).not.toBe(writerRoute.pid)
       expect(readerRoute.httpUrl).not.toBe(writerRoute.httpUrl)
+    }
+    expect(readerRoute.clientHeaders).toEqual(writerRoute.clientHeaders)
+
+    const daemon = await cluster.enrollDaemon(0)
+    const daemonSocket = await cluster.connectDaemon(reader, daemon)
+    try {
+      expect(daemonSocket.url).toBe(readerRoute.daemonSocketUrl)
+      expect(daemonSocket.readyState).toBe(WebSocket.OPEN)
+    } finally {
+      daemonSocket.terminate()
     }
 
     const profile = { id: mintDeviceId('agp_'), name: 'core-cluster-fixture' }
@@ -91,8 +101,30 @@ test.each([
     } else {
       expect(cluster.route(reader).pid).toBe(readerRoute.pid)
     }
+    expect(cluster.route(reader).clientHeaders).toEqual(writerRoute.clientHeaders)
     expect(await readProfile()).toMatchObject(profile)
   } finally {
     await cluster.close()
   }
 }, 150_000)
+
+test('reports an unrequested clean exit with the Core output', async () => {
+  const cluster = await startCoreTestCluster('sqlite')
+  try {
+    process.kill(cluster.route(0).pid, 'SIGTERM')
+    const deadline = AbortSignal.timeout(10_000)
+    while (true) {
+      try {
+        cluster.route(0)
+      } catch {
+        break
+      }
+      await delay(10, undefined, { signal: deadline })
+    }
+    await expect(cluster.close()).rejects.toThrow(
+      /Core exited unexpectedly \(0\): process 0[^\n]*\n[\s\S]*serving/,
+    )
+  } finally {
+    await cluster.close().catch(() => {})
+  }
+}, 45_000)
