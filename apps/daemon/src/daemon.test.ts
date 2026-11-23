@@ -110,6 +110,7 @@ import {
 import { driverSlotsOver } from './session/driver-slots.js'
 import { testSessions } from './session/testing.js'
 import { createSessionObservers, type ReattachControl } from './session-observers'
+import { sessionRuntimeDir } from './session-posture'
 import { TopicWatchRegistry } from './topics/watch-registry'
 import { DiscoveryWorkerClient, type WorkerLike } from './worker-client'
 
@@ -3603,7 +3604,7 @@ describe('agent state instrumentation', () => {
   it('writes the hook settings file and appends --settings for claude-code spawns', async () => {
     send({ type: 'spawn', sessionId: 'sA', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
     await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sA'))
-    const settingsPath = join(settingsDir, 'sA.json')
+    const settingsPath = join(sessionRuntimeDir(settingsDir, 'sA'), 'sA.json')
     const settings = JSON.parse(await readFile(settingsPath, 'utf8')) as {
       hooks: Record<string, { hooks: { type: string; url: string }[] }[]>
     }
@@ -3613,7 +3614,10 @@ describe('agent state instrumentation', () => {
 
   it('seedCliTheme rides the spawn into the settings file: absent/true seed theme:auto, false leaves the user theme alone', async () => {
     const themeOf = async (sessionId: SessionId): Promise<string | undefined> => {
-      const raw = await readFile(join(settingsDir, `${sessionId}.json`), 'utf8')
+      const raw = await readFile(
+        join(sessionRuntimeDir(settingsDir, sessionId), `${sessionId}.json`),
+        'utf8',
+      )
       return (JSON.parse(raw) as { theme?: string }).theme
     }
     send({ type: 'spawn', sessionId: 'sT1', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
@@ -3629,12 +3633,24 @@ describe('agent state instrumentation', () => {
     })
     await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sT2'))
     expect(await themeOf(asSessionId('sT2'))).toBeUndefined() // opt-out: no theme key at all
+    send({
+      type: 'spawn',
+      sessionId: 'sT3',
+      agentKind: 'claude-code',
+      cwd: '/tmp',
+      geometry: G,
+      seedCliTheme: true,
+    })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sT3'))
+    expect(await themeOf(asSessionId('sT3'))).toBe('auto')
   })
 
   it('does not instrument shell sessions', async () => {
     send({ type: 'spawn', sessionId: 'sh1', agentKind: 'shell', cwd: '/tmp', geometry: G })
     await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sh1'))
-    await expect(readFile(join(settingsDir, 'sh1.json'), 'utf8')).rejects.toThrow()
+    await expect(
+      readFile(join(sessionRuntimeDir(settingsDir, 'sh1'), 'sh1.json'), 'utf8'),
+    ).rejects.toThrow()
   })
 
   it('hook POSTs flow through translate+reduce and out as agentState messages', async () => {
