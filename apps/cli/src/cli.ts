@@ -32,6 +32,7 @@ import {
   needsSetup,
   type PodiumConfig,
   type PodiumMode,
+  parseServerProcessRoles,
   profileSamplerEnv,
   resolveAgentRelay,
   resolveFeatureOverrides,
@@ -118,7 +119,7 @@ const SELF_PARSED_FLAGS: Readonly<Record<string, FlagDeclaration>> = {
  *  else is a usage error — an unrecognized flag or a typo'd subcommand must never
  *  silently fall through and boot the stack (issue #18). */
 const LAUNCH_BARE_WORDS: string[] = [...SUBCOMMANDS, 'all', 'setup', 'instance', 'parent']
-const LAUNCH_VALUE_FLAGS = ['--server', '--pair', '--name']
+const LAUNCH_VALUE_FLAGS = ['--server', '--pair', '--name', '--roles']
 const LAUNCH_BOOL_FLAGS = ['--local', '--reconfigure', '--takeover']
 
 // These sub-CLIs render richer command-local help after normal dispatch. Top-level
@@ -320,6 +321,9 @@ export type LaunchPlan =
       /** `--takeover`: displace a LIVE same-role instance. Without it, runInProcess
        *  refuses to start when the run registry shows a live holder (#18). */
       takeover: boolean
+      /** `podium server --roles api,sync`: the parts this server process runs
+       *  (POD-7332). Absent: PODIUM_SERVER_ROLES, else all of them. */
+      serverRoles?: readonly string[]
     }
 
 type StateFreeInformationalPlan = Extract<LaunchPlan, { kind: 'help' | 'version' }>
@@ -907,6 +911,20 @@ export function resolvePlan(
   }
 
   const modePlan = resolveModePlan(argv, config)
+  // `--roles` names the parts of ONE server process (POD-7332). Checked here, so
+  // a typo is a usage error rather than a server that boots and exits.
+  const rolesIdx = argv.indexOf('--roles')
+  let serverRoles: readonly string[] | undefined
+  if (rolesIdx >= 0) {
+    if (argv[0] !== 'server') {
+      return { kind: 'usage-error', message: 'podium: --roles applies to `podium server` only' }
+    }
+    try {
+      serverRoles = [...parseServerProcessRoles(argv[rolesIdx + 1] ?? '', '--roles')]
+    } catch (error) {
+      return { kind: 'usage-error', message: `podium: ${(error as Error).message}` }
+    }
+  }
   // `podium setup` (or --reconfigure) re-enters the interactive flow — the mode-first menu
   // that can switch this box between modes. TTY-gated below; headless falls through to
   // serving the web setup UI in-process.
@@ -989,6 +1007,7 @@ export function resolvePlan(
     modePlan,
     showSetupHint: forceSetup || modePlan.showSetupHint,
     takeover: argv.includes('--takeover'),
+    ...(serverRoles ? { serverRoles } : {}),
   }
 }
 
@@ -1007,7 +1026,9 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '',
     'Run modes (no command = run the configured mode, default all-in-one):',
     '  all-in-one            Run server + daemon in this process (alias: all)',
-    '  server                Run only the server',
+    '  server [--roles <list>]',
+    '                        Run only the server; --roles picks its parts from',
+    '                        api,sync,worker (default: all; PODIUM_SERVER_ROLES)',
     '  daemon [--local] [--server <url>] [--pair <code>] [--name <name>]',
     '                        Run only the daemon (connects to a server)',
     '  parent                Supervise server (+ janitor worker) and daemon children',
@@ -1252,7 +1273,7 @@ export function alreadyRunningMessage(
  * host modules; every other subcommand path never loads them.
  */
 export interface HostModules {
-  startServer(opts: { port: number }): Promise<{
+  startServer(opts: { port: number; roles?: readonly string[] }): Promise<{
     port: number
     /** In-process daemon channel [POD-196] — passed to the all-in-one daemon
      *  so per-frame traffic skips the loopback WebSocket entirely. */
@@ -1424,7 +1445,10 @@ async function runInProcess(
     const { startServer, isAddressInUseError } = host
     let server: Awaited<ReturnType<typeof startServer>>
     try {
-      server = await startServer({ port })
+      server = await startServer({
+        port,
+        ...(plan.serverRoles ? { roles: plan.serverRoles } : {}),
+      })
     } catch (err) {
       // The port is taken (the common case on podium-host: the systemd podium-server
       // already owns :18787). Print actionable guidance and exit cleanly rather than

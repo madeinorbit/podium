@@ -449,6 +449,14 @@ interface SessionRegistryOptions {
   recoveryOnly?: boolean
   /** Run durable hydration on a fenced rehearsal copy without background dispatch. */
   rehearseBoot?: boolean
+  /**
+   * Whether this process runs background work (POD-7332): the effect runner and
+   * its sweep, the delivery, input, credential and file sweeps, shipping
+   * retries, the quota sampler and backfill, the git watch and the boot
+   * recovery passes. False in a server process without the `worker` role, whose
+   * job rows wait for a process that has it. Absent: on.
+   */
+  backgroundWork?: boolean
   /** Which parked sessions stay in memory (POD-6160 D2f); absent keeps them all. */
   sessionResidency?: { evictParked?: boolean; sweepIntervalMs?: number }
   /** Whether this server runs the hub role (`roles.ts`). Absent = hub, as a tRPC
@@ -687,6 +695,8 @@ export class SessionRegistry {
   readonly daemonLinks: DaemonLinks
 
   readonly recoveryOnly: boolean
+  /** This process runs background work (the `worker` role); see the option. */
+  readonly backgroundWork: boolean
   /** Installation capabilities derived once by the server composition root. */
   readonly capabilities: ServerCapabilities
   /** See {@link SessionRegistryOptions.memberCredentials}. */
@@ -762,17 +772,17 @@ export class SessionRegistry {
   /** Boot and inventory-triggered personal backend seeding. */
   private readonly superagentDefaults: SuperagentDefaultSeeder
   /** Message delivery slow sweep (#237). */
-  private readonly messageSweep: ReturnType<typeof setInterval>
+  private readonly messageSweep: ReturnType<typeof setInterval> | undefined
   /** Adds a person's delivered message to a Concertmaster's conversation (POD-7211). */
   private readonly concertmasterDelivered: DeliveredMessageWatch
   /** The credential expiry sweep (credential management §7). */
-  private readonly credentialExpirySweep: ReturnType<typeof setInterval>
+  private readonly credentialExpirySweep: ReturnType<typeof setInterval> | undefined
   /** Queued-INPUT sweep (POD-1703) — the PTY queue's own backstop. The sweep
    *  above walks the message LEDGER; this one re-arms the drains that actually
    *  move bytes, which had no timer at all. */
-  private readonly queuedInputSweep: ReturnType<typeof setInterval>
+  private readonly queuedInputSweep: ReturnType<typeof setInterval> | undefined
   /** Unclaimed composer uploads past their day (POD-2148). */
-  private readonly pendingUploadSweep: ReturnType<typeof setInterval>
+  private readonly pendingUploadSweep: ReturnType<typeof setInterval> | undefined
   /** Read-gated auto-archive timers (issue #127) — modules/issues. */
   private readonly issueAutoArchive: IssueAutoArchive
   /** Parent-branch movement watch (POD-384) — modules/issues. */
@@ -839,7 +849,7 @@ export class SessionRegistry {
     stageStarted = performance.now()
     if (!this.recoveryOnly || rehearseBoot) {
       await this.modules.issues.recoverLegacyMembership()
-      if (!this.recoveryOnly && !rehearseBoot)
+      if (!this.recoveryOnly && !rehearseBoot && this.backgroundWork)
         this.modules.issueSessionLifecycle.startClosedIssueSweep()
     }
     bootStage('issues catch-up', stageStarted)
@@ -861,7 +871,7 @@ export class SessionRegistry {
     if (!this.recoveryOnly && !rehearseBoot) await this.store.sync.raiseEmptyHead()
     // The effect trigger and its recovery sweep (POD-6357): the boot sweep
     // expires, re-dispatches and recovers what a stop left behind.
-    if (!this.recoveryOnly && !rehearseBoot) {
+    if (!this.recoveryOnly && !rehearseBoot && this.backgroundWork) {
       this.effectsRunner.start()
       // These recoverable passes have periodic/durable retry sources. They
       // must neither race construction nor hold first boot behind history.
@@ -920,7 +930,12 @@ export class SessionRegistry {
     notificationPushers ??= DEFAULT_NOTIFICATION_PUSHERS
     const { instanceId } = options
     const recoveryOnly = options.recoveryOnly === true
-    const backgroundDisabled = recoveryOnly || options.rehearseBoot === true
+    // A boot that only recovers or rehearses runs no background work and no
+    // activity flush; a process without the `worker` role (POD-7332) runs no
+    // background work but flushes the activity its own sockets report.
+    const bootOnly = recoveryOnly || options.rehearseBoot === true
+    this.backgroundWork = options.backgroundWork !== false
+    const backgroundDisabled = bootOnly || !this.backgroundWork
     this.recoveryOnly = recoveryOnly
     this.capabilities = options.capabilities ?? SELF_HOSTED_CAPABILITIES
     this.memberCredentials = options.memberCredentials
@@ -2112,7 +2127,7 @@ export class SessionRegistry {
       >
     >('session issue workflows')
     const sessionsSvc = new SessionLifecycle({
-      startActivityFlush: !backgroundDisabled,
+      startActivityFlush: !bootOnly,
       issueToken: async (credentialId, to) => {
         if (!issueSessionToken) throw new Error('the ChatGPT plan keeper is not wired yet')
         return await issueSessionToken(credentialId, to)
@@ -5518,33 +5533,36 @@ export class SessionRegistry {
       if (reset !== true) await sessionsSvc.inbox.onTranscriptDelta(sessionId, items)
       await messagesSvc.onTranscriptDelta(sessionId, items)
     })
-    this.messageSweep = setInterval(() => {
-      if (!backgroundDisabled)
-        void messagesSvc.sweep().catch((err: unknown) => {
-          log.warn('message delivery sweep failed', { err })
-        })
-    }, DELIVERY_RETRY_BACKSTOP_MS)
-    this.messageSweep.unref?.()
+    this.messageSweep = backgroundDisabled
+      ? undefined
+      : setInterval(() => {
+          void messagesSvc.sweep().catch((err: unknown) => {
+            log.warn('message delivery sweep failed', { err })
+          })
+        }, DELIVERY_RETRY_BACKSTOP_MS)
+    this.messageSweep?.unref?.()
     // The credential expiry sweep (§7): a notice two weeks before, attention at expiry.
     const sweepCredentialExpiry = () => {
-      if (!backgroundDisabled)
-        this.startBackground('credential expiry sweep failed', () =>
-          this.modules.credentialHealth.checkExpiry(),
-        )
+      this.startBackground('credential expiry sweep failed', () =>
+        this.modules.credentialHealth.checkExpiry(),
+      )
     }
-    this.credentialExpirySweep = setInterval(sweepCredentialExpiry, CREDENTIAL_EXPIRY_SWEEP_MS)
-    this.credentialExpirySweep.unref?.()
+    this.credentialExpirySweep = backgroundDisabled
+      ? undefined
+      : setInterval(sweepCredentialExpiry, CREDENTIAL_EXPIRY_SWEEP_MS)
+    this.credentialExpirySweep?.unref?.()
     // The PTY queue's backstop (POD-1703). Faster than the ledger sweep because
     // it is cheap — `drain` is single-flight and returns immediately on a
     // session with an empty queue or one already draining — and because what it
     // heals is a person waiting on a message that has already been accepted.
-    this.queuedInputSweep = setInterval(() => {
-      if (!backgroundDisabled)
-        void sessionsSvc.inbox.sweepQueuedInputs().catch((err: unknown) => {
-          log.warn('queued input sweep failed', { err })
-        })
-    }, QUEUED_INPUT_SWEEP_MS)
-    this.queuedInputSweep.unref?.()
+    this.queuedInputSweep = backgroundDisabled
+      ? undefined
+      : setInterval(() => {
+          void sessionsSvc.inbox.sweepQueuedInputs().catch((err: unknown) => {
+            log.warn('queued input sweep failed', { err })
+          })
+        }, QUEUED_INPUT_SWEEP_MS)
+    this.queuedInputSweep?.unref?.()
     // The workspace's file jobs (POD-6963 design 2.9). Hourly, and once at
     // boot: composer uploads nobody sent within a day (POD-2148) and CLI
     // transfers interrupted a day ago, each a query over its table plus
@@ -5583,8 +5601,10 @@ export class SessionRegistry {
       }
     }
     sweepFiles()
-    this.pendingUploadSweep = setInterval(sweepFiles, PENDING_UPLOAD_SWEEP_MS)
-    this.pendingUploadSweep.unref?.()
+    this.pendingUploadSweep = backgroundDisabled
+      ? undefined
+      : setInterval(sweepFiles, PENDING_UPLOAD_SWEEP_MS)
+    this.pendingUploadSweep?.unref?.()
     // Event-log retention + issue auto-archive timers RETIRED [POD-925]: both
     // jobs now run on the fenced janitor surface (parity-proven in unit tests).
     // Classes remain for tests / manual pruneNow; start() is no longer called.

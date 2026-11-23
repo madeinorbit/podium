@@ -306,6 +306,61 @@ instrument names its level in `PODIUM_LOOP_PROFILE` and still gets it.
 The parent states the level it resolved to its server and daemon children, so
 the two processes cannot disagree about what they are measuring.
 
+## `PODIUM_SERVER_ROLES` — the parts one server process runs
+
+The server binary is one program with several parts. A process runs any mix of
+them; with none named it runs all of them, which is how every self-hosted
+install runs (one process, SQLite, nothing to configure). A hosted deployment
+runs a pool of processes per role over one Postgres.
+
+| Role | What the process runs |
+|---|---|
+| `api` | The HTTP app: tRPC commands and queries, `/sync/*` bootstrap and pages (and the sync worker thread behind them), files, setup and sign-in routes, `/mcp`, the web bundles, `/version`; the local control socket and the Podium Connect publisher. |
+| `sync` | The socket plane: client sync sockets (`/client`), daemon links (`/daemon`, `/machine`) and their heartbeats, and the in-process daemon link an all-in-one daemon uses. |
+| `worker` | Background work: the janitor thread and its maintenance channel, the registry's sweeps (delivery, queued input, credential expiry, files), the effect runner and its sweep, shipping retries, the quota sampler and backfill, the parent-branch watch, the identity sweep and membership catch-up, the Telegram bridge, update-target resolution and refresh, the transcript lake conversion and the recovery-snapshot catalogue. |
+| `room` | Reserved for the live room (POD-7313). Not in this build: naming it fails the boot. |
+
+Migrating the database is not a role. On Postgres it is the deploy step
+`podium server migrate --database <url>`, run before any server process starts.
+
+Name the roles in one of three places, first one wins:
+
+1. `startServer({ roles: ['api', 'sync'] })`, for a composition root;
+2. `podium server --roles api,sync`;
+3. `PODIUM_SERVER_ROLES=api,sync` in the process's environment.
+
+The list is comma-separated; spaces around names are ignored. An unknown name,
+`room`, or an empty list fails the boot (the CLI reports it as a usage error
+before anything starts), naming the accepted roles: a process that runs less
+than it was asked to must not come up looking healthy. `--roles` belongs to
+`podium server` only; `all-in-one` hosts a daemon beside its server and always
+runs every role.
+
+What a process without a role does not do: it opens none of that role's
+listeners, sockets, timers or loops. Concretely:
+
+- Without `api` or `sync` there is no public listener. A worker-only process
+  listens on `127.0.0.1` on a port of its own, which answers `/health` and the
+  janitor's maintenance channel only.
+- With `sync` but not `api`, the listener answers socket upgrades and `/health`,
+  and every other HTTP path with 404.
+- With `api` but not `sync`, socket paths reach the HTTP app, which has no such
+  route.
+- Without `worker`, the maintenance channel answers 404 and no background loop
+  starts. Job rows (effects, operations, deliveries) wait for a process that
+  runs it.
+
+Every process still builds the in-memory service graph over its store, with that
+graph's own housekeeping timers (session residency, the superagent's turn reaper,
+the activity flush of the sockets it holds), and every process measures its own
+event loop. Those belong to the process, not to a role, until the stateless Core
+(POD-6954 design 4.2) removes the graph.
+
+Like `PODIUM_LOOP_PROFILE`, this is not a layered key, and unlike it there is no
+`config.json` layer: a role belongs to one process, and every process of an
+instance reads the same file. The handle `startServer` returns reports `roles`
+and, through `started()`, the name of each listener and loop as it starts.
+
 ## Forced settings in the UI
 
 `setup.provenance` reports, for every layered key, which layer answered and — when

@@ -40,9 +40,11 @@ import {
   resolveProfileOnStall,
   resolveProfileStallMs,
   resolvePublicUrl,
+  resolveServerProcessRoles,
   resolveTranscriptLake,
   resolveUpdateFeedPolling,
   resolveUpdateScope,
+  type ServerProcessRole,
 } from '@podium/runtime/config'
 import { PODIUM_CONNECT_PROBE_KEYS } from '@podium/runtime/connect-keys'
 import { installationPublicKeyWire } from '@podium/runtime/installation-identity'
@@ -115,6 +117,7 @@ import {
   HTTP_IDLE_TIMEOUT_S,
   type NativeServer,
   serveNative,
+  type WsHandle,
 } from './gateway/ws-server'
 import type { HostMachine } from './host-machine'
 import { hostSignIns } from './host-sign-ins'
@@ -237,6 +240,7 @@ import {
   createWorkspaceEdge,
   hostedWorkspaceId,
   maybeBoundServedWorkspaceOf,
+  routedPath,
   selfCallUrl,
 } from './workspace-edge'
 
@@ -302,9 +306,18 @@ export interface ServerHandle {
    * In-process daemon seam [POD-196]: hands the all-in-one daemon a direct
    * message channel so per-frame traffic skips the loopback WebSocket + JSON +
    * schema re-validation. Only the composition root wires this; remote daemons
-   * keep the authenticated WS path.
+   * keep the authenticated WS path. A daemon link is the `sync` role's, so a
+   * process without it has none.
    */
-  localDaemonLink: LocalDaemonLink
+  localDaemonLink?: LocalDaemonLink
+  /** The roles this process runs (POD-7332): `api`, `sync`, `worker`. */
+  roles: ReadonlySet<ServerProcessRole>
+  /**
+   * The listeners and loops this process started, by name, as they start: some
+   * start after the handle resolves. It reports what the roles turned on;
+   * nothing decides behaviour from it.
+   */
+  started(): ReadonlySet<string>
   /**
    * This process's event-loop accounting, absent at profile level `off`. It is
    * on the handle because the perf snapshot is assembled from the composition
@@ -632,6 +645,15 @@ export async function startServer(
     /** False when this server has no fleet machine of its own. Default: the local install. */
     hostMachine?: false
     role?: Partial<ServerRoleConfig>
+    /**
+     * THE PARTS THIS PROCESS RUNS (POD-7332; POD-6954 design 4.1): any of
+     * `api` (the HTTP app), `sync` (client sync sockets and daemon links) and
+     * `worker` (the janitor and every background job). Absent:
+     * PODIUM_SERVER_ROLES, else all of them, which is every self-hosted server.
+     * A role this process does not run opens none of its listeners or loops.
+     * `room` is reserved for POD-7313; migrating is `podium server migrate`.
+     */
+    roles?: readonly string[]
     /** Build-time extensions (the cloud seam — plugins.ts). OSS ships none. */
     plugins?: PodiumPlugin[]
     /**
@@ -689,6 +711,12 @@ export async function startServer(
 ): Promise<ServerHandle> {
   const rehearsal = process.env.PODIUM_REHEARSAL === '1'
   const config = loadConfig()
+  // WHICH PARTS THIS PROCESS RUNS (POD-7332), decided before anything opens:
+  // an unknown role fails the boot here. Each listener, timer and loop below
+  // asks `runs`, and names itself in `started` when it starts.
+  const roles = resolveServerProcessRoles(opts.roles, process.env)
+  const runs = { api: roles.has('api'), sync: roles.has('sync'), worker: roles.has('worker') }
+  const started = new Set<string>()
   // A promoted server's durable listen contract outranks the target daemon's
   // process environment; an explicit caller option still wins.
   const host = resolveBindHost({
@@ -899,6 +927,8 @@ export async function startServer(
     devChannelFeed: () => devChannelFeed?.(),
     recoveryOnly,
     rehearseBoot: rehearsal,
+    // The registry's sweeps and recovery passes are the worker's (POD-7332).
+    backgroundWork: runs.worker,
     // The server's baked product label is the Phase 1 target identity. The richer
     // release-manifest descriptor remains an optional /version publication seam.
     targetVersion: () => appVersion,
@@ -981,9 +1011,10 @@ export async function startServer(
   })
   openedIdentity = identity
   const membershipCatchUp =
-    !identity.local && !recoveryOnly && !rehearsal
+    !identity.local && !recoveryOnly && !rehearsal && runs.worker
       ? startMembershipCatchUp(identity.workspace, opts.membershipCatchUpSchedulerForTests)
       : undefined
+  if (membershipCatchUp) started.add('worker.membershipCatchUp')
   // Expired invitations and one-time codes are deleted hourly (section 2.3).
   // Not on a store that cannot be written, and not in a boot rehearsal.
   // LEGACY(remove-after: 2027-06): bootstrap and sweep pre-upgrade device sign-ins.
@@ -991,7 +1022,8 @@ export async function startServer(
   // resolver exists; the same hourly timer sweeps its leftovers.
   let signInCarryOver: SignInCarryOver | undefined
   let stopIdentitySweep = (): void => {}
-  if (!recoveryOnly && !rehearsal) {
+  if (!recoveryOnly && !rehearsal && runs.worker) {
+    started.add('worker.identitySweep')
     const sweep = setInterval(() => {
       void identity.workspace.core
         .sweep()
@@ -1124,7 +1156,13 @@ export async function startServer(
   // Messaging-app bridge: two-way Telegram chat with the
   // superagent, riding the notification bot config. configure() is a no-op
   // until a bot token + chat id are set; settings.changed re-arms it live.
-  const messaging = new MessagingService({
+  // The Telegram bridge polls and sends in the background: the worker's
+  // (POD-7332). A process without the role builds none, so no settings change
+  // arms it; the factory keeps the construction below as it was.
+  const newMessaging = (
+    deps: ConstructorParameters<typeof MessagingService>[0],
+  ): MessagingService | undefined => (runs.worker ? new MessagingService(deps) : undefined)
+  const messaging = newMessaging({
     bus: registry.modules.bus,
     // Outbound routing is derived from the authenticated binding table, never
     // from one ambient operator/global chat id. Zero or ambiguous routes fail closed.
@@ -1167,7 +1205,10 @@ export async function startServer(
     directSessions: directSessionPort(registry.modules, store),
     sessionAttachments: store.messagingSessionAttachments,
   })
-  if (!recoveryOnly && !rehearsal) messaging.configure()
+  if (messaging && !recoveryOnly && !rehearsal) {
+    messaging.configure()
+    started.add('worker.messaging')
+  }
   const cloud = createCloudRuntimeProviderFromEnv()
   const devArtifactToken = readOrCreateDevArtifactToken()
   let boundPort = opts.port ?? 0
@@ -1630,12 +1671,15 @@ export async function startServer(
   // worker thread and off the readiness path: a scrubbed snapshot changes size,
   // so it is catalogued and proved after the scrub, not before it. With nothing
   // to scrub this settles at once. It never rejects.
-  void registry.sessionStore
-    .scrubLegacySnapshots()
-    .then(() => registry.sessionStore.discoverDatabaseSnapshots())
-    .catch((error: unknown) =>
-      log.error('reconciling the recovery-snapshot catalogue failed', { err: error }),
-    )
+  if (runs.worker) {
+    started.add('worker.snapshotCatalogue')
+    void registry.sessionStore
+      .scrubLegacySnapshots()
+      .then(() => registry.sessionStore.discoverDatabaseSnapshots())
+      .catch((error: unknown) =>
+        log.error('reconciling the recovery-snapshot catalogue failed', { err: error }),
+      )
+  }
 
   const requestPeerAddresses = new WeakMap<Request, string>()
   /**
@@ -2286,6 +2330,19 @@ export async function startServer(
   }
 
   const requestedPort = opts.port ?? 0
+  /**
+   * THE HTTP PATHS THIS PROCESS ANSWERS (POD-7332): `/health` on every
+   * listener, the janitor's maintenance channel with the `worker` role, and
+   * the rest of the HTTP app with the `api` role. Socket upgrades are the
+   * `sync` role's and are answered before this. The path is the one Hono
+   * routes on, so an encoded spelling cannot reach a route the role lacks.
+   */
+  const servesHttpPath = (request: Request): boolean => {
+    const path = routedPath(request)
+    if (path === '/health') return true
+    if (path === '/maintenance' || path.startsWith('/maintenance/')) return runs.worker
+    return runs.api
+  }
   const listen = async (
     resolve: (handle: ServerHandle) => void,
     reject: (error: unknown) => void,
@@ -2299,7 +2356,7 @@ export async function startServer(
       settled = true
       stopDeferredPromotionPoll()
       stopDeferredSourceMovePoll()
-      await messaging.stop()
+      await messaging?.stop()
       await registry.dispose()
       // THE SECOND CLOSE PATH (POD-2148). Boot adoption has already run by
       // here, so this server may hold armed deadlines and drives in flight over
@@ -2316,7 +2373,11 @@ export async function startServer(
       )
     }
 
-    const ws = attachWebSockets(
+    // Client sync sockets and daemon links are the sync role's (POD-7332);
+    // their heartbeats start with them, so a process without it attaches none.
+    const attachSockets: (...args: Parameters<typeof attachWebSockets>) => WsHandle | undefined =
+      runs.sync ? attachWebSockets : () => undefined
+    const ws = attachSockets(
       registry,
       {
         readinessForClient: readiness,
@@ -2361,18 +2422,23 @@ export async function startServer(
           daemonLinkFactsOf(request, requestPeerAddresses.get(request), trustedProxyHops),
       },
     )
-    revokeConnectedDeviceSignIn = (sessionId) => ws.revokeClientCredential(sessionId)
+    if (ws) started.add('sync.sockets')
+    revokeConnectedDeviceSignIn = (sessionId) => ws?.revokeClientCredential(sessionId)
 
     let acceptingRequests = true
     let server: Pick<NativeServer<never>, 'port' | 'stop'>
     const listenStarted = performance.now()
+    // A process with neither `api` nor `sync` serves nobody from outside. Its
+    // janitor still reaches the maintenance channel over HTTP, so it listens
+    // on loopback alone, on a port of its own: no public port is opened.
+    const servesNetwork = runs.api || runs.sync
     try {
       server = serveNative({
-        port: requestedPort,
-        hostname: host,
+        port: servesNetwork ? requestedPort : 0,
+        hostname: servesNetwork ? host : '127.0.0.1',
         idleTimeout: HTTP_IDLE_TIMEOUT_S,
-        ...(tls ? { tls } : {}),
-        websocket: ws.websocket,
+        ...(tls && servesNetwork ? { tls } : {}),
+        ...(ws ? { websocket: ws.websocket } : {}),
         async fetch(request, nativeServer) {
           if (rehearsal && !['/health', '/version'].includes(new URL(request.url).pathname)) {
             return new Response('Upgrade rehearsal: session and API traffic disabled', {
@@ -2386,12 +2452,16 @@ export async function startServer(
           }
           const peerAddress = nativeServer.requestIP?.(request)?.address
           if (peerAddress) requestPeerAddresses.set(request, peerAddress)
-          const upgrade = serverMoveDataPlaneDeferred
-            ? null
-            : recoveryOnly && new URL(request.url).pathname !== '/daemon'
+          const upgrade =
+            !ws || serverMoveDataPlaneDeferred
               ? null
-              : await ws.handleRequest(request, nativeServer as never)
+              : recoveryOnly && new URL(request.url).pathname !== '/daemon'
+                ? null
+                : await ws.handleRequest(request, nativeServer as never)
           if (upgrade !== null) return upgrade
+          if (!servesHttpPath(request)) {
+            return new Response('Not found', { status: 404 })
+          }
           const response = await app.fetch(observedRequest(request))
           // Sync owns its streaming content coding, including identity.
           if (new URL(request.url).pathname.startsWith('/sync/')) return response
@@ -2399,6 +2469,8 @@ export async function startServer(
         },
       })
       bootStage('listen', listenStarted)
+      started.add(servesNetwork ? 'listener' : 'listener.loopback')
+      if (runs.api) started.add('api.http')
       const httpsWarning = httpsSignInWarning({
         loopback: isLoopbackHost(host),
         tls: tls !== undefined,
@@ -2423,7 +2495,8 @@ export async function startServer(
     janitorHostStarting = (async () => {
       if (rehearsal) return
       // Existing worker test seam suppresses real threads in vitest's fork runtime.
-      if (!opts.janitorWorkerForTests && !janitorHostClosing) {
+      // The sync worker thread answers `/sync/*` bootstrap and pages: the api's.
+      if (runs.api && !opts.janitorWorkerForTests && !janitorHostClosing) {
         const { SyncWorkerClient } = await import('./sync-worker/worker-client')
         syncWorker = new SyncWorkerClient({
           dbPath: databaseLocation,
@@ -2431,7 +2504,10 @@ export async function startServer(
           // executor: it is told which kinds this server serves (POD-6770).
           effectKinds: () => registry.modules.effects?.executors.kinds() ?? [],
         })
+        started.add('api.syncWorker')
       }
+      if (!runs.worker) return
+      started.add('worker.janitor')
       const { startJanitorHost } = await import('./janitor-host')
       const startedJanitorHost = await startJanitorHost({
         port: boundPort,
@@ -2469,12 +2545,15 @@ export async function startServer(
     // allowed-tool name list below includes the bridged issue tools.
     superagent.setIssueTools(issueTools)
     // The harness agent runs on the same host (single-machine), so loopback
-    // reaches this MCP route. Now that the port is known, point it there.
-    await superagent.setMcpEndpoint(
-      selfCallUrl(`http://127.0.0.1:${server.port}/mcp`, capabilities.mode, loadedWorkspaceId),
-      mcpToken,
-      (await superagent.mcpToolSpecs()).map((s) => s.name),
-    )
+    // reaches this MCP route. Now that the port is known, point it there. The
+    // route is the api's, so a process without it has no endpoint to name.
+    if (runs.api) {
+      await superagent.setMcpEndpoint(
+        selfCallUrl(`http://127.0.0.1:${server.port}/mcp`, capabilities.mode, loadedWorkspaceId),
+        mcpToken,
+        (await superagent.mcpToolSpecs()).map((s) => s.name),
+      )
+    }
     // Event-loop accounting and the server-side stall reporter (POD-600), both
     // gated on the resolved profile level. The warning goes out at ANY level:
     // it means the environment asked for something this build does not accept,
@@ -2835,8 +2914,10 @@ export async function startServer(
       },
     }
     const healthStarted = performance.now()
+    // Resolving update targets, the reconciler's boot sweep, the delayed
+    // refresh and the lake conversion are background work: the worker's.
     void (
-      recoveryOnly
+      recoveryOnly || !runs.worker
         ? Promise.resolve()
         : refreshTargetsOnBoot({
             refresh: (channel) => registry.modules.updates.refreshTargetForPolling(channel),
@@ -2845,12 +2926,12 @@ export async function startServer(
     ).then(async (initialResults) => {
       // Recovery-only transfer boots must remain read-only. Normal boots recover
       // a lost settle sweep after operation adoption and target hydration.
-      if (!recoveryOnly) await registry.modules.updatesReconciler?.onBoot()
+      if (!recoveryOnly && runs.worker) await registry.modules.updatesReconciler?.onBoot()
       // Only after the immediate resolve succeeds or records its per-channel
       // refusal do we expose health and arm the delayed retry. The delay remains
       // exactly the scheduler's 2–7 minute jitter; it is recovery, not boot.
       const targetRefresh =
-        recoveryOnly || rehearsal
+        recoveryOnly || rehearsal || !runs.worker
           ? { stop: () => {} }
           : startTargetRefresh({
               refresh: (channel) => registry.modules.updates.refreshTargetForPolling(channel),
@@ -2859,22 +2940,31 @@ export async function startServer(
               operationActive: (channel) => registry.modules.updates.operationActive(channel),
               schedule: timerSchedule,
             })
+      if (!recoveryOnly && !rehearsal && runs.worker) started.add('worker.updateTargetRefresh')
       targetsResolvedOnBoot = true
       bootStage('health exposed', healthStarted)
       // Health cannot wait for tens of GB of cold history. A failed pass keeps
       // its sources and no done marker; reads work and the next boot retries.
-      lakeConversionWork = convertingLake?.run().catch((err) => {
-        if (!lakeConversionAbort.signal.aborted) {
-          log.warn('transcript lake conversion paused; will resume on restart', { err })
-        }
-      })
-      if (!recoveryOnly && !rehearsal) connectPublisher.start()
+      if (convertingLake && runs.worker) {
+        started.add('worker.lakeConversion')
+        lakeConversionWork = convertingLake.run().catch((err) => {
+          if (!lakeConversionAbort.signal.aborted) {
+            log.warn('transcript lake conversion paused; will resume on restart', { err })
+          }
+        })
+      }
+      // Connect advertises where this server's HTTP app is reached: the api's.
+      if (!recoveryOnly && !rehearsal && runs.api) {
+        connectPublisher.start()
+        started.add('api.connectPublisher')
+      }
       // Local programs (the quick-tunnel utility first) reach this server on a
       // user-only unix socket; a new public URL written there reaches Connect at
       // once instead of on the publisher's 5-minute tick (POD-4640). A socket that
       // cannot be bound costs only that; the server serves regardless.
+      // The local programs' control plane answers on behalf of the HTTP app.
       const controlSocket =
-        recoveryOnly || rehearsal || !capabilities.controlSocket
+        recoveryOnly || rehearsal || !capabilities.controlSocket || !runs.api
           ? undefined
           : await listenUserSocket(
               serverControlSocketPath({ instanceId }),
@@ -2947,6 +3037,7 @@ export async function startServer(
               })
               return undefined
             })
+      if (controlSocket) started.add('api.controlSocket')
       resolve({
         port: server.port,
         syncWorker: () => syncWorker,
@@ -2959,7 +3050,9 @@ export async function startServer(
         get maintenanceToken() {
           return maintenanceToken
         },
-        localDaemonLink,
+        ...(runs.sync ? { localDaemonLink } : {}),
+        roles,
+        started: () => started,
         ...(loopAccounting ? { loopAccounting } : {}),
         // Deterministic fast shutdown (POD-611): terminate WS intake, persist
         // state unconditionally, THEN force-close lingering http sockets —
@@ -2972,7 +3065,7 @@ export async function startServer(
           await closeServerFast({
             closeWebSockets: async () => {
               acceptingRequests = false
-              await ws.close()
+              await ws?.close()
             },
             drainStore: async (persist) => {
               // A timer pass keeps its original executor context: awaiting it
@@ -2987,7 +3080,7 @@ export async function startServer(
             },
             server,
             persist: [
-              ['messaging.stop', () => messaging.stop()],
+              ['messaging.stop', () => messaging?.stop()],
               // A sweep that outlives the server would delete against a closed store.
               ['identity.stopSweep', stopIdentitySweep],
               ['serverMove.stopDeferredPromotionPoll', stopDeferredPromotionPoll],

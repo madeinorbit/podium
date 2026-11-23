@@ -230,7 +230,9 @@ describe('startServer with the hub role disabled (node shape)', () => {
         hostname: 'same-host',
       },
     })
-    const attachment = await handle.localDaemonLink.attach({
+    const link = handle.localDaemonLink
+    if (!link) throw new Error('a server with every role has a local daemon link')
+    const attachment = await link.attach({
       hello: dialer.hello(),
       deliver: vi.fn(),
     })

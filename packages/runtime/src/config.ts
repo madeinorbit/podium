@@ -34,6 +34,7 @@
  * | PODIUM_ALLOWED_ORIGINS        | config.allowedOrigins   | `resolveAllowedOrigins()` — credentialed CORS list      |
  * | PODIUM_UPDATE_SCOPE           | config.updateScope      | `resolveUpdateScope()` — 'fleet-only' = CI owns server  |
  * | PODIUM_TRANSCRIPT_LAKE        | config.transcriptLake   | `resolveTranscriptLake()` — 'off' = no mirroring        |
+ * | PODIUM_SERVER_ROLES           | — (env-only, per process)| `resolveServerProcessRoles()` — api,sync,worker; all if unset |
  * | PODIUM_FILE_STORAGE_BACKEND   | config.fileStorage      | `resolveFileStorage()` — 'local' (default) or 's3'     |
  * | PODIUM_FILE_STORAGE_ENDPOINT/_BUCKET/_REGION | config.fileStorage.* | `resolveFileStorage()` — the bucket, for 's3' |
  * | PODIUM_FILE_STORAGE_ACCESS_KEY_ID/_SECRET_ACCESS_KEY | — (env-only secret) | `resolveFileStorage()` — the bucket's key pair |
@@ -2540,4 +2541,75 @@ export function resolveLoggingMode(
   const supervised = resolveRunRecordMode(env)
   if (supervised === 'foreground' && env.PODIUM_DESKTOP_SUPERVISED === '1') return 'detached'
   return supervised
+}
+
+// ---------------------------------------------------------------------------
+// SERVER PROCESS ROLES (POD-7332; POD-6954 design 4.1 and 4.12)
+// ---------------------------------------------------------------------------
+
+/**
+ * The parts one server binary can run. `api` serves HTTP, `sync` holds client
+ * sync sockets and daemon links, `worker` runs background jobs, `room` carries
+ * live traffic. A self-hosted server runs every role in one process; a hosted
+ * deployment runs pools that each name theirs. Migrating the database is not a
+ * role: it is the `podium server migrate` deploy step.
+ */
+export const SERVER_PROCESS_ROLES = ['api', 'sync', 'worker', 'room'] as const
+export type ServerProcessRole = (typeof SERVER_PROCESS_ROLES)[number]
+
+/** The roles this build can run. `room` keeps its name until POD-7313 adds it. */
+export const AVAILABLE_SERVER_PROCESS_ROLES: readonly ServerProcessRole[] = [
+  'api',
+  'sync',
+  'worker',
+]
+
+/** The variable a process names its roles in: a comma-separated list. */
+export const SERVER_ROLES_ENV = 'PODIUM_SERVER_ROLES'
+
+/**
+ * Parse a list of role names: `"api,sync"` or `['api', 'sync']`. An unknown
+ * name, a role this build does not have, or an empty list throws, naming what
+ * is accepted: a process that runs less than it was asked to must not boot.
+ */
+export function parseServerProcessRoles(
+  raw: string | readonly string[],
+  source = SERVER_ROLES_ENV,
+): ReadonlySet<ServerProcessRole> {
+  const names = (typeof raw === 'string' ? raw.split(',') : raw)
+    .map((name) => name.trim())
+    .filter((name) => name !== '')
+  const accepted = AVAILABLE_SERVER_PROCESS_ROLES.join(', ')
+  if (names.length === 0) throw new Error(`${source} names no server role; accepted: ${accepted}`)
+  const roles = new Set<ServerProcessRole>()
+  for (const name of names) {
+    if (!(SERVER_PROCESS_ROLES as readonly string[]).includes(name)) {
+      throw new Error(`${source}: unknown server role '${name}'; accepted: ${accepted}`)
+    }
+    const role = name as ServerProcessRole
+    if (!AVAILABLE_SERVER_PROCESS_ROLES.includes(role)) {
+      throw new Error(`${source}: the '${role}' role is not in this build; accepted: ${accepted}`)
+    }
+    roles.add(role)
+  }
+  return roles
+}
+
+/**
+ * THE ROLES THIS SERVER PROCESS RUNS: the composition root's explicit list
+ * (`startServer({ roles })`, which `podium server --roles` fills), else
+ * PODIUM_SERVER_ROLES, else every role this build has.
+ *
+ * Deliberately not a `config.json` key: a role belongs to a process, and every
+ * process of an instance reads the same file. Self-hosted names nothing and
+ * runs everything in one process.
+ */
+export function resolveServerProcessRoles(
+  explicit: string | readonly string[] | undefined,
+  env: EnvSource = process.env,
+): ReadonlySet<ServerProcessRole> {
+  if (explicit !== undefined) return parseServerProcessRoles(explicit, 'server roles')
+  const fromEnv = env[SERVER_ROLES_ENV]
+  if (fromEnv !== undefined && fromEnv.trim() !== '') return parseServerProcessRoles(fromEnv)
+  return new Set(AVAILABLE_SERVER_PROCESS_ROLES)
 }

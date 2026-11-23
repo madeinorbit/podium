@@ -378,6 +378,27 @@ describe('resolvePlan — launch matrix', () => {
       daemonAuth: 'machine',
     })
   })
+  it('`podium server --roles` carries the parts of one server process (POD-7332)', () => {
+    expect(plan({ mode: 'server' }, ['server', '--roles', 'api, sync'])).toMatchObject({
+      kind: 'in-process',
+      roles: { server: true, daemon: false },
+      serverRoles: ['api', 'sync'],
+    })
+    // Naming nothing is every role: the plan carries no list for the server to override.
+    expect(plan({ mode: 'server' }, ['server'])).not.toHaveProperty('serverRoles')
+  })
+  it('refuses `--roles` it cannot run, and outside `podium server`', () => {
+    for (const [argv, message] of [
+      [['server', '--roles', 'api,cache'], /unknown server role 'cache'/],
+      [['server', '--roles', 'room'], /'room' role is not in this build/],
+      [['server', '--roles', ''], /names no server role/],
+      [['all-in-one', '--roles', 'api'], /applies to `podium server` only/],
+    ] as const) {
+      const result = plan({ mode: 'server' }, [...argv])
+      expect(result.kind, argv.join(' ')).toBe('usage-error')
+      if (result.kind === 'usage-error') expect(result.message).toMatch(message)
+    }
+  })
   it('run record mode: NOTIFY_SOCKET → systemd; PODIUM_RUN_MODE=detached → detached', () => {
     expect(plan({ mode: 'server' }, ['server'], { NOTIFY_SOCKET: '/run/x' })).toMatchObject({
       runRecordMode: 'systemd',
