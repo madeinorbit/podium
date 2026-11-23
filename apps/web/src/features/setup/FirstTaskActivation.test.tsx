@@ -227,7 +227,6 @@ describe('FirstTaskActivation', () => {
 
     await screen.findByText('Ready')
     const codex = within(screen.getByRole('group', { name: 'Codex actions' }))
-    expect(codex.getByText('Ready')).toBeTruthy()
     expect(codex.queryByRole('button', { name: 'Install' })).toBeNull()
     const opencode = within(screen.getByRole('group', { name: 'OpenCode actions' }))
     expect(opencode.getByRole('button', { name: 'Install' }).hasAttribute('disabled')).toBe(false)

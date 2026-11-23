@@ -213,35 +213,65 @@ describe('web legacy issue retention', () => {
     ).toEqual([])
     expect(allIssueViewModels(after.replica)).toEqual(beforeModels)
     expect(screenOutput(allIssueViewModels(after.replica))).toEqual(screens)
-    // A dropped row remains ignored on the live feed; its sequence still commits.
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async () =>
-          new Response(
-            [
-              {
-                type: 'syncMeta',
-                kindTokens: {},
-                formatVersion: 1,
-                mode: 'delta',
-                transferId: 't',
-                feedId: 'f',
-                epoch: 'e',
-                fromSeq: 10,
-                seq: 10,
-                minAvailableSeq: 0,
-                wireVersion: CLIENT_WIRE_VERSION,
-                wireSchemaDigest: wireSchemaDigest(),
-              },
-              { type: 'syncComplete', transferId: 't', seq: 10, records: 0, rows: 0 },
-            ]
-              .map((record) => JSON.stringify(record) + '\n')
-              .join(''),
-            { headers: { 'content-type': 'application/x-ndjson' } },
-          ),
-      ),
-    )
+    // The legacy cache has no current holdings certificate. Serve the snapshot
+    // recovery asks for as well as the initial equal-endpoint delta.
+    const retained = records.filter((record) => record.entity !== 'issue')
+    const fetchSync = vi.fn(async (url: string) => {
+      const snapshot = new URL(url, 'http://localhost').pathname === '/sync/bootstrap'
+      const changes = snapshot
+        ? retained.map((record) => ({
+            seq: record.provenance.seq,
+            entity: record.entity,
+            entityId: record.entityId,
+            value: record.value,
+            op: 'upsert',
+          }))
+        : []
+      return new Response(
+        [
+          {
+            type: 'syncMeta',
+            kindTokens: {},
+            formatVersion: 1,
+            transferId: 't',
+            feedId: 'f',
+            epoch: 'e',
+            ...(snapshot
+              ? { mode: 'snapshot', totalRows: changes.length }
+              : { mode: 'delta', fromSeq: 10 }),
+            seq: 10,
+            minAvailableSeq: 0,
+            wireVersion: CLIENT_WIRE_VERSION,
+            wireSchemaDigest: wireSchemaDigest(),
+          },
+          ...(snapshot
+            ? [
+                {
+                  type: 'feedBootstrap',
+                  feedId: 'f',
+                  epoch: 'e',
+                  fromSeq: 0,
+                  seq: 10,
+                  minAvailableSeq: 0,
+                  changes,
+                  last: true,
+                },
+              ]
+            : []),
+          {
+            type: 'syncComplete',
+            transferId: 't',
+            seq: 10,
+            records: snapshot ? 1 : 0,
+            rows: changes.length,
+          },
+        ]
+          .map((record) => JSON.stringify(record) + '\n')
+          .join(''),
+        { headers: { 'content-type': 'application/x-ndjson' } },
+      )
+    })
+    vi.stubGlobal('fetch', fetchSync)
     after.assembly.feed.connected(true)
     await vi.waitFor(() =>
       expect(after.assembly.progress.getSnapshot()).toMatchObject({
@@ -249,6 +279,8 @@ describe('web legacy issue retention', () => {
         failure: null,
       }),
     )
+    expect(fetchSync.mock.calls.some(([url]) => url === '/sync/bootstrap')).toBe(true)
+    // A dropped row remains ignored on the live feed; its sequence still commits.
     after.assembly.feed.frame({
       type: 'feedDelta',
       feedId: 'f',

@@ -166,7 +166,10 @@ describe('kernel replica cross-tab convergence', () => {
     let requests = 0
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => {
+      vi.fn(async (url: string) => {
+        const request = new URL(url, 'http://localhost')
+        if (request.pathname === '/sync/delta')
+          return syncResponse(Number(request.searchParams.get('from')), [], 'delta')
         requests += 1
         return syncResponse(requests <= 2 ? 1 : 2, requests <= 2 ? initiallyVisible : [])
       }),
@@ -201,6 +204,8 @@ describe('kernel replica cross-tab convergence', () => {
       expect(firstObserver.rows('issueProjections')).toEqual([])
       expect(secondObserver.rows('issueProjections')).toEqual([])
       expect(requests).toBe(4)
+      expect(first?.progress.getSnapshot()).toMatchObject({ phase: 'ready', failure: null })
+      expect(second?.progress.getSnapshot()).toMatchObject({ phase: 'ready', failure: null })
     })
     await Promise.all([first.store.settled(), second.store.settled()])
 

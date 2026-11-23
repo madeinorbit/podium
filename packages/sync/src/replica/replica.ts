@@ -1194,6 +1194,22 @@ export class Replica implements DeviceCollectionReads {
 
   // ─── Rung 1: heal ─────────────────────────────────────────────────────────
 
+  private async refreshConflictedCache(generation: number): Promise<boolean> {
+    if (!(await this.store.refreshAfterCacheConflict?.())) return false
+    if (generation !== this.walkGeneration) return true
+    this.cursorValue = this.readCursorSafely()
+    // Reconcile views with the durable cache before replaying socket frames.
+    if (this.cursorValue !== null)
+      this.emit({
+        type: 'bootstrap-installed',
+        cause: 'resume',
+        snapshotSeq: this.cursorValue.seq,
+        entityCount: this.store.readEntities().length,
+        bufferedFramesApplied: 0,
+      })
+    return true
+  }
+
   private startHeal(): void {
     this.walkAbort.abort()
     this.walkAbort = new AbortController()
@@ -1204,19 +1220,7 @@ export class Replica implements DeviceCollectionReads {
     this.emit({ type: 'heal', rung: 1, cause: 'gap' })
     this.run(async () => {
       if (generation !== this.walkGeneration) return
-      if (await this.store.refreshAfterCacheConflict?.()) {
-        if (generation !== this.walkGeneration) return
-        this.cursorValue = this.readCursorSafely()
-        // Reconcile views with the durable cache before replaying socket frames.
-        if (this.cursorValue !== null)
-          this.emit({
-            type: 'bootstrap-installed',
-            cause: 'resume',
-            snapshotSeq: this.cursorValue.seq,
-            entityCount: this.store.readEntities().length,
-            bufferedFramesApplied: 0,
-          })
-      }
+      await this.refreshConflictedCache(generation)
       if (generation !== this.walkGeneration) return
       const cursor = this.cursorValue
       if (cursor === null) {
@@ -1515,6 +1519,12 @@ export class Replica implements DeviceCollectionReads {
         this.note('D6-RESTART')
       } catch (error) {
         if (generation !== this.walkGeneration) return
+        // A concurrent tab may have completed this load first. Adopt its durable
+        // generation and resume from its cursor instead of retrying stale writes.
+        if (await this.refreshConflictedCache(generation)) {
+          if (generation === this.walkGeneration) this.startHeal()
+          return
+        }
         if (error instanceof ReplicaStoreCorruptError) {
           // Rung 5 discovered from INSIDE a walk. Escalating is correct exactly
           // once: a walk that is not already the corruption walk hands over to
