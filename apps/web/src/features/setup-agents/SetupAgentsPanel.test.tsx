@@ -61,6 +61,22 @@ const installing = (kind: BuiltinHarnessKind): AgentInventory => ({
   ...notInstalled(kind),
   install: { managed: { paused: false, installing: { version: '0.171.0' } } },
 })
+const downloading = (kind: BuiltinHarnessKind, received: number, total: number) => ({
+  ...notInstalled(kind),
+  install: {
+    managed: {
+      paused: false,
+      installing: {
+        version: '0.171.0',
+        progress: {
+          phase: 'download' as const,
+          receivedBytes: received * 2 ** 20,
+          totalBytes: total * 2 ** 20,
+        },
+      },
+    },
+  },
+})
 const failed = (kind: BuiltinHarnessKind): AgentInventory => ({
   ...notInstalled(kind),
   install: {
@@ -142,27 +158,22 @@ describe('Set up agents list', () => {
   })
 
   it('shows an installing row’s step and percent when the machine reports progress, else an indeterminate bar', () => {
-    const { view, row } = setup([installing('codex'), installing('opencode')])
-    const codex = view.itemFor('codex')?.row
-    if (!codex) throw new Error('no codex row')
-    Object.defineProperty(codex, 'progress', {
-      configurable: true,
-      value: {
-        phase: 'download',
-        percent: 44,
-        receivedBytes: 18 * 2 ** 20,
-        totalBytes: 41 * 2 ** 20,
-      },
-    })
-    cleanup()
-    render(<SetupAgentsPanel view={view} variant="dialog" />)
+    const { row } = setup([downloading('codex', 18, 41), installing('opencode')])
     expect(within(row('codex')).getByRole('status').textContent).toBe(
-      'Downloading · 18 of 41 MB · 44%',
+      'Downloading · 18 of 41 MB · 43%',
     )
-    expect(within(row('codex')).getByRole('progressbar').getAttribute('aria-valuenow')).toBe('44')
+    expect(within(row('codex')).getByRole('progressbar').getAttribute('aria-valuenow')).toBe('43')
     expect(within(row('opencode')).getByRole('progressbar').hasAttribute('aria-valuenow')).toBe(
       false,
     )
+  })
+
+  it('never moves the bar backwards when a second file starts downloading', () => {
+    const { machine, row } = setup([downloading('codex', 40, 41)])
+    expect(within(row('codex')).getByRole('progressbar').getAttribute('aria-valuenow')).toBe('97')
+    act(() => machine.setAgents([downloading('codex', 2, 30)]))
+    expect(within(row('codex')).getByRole('status').textContent).toBe('Downloading')
+    expect(within(row('codex')).getByRole('progressbar').hasAttribute('aria-valuenow')).toBe(false)
   })
 
   it('installs the ticked harnesses only when the person presses Install', () => {

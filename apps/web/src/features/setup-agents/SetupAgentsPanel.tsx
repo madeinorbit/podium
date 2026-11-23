@@ -64,40 +64,53 @@ const SIGN_IN_WITH: Readonly<Partial<Record<BuiltinHarnessKind, string>>> = {
   antigravity: 'Google',
 }
 
-/** Install progress as POD-7471 reports it; read defensively until it lands. */
-interface ProgressFacts {
-  readonly phase?: 'download' | 'verify' | 'setup'
-  readonly percent?: number
-  readonly receivedBytes?: number
-  readonly totalBytes?: number
-}
-
 const MB = 1024 * 1024
 const megabytes = (bytes: number): string => String(Math.max(0, Math.round(bytes / MB)))
 
+/**
+ * Highest download percent seen per item. The machine reports percent and bytes
+ * per downloaded file, so they restart when an adapter fetches several files:
+ * once that happens the bar turns indeterminate instead of moving backwards.
+ */
+const downloadSeen = new WeakMap<AgentSetupItem, { max: number; restarted: boolean }>()
+
 /** "Downloading · 18 of 41 MB · 44%", or the model's label without progress data. */
 export function installStep(item: AgentSetupItem): { text: string; percent?: number } {
-  const progress = item.progress as ProgressFacts | undefined
-  const fallback = item.progressLabel ?? `Installing ${item.label}…`
-  if (!progress?.phase) return { text: fallback }
-  const percent =
-    typeof progress.percent === 'number' ? Math.max(0, Math.min(100, progress.percent)) : undefined
-  let text: string
-  switch (progress.phase) {
-    case 'download':
-      text =
-        progress.totalBytes !== undefined
-          ? `Downloading · ${megabytes(progress.receivedBytes ?? 0)} of ${megabytes(progress.totalBytes)} MB`
-          : 'Downloading'
-      break
-    case 'verify':
-      text = 'Checking the download'
-      break
-    case 'setup':
-      text = `Setting up Podium’s ${item.label} home`
-      break
+  const progress = item.progress
+  if (!progress) {
+    downloadSeen.delete(item)
+    return { text: item.progressLabel ?? `Installing ${item.label}…` }
   }
-  return percent === undefined ? { text } : { text: `${text} · ${percent}%`, percent }
+  switch (progress.phase) {
+    case 'download': {
+      const seen = downloadSeen.get(item) ?? { max: 0, restarted: false }
+      if (progress.percent !== undefined) {
+        if (progress.percent < seen.max) seen.restarted = true
+        seen.max = Math.max(seen.max, progress.percent)
+      }
+      downloadSeen.set(item, seen)
+      if (seen.restarted || progress.percent === undefined) {
+        return {
+          text:
+            !seen.restarted && progress.totalBytes !== undefined
+              ? `Downloading · ${megabytes(progress.receivedBytes ?? 0)} of ${megabytes(progress.totalBytes)} MB`
+              : 'Downloading',
+        }
+      }
+      const percent = Math.max(0, Math.min(100, progress.percent))
+      const bytes =
+        progress.totalBytes !== undefined
+          ? ` · ${megabytes(progress.receivedBytes ?? 0)} of ${megabytes(progress.totalBytes)} MB`
+          : ''
+      return { text: `Downloading${bytes} · ${percent}%`, percent }
+    }
+    case 'verify':
+      downloadSeen.delete(item)
+      return { text: 'Checking the download' }
+    case 'setup':
+      downloadSeen.delete(item)
+      return { text: `Setting up Podium’s ${item.label} home` }
+  }
 }
 
 function HarnessMark({ kind, size = 32 }: { kind: BuiltinHarnessKind; size?: number }) {

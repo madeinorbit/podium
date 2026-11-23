@@ -23,6 +23,7 @@ import '@/styles.css'
 const params = new URLSearchParams(location.search)
 const scene = params.get('state') ?? 'list'
 const theme = params.get('theme') ?? 'light'
+const MB = 1024 * 1024
 const checkedAt = new Date(Date.now() - 2 * 3600000).toISOString()
 
 const managed = (
@@ -98,7 +99,13 @@ function fleet(): AgentInventory[] {
   }
   if (scene === 'installing' || scene === 'signin') {
     codex.install = {
-      managed: { paused: false, installing: { version: '0.171.0' } },
+      managed: {
+        paused: false,
+        installing: {
+          version: '0.171.0',
+          progress: { phase: 'download', receivedBytes: 18 * MB, totalBytes: 41 * MB },
+        },
+      },
     }
     opencode.install = { managed: { paused: false, installing: { version: '1.14.2' } } }
   }
@@ -135,19 +142,6 @@ class FixtureMachine {
 const fixture = new FixtureMachine()
 const machine = fixture as unknown as MachineModel
 
-// Install progress as POD-7471 reports it (read when present).
-const progress = observable.map<BuiltinHarnessKind, object>()
-for (const row of fixture.harnessInstalls) {
-  Object.defineProperty(row, 'progress', { get: () => progress.get(row.kind) })
-}
-if (scene === 'installing' || scene === 'signin')
-  progress.set('codex', {
-    phase: 'download',
-    percent: 44,
-    receivedBytes: 18 * 1024 * 1024,
-    totalBytes: 41 * 1024 * 1024,
-  })
-
 const defaults = observable.object<Partial<Record<BuiltinHarnessKind, string>>>({})
 const view = new AgentSetupView({
   machine,
@@ -177,7 +171,6 @@ if (scene === 'signin')
   setTimeout(
     () =>
       runInAction(() => {
-        progress.clear()
         fixture.inventory = {
           ...fixture.inventory,
           agents: fixture.inventory.agents.map((agent) =>
@@ -189,10 +182,26 @@ if (scene === 'signin')
                   login: { state: 'out' },
                   install: { managed: managed('0.171.0') },
                 }
-              : agent,
+              : agent.kind === 'opencode'
+                ? {
+                    ...agent,
+                    install: {
+                      managed: {
+                        paused: false,
+                        installing: {
+                          version: '1.14.2',
+                          progress: {
+                            phase: 'download',
+                            receivedBytes: 29 * MB,
+                            totalBytes: 50 * MB,
+                          },
+                        },
+                      },
+                    },
+                  }
+                : agent,
           ),
         }
-        progress.set('opencode', { phase: 'download', percent: 58 })
       }),
     250,
   )
