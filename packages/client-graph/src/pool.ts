@@ -679,11 +679,12 @@ export class MobxPool {
                 : issue.headlessOccupied
         ) as IssueSessionFacts[typeof field]
       },
-      // A row the pool does not hold is not loaded for visibility.
+      // Visibility uses resident rows only. A disk-only peek can still answer
+      // LOADING; it is not an issue or session row and starts no load here.
       // untracked-read: visibility-issue-peek
-      issueRow: (id) => omitGone(this.row('issue', id, 'peek')) as SliceIssue | undefined,
+      issueRow: (id) => here(this.row('issue', id, 'peek')),
       // untracked-read: visibility-session-peek
-      sessionRow: (id) => omitGone(this.row('session', id, 'peek')) as SliceSession | undefined,
+      sessionRow: (id) => here(this.row('session', id, 'peek')),
       issue: (id) => this.knownIssue(id),
       session: (id) => worklistView(this).session(this.sessionObject(id)),
       passed: (t) => this.clock.passed(t),
@@ -756,7 +757,7 @@ export class MobxPool {
   row(entity: 'setupSession', id: string): Lookup<SetupSession>
   row(entity: 'preference', id: string): Lookup<PreferenceRow>
   row(entity: HeaderEntity, id: string): Lookup<object>
-  row(entity: EntityName, id: string, absent: 'peek'): Lookup<object>
+  row<E extends EntityName>(entity: E, id: string, absent: 'peek'): Lookup<PoolRows[E]>
   row<E extends EntityName>(entity: E, id: string, absent?: 'load' | 'mark'): Lookup<PoolRows[E]>
   row(
     entity: EntityName | HeaderEntity | SourceEntity | 'setupSession' | 'preference',

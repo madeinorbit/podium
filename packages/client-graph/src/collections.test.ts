@@ -180,6 +180,61 @@ async function boot(
 }
 
 describe('a lookup through the one loader', () => {
+  it('omits disk-only lookup sentinels from visibility and rejoins repository fields after reload', async () => {
+    const { server, replica, loader, pool, settle, memoryWarning } = await boot(
+      (server) => {
+        server.put(ISSUE, 'OLD', value('OLD', { stage: 'done', closedReason: 'completed' }))
+        server.put('session', 'S-OLD', session('S-OLD', { issueId: 'OLD', status: 'ended' }))
+      },
+      { warmInstances: 0 },
+    )
+    pool.apply({
+      type: 'update',
+      rows: [
+        {
+          kind: 'repo',
+          id: 'repo-1',
+          value: { id: 'repo-1', repoPath: '/synthetic', name: 'Project' },
+        },
+      ],
+    })
+    pool.row('issue', 'OLD')
+    pool.row('session', 'S-OLD')
+    await settle()
+    expect(pool.visibleInputs.issueRow('OLD')).toMatchObject({
+      id: 'OLD',
+      repoPath: '/synthetic',
+      repoName: 'Project',
+    })
+    expect(pool.visibleInputs.sessionRow('S-OLD')?.sessionId).toBe('S-OLD')
+
+    await memoryWarning()
+    expect(loader.unloaded(ISSUE, 'OLD')).toBe(true)
+    expect(loader.unloaded('session', 'S-OLD')).toBe(true)
+    expect(replica.view(ISSUE, 'OLD')).toBeUndefined()
+    expect(pool.row('issue', 'OLD', 'peek')).toBe(LOADING)
+    expect(pool.row('session', 'S-OLD', 'peek')).toBe(LOADING)
+    const before = server.fetches.length
+    expect(pool.visibleInputs.issueRow('OLD')).toBeUndefined()
+    expect(pool.visibleInputs.sessionRow('S-OLD')).toBeUndefined()
+    // Visibility peeks must neither load from disk nor ask the server.
+    await settle()
+    expect(loader.unloaded(ISSUE, 'OLD')).toBe(true)
+    expect(loader.unloaded('session', 'S-OLD')).toBe(true)
+    expect(server.fetches).toHaveLength(before)
+
+    pool.row('issue', 'OLD')
+    pool.row('session', 'S-OLD')
+    await settle()
+    expect(pool.visibleInputs.issueRow('OLD')).toMatchObject({
+      id: 'OLD',
+      repoPath: '/synthetic',
+      repoName: 'Project',
+    })
+    expect(pool.visibleInputs.sessionRow('S-OLD')?.sessionId).toBe('S-OLD')
+    expect(server.fetches).toHaveLength(before)
+  })
+
   it('a reader of stub fields never fetches; a reader of other fields fetches exactly once', async () => {
     const { pool, replica, settle, naming } = await boot()
     // The first download left OLD on the device as a stub only.
