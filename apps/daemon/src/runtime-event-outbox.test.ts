@@ -4,7 +4,11 @@ import { join } from 'node:path'
 import type { SessionId } from '@podium/model'
 import { CausalEnvelope, type RuntimeEventMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
-import { type DurableRuntimeEvent, createRuntimeEventOutbox, prepareRuntimeEventDelivery } from './runtime-event-outbox'
+import {
+  type DurableRuntimeEvent,
+  createRuntimeEventOutbox,
+  prepareRuntimeEventDelivery,
+} from './runtime-event-outbox'
 
 const roots: string[] = []
 afterEach(() => {
@@ -105,7 +109,12 @@ describe('coarse runtime event outbox', () => {
     for (let i = 0; i < 8; i += 1) expect(outbox.acknowledge(`delivery-${i}`)).toBe(true)
 
     // Draining to empty is the cheapest moment to fold the journal away.
-    expect(readFileSync(journal, 'utf8').trim().split('\n').map((line) => JSON.parse(line).op)).toEqual(['coverage'])
+    expect(
+      readFileSync(journal, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line).op),
+    ).toEqual(['coverage'])
     expect(outbox.pending()).toEqual([])
     expect(createRuntimeEventOutbox(dir).pending()).toEqual([])
     outbox.close()
@@ -185,37 +194,44 @@ describe('delivery typing state in the runtime-event journal (POD-5556)', () => 
     reopened.close()
   })
 
-  it.each(['missing-log', 'missing-snapshot', 'reset-snapshot', 'torn-snapshot'] as const)(
-    'discards stored-only proof on %s but retains known write evidence', (damage) => {
-      const dir = makeDir()
-      const first = createRuntimeEventOutbox(dir)
-      first.deliveryJournal(sessionId).store('held')
-      first.deliveryJournal(sessionId).start('started')
-      // Force a snapshot carrying both entries, leaving a valid anchored log.
-      for (let index = 0; index < 510; index++) first.enqueue(event(`queued-${index}`, index))
-      first.close()
-      const snapshot = join(dir, 'runtime-event-outbox.json')
-      if (damage === 'missing-log') rmSync(join(dir, 'runtime-event-outbox.log'))
-      else if (damage === 'missing-snapshot') rmSync(snapshot)
-      else {
-        const saved = JSON.parse(readFileSync(snapshot, 'utf8'))
-        if (damage === 'reset-snapshot') saved.typing = [{ sessionId, rowId: 'held', storedAt: '2026-10-04T00:00:00.000Z' }]
-        else delete saved.typing
-        writeFileSync(snapshot, JSON.stringify(saved))
-      }
-      const after = createRuntimeEventOutbox(dir)
-      expect(after.deliveryJournal(sessionId).read('held')).toBeUndefined()
-      if (damage === 'missing-log') expect(after.deliveryJournal(sessionId).read('started')).toEqual({ typingStarted: true })
-      after.close()
-      const reopened = createRuntimeEventOutbox(dir)
-      expect(reopened.deliveryJournal(sessionId).read('held')).toBeUndefined()
-      reopened.deliveryJournal(sessionId).store('new-after-repair')
-      reopened.close()
-      const covered = createRuntimeEventOutbox(dir)
-      expect(covered.deliveryJournal(sessionId).read('new-after-repair')).toEqual({ typingStarted: false })
-      covered.close()
-    },
-  )
+  it.each([
+    'missing-log',
+    'missing-snapshot',
+    'reset-snapshot',
+    'torn-snapshot',
+  ] as const)('discards stored-only proof on %s but retains known write evidence', (damage) => {
+    const dir = makeDir()
+    const first = createRuntimeEventOutbox(dir)
+    first.deliveryJournal(sessionId).store('held')
+    first.deliveryJournal(sessionId).start('started')
+    // Force a snapshot carrying both entries, leaving a valid anchored log.
+    for (let index = 0; index < 510; index++) first.enqueue(event(`queued-${index}`, index))
+    first.close()
+    const snapshot = join(dir, 'runtime-event-outbox.json')
+    if (damage === 'missing-log') rmSync(join(dir, 'runtime-event-outbox.log'))
+    else if (damage === 'missing-snapshot') rmSync(snapshot)
+    else {
+      const saved = JSON.parse(readFileSync(snapshot, 'utf8'))
+      if (damage === 'reset-snapshot')
+        saved.typing = [{ sessionId, rowId: 'held', storedAt: '2026-10-04T00:00:00.000Z' }]
+      else delete saved.typing
+      writeFileSync(snapshot, JSON.stringify(saved))
+    }
+    const after = createRuntimeEventOutbox(dir)
+    expect(after.deliveryJournal(sessionId).read('held')).toBeUndefined()
+    if (damage === 'missing-log')
+      expect(after.deliveryJournal(sessionId).read('started')).toEqual({ typingStarted: true })
+    after.close()
+    const reopened = createRuntimeEventOutbox(dir)
+    expect(reopened.deliveryJournal(sessionId).read('held')).toBeUndefined()
+    reopened.deliveryJournal(sessionId).store('new-after-repair')
+    reopened.close()
+    const covered = createRuntimeEventOutbox(dir)
+    expect(covered.deliveryJournal(sessionId).read('new-after-repair')).toEqual({
+      typingStarted: false,
+    })
+    covered.close()
+  })
 
   it('retains a typing fence without an event, and clears a proven no-write across reopen', () => {
     const dir = makeDir()
@@ -243,14 +259,17 @@ describe('delivery typing state in the runtime-event journal (POD-5556)', () => 
     first.close()
     const after = createRuntimeEventOutbox(dir)
     expect(after.deliveryJournal(sessionId).read('row-1')).toEqual({
-      typingStarted: true, outcome: { t: 'delivery', rowId: 'row-1', outcome: 'delivered' },
+      typingStarted: true,
+      outcome: { t: 'delivery', rowId: 'row-1', outcome: 'delivered' },
     })
     after.acknowledge('delivered')
     after.close()
     const reopened = createRuntimeEventOutbox(dir)
     expect(reopened.deliveryJournal(sessionId).read('row-1')).toBeUndefined()
     expect(reopened.pending()).toEqual([])
-    expect(JSON.parse(readFileSync(join(dir, 'runtime-event-outbox.json'), 'utf8')).typing).toEqual([])
+    expect(JSON.parse(readFileSync(join(dir, 'runtime-event-outbox.json'), 'utf8')).typing).toEqual(
+      [],
+    )
     reopened.close()
   })
 
@@ -258,15 +277,30 @@ describe('delivery typing state in the runtime-event journal (POD-5556)', () => 
     const dir = makeDir()
     const first = createRuntimeEventOutbox(dir)
     first.deliveryJournal(sessionId).start('row-1')
-    first.deliveryJournal(sessionId).record({ t: 'delivery', rowId: 'row-1', outcome: 'delivered', transcriptItem: { id: 'entry' } })
+    first
+      .deliveryJournal(sessionId)
+      .record({
+        t: 'delivery',
+        rowId: 'row-1',
+        outcome: 'delivered',
+        transcriptItem: { id: 'entry' },
+      })
     first.close()
     const after = createRuntimeEventOutbox(dir)
     expect(after.pending()).toEqual([])
-    expect(after.deliveryJournal(sessionId).read('row-1')?.outcome).toEqual({ t: 'delivery', rowId: 'row-1', outcome: 'delivered', transcriptItem: { id: 'entry' } })
+    expect(after.deliveryJournal(sessionId).read('row-1')?.outcome).toEqual({
+      t: 'delivery',
+      rowId: 'row-1',
+      outcome: 'delivered',
+      transcriptItem: { id: 'entry' },
+    })
     after.close()
   })
 
-  it.each(['typing', 'no-write'] as const)('keeps a known outcome when replaying a later %s record', (mode) => {
+  it.each([
+    'typing',
+    'no-write',
+  ] as const)('keeps a known outcome when replaying a later %s record', (mode) => {
     const dir = makeDir()
     const first = createRuntimeEventOutbox(dir)
     const journal = first.deliveryJournal(sessionId)
@@ -277,44 +311,82 @@ describe('delivery typing state in the runtime-event journal (POD-5556)', () => 
     first.close()
     const after = createRuntimeEventOutbox(dir)
     expect(after.deliveryJournal(sessionId).read('row-1')).toEqual(before)
-    expect(after.deliveryJournal(sessionId).read('row-1')?.outcome).toMatchObject({ outcome: 'accepted', held: 'durable' })
+    expect(after.deliveryJournal(sessionId).read('row-1')?.outcome).toMatchObject({
+      outcome: 'accepted',
+      held: 'durable',
+    })
     after.close()
   })
 
   it('keeps the final failed outcome when the event stream reports a contradiction', () => {
     const dir = makeDir()
     const first = createRuntimeEventOutbox(dir)
-    first.deliveryJournal(sessionId).record({ t: 'delivery', rowId: 'row-1', outcome: 'failed', cause: 'agent-exited' })
+    first
+      .deliveryJournal(sessionId)
+      .record({ t: 'delivery', rowId: 'row-1', outcome: 'failed', cause: 'agent-exited' })
     first.enqueue(event('contradiction'))
     first.close()
     const after = createRuntimeEventOutbox(dir)
-    expect(after.deliveryJournal(sessionId).read('row-1')?.outcome).toMatchObject({ outcome: 'failed', cause: 'agent-exited' })
+    expect(after.deliveryJournal(sessionId).read('row-1')?.outcome).toMatchObject({
+      outcome: 'failed',
+      cause: 'agent-exited',
+    })
     after.close()
   })
 
   it('does not prune a later confirmed outcome on an earlier unconfirmed acknowledgement', () => {
     const dir = makeDir()
     const first = createRuntimeEventOutbox(dir)
-    const unconfirmed: DurableRuntimeEvent = { ...event('unknown'), event: { ...event('unknown').event, t: 'delivery', rowId: 'row-1', outcome: 'failed', cause: 'unconfirmed' } }
+    const unconfirmed: DurableRuntimeEvent = {
+      ...event('unknown'),
+      event: {
+        ...event('unknown').event,
+        t: 'delivery',
+        rowId: 'row-1',
+        outcome: 'failed',
+        cause: 'unconfirmed',
+      },
+    }
     first.enqueue(unconfirmed)
-    first.deliveryJournal(sessionId).record({ t: 'delivery', rowId: 'row-1', outcome: 'delivered', transcriptItem: { id: 'entry' } })
+    first
+      .deliveryJournal(sessionId)
+      .record({
+        t: 'delivery',
+        rowId: 'row-1',
+        outcome: 'delivered',
+        transcriptItem: { id: 'entry' },
+      })
     first.acknowledge('unknown')
     first.close()
     const after = createRuntimeEventOutbox(dir)
-    expect(after.deliveryJournal(sessionId).read('row-1')?.outcome).toMatchObject({ outcome: 'delivered', transcriptItem: { id: 'entry' } })
+    expect(after.deliveryJournal(sessionId).read('row-1')?.outcome).toMatchObject({
+      outcome: 'delivered',
+      transcriptItem: { id: 'entry' },
+    })
     after.close()
   })
 
-  it.each(['accepted-first', 'final-first'] as const)('prunes settled rows with %s acknowledgements', (order) => {
+  it.each([
+    'accepted-first',
+    'final-first',
+  ] as const)('prunes settled rows with %s acknowledgements', (order) => {
     const dir = makeDir()
     const outbox = createRuntimeEventOutbox(dir)
     outbox.deliveryJournal(sessionId).start('row-1')
     const accepted: DurableRuntimeEvent = {
-      ...event('accepted'), event: { ...event('accepted').event, t: 'delivery', rowId: 'row-1', outcome: 'accepted', held: 'durable' },
+      ...event('accepted'),
+      event: {
+        ...event('accepted').event,
+        t: 'delivery',
+        rowId: 'row-1',
+        outcome: 'accepted',
+        held: 'durable',
+      },
     }
     outbox.enqueue(accepted)
     outbox.enqueue(event('final'))
-    for (const id of order === 'accepted-first' ? ['accepted', 'final'] : ['final', 'accepted']) outbox.acknowledge(id)
+    for (const id of order === 'accepted-first' ? ['accepted', 'final'] : ['final', 'accepted'])
+      outbox.acknowledge(id)
     outbox.close()
     const reopened = createRuntimeEventOutbox(dir)
     expect(reopened.pending()).toEqual([])
@@ -326,7 +398,16 @@ describe('delivery typing state in the runtime-event journal (POD-5556)', () => 
     const dir = makeDir()
     const first = createRuntimeEventOutbox(dir)
     first.deliveryJournal(sessionId).start('row-1')
-    first.enqueue({ ...event('accepted'), event: { ...event('accepted').event, t: 'delivery', rowId: 'row-1', outcome: 'accepted', held: 'durable' } })
+    first.enqueue({
+      ...event('accepted'),
+      event: {
+        ...event('accepted').event,
+        t: 'delivery',
+        rowId: 'row-1',
+        outcome: 'accepted',
+        held: 'durable',
+      },
+    })
     first.acknowledge('accepted')
     for (let index = 0; index < 520; index++) {
       first.deliveryJournal(sessionId).start(`waiting-${index}`)
@@ -334,12 +415,18 @@ describe('delivery typing state in the runtime-event journal (POD-5556)', () => 
     }
     first.close()
     const after = createRuntimeEventOutbox(dir)
-    expect(after.deliveryJournal(sessionId).read('row-1')).toEqual({ typingStarted: true, outcome: { t: 'delivery', rowId: 'row-1', outcome: 'accepted', held: 'durable' } })
+    expect(after.deliveryJournal(sessionId).read('row-1')).toEqual({
+      typingStarted: true,
+      outcome: { t: 'delivery', rowId: 'row-1', outcome: 'accepted', held: 'durable' },
+    })
     expect(after.pending()).toEqual([])
     after.close()
   })
 
-  it.each(['{"op":"typing"', '{"op":"ack","deliveryId":"absent"}'])('preserves new typing records appended after a torn tail: %s', (tail) => {
+  it.each([
+    '{"op":"typing"',
+    '{"op":"ack","deliveryId":"absent"}',
+  ])('preserves new typing records appended after a torn tail: %s', (tail) => {
     const dir = makeDir()
     const first = createRuntimeEventOutbox(dir)
     first.deliveryJournal(sessionId).start('row-1')
@@ -355,19 +442,24 @@ describe('delivery typing state in the runtime-event journal (POD-5556)', () => 
   })
 })
 
-
 describe('runtime event delivery preparation', () => {
-  it.each(['state', 'workspace', 'draft'] as const)('sends live %s without touching the journal', (kind) => {
+  it.each([
+    'state',
+    'workspace',
+    'draft',
+  ] as const)('sends live %s without touching the journal', (kind) => {
     const dir = makeDir()
     const outbox = createRuntimeEventOutbox(dir)
     const { deliveryId: _id, ...base } = event('unused')
-    const body = kind === 'state'
-      ? { t: 'state' as const, change: { kind: 'activity' } }
-      : kind === 'workspace'
-        ? { t: 'workspace' as const, ev: { ev: 'cwd-changed' as const, cwd: '/repo' } }
-        : { t: 'draft' as const, text: 'latest input' }
+    const body =
+      kind === 'state'
+        ? { t: 'state' as const, change: { kind: 'activity' } }
+        : kind === 'workspace'
+          ? { t: 'workspace' as const, ev: { ev: 'cwd-changed' as const, cwd: '/repo' } }
+          : { t: 'draft' as const, text: 'latest input' }
     const message: RuntimeEventMessage = {
-      ...base, event: { ...CausalEnvelope.parse(base.event), ...body, provenance: 'live' },
+      ...base,
+      event: { ...CausalEnvelope.parse(base.event), ...body, provenance: 'live' },
     }
     const before = readFileSync(join(dir, 'runtime-event-outbox.log'))
     expect(prepareRuntimeEventDelivery(outbox, message)).toBe(message)
@@ -383,7 +475,12 @@ describe('runtime event delivery preparation', () => {
     const { deliveryId: _id, ...base } = event('unused')
     const message: RuntimeEventMessage = {
       ...base,
-      event: { ...CausalEnvelope.parse(base.event), t: 'state', change: { kind: 'activity' }, observerGeneration: 2 },
+      event: {
+        ...CausalEnvelope.parse(base.event),
+        t: 'state',
+        change: { kind: 'activity' },
+        observerGeneration: 2,
+      },
     }
     const prepared = prepareRuntimeEventDelivery(outbox, message)
     expect(prepared.deliveryId).toEqual(expect.any(String))
@@ -398,7 +495,12 @@ describe('runtime event delivery preparation', () => {
     const outbox = createRuntimeEventOutbox(makeDir())
     const old: DurableRuntimeEvent = {
       ...event('old-state'),
-      event: { ...CausalEnvelope.parse(event('old-state').event), t: 'state', change: { kind: 'activity' }, provenance: 'live' },
+      event: {
+        ...CausalEnvelope.parse(event('old-state').event),
+        t: 'state',
+        change: { kind: 'activity' },
+        provenance: 'live',
+      },
     }
     expect(prepareRuntimeEventDelivery(outbox, old)).toEqual(old)
     expect(outbox.pending()).toEqual([old])

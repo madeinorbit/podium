@@ -62,8 +62,13 @@ export function prepareRuntimeEventDelivery(
   return retained
 }
 
-
-interface TypingRecord { sessionId: SessionId; rowId: string; storedAt?: string; startedAt?: string; outcome?: DeliveryOutcome }
+interface TypingRecord {
+  sessionId: SessionId
+  rowId: string
+  storedAt?: string
+  startedAt?: string
+  outcome?: DeliveryOutcome
+}
 const rowKey = (sessionId: SessionId, rowId: string): string => JSON.stringify([sessionId, rowId])
 const snapshotHash = (body: string): string => createHash('sha256').update(body).digest('hex')
 
@@ -75,22 +80,40 @@ function deliveryBody(value: unknown): DeliveryOutcome {
 
 function parseTyping(value: unknown): TypingRecord {
   const entry = value as Partial<TypingRecord> | null
-  if (!entry || typeof entry.sessionId !== 'string' || typeof entry.rowId !== 'string' ||
-      (entry.storedAt !== undefined && (typeof entry.storedAt !== 'string' || !Number.isFinite(Date.parse(entry.storedAt)))) ||
-      (entry.startedAt !== undefined && (typeof entry.startedAt !== 'string' || !Number.isFinite(Date.parse(entry.startedAt)))) ||
-      (entry.storedAt === undefined && entry.startedAt === undefined && entry.outcome === undefined)) {
+  if (
+    !entry ||
+    typeof entry.sessionId !== 'string' ||
+    typeof entry.rowId !== 'string' ||
+    (entry.storedAt !== undefined &&
+      (typeof entry.storedAt !== 'string' || !Number.isFinite(Date.parse(entry.storedAt)))) ||
+    (entry.startedAt !== undefined &&
+      (typeof entry.startedAt !== 'string' || !Number.isFinite(Date.parse(entry.startedAt)))) ||
+    (entry.storedAt === undefined && entry.startedAt === undefined && entry.outcome === undefined)
+  ) {
     throw new Error('invalid runtime delivery typing record')
   }
   const outcome = entry.outcome === undefined ? undefined : deliveryBody(entry.outcome)
-  if (outcome && outcome.rowId !== entry.rowId) throw new Error('runtime delivery outcome row mismatch')
-  return { sessionId: entry.sessionId, rowId: entry.rowId,
+  if (outcome && outcome.rowId !== entry.rowId)
+    throw new Error('runtime delivery outcome row mismatch')
+  return {
+    sessionId: entry.sessionId,
+    rowId: entry.rowId,
     ...(entry.storedAt ? { storedAt: entry.storedAt } : {}),
-    ...(entry.startedAt ? { startedAt: entry.startedAt } : {}), ...(outcome ? { outcome } : {}),
+    ...(entry.startedAt ? { startedAt: entry.startedAt } : {}),
+    ...(outcome ? { outcome } : {}),
   }
 }
 
-function parseSnapshot(raw: string, path: string): { events: DurableRuntimeEvent[]; typing: TypingRecord[]; typingEpoch?: string } {
-  const parsed = JSON.parse(raw) as { version?: unknown; events?: unknown; typing?: unknown; typingEpoch?: unknown }
+function parseSnapshot(
+  raw: string,
+  path: string,
+): { events: DurableRuntimeEvent[]; typing: TypingRecord[]; typingEpoch?: string } {
+  const parsed = JSON.parse(raw) as {
+    version?: unknown
+    events?: unknown
+    typing?: unknown
+    typingEpoch?: unknown
+  }
   if (parsed.version !== FILE_VERSION || !Array.isArray(parsed.events)) {
     throw new Error(`invalid runtime event outbox: ${path}`)
   }
@@ -102,9 +125,14 @@ function parseSnapshot(raw: string, path: string): { events: DurableRuntimeEvent
   if (parsed.typing !== undefined && !Array.isArray(parsed.typing)) {
     throw new Error(`invalid runtime delivery journal: ${path}`)
   }
-  return { events, typing: ((parsed.typing as unknown[] | undefined) ?? []).map(parseTyping),
-    ...(Array.isArray(parsed.typing) && typeof parsed.typingEpoch === 'string' && parsed.typingEpoch.length > 0
-      ? { typingEpoch: parsed.typingEpoch } : {}),
+  return {
+    events,
+    typing: ((parsed.typing as unknown[] | undefined) ?? []).map(parseTyping),
+    ...(Array.isArray(parsed.typing) &&
+    typeof parsed.typingEpoch === 'string' &&
+    parsed.typingEpoch.length > 0
+      ? { typingEpoch: parsed.typingEpoch }
+      : {}),
   }
 }
 
@@ -173,16 +201,22 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
     const previous = prior?.outcome
     // A contradiction is reported, not a new final status. Accepted reports
     // may also arrive after a final outcome through an asynchronous consumer.
-    if (previous && (
-      (previous.outcome === 'dropped') ||
-      (previous.outcome === 'failed' && previous.cause !== 'unconfirmed') ||
-      (previous.outcome !== 'accepted' && outcome.outcome === 'accepted') ||
-      (previous.outcome === 'delivered' && outcome.outcome !== 'delivered')
-    )) return false
+    if (
+      previous &&
+      (previous.outcome === 'dropped' ||
+        (previous.outcome === 'failed' && previous.cause !== 'unconfirmed') ||
+        (previous.outcome !== 'accepted' && outcome.outcome === 'accepted') ||
+        (previous.outcome === 'delivered' && outcome.outcome !== 'delivered'))
+    )
+      return false
     if (previous?.outcome === 'delivered' && outcome.outcome === 'delivered') {
       const transcriptItem = outcome.transcriptItem ?? previous.transcriptItem
       const harnessRef = mergeHarnessRefs(previous.harnessRef, outcome.harnessRef)
-      outcome = { ...outcome, ...(transcriptItem ? { transcriptItem } : {}), ...(harnessRef ? { harnessRef } : {}) }
+      outcome = {
+        ...outcome,
+        ...(transcriptItem ? { transcriptItem } : {}),
+        ...(harnessRef ? { harnessRef } : {}),
+      }
     }
     if (JSON.stringify(previous) === JSON.stringify(outcome)) return false
     typing.set(key, { ...prior, sessionId, rowId: outcome.rowId, outcome })
@@ -200,8 +234,11 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
     // An accepted hold is not settled. A final server ack retires its fence
     // even if an earlier accepted report is still awaiting acknowledgement.
     const saved = typing.get(key)?.outcome
-    if (event.event.outcome !== 'accepted' &&
-        (!saved || JSON.stringify(saved) === JSON.stringify(deliveryBody(event.event)))) typing.delete(key)
+    if (
+      event.event.outcome !== 'accepted' &&
+      (!saved || JSON.stringify(saved) === JSON.stringify(deliveryBody(event.event)))
+    )
+      typing.delete(key)
   }
   const loadSnapshot = (snapshot: ReturnType<typeof parseSnapshot>): void => {
     typingEpoch = snapshot.typingEpoch
@@ -243,19 +280,38 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
   if (existsSync(journalPath)) {
     const lines = readFileSync(journalPath, 'utf8').split('\n')
     try {
-      const header = JSON.parse(lines[0]!) as { op?: unknown; epoch?: unknown; snapshotHash?: unknown }
+      const header = JSON.parse(lines[0]!) as {
+        op?: unknown
+        epoch?: unknown
+        snapshotHash?: unknown
+      }
       // The epoch catches a lost component/interrupted compaction; the hash
       // also catches a reset snapshot that still carries its old epoch.
-      coverageTrusted = snapshotBody !== undefined && typingEpoch !== undefined &&
-        header.op === 'coverage' && header.epoch === typingEpoch && header.snapshotHash === snapshotHash(snapshotBody)
-    } catch { /* Legacy, empty or damaged journal: absence is not no-write proof. */ }
+      coverageTrusted =
+        snapshotBody !== undefined &&
+        typingEpoch !== undefined &&
+        header.op === 'coverage' &&
+        header.epoch === typingEpoch &&
+        header.snapshotHash === snapshotHash(snapshotBody)
+    } catch {
+      /* Legacy, empty or damaged journal: absence is not no-write proof. */
+    }
     for (const [index, line] of lines.entries()) {
       if (index === lines.length - 1) {
         tornTail = line.length > 0
         break
       }
-      if (!line) { validBytes += 1; continue }
-      let record: { op?: unknown; deliveryId?: unknown; event?: unknown; sessionId?: unknown; rowId?: unknown }
+      if (!line) {
+        validBytes += 1
+        continue
+      }
+      let record: {
+        op?: unknown
+        deliveryId?: unknown
+        event?: unknown
+        sessionId?: unknown
+        rowId?: unknown
+      }
       try {
         record = JSON.parse(line) as typeof record
       } catch {
@@ -293,15 +349,18 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
         retainOutcome(record.sessionId as SessionId, deliveryBody(record.event))
         continue
       }
-      if (record.op === 'untyped' && typeof record.sessionId === 'string' && typeof record.rowId === 'string') {
+      if (
+        record.op === 'untyped' &&
+        typeof record.sessionId === 'string' &&
+        typeof record.rowId === 'string'
+      ) {
         if (!coverageTrusted) continue
         const key = rowKey(record.sessionId as SessionId, record.rowId)
         const saved = typing.get(key)
         if (saved?.outcome || saved?.storedAt) {
           const { startedAt: _started, ...untyped } = saved
           typing.set(key, untyped)
-        }
-        else typing.delete(key)
+        } else typing.delete(key)
         continue
       }
       if (record.op === 'add' && record.event) {
@@ -359,7 +418,10 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
     rmSync(journalPath, { force: true })
     fsyncPath(dir)
     journalFd = openSync(journalPath, 'a', 0o600)
-    appendFileSync(journalFd, `${JSON.stringify({ op: 'coverage', epoch: typingEpoch, snapshotHash: hash })}\n`)
+    appendFileSync(
+      journalFd,
+      `${JSON.stringify({ op: 'coverage', epoch: typingEpoch, snapshotHash: hash })}\n`,
+    )
     fsyncSync(journalFd)
     fsyncPath(dir)
     journalRecords = 0
@@ -379,7 +441,10 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
    * and a backlogged one is never asked to.
    */
   const maybeCompact = (): void => {
-    if (journalRecords >= COMPACT_AFTER_RECORDS || (events.size === 0 && typing.size === 0 && journalRecords > 0)) {
+    if (
+      journalRecords >= COMPACT_AFTER_RECORDS ||
+      (events.size === 0 && typing.size === 0 && journalRecords > 0)
+    ) {
       compact()
     }
   }
@@ -395,10 +460,19 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
           const event = saved?.outcome
           if (event?.t === 'delivery') {
             const { t, outcome, held, reason, cause, transcriptItem, harnessRef } = event
-            return { typingStarted: true, outcome: { t, rowId, outcome,
-              ...(held ? { held } : {}), ...(reason ? { reason } : {}), ...(cause ? { cause } : {}),
-              ...(transcriptItem ? { transcriptItem } : {}), ...(harnessRef ? { harnessRef } : {}),
-            } }
+            return {
+              typingStarted: true,
+              outcome: {
+                t,
+                rowId,
+                outcome,
+                ...(held ? { held } : {}),
+                ...(reason ? { reason } : {}),
+                ...(cause ? { cause } : {}),
+                ...(transcriptItem ? { transcriptItem } : {}),
+                ...(harnessRef ? { harnessRef } : {}),
+              },
+            }
           }
           return saved ? { typingStarted: saved.startedAt !== undefined } : undefined
         },
@@ -426,8 +500,7 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
           if (saved.outcome || saved.storedAt) {
             const { startedAt: _started, ...untyped } = saved
             typing.set(key, untyped)
-          }
-          else typing.delete(key)
+          } else typing.delete(key)
           maybeCompact()
         },
         record(outcome) {
