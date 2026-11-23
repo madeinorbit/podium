@@ -28,6 +28,7 @@ export default async () => {
         allow: [
           fileURLToPath(new URL('../../', import.meta.url)),
           resolveMobilePackage('@expo-google-fonts/geist'),
+          resolveMobilePackage('@expo-google-fonts/geist-mono'),
         ],
       },
     },

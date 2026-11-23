@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { runInAction } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { installed, missing, setupFixture } from '../../harness/agent-setup-fixture'
+import { installed, setupFixture } from '../../harness/agent-setup-fixture'
 import { AgentSetupPanel } from './AgentSetupPanel'
 
 vi.mock('expo-haptics', () => ({
@@ -73,11 +73,15 @@ describe('phone agent setup', () => {
     expect(screen.getAllByRole('progressbar')).toHaveLength(3)
     expect(screen.queryByRole('button', { name: 'Install 2 agents' })).toBeNull()
   })
-  it('renders reported progress without moving backwards, then sends an explicit cancel', () => {
+  it('uses the shared install step, becomes indeterminate for a new file, and cancels explicitly', () => {
     const { machine, actions } = mount()
     expect(
-      screen.getByRole('progressbar', { name: 'Downloading 62%…' }).getAttribute('aria-valuenow'),
+      screen
+        .getByRole('progressbar', { name: 'Downloading · 31 of 50 MB · 62%' })
+        .getAttribute('aria-valuenow'),
     ).toBe('62')
+    expect(screen.getAllByText('Downloading · 31 of 50 MB · 62%')).toHaveLength(1)
+    expect(screen.queryByText('Installing 1.14.2…')).toBeNull()
     act(() =>
       machine.patch('opencode', {
         install: {
@@ -89,16 +93,18 @@ describe('phone agent setup', () => {
       }),
     )
     expect(
-      screen.getByRole('progressbar', { name: 'Downloading 10%…' }).getAttribute('aria-valuenow'),
-    ).toBe('62')
+      screen.getByRole('progressbar', { name: 'Downloading' }).getAttribute('aria-valuenow'),
+    ).toBeNull()
     act(() =>
       machine.patch('opencode', {
         install: { managed: { paused: false, installing: { progress: { phase: 'verify' } } } },
       }),
     )
     expect(
-      screen.getByRole('progressbar', { name: 'Checking download…' }).getAttribute('aria-valuenow'),
-    ).toBe('62')
+      screen
+        .getByRole('progressbar', { name: 'Checking the download' })
+        .getAttribute('aria-valuenow'),
+    ).toBeNull()
     expect(actions).toEqual([])
     fireEvent.click(screen.getByRole('button', { name: 'Cancel install OpenCode' }))
     expect(actions.at(-1)?.action).toBe('cancel-install')
@@ -174,7 +180,7 @@ describe('phone agent setup', () => {
   it('offers browser, saved credential and later, and hands back the chosen harness', async () => {
     const onStart = vi.fn()
     const { view, logins, machine, saves } = mount({ origin: { kind: 'menu', onStart } })
-    fireEvent.click(screen.getByRole('button', { name: 'Pi, needs sign-in' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in Pi' }))
     fireEvent.click(screen.getByRole('button', { name: 'Sign in with your browser' }))
     await act(async () => logins[0]!.resolve({ sessionId: 'login-session' as never }))
     expect(view.itemFor('pi')?.signIn.loginSessionId).toBe('login-session')

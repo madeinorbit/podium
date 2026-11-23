@@ -1,16 +1,38 @@
-import { asSessionId } from '@podium/model'
+import { asSessionId, BUILTIN_HARNESS_KINDS } from '@podium/model'
 import { createRoot } from 'react-dom/client'
 import { StyleSheet, Text, View } from 'react-native'
 import { HarnessChip } from '../src/components/AgentMark'
+import { AgentSetupOnboarding } from '../src/components/AgentSetupOnboarding'
 import { AgentSetupPanel } from '../src/components/AgentSetupPanel'
 import { AgentSetupPickerEntry } from '../src/components/AgentSetupPickerEntry'
 import { PressableScale } from '../src/components/PressableScale'
 import SetupLoginTerminalDialog from '../src/components/SetupLoginTerminalDialog'
 import { color, font, sans, space } from '../src/theme/theme'
-import { setupFixture } from './agent-setup-fixture'
+import { installed, missing, setupFixture } from './agent-setup-fixture'
 
 const mode = new URLSearchParams(window.location.search).get('state') ?? 'panel'
-const fixture = setupFixture()
+const onboarding = mode.startsWith('onboarding')
+const fixture = setupFixture(
+  onboarding
+    ? {
+        origin: { kind: 'onboarding' },
+        agents: BUILTIN_HARNESS_KINDS.map((kind) =>
+          kind === 'antigravity'
+            ? {
+                ...missing(kind),
+                management: {
+                  installable: false,
+                  reason: 'This agent is not available for this platform.',
+                },
+              }
+            : missing(kind),
+        ),
+      }
+    : {},
+)
+if (mode === 'onboarding-ready') {
+  fixture.machine.patch('claude-code', installed('claude-code'))
+}
 if (mode === 'harness' || mode === 'remove') fixture.view.openDetail('claude-code')
 if (mode === 'remove') fixture.view.detail?.press('remove')
 if (mode === 'signin') fixture.view.openDetail('pi')
@@ -61,6 +83,12 @@ function Picker() {
 }
 
 const styles = StyleSheet.create({
+  canvas: {
+    height: '100%',
+    width: '100%',
+    alignItems: 'center',
+    backgroundColor: color.bgSunken,
+  },
   phone: {
     width: '100%',
     maxWidth: 390,
@@ -91,20 +119,24 @@ const styles = StyleSheet.create({
 const root = document.getElementById('root')
 if (!root) throw new Error('Missing harness root')
 createRoot(root).render(
-  <View style={styles.phone}>
-    {mode === 'picker' ? (
-      <Picker />
-    ) : (
-      <AgentSetupPanel
-        view={fixture.view}
-        onClose={() => {}}
-        loginTerminal={
-          mode === 'login' ? (
-            <SetupLoginTerminalDialog sessionId={asSessionId('login-session')} />
-          ) : undefined
-        }
-        onCloseLogin={() => {}}
-      />
-    )}
+  <View style={styles.canvas}>
+    <View style={[styles.phone, onboarding && { maxWidth: 560 }]}>
+      {mode === 'picker' ? (
+        <Picker />
+      ) : onboarding ? (
+        <AgentSetupOnboarding view={fixture.view} onContinue={async () => {}} />
+      ) : (
+        <AgentSetupPanel
+          view={fixture.view}
+          onClose={() => {}}
+          loginTerminal={
+            mode === 'login' ? (
+              <SetupLoginTerminalDialog sessionId={asSessionId('login-session')} />
+            ) : undefined
+          }
+          onCloseLogin={() => {}}
+        />
+      )}
+    </View>
   </View>,
 )

@@ -22,3 +22,19 @@ export const {
   completePendingProfileCleanup,
 } = profiles
 export { profiles as mobileServerProfiles }
+
+/** Onboarding belongs to the paired server profile, across accounts and app restarts. */
+const agentSetupKey = (profileId: string) =>
+  `podium.mobile.agent-setup.v1:${encodeURIComponent(profileId)}`
+
+export async function profileAgentSetupFinished(profileId: string): Promise<boolean> {
+  const value = await mobileMetadataStorage().getItem(agentSetupKey(profileId))
+  return value === 'completed' || value === 'skipped'
+}
+
+export async function finishProfileAgentSetup(
+  profileId: string,
+  outcome: 'completed' | 'skipped',
+): Promise<void> {
+  await mobileMetadataStorage().setItem(agentSetupKey(profileId), outcome)
+}

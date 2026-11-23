@@ -5,7 +5,7 @@ import type {
 } from '@podium/client-graph/agent-setup-view'
 import type { HarnessInstallAction } from '@podium/protocol'
 import { observer } from 'mobx-react-lite'
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Switch, Text, View } from 'react-native'
 import {
   adaptiveColor,
@@ -89,6 +89,19 @@ export const AgentSetupPanel = observer(function AgentSetupPanel({
         )
       }
     >
+      <AgentSetupContent view={view} />
+    </BottomSheet>
+  )
+})
+
+/** The sheet and full-screen onboarding draw the same live rows and harness page. */
+export const AgentSetupContent = observer(function AgentSetupContent({
+  view,
+}: {
+  view: AgentSetupView
+}) {
+  return (
+    <>
       {!view.reachable ? (
         <Text style={styles.notice}>
           This machine is offline or unavailable. Setup resumes when it is available.
@@ -115,7 +128,7 @@ export const AgentSetupPanel = observer(function AgentSetupPanel({
           </Text>
         </>
       )}
-    </BottomSheet>
+    </>
   )
 })
 
@@ -164,7 +177,14 @@ const SetupRow = observer(function SetupRow({ item }: { item: AgentSetupItem }) 
           {item.progressLabel ??
             item.failure ??
             item.blocked?.reason ??
-            [item.version, item.sourceLabel, item.usable ? item.signIn.stateLabel : undefined]
+            [
+              item.version,
+              item.sourceLabel,
+              item.usable ? item.signIn.stateLabel : undefined,
+              item.selectable && item.suggested && item.view.origin.kind === 'onboarding'
+                ? 'Suggested'
+                : undefined,
+            ]
               .filter(Boolean)
               .join(' · ')}
         </Text>
@@ -208,10 +228,28 @@ const SetupRow = observer(function SetupRow({ item }: { item: AgentSetupItem }) 
       </View>
     )
   }
+  if (item.status === 'needs-sign-in') {
+    return (
+      <View style={styles.row}>
+        {content}
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={`Sign in ${item.label}`}
+          onPress={() => {
+            item.view.setFocus(item.kind)
+            item.view.openDetail(item.kind)
+          }}
+          style={styles.rowAction}
+        >
+          <Text style={styles.link}>Sign in</Text>
+        </PressableScale>
+      </View>
+    )
+  }
   return (
     <PressableScale
       accessibilityRole="button"
-      accessibilityLabel={`${item.label}, ${item.status === 'needs-sign-in' ? 'needs sign-in' : item.status === 'ready' ? 'ready' : (item.progressLabel ?? 'details')}`}
+      accessibilityLabel={`${item.label}, ${item.status === 'ready' ? 'ready' : (item.progressLabel ?? 'details')}`}
       onPress={() => {
         item.view.setFocus(item.kind)
         item.view.openDetail(item.kind)
@@ -225,31 +263,10 @@ const SetupRow = observer(function SetupRow({ item }: { item: AgentSetupItem }) 
 })
 
 const InstallProgress = observer(function InstallProgress({ item }: { item: AgentSetupItem }) {
-  const progress = item.progress
-  const reportedPercent = progress?.percent
-  // This is the fill's visual position for this mounted install, not a second
-  // machine fact. A vendor can start another file at zero; keep the fill from
-  // jumping backwards, and keep it in place during verification and setup.
-  const [furthestPercent, setFurthestPercent] = useState(reportedPercent)
-  useEffect(() => {
-    if (reportedPercent !== undefined)
-      setFurthestPercent((previous) => Math.max(previous ?? 0, reportedPercent))
-  }, [reportedPercent])
-  const percent =
-    reportedPercent === undefined
-      ? furthestPercent
-      : Math.max(furthestPercent ?? 0, reportedPercent)
-  const label =
-    progress?.phase === 'verify'
-      ? 'Checking download…'
-      : progress?.phase === 'setup'
-        ? 'Finishing setup…'
-        : progress
-          ? `Downloading${reportedPercent === undefined ? '' : ` ${reportedPercent}%`}…`
-          : (item.progressLabel ?? 'Installing…')
+  const percent = item.installStep?.percent
+  const label = item.installStep?.text ?? 'Installing…'
   return (
     <View>
-      {progress ? <Text style={styles.caption}>{label}</Text> : null}
       <View style={styles.progressRow}>
         <View
           accessibilityRole="progressbar"
@@ -272,10 +289,10 @@ const InstallProgress = observer(function InstallProgress({ item }: { item: Agen
             ]}
           />
         </View>
-        {reportedPercent === undefined ? (
+        {percent === undefined ? (
           <ActivityIndicator
             size="small"
-            color={color.working}
+            color={color.accent}
             accessible={false}
             accessibilityElementsHidden
             aria-hidden
@@ -731,11 +748,11 @@ const styles = StyleSheet.create({
   progress: {
     flex: 1,
     height: 4,
-    backgroundColor: color.workingSoft,
+    backgroundColor: color.accentSoft,
     borderRadius: radius.full,
     marginTop: space.sm,
     marginBottom: space.xs,
     overflow: 'hidden',
   },
-  progressFill: { height: 4, backgroundColor: color.working, borderRadius: radius.full },
+  progressFill: { height: 4, backgroundColor: color.accent, borderRadius: radius.full },
 })

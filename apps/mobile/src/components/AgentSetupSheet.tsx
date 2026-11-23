@@ -17,6 +17,7 @@ import { ActivityIndicator, Text, View } from 'react-native'
 import { useMobilePool } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import { color } from '../theme/theme'
+import { AgentSetupOnboarding } from './AgentSetupOnboarding'
 import { AgentSetupPanel } from './AgentSetupPanel'
 import { BottomSheet } from './BottomSheet'
 import { PressableScale } from './PressableScale'
@@ -29,6 +30,8 @@ export interface AgentSetupSheetProps {
   focus?: BuiltinHarnessKind
   onStart?: (harness: BuiltinHarnessKind) => void
   onClose: () => void
+  /** Full-screen onboarding persists completion before releasing the work screen. */
+  onContinue?: () => Promise<void>
 }
 
 /** Mounted only for an opening, so its request answers never outlive the sheet. */
@@ -122,18 +125,27 @@ const ConnectedSetup = observer(function ConnectedSetup({
   }, [credentials, client])
   useEffect(() => () => view.close(), [view])
   const signingIn = view.items.find((item) => item.signIn.loginSessionId !== null)
+  const loginTerminal = signingIn?.signIn.loginSessionId ? (
+    <Suspense fallback={<ActivityIndicator color={color.working} />}>
+      <LoginTerminal sessionId={signingIn.signIn.loginSessionId} />
+    </Suspense>
+  ) : undefined
+  if (props.onContinue) {
+    return (
+      <AgentSetupOnboarding
+        view={view}
+        onContinue={props.onContinue}
+        onCloseLogin={() => signingIn?.signIn.closeLogin()}
+        loginTerminal={loginTerminal}
+      />
+    )
+  }
   return (
     <AgentSetupPanel
       view={view}
       onClose={props.onClose}
       onCloseLogin={() => signingIn?.signIn.closeLogin()}
-      loginTerminal={
-        signingIn?.signIn.loginSessionId ? (
-          <Suspense fallback={<ActivityIndicator color={color.working} />}>
-            <LoginTerminal sessionId={signingIn.signIn.loginSessionId} />
-          </Suspense>
-        ) : undefined
-      }
+      loginTerminal={loginTerminal}
     />
   )
 })

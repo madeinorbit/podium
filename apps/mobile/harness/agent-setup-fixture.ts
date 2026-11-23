@@ -81,7 +81,7 @@ export function setupAgents(): AgentInventory[] {
           paused: false,
           installing: {
             version: '1.14.2',
-            progress: { phase: 'download', receivedBytes: 62, totalBytes: 100 },
+            progress: { phase: 'download', receivedBytes: 31_000_000, totalBytes: 50_000_000 },
           },
         },
       },
@@ -95,8 +95,12 @@ export function setupAgents(): AgentInventory[] {
     },
   ]
 }
-export function setupFixture(options: Partial<Pick<AgentSetupOptions, 'origin' | 'focus'>> = {}) {
-  const machine = new SetupMachine()
+export function setupFixture(
+  options: Partial<Pick<AgentSetupOptions, 'origin' | 'focus'>> & {
+    agents?: AgentInventory[]
+  } = {},
+) {
+  const machine = new SetupMachine(options.agents)
   const actions: {
     harness: BuiltinHarnessKind
     action: HarnessInstallAction
