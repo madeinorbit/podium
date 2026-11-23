@@ -608,6 +608,7 @@ export const INSTALL_META_KEYS: readonly KeyPattern[] = [
   // (store/legacy-plaintext.ts), about the database file, not a workspace's rows.
   { key: 'legacy-plaintext' },
   { key: 'legacy-plaintext:snapshots' },
+  { key: 'legacy-plaintext:compacted-at' },
 ]
 
 /**
