@@ -81,6 +81,13 @@ export interface DaemonRequestSpec<T> {
   /** The machine the request is sent to — and the only one allowed to answer.
    *  Omitted means the fleet's default machine, resolved at send time. */
   readonly machineId?: MachineId | undefined
+  /** Optional one-request cancellation. No durable command is withdrawn by
+   * default; only callers with a cancelable read protocol opt in. */
+  readonly cancellation?: {
+    readonly signal: AbortSignal
+    onAbort(): T
+    cancel(requestId: string, machineId: MachineId): void
+  }
 }
 
 /**
@@ -142,14 +149,36 @@ export class DaemonRequestBroker implements DaemonRequestPort {
   }
 
   async request<T>(spec: DaemonRequestSpec<T>): Promise<T> {
+    if (spec.cancellation?.signal.aborted) return spec.cancellation.onAbort()
     const requestId = this.nextRequestId(spec.kind.prefix)
     // Resolved HERE, not at settle time: the target is a fact about the request,
     // and `defaultMachine()` can change between send and reply.
     const targetMachineId = spec.machineId ?? (await this.deps.defaultMachine())
     const message = await spec.build(requestId)
+    if (spec.cancellation?.signal.aborted) return spec.cancellation.onAbort()
     return new Promise<T>((resolve) => {
-      const timer = setTimeout(() => {
+      const cleanup = () => {
+        clearTimeout(timer)
+        spec.cancellation?.signal.removeEventListener('abort', abort)
         this.pending.delete(requestId)
+      }
+      const cancel = () => {
+        try {
+          spec.cancellation?.cancel(requestId, targetMachineId)
+        } catch {
+          // A disconnected read is already bounded locally; cancellation is best effort.
+        }
+      }
+      const abort = () => {
+        const cancellation = spec.cancellation
+        if (!cancellation) return
+        cleanup()
+        cancel()
+        resolve(cancellation.onAbort())
+      }
+      const timer = setTimeout(() => {
+        cleanup()
+        cancel()
         resolve(spec.onTimeout())
       }, spec.timeoutMs)
       timer.unref?.()
@@ -157,15 +186,15 @@ export class DaemonRequestBroker implements DaemonRequestPort {
         prefix: spec.kind.prefix,
         targetMachineId,
         resolve: (value) => {
-          clearTimeout(timer)
+          cleanup()
           resolve(value as T)
         },
       })
+      spec.cancellation?.signal.addEventListener('abort', abort, { once: true })
       try {
         this.deps.toMachine(targetMachineId, message)
       } catch (error) {
-        clearTimeout(timer)
-        this.pending.delete(requestId)
+        cleanup()
         throw error
       }
     })

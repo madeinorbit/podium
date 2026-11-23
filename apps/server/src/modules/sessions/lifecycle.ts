@@ -308,6 +308,7 @@ export class SessionLifecycle {
   private readonly bindingReceipts!: SessionBindingReceipts
   /** Durable 12-hour fleet-concurrency read model for the global status strip. */
   private readonly concurrencyHistory!: AgentConcurrencyHistory
+  readonly contextReads!: import('./context-reads').SessionContextReads
   /** Durable per-session phase-transition log for the waterfall's segments. */
   private readonly activityHistory!: SessionActivityHistory
   private readonly activityPublication!: SessionActivityPublication
@@ -357,6 +358,7 @@ export class SessionLifecycle {
     // the next bind re-drains it.
     this.inbox.dispose()
     this.concurrencyHistory.dispose()
+    this.contextReads.dispose()
     this.activityHistory.dispose()
     this.autoContinue.dispose()
     clearInterval(this.activityFlushTimer)

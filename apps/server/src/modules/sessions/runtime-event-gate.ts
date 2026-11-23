@@ -90,6 +90,8 @@ export interface RuntimeStateProjection {
 }
 
 export interface RuntimeEventGatePorts {
+  /** Only an admitted lifecycle transition can retire live context authority. */
+  contextAdmissionTransition?(sessionId: SessionId, event: RuntimeEvent): void
   metadata?(sessionId: SessionId, event: Extract<RuntimeEvent, { t: 'metadata' }>): Promise<void>
   binding?(sessionId: SessionId, event: Extract<RuntimeEvent, { t: 'binding' }>): Promise<void>
   /**
@@ -549,6 +551,7 @@ export class RuntimeEventGate {
               })
             })
           })
+          this.ports.contextAdmissionTransition?.(sessionId, event)
         }
         await this.scheduleBoardProjection()
         return { kind: 'duplicate' }
@@ -632,6 +635,12 @@ export class RuntimeEventGate {
       )
       if (stoppedBeforeWrite) return { kind: 'rejected', reason: 'session-not-running' }
       this.readySessions.add(sessionId)
+      if (
+        !current ||
+        current.observerGeneration !== event.observerGeneration ||
+        event.t === 'binding'
+      )
+        this.ports.contextAdmissionTransition?.(sessionId, event)
       await this.ports.events.announceEvent(eventId)
       if (stateProjection) {
         await this.ports.stateChanged?.({ sessionId, ...stateProjection })

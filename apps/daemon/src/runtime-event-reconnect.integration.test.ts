@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId, type MachineId } from '@podium/model'
 import { DAEMON_WIRE_VERSION, type PeerHelloReply } from '@podium/protocol'
-import { type ControlMessage, parseControlMessage } from '@podium/protocol/daemon'
+import {
+  CAP_CONTEXT_OBSERVATION_V1,
+  type ControlMessage,
+  parseControlMessage,
+} from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RawData } from 'ws'
 import { SessionRegistry } from '../../server/src/relay'
@@ -18,7 +22,7 @@ const roots: string[] = []
 const helloOk: PeerHelloReply = {
   type: 'peerHelloOk',
   v: DAEMON_WIRE_VERSION,
-  caps: [],
+  caps: [CAP_CONTEXT_OBSERVATION_V1],
   name: 'test-machine',
 }
 
@@ -183,8 +187,66 @@ describe('coarse runtime events across a daemon disconnect', () => {
       await settled()
       expect(runtimeOutbox.pending()).toEqual([])
 
+      const lease = await registry.sessionStore.observationCheckpoints.get(sessionId)
+      if (!lease) throw new Error('No observation lease for context transport')
+      const contextEvent = (
+        id: string,
+        seq: number,
+        percent: number,
+      ): import('@podium/protocol/daemon').RuntimeEvent => ({
+        t: 'metadata',
+        change: {
+          kind: 'context-observation',
+          context: {
+            version: 1,
+            status: 'available',
+            sample: {
+              id,
+              at,
+              bindingVersion: lease.bindingVersion,
+              observerGeneration: lease.observationGeneration,
+              contextRevision: 1,
+              turnEpoch: 1,
+            },
+            occupancy: {
+              basis: 'current-context',
+              percent: { value: percent, accuracy: 'reported', source: 'invented transport' },
+            },
+          },
+        },
+        at,
+        provenance: 'live',
+        cursor: { segmentId: 'invented-context', components: { seq } },
+        observerGeneration: lease.observationGeneration,
+        turnEpoch: 1,
+      })
+      connection.send({
+        type: 'runtimeEvent',
+        deliveryId: 'context-before-disconnect',
+        sessionId,
+        event: contextEvent('before-disconnect', 10, 10),
+      })
+      await settled()
+      expect(
+        await registry.modules.sessions.liveTopics.snapshot('session.condition', sessionId),
+      ).toMatchObject({
+        context: { status: 'available', sample: { id: 'before-disconnect', at } },
+        contextUsagePercent: 10,
+      })
+      expect(await registry.sessionStore.events.listRuntimeEvents(sessionId)).toHaveLength(1)
       if (serverSend) registry.gateway.detachDaemon(machineId, serverSend)
       sockets[0]?.close()
+      expect(
+        await registry.modules.sessions.liveTopics.snapshot('session.condition', sessionId),
+      ).toMatchObject({
+        context: { status: 'stale', sample: { id: 'before-disconnect', at } },
+      })
+      connection.send({
+        type: 'runtimeEvent',
+        deliveryId: 'context-after-disconnect',
+        sessionId,
+        event: contextEvent('after-disconnect', 11, 20),
+      })
       connection.send({
         type: 'runtimeEvent',
         deliveryId: 'coarse-1',
@@ -212,7 +274,7 @@ describe('coarse runtime events across a daemon disconnect', () => {
           turnEpoch: 1,
         },
       })
-      expect(runtimeOutbox.pending()).toHaveLength(1)
+      expect(runtimeOutbox.pending()).toHaveLength(2)
       expect(await registry.sessionStore.events.listRuntimeEvents(sessionId)).toHaveLength(1)
 
       if (!retry) throw new Error('disconnect did not schedule reconnect')
@@ -223,6 +285,12 @@ describe('coarse runtime events across a daemon disconnect', () => {
 
       expect(await registry.sessionStore.events.listRuntimeEvents(sessionId)).toHaveLength(2)
       expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(at)
+      expect(
+        await registry.modules.sessions.liveTopics.snapshot('session.condition', sessionId),
+      ).toMatchObject({
+        context: { status: 'available', sample: { id: 'after-disconnect', at } },
+        contextUsagePercent: 20,
+      })
       expect(runtimeOutbox.pending()).toEqual([])
 
       if (serverSend) registry.gateway.detachDaemon(machineId, serverSend)

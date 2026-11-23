@@ -18,6 +18,7 @@ import {
   type PeerHelloReply,
 } from '@podium/protocol'
 import {
+  CAP_CONTEXT_OBSERVATION_V1,
   CAP_DELIVERY_ACCEPTED,
   CAP_DELIVERY_NOT_IN_CONVERSATION,
   type DaemonMessage,
@@ -2429,5 +2430,95 @@ describe('the accepted outcome on the daemon link (POD-4886)', () => {
     expect(l.delivered).toEqual([accepted, settled])
     expect(l.outbox.pending()).toEqual([settled])
     await l.conn.close()
+  })
+})
+
+describe('normalized context metadata negotiation', () => {
+  it.each([
+    false,
+    true,
+  ])('sends context observations and explicit clears only to an admitted peer (%s)', async (admitted) => {
+    const deliver = vi.fn()
+    const runtimeEventOutbox = createRuntimeEventOutbox(temp())
+    const options = localOptions(() => {}, {
+      localLink: {
+        attach: async () => ({
+          established: true,
+          reply: { ...ok, caps: admitted ? [CAP_CONTEXT_OBSERVATION_V1] : [] },
+          machineId: MACHINE_ID,
+          deliver,
+          deliverOutput: vi.fn(),
+          close: vi.fn(),
+        }),
+      },
+    })
+    const state = createDaemonConnection({
+      options,
+      build: buildReport(process.env, undefined),
+      machineId: MACHINE_ID,
+      identity: { token: 'invented-context-token' },
+      receiveApplicationFrame: vi.fn(),
+      sendApplicationFrame: vi.fn(() => true),
+      queueDrainOutbox: createQueueDrainOutbox(temp()),
+      runtimeEventOutbox,
+      onConnected: vi.fn(),
+      onTerminal: vi.fn(),
+    })
+    const sessionId = asSessionId('invented-context-negotiation')
+    const at = '2026-11-21T12:00:00.000Z'
+    const frame: Extract<DaemonMessage, { type: 'runtimeEvent' }> = {
+      type: 'runtimeEvent',
+      sessionId,
+      deliveryId: 'context-normalized',
+      event: {
+        t: 'metadata',
+        change: {
+          kind: 'context-observation',
+          context: {
+            version: 1,
+            status: 'pending',
+            revision: {
+              bindingVersion: 1,
+              observerGeneration: 1,
+              turnEpoch: 0,
+              contextRevision: 1,
+            },
+            reason: { code: 'reset', message: 'Invented explicit context clear' },
+          },
+        },
+        at,
+        provenance: 'live',
+        observerGeneration: 1,
+        turnEpoch: 0,
+        cursor: { segmentId: 'invented-context-source', components: { seq: 1 } },
+      },
+    }
+    try {
+      // Retained while disconnected, then either negotiated or safely retired.
+      state.send(frame)
+      expect(runtimeEventOutbox.pending()).toHaveLength(1)
+      await state.start()
+      const normalized = () =>
+        deliver.mock.calls.filter(
+          ([message]) =>
+            message?.type === 'runtimeEvent' &&
+            message.event?.t === 'metadata' &&
+            message.event.change.kind === 'context-observation',
+        )
+      expect(normalized()).toHaveLength(admitted ? 1 : 0)
+      state.send({
+        ...frame,
+        deliveryId: 'context-next',
+        event: {
+          ...frame.event,
+          cursor: { segmentId: 'invented-context-source', components: { seq: 2 } },
+        },
+      })
+      expect(normalized()).toHaveLength(admitted ? 2 : 0)
+      expect(runtimeEventOutbox.pending()).toHaveLength(admitted ? 2 : 0)
+    } finally {
+      await state.close()
+      runtimeEventOutbox.close()
+    }
   })
 })

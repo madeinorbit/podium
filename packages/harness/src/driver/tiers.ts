@@ -90,6 +90,8 @@ export type RuntimePrimitive =
   | 'openUrl'
   | 'title'
   | 'accentColor'
+  | 'context.summary'
+  | 'context.detail'
 
 export const RUNTIME_PRIMITIVE_TIER = {
   // ---- CORE: runtime-level (per machine) ---------------------------------
@@ -151,6 +153,8 @@ export const RUNTIME_PRIMITIVE_TIER = {
   // the browser-open relay, session titles and the
   // board's accent colours all degrade cleanly when a driver declines.
   configure: 'extended',
+  'context.summary': 'extended',
+  'context.detail': 'extended',
   // Machine accounting and accounts. Extended because every one of them
   // degrades cleanly: a harness that reports no quota simply shows no quota,
   // and a driver is not less complete for it.

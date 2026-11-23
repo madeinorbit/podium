@@ -314,9 +314,12 @@ describe('machine scope and the writer class', () => {
         'machineUninstallResult',
         // The eleven harness install replies (managed installs §8, POD-7283).
         'harnessInstallResult',
+        'runtimeContextReadResult',
       ]),
     )
+    // The context read reply uses this same authenticated correlator.
     expect(rpcFrames.length).toBe(61)
+    expect(rpcFrames).not.toContain('runtimeDraftResult')
     for (const type of rpcFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

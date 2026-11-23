@@ -6,7 +6,7 @@ import {
   type SessionId,
   type TranscriptItem,
 } from '@podium/model'
-import type { ProviderCursor } from '@podium/protocol'
+import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import { PermissionAnswer } from '@podium/protocol'
 import type {
   QueueDrainAbandonedReason,
@@ -14,12 +14,15 @@ import type {
   RuntimeHistoryRange,
 } from '@podium/protocol/daemon'
 import type { AgentStateEvent } from '../../../agent-state/types.js'
+import type { ContextReadOptions } from '../../../context-types.js'
 import { reduceAgentState } from '../../../observer.js'
 import { type TranscriptAnnotation, toolSummaryAnnotation } from '../../../store/annotations.js'
 import type { ProcessIdentity } from '../../binding.js'
 import { type ConfigureValueChecks, decideConfigure, noWhitespaceCheck } from '../../configure.js'
+import { RuntimeContextRelay } from '../../context-relay.js'
 import { withDeliveryQueue } from '../../delivery-queue.js'
 import { DeliveryUnprovenError, DriverRefusalError, wasNeverSent } from '../../errors.js'
+import type { CausalEnvelope } from '../../events.js'
 import { createRuntimeEventStream } from '../../events.js'
 import { headlessInterruptMark } from '../../headless-interrupt.js'
 import type {
@@ -167,6 +170,12 @@ export interface ClaudeSdkStreamPosition {
 
 /** Process and native-transcript operations owned by the daemon. */
 export interface ClaudeSdkRuntimeHost {
+  requestNative?(
+    sessionId: SessionId,
+    operation: unknown,
+    options: ContextReadOptions,
+  ): Promise<unknown>
+  observeNative?(sessionId: SessionId, listener: (payload: unknown) => void): () => void
   /** Refuses the ask-the-user tools for a session below a coordinator (POD-6108). */
   askUserGate?: AskUserGate
   /**
@@ -227,6 +236,11 @@ export interface ClaudeSdkRuntimeHost {
   watchTranscript?(
     input: { sessionId: SessionId; workdir: string; resumeValue: string; from: 'start' | 'end' },
     onItems: (items: readonly TranscriptItem[]) => void,
+    onContextPayload?: (
+      payload: unknown,
+      source: { at?: string; cursor: ProviderCursor; provenance: ObservationProvenance },
+    ) => void,
+    onContextReset?: () => void,
   ): () => void
   readTranscript(input: {
     sessionId: SessionId
@@ -279,6 +293,8 @@ interface QueuedTurn {
 }
 
 interface SessionCore {
+  stopContextWatch?: () => void
+  watchedObserverGeneration?: number
   sessionId: SessionId
   spec: SessionSpec
   binding: SessionBinding
@@ -395,7 +411,37 @@ export function createClaudeSdkRuntime(
     components: { seq },
   })
 
-  function push(core: SessionCore, body: RuntimeEventBody, at = host.now()): void {
+  const contextRelays = new WeakMap<SessionCore, RuntimeContextRelay>()
+  function contextFor(core: SessionCore): RuntimeContextRelay {
+    let relay = contextRelays.get(core)
+    if (!relay) {
+      relay = new RuntimeContextRelay({
+        binding: () => core.binding,
+        causal: () => ({
+          at: host.now(),
+          provenance: 'live',
+          cursor: cursorAt(core, core.seq + 1),
+          observerGeneration: core.observerGeneration,
+          turnEpoch: core.turnEpoch,
+        }),
+        probe: {
+          request: (operation, options) =>
+            host.requestNative?.(core.sessionId, operation, options) ??
+            Promise.reject(new Error('No existing native context transport')),
+        },
+        emit: (event) => push(core, event, event.at, event),
+      })
+      contextRelays.set(core, relay)
+    }
+    return relay
+  }
+
+  function push(
+    core: SessionCore,
+    body: RuntimeEventBody,
+    at = host.now(),
+    causal?: CausalEnvelope,
+  ): void {
     core.seq += 1
     core.log.push({
       seq: core.seq,
@@ -406,8 +452,10 @@ export function createClaudeSdkRuntime(
         cursor: cursorAt(core, core.seq),
         observerGeneration: core.observerGeneration,
         turnEpoch: core.turnEpoch,
+        ...causal,
       },
     })
+    contextFor(core).event(core.log[core.log.length - 1]!.event)
     if (core.log.length > 512) core.log.splice(0, core.log.length - 512)
     // Only coarse events checkpoint at the gate, so only they need to survive
     // a restart, and a per-token write would cost a file write per token.
@@ -639,14 +687,38 @@ export function createClaudeSdkRuntime(
   function watchFile(core: SessionCore, from: 'start' | 'end'): void {
     const resumeValue = core.binding.resume?.value
     if (!host.watchTranscript || core.disposed || !resumeValue) return
-    if (core.watchedResume === resumeValue) return
+    if (
+      core.watchedResume === resumeValue &&
+      core.watchedObserverGeneration === core.observerGeneration
+    )
+      return
     core.stopWatch?.()
     core.watchedResume = resumeValue
+    const generation = core.observerGeneration
+    core.watchedObserverGeneration = generation
     core.stopWatch = host.watchTranscript(
       { sessionId: core.sessionId, workdir: core.spec.workdir, resumeValue, from },
       (items) => {
         if (core.disposed || core.watchedResume !== resumeValue) return
         emitFileItems(core, items)
+      },
+      (payload, source) => {
+        if (
+          !core.disposed &&
+          core.observerGeneration === generation &&
+          core.watchedResume === resumeValue &&
+          source.at
+        )
+          contextFor(core).observe(payload, {
+            ...source,
+            at: source.at,
+            observerGeneration: core.observerGeneration,
+            turnEpoch: core.turnEpoch,
+          })
+      },
+      () => {
+        if (!core.disposed && core.observerGeneration === generation)
+          contextFor(core).invalidate('reset')
       },
     )
   }
@@ -1175,6 +1247,9 @@ export function createClaudeSdkRuntime(
     core.active = undefined
     abandonQueue(core, 'teardown')
     if (exit) push(core, exit)
+    core.stopContextWatch?.()
+    core.stopContextWatch = undefined
+    contextFor(core).dispose()
     core.disposed = true
     unwatchFile(core)
     core.interactions.clear()
@@ -1193,6 +1268,9 @@ export function createClaudeSdkRuntime(
       }
     }
     const handle: AgentSessionHandle = {
+      get context() {
+        return contextFor(core).reader
+      },
       get binding() {
         const engine = host.processFor?.(core.sessionId)
         return engine ? { ...core.binding, process: engine } : core.binding
@@ -1236,6 +1314,7 @@ export function createClaudeSdkRuntime(
         return { alive: core.alive, oomEvents: core.oomEvents }
       },
       async snapshot(): Promise<SessionSnapshot> {
+        const context = await contextFor(core).replay()
         assertCurrent()
         return {
           binding: core.binding,
@@ -1243,6 +1322,7 @@ export function createClaudeSdkRuntime(
           cursor: cursorAt(core),
           observerGeneration: core.observerGeneration,
           turnEpoch: core.turnEpoch,
+          context,
           interactions: [...core.interactions.values()],
           at: host.now(),
         }
@@ -1577,6 +1657,9 @@ export function createClaudeSdkRuntime(
       textDeliveries: 0,
       conversationStarted: !fresh,
     }
+    core.stopContextWatch = host.observeNative?.(sessionId, (payload) => {
+      if (!core.disposed) contextFor(core).observe(payload)
+    })
     parked.delete(sessionId)
     cores.set(sessionId, core)
     processCores.set(core.binding.process.key, core)
@@ -1654,6 +1737,7 @@ export function createClaudeSdkRuntime(
       }
       core.binding = { ...core.binding, bindingVersion: core.binding.bindingVersion + 1 }
       core.observerGeneration += 1
+      watchFile(core, 'end')
       push(core, {
         t: 'process',
         ev: { ev: 'adopted', bindingVersion: core.binding.bindingVersion },

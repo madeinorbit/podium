@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest'
 import {
   BUNDLED_DESCRIPTORS,
   bundledDescriptorFor,
+  canonicalDriverIdOf,
   composerRulesFor,
   effectiveCatalogModel,
   HARNESS_NO_TOOLS,
@@ -26,7 +27,7 @@ import {
   providerOf,
   resolveDescriptors,
 } from './browser.js'
-import { declaredValue } from './manifest.js'
+import { canonicalDriverId, DRIVER_IDS, declaredValue, RETIRED_DRIVER_IDS } from './manifest.js'
 import { AGENT_MANIFESTS } from './registry.js'
 
 describe('@podium/harness/browser — the no-tools table', () => {
@@ -226,5 +227,15 @@ describe('@podium/harness/browser — effectiveCatalogModel', () => {
   it('fails closed without a catalog (never a guessed slug)', () => {
     expect(effectiveCatalogModel(undefined, 'auto')).toBeUndefined()
     expect(effectiveCatalogModel(bundledDescriptorFor('some-future-cli'), 'auto')).toBeUndefined()
+  })
+})
+
+describe('@podium/harness/browser — driver aliases', () => {
+  it('canonicalizes exactly as the manifest does, leaving unknown ids unchanged', () => {
+    expect(canonicalDriverIdOf('claude-pty')).toBe('generic-pty')
+    expect(canonicalDriverIdOf('driver-from-newer-peer')).toBe('driver-from-newer-peer')
+    for (const id of [...DRIVER_IDS, ...RETIRED_DRIVER_IDS, 'driver-from-newer-peer'])
+      expect(canonicalDriverIdOf(id)).toBe(canonicalDriverId(id))
+    for (const id of DRIVER_IDS) expect(canonicalDriverIdOf(id)).toBe(id)
   })
 })

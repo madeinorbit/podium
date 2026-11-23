@@ -26,6 +26,8 @@ const BROWSER_HOSTILE_EXCEPTIONS = [
   'packages/harness/src/adapters/shared/json-util.ts',
   // Version floors are pure data and string parsing.
   'packages/harness/src/version-policy.ts',
+  // Retired driver-id aliases: an import-free leaf reached through browser.ts.
+  'packages/harness/src/driver-alias.ts',
 ] as const
 
 export function browserHostileSources(sources: readonly string[]): string[] {

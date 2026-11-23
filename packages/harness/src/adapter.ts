@@ -15,4 +15,11 @@
  * from here, not from `./manifest.js` directly.
  */
 
+export type {
+  ContextProbePort,
+  ContextSessionStrategy,
+  ContextStrategyInput,
+  HarnessContextSection,
+  HarnessContextStrategy,
+} from './context-types.js'
 export type { AgentManifest } from './manifest.js'

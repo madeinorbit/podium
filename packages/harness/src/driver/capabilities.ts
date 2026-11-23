@@ -1,6 +1,7 @@
 // Part of the Agent Runtime contract (POD-1761 W1). See ./host.js for the
 // surface's five governing rules and the core-vs-extended tier boundary.
 
+import type { ContextCapability } from '@podium/model'
 import type { Declared } from '../manifest.js'
 import type { HarnessComposerReadiness } from '../registry.js'
 import type { AttachEndpoint } from './attach.js'
@@ -68,7 +69,7 @@ export interface UsageSnapshot {
   inputTokens?: number
   outputTokens?: number
   costUsd?: number
-  /** Percentage of the context window consumed, where the harness reports it. */
+  /** Legacy projection only. Current occupancy belongs to context, not billing. */
   contextUsedPercent?: number
 }
 
@@ -278,6 +279,8 @@ export interface DriverCapabilities {
   // ---- EXTENDED ----
   configure: Declared<ConfigureCapability>
   usage: Declared<{ perTurn: boolean }>
+  /** Static support, not machine admission or a promise of a current sample. */
+  context: Declared<ContextCapability>
   openUrl: Declared<{ intents: readonly ('login' | 'link')[] }>
   title: Declared<{ source: 'osc' | 'transcript' | 'synthetic' }>
   accentColor: Declared<true>

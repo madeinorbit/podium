@@ -4,9 +4,11 @@
  * mid-turn into its own queue is a per-harness measurement
  * (`runtime.terminal.queuesBusyInput`). These are the ones nobody has measured
  * doing so: Cursor cannot run past the submit against a fake model, and Pi was
- * not installed for the POD-4834 runs. Antigravity has no measured mid-turn
- * queue yet. `fake-harness` is the corpus's own synthetic TUI, which models
- * no mid-turn queue.
+ * not installed for the POD-4834 runs. Antigravity was added later and also
+ * has no measured mid-turn queue; its manifest does not claim one. This
+ * host-only corpus allowance does not establish native steer support.
+ * `fake-harness` is the corpus's own
+ * synthetic TUI, which models no mid-turn queue.
  */
 export const NO_NATIVE_STEER_TERMINAL_HARNESSES = [
   'cursor',

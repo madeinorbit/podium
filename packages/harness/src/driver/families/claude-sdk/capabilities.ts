@@ -1,10 +1,12 @@
 import { supported, unsupported } from '../../../manifest.js'
+import { contextCapabilityFor } from '../../../registry.js'
 import type { DriverCapabilities } from '../../capabilities.js'
 
 /** Capabilities of the Claude stream engine: one `claude` stream-json child
  *  under podium-host, server family (ADR 11, POD-4612). */
 export function claudeSdkCapabilities(): DriverCapabilities {
   return {
+    context: contextCapabilityFor('claude-code', 'claude-sdk'),
     send: {
       readiness: { kind: 'driver-managed' },
       native: ['at-boundary', 'when-ready', 'queue'],

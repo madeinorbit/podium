@@ -1,5 +1,5 @@
 import { join, normalize } from 'node:path'
-import type { AcceptedCredential, AgentKind, HarnessAgent } from '@podium/model'
+import type { AcceptedCredential, AgentKind, ContextCapability, HarnessAgent } from '@podium/model'
 import {
   type BuiltinHarnessKind,
   isBuiltinHarnessKind,
@@ -20,6 +20,7 @@ export {
 } from './adapters/antigravity/index.js'
 
 import type { AgentStateProvider } from './agent-state/types.js'
+import type { HarnessContextStrategy } from './context-types.js'
 import {
   type AcceptedDriverId,
   type AgentManifest,
@@ -28,6 +29,7 @@ import {
   canonicalDriverId,
   type Declared,
   type DeclaredKeys,
+  DRIVER_IDS,
   type DriverFamily,
   type DriverId,
   declaredValue,
@@ -101,6 +103,25 @@ export const HARNESS_KINDS: readonly BuiltinHarnessKind[] = Object.keys(
 export function manifestFor(kind: AgentKind | string): AgentManifest | undefined {
   if (isBuiltinHarnessKind(kind)) return AGENT_MANIFESTS[kind]
   return TEST_MANIFESTS.get(kind)
+}
+
+/** Context support is a harness × driver declaration, separate from machine
+ * admission and from a session's current pending/available/stale reading. */
+export function contextStrategyFor(
+  harness: string,
+  driver: AcceptedDriverId,
+): Declared<HarnessContextStrategy> {
+  const manifest = manifestFor(harness)
+  return manifest
+    ? manifest.runtime.context.forDriver(canonicalDriverId(driver))
+    : { supported: false, reason: 'No context adapter is registered for this harness' }
+}
+export function contextCapabilityFor(
+  harness: string,
+  driver: AcceptedDriverId,
+): Declared<ContextCapability> {
+  const strategy = contextStrategyFor(harness, driver)
+  return strategy.supported ? { supported: true, value: strategy.value.capability } : strategy
 }
 
 /**
@@ -922,6 +943,8 @@ export function sectionStatusesOf(manifest: AgentManifest): ManifestSectionStatu
   for (const key of Object.keys(RUNTIME_SECTIONS) as DeclaredKeys<AgentRuntimeAxis>[]) {
     row(RUNTIME_SECTIONS[key], manifest.runtime[key] as Declared<unknown>)
   }
+  for (const driver of DRIVER_IDS)
+    row(`runtime.context.${driver}`, manifest.runtime.context.forDriver(driver))
   const usage = declaredValue(manifest.usage)
   if (usage) {
     for (const key of Object.keys(USAGE_SECTIONS) as DeclaredKeys<HarnessUsage>[]) {

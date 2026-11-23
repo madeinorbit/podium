@@ -21,6 +21,9 @@ import type {
   QuotaHistorySampleWire,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
+import type { CausalEnvelope } from '@podium/protocol/daemon'
+import type { HarnessContextSection } from './context-types.js'
+import { canonicalDriverIdOf, RETIRED_DRIVER_IDS } from './driver-alias.js'
 import type { HarnessContext } from './harness-context-types.js'
 import type { PostureSection } from './posture-types.js'
 import type {
@@ -1008,6 +1011,11 @@ export interface HarnessObserveInput {
  * back. Every callback is per-session — the host closes over the session id.
  */
 export interface HarnessObserverHost {
+  /** Current driver causal identity, absent until this observer owns a binding. */
+  contextIdentity?(): Pick<CausalEnvelope, 'observerGeneration' | 'turnEpoch'> | undefined
+  /** Opaque native context input with its original admitted causal identity.
+   * Adapters select main-session records; the host never restamps replay. */
+  onContextPayload?(payload: unknown, causal: CausalEnvelope): void
   /** (Re)point the session's live transcript tail at this file. The host maps
    *  records with THIS adapter's record→items mapper; re-pointing at the same
    *  path is a no-op. */
@@ -1183,6 +1191,8 @@ export function fileTranscript(
 /** Where an instrumentation install lands: the per-session loopback callback
  *  plus the filesystem homes the harness reads. */
 export interface InstrumentationDestination {
+  /** Bound session cwd for adapter-owned inherited project configuration. */
+  workdir?: string
   /** Stable Podium row identity — names the per-session settings file. */
   sessionId: SessionId
   /** Per-session loopback callback the harness posts hook payloads to. */
@@ -1193,6 +1203,9 @@ export interface InstrumentationDestination {
   seedTheme?: boolean
   /** Directory holding the per-session settings file the install writes. */
   settingsDir: string
+  /** Effective extension policy for this invocation. Headless callers must
+   * supply the decision; absence preserves existing terminal behavior. */
+  extensionsAllowed?: boolean
   /**
    * The session-pinned harness context (POD-6533). The ONLY source of the
    * install's facts: the harness's state folders are `roots` (a global-home
@@ -1234,6 +1247,9 @@ export interface InstalledInstrumentation {
    * can take the handlers out again (POD-7388).
    */
   hookFile?: InstrumentationHookFile
+  /** Invocation-owned resources. Call after the native process actually exits,
+   * not when a durable attachment is detached for adoption. */
+  cleanup?(): void | Promise<void>
   degradedReason?: string
   degradedKind?: InstrumentationDegradedKind
 }
@@ -1296,6 +1312,9 @@ export type InstrumentationInstallScope =
   | { kind: 'home'; homeOf(destination: InstrumentationDestination): string }
 
 export interface HarnessInstrumentation {
+  /** Explicit opt-in for additional driver families. Absent means the
+   * existing terminal-only installation lifecycle. */
+  driverIds?: readonly string[]
   /** Install the hook wiring for one session: global layout (where the
    *  harness has one) plus the per-session callback wiring. */
   install(destination: InstrumentationDestination): Promise<InstalledInstrumentation>
@@ -1365,6 +1384,8 @@ export interface HarnessComposer {
  * and say WHY when absent.
  */
 export interface AgentRuntimeAxis {
+  /** Native context strategy by harness × driver; no inference from usage(). */
+  context: HarnessContextSection
   /**
    * The harness's own server, and how to launch and address it. Unsupported ⇒
    * this CLI has no server mode, so the server family is simply unavailable and
@@ -1467,15 +1488,14 @@ export const DRIVER_IDS = [
   'headless',
 ] as const
 
-/** Driver ids accepted from older daemons and user preferences during rollout. */
-export const RETIRED_DRIVER_IDS = ['claude-pty'] as const
+export { RETIRED_DRIVER_IDS }
 export type RetiredDriverId = (typeof RETIRED_DRIVER_IDS)[number]
 /** Known input ids during rollout; declarations and emitted selections stay DriverId. */
 export type AcceptedDriverId = DriverId | RetiredDriverId
 export function canonicalDriverId(driverId: AcceptedDriverId): DriverId
 export function canonicalDriverId(driverId: string): string
 export function canonicalDriverId(driverId: string): string {
-  return driverId === 'claude-pty' ? 'generic-pty' : driverId
+  return canonicalDriverIdOf(driverId)
 }
 
 /** A CONST ARRAY rather than a bare union, so the set exists at RUN time too:

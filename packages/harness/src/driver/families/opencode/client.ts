@@ -26,6 +26,7 @@
  *      forget it.
  */
 
+import type { ContextReadOptions } from '../../../context-types.js'
 import {
   type OpencodeEvent,
   type OpencodeMessageWithParts,
@@ -82,6 +83,9 @@ export class OpencodeHttpError extends Error {
 const DEFAULT_TIMEOUT_MS = 30_000
 
 export interface OpencodeClient {
+  /** Adapter-owned relative GET path (including scope/query). Reuses this
+   * engine's origin/auth; returns opaque JSON under the caller's deadline. */
+  readJson?(path: string, options: ContextReadOptions): Promise<unknown>
   /** `GET /global/health` — the readiness probe the spawn path polls, and the
    *  liveness probe `adopt()` uses to prove a journal entry still describes a
    *  live server rather than a recycled port. */
@@ -115,7 +119,10 @@ export interface OpencodeClient {
   /** The SSE stream. Ends when `signal` aborts or the socket closes; reconnect
    *  is the CALLER's business (see `./sse.ts`), because only the caller knows
    *  what its cursor was. */
-  events(signal: AbortSignal): AsyncIterable<OpencodeEvent>
+  events(
+    signal: AbortSignal,
+    onContextPayload?: (payload: unknown) => void,
+  ): AsyncIterable<OpencodeEvent>
   /** The base URL, for the attach endpoint's `opencode attach <url>`. */
   readonly baseUrl: string
 }
@@ -126,6 +133,10 @@ export function createOpencodeClient(config: OpencodeClientConfig): OpencodeClie
   const authorization = `Basic ${base64(`${config.username}:${config.password}`)}`
 
   const url = (path: string): string => {
+    // An adapter can supply the exact native session's scope. Otherwise keep
+    // the engine client's bound directory, including during bootstrap reads.
+    if (new URL(path, config.baseUrl).searchParams.has('directory'))
+      return `${config.baseUrl}${path}`
     const qs = `directory=${encodeURIComponent(config.directory)}`
     return `${config.baseUrl}${path}${path.includes('?') ? '&' : '?'}${qs}`
   }
@@ -184,6 +195,17 @@ export function createOpencodeClient(config: OpencodeClientConfig): OpencodeClie
 
   return {
     baseUrl: config.baseUrl,
+
+    async readJson(path, options) {
+      if (!path.startsWith('/') || path.startsWith('//'))
+        throw new Error('Expected relative GET path')
+      const signal = options.signal
+        ? AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs)])
+        : AbortSignal.timeout(options.timeoutMs)
+      signal.throwIfAborted()
+      const response = await request('GET', path, undefined, signal, true)
+      return response.json()
+    },
 
     async health() {
       try {
@@ -280,8 +302,12 @@ export function createOpencodeClient(config: OpencodeClientConfig): OpencodeClie
       await request('POST', `/question/${encodeURIComponent(requestId)}/reject`, {})
     },
 
-    events(signal) {
-      return streamEvents(() => request('GET', '/event', undefined, signal, true), signal)
+    events(signal, onContextPayload) {
+      return streamEvents(
+        () => request('GET', '/event', undefined, signal, true),
+        signal,
+        onContextPayload,
+      )
     },
   }
 }
@@ -301,6 +327,7 @@ export function createOpencodeClient(config: OpencodeClientConfig): OpencodeClie
 async function* streamEvents(
   open: () => Promise<Response>,
   signal: AbortSignal,
+  onContextPayload?: (payload: unknown) => void,
 ): AsyncIterable<OpencodeEvent> {
   const response = await open()
   const body = response.body
@@ -317,7 +344,7 @@ async function* streamEvents(
       while (boundary >= 0) {
         const frame = buffer.slice(0, boundary)
         buffer = buffer.slice(boundary + 2)
-        const event = parseFrame(frame)
+        const event = parseFrame(frame, onContextPayload)
         if (event) yield event
         boundary = buffer.indexOf('\n\n')
       }
@@ -329,7 +356,10 @@ async function* streamEvents(
   }
 }
 
-function parseFrame(frame: string): OpencodeEvent | null {
+function parseFrame(
+  frame: string,
+  onContextPayload?: (payload: unknown) => void,
+): OpencodeEvent | null {
   for (const line of frame.split('\n')) {
     if (!line.startsWith('data:')) continue
     const payload = line.slice(5).trim()
@@ -341,6 +371,7 @@ function parseFrame(frame: string): OpencodeEvent | null {
       // Not JSON at all: a comment frame or a keep-alive. Never fatal.
       continue
     }
+    onContextPayload?.(raw)
     const event = parseOpencodeEvent(raw)
     if (event) return event
   }

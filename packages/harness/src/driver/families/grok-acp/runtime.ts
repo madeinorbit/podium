@@ -50,9 +50,11 @@ import type {
   UsageSnapshot,
 } from '../../capabilities.js'
 import { decideConfigure, noWhitespaceCheck } from '../../configure.js'
+import { createContextPayloadBuffer, RuntimeContextRelay } from '../../context-relay.js'
 import { withDeliveryQueue } from '../../delivery-queue.js'
 import type { AgentSessionHandle, RuntimeDriver } from '../../driver.js'
 import { DeliveryUnprovenError, DriverRefusalError, wasNeverSent } from '../../errors.js'
+import type { CausalEnvelope } from '../../events.js'
 import {
   createRuntimeEventStream,
   type EventStreamStart,
@@ -404,6 +406,7 @@ interface BufferedConnection {
   client: GrokAcpClient
   models?: GrokModelState
   bind(handlers: {
+    raw?(payload: unknown, source: Pick<CausalEnvelope, 'at' | 'provenance'>): void
     promptResult(result: GrokAcpPromptResult): void
     notification(frame: GrokAcpFrame): void
     request(request: GrokAcpServerRequest): void
@@ -444,12 +447,39 @@ export function createGrokAcpRuntime(
     })
   }
 
+  const contextRelays = new WeakMap<DriverSession, RuntimeContextRelay>()
+  function contextFor(session: DriverSession): RuntimeContextRelay {
+    let relay = contextRelays.get(session)
+    if (!relay) {
+      relay = new RuntimeContextRelay({
+        binding: () => session.binding,
+        causal: () => ({
+          at: iso(),
+          provenance: 'live',
+          cursor: cursorFor(session),
+          observerGeneration: session.observerGeneration,
+          turnEpoch: session.turnEpoch,
+        }),
+        probe: {
+          request: (operation) => {
+            const rpc = operation as { method: string; params?: unknown }
+            return session.client.call(rpc.method, rpc.params)
+          },
+        },
+        emit: (event) => emit(session, event, event.at, event.provenance, undefined, event),
+      })
+      contextRelays.set(session, relay)
+    }
+    return relay
+  }
+
   function emit(
     session: DriverSession,
     body: RuntimeEventBody,
     at: string,
     provenance: ObservationProvenance = 'live',
     native?: NativeObservation,
+    causal?: CausalEnvelope,
   ): void {
     if (session.disposed) return
     if (native?.replayedBeforeCheckpoint) return
@@ -457,12 +487,31 @@ export function createGrokAcpRuntime(
       session.providerEventSeq = Math.max(session.providerEventSeq, native.ordinal)
     }
     session.seq += 1
-    const event = stampRuntimeEvent(body, at, provenance, {
-      cursor: cursorFor(session),
-      observerGeneration: session.observerGeneration,
-      turnEpoch: session.turnEpoch,
-    })
+    const event = {
+      ...stampRuntimeEvent(body, at, provenance, {
+        cursor: cursorFor(session),
+        observerGeneration: session.observerGeneration,
+        turnEpoch: session.turnEpoch,
+      }),
+      ...causal,
+    }
+    if (causal && event.t === 'metadata' && event.change.kind === 'context-observation') {
+      // Runtime replay advances independently of the native observation. Keep
+      // every original source field, rather than relabeling a retained sample.
+      event.change = {
+        ...event.change,
+        source: {
+          at: causal.at,
+          provenance: causal.provenance,
+          cursor: causal.cursor,
+          observerGeneration: causal.observerGeneration,
+          turnEpoch: causal.turnEpoch,
+        },
+      }
+      event.cursor = cursorFor(session)
+    }
     session.log.push({ seq: session.seq, event })
+    contextFor(session).event(event)
     if (session.log.length > GROK_ACP_EVENT_LOG_LIMIT) {
       session.log.splice(0, session.log.length - GROK_ACP_EVENT_LOG_LIMIT)
     }
@@ -1187,12 +1236,14 @@ export function createGrokAcpRuntime(
   }
 
   function connect(endpoint: GrokAcpEndpoint, sessionId: SessionId): BufferedConnection {
+    const contextPayloads = createContextPayloadBuffer(() => iso())
     const promptResults: GrokAcpPromptResult[] = []
     const notifications: GrokAcpFrame[] = []
     const requests: GrokAcpServerRequest[] = []
     let sawClose = false
     let handlers:
       | {
+          raw?(payload: unknown, source: Pick<CausalEnvelope, 'at' | 'provenance'>): void
           promptResult(result: GrokAcpPromptResult): void
           notification(frame: GrokAcpFrame): void
           request(request: GrokAcpServerRequest): void
@@ -1203,6 +1254,7 @@ export function createGrokAcpRuntime(
     const client = make({
       sessionId,
       transport: endpoint.transport,
+      onNativePayload: (payload) => contextPayloads.push(payload),
       onFrame(frame) {
         host.onRawFrame?.(sessionId, frame)
       },
@@ -1230,6 +1282,7 @@ export function createGrokAcpRuntime(
       client,
       bind(next) {
         handlers = next
+        contextPayloads.bind((payload, source) => next.raw?.(payload, source))
         for (const result of promptResults.splice(0)) next.promptResult(result)
         for (const frame of notifications.splice(0)) next.notification(frame)
         for (const request of requests.splice(0)) next.request(request)
@@ -1309,6 +1362,13 @@ export function createGrokAcpRuntime(
     const handle = buildHandle(session)
     slots.set(input.sessionId, handle)
     input.connection.bind({
+      raw: (payload, source) =>
+        contextFor(session).observe(payload, {
+          ...source,
+          cursor: cursorFor(session),
+          observerGeneration: session.observerGeneration,
+          turnEpoch: session.turnEpoch,
+        }),
       promptResult(result) {
         const epoch = session.openTurnEpoch
         if (
@@ -1895,6 +1955,7 @@ export function createGrokAcpRuntime(
    * a `queued` receipt.
    */
   function endSession(session: DriverSession): void {
+    contextFor(session).dispose()
     session.disposed = true
     abandonQueue(session, 'teardown')
     // A send Grok has not named yet is answered: nothing more will come.
@@ -2009,6 +2070,9 @@ export function createGrokAcpRuntime(
     })
 
     const handle: AgentSessionHandle = {
+      get context() {
+        return contextFor(session).reader
+      },
       get binding() {
         return session.binding
       },
@@ -2048,12 +2112,14 @@ export function createGrokAcpRuntime(
       },
 
       async snapshot(): Promise<SessionSnapshot> {
+        const context = await contextFor(session).replay()
         return {
           binding: session.binding,
           state: session.state,
           cursor: cursorFor(session),
           observerGeneration: session.observerGeneration,
           turnEpoch: session.turnEpoch,
+          context,
           interactions: [...session.interactions.values()].map((ask) => ask.interaction),
           at: iso(),
         }

@@ -22,6 +22,7 @@ import type {
   InstrumentationDestination,
 } from '../../manifest.js'
 import type { TranscriptClassifier } from '../../observer.js'
+import { claudeStatusLineOverlay } from './context-statusline.js'
 
 // Observation only: every hook replies 200 {} immediately (see the daemon's
 // ingest server), so injecting these can never block or steer the agent.
@@ -534,18 +535,26 @@ async function decodeClaudeHookPayload(payload: unknown): Promise<ProviderAgentS
 // and the family reports that.
 // ---------------------------------------------------------------------------
 
-function installClaudeCodeInstrumentation(
+async function installClaudeCodeInstrumentation(
   destination: InstrumentationDestination,
-): InstalledInstrumentation {
+): Promise<InstalledInstrumentation> {
   const settingsPath = join(destination.settingsDir, `${destination.sessionId}.json`)
+  const status = await claudeStatusLineOverlay(destination)
+  const settings = JSON.parse(
+    claudeHookSettings(destination.endpointUrl, {
+      seedTheme: destination.seedTheme ?? true,
+    }),
+  ) as Record<string, unknown>
+  if (status.statusLine) settings.statusLine = status.statusLine
   return {
     args: ['--settings', settingsPath],
     file: {
       path: settingsPath,
-      contents: claudeHookSettings(destination.endpointUrl, {
-        seedTheme: destination.seedTheme ?? true,
-      }),
+      contents: JSON.stringify(settings, null, 2),
     },
+    ...(status.reason
+      ? { degradedReason: status.reason, degradedKind: 'unsupported-version' as const }
+      : {}),
   }
 }
 
@@ -557,9 +566,12 @@ export const claudeCodeInstrumentation: HarnessInstrumentation = {
   // Per-session `--settings` file wiring; Claude has no shared hook home, so
   // installs never serialize across sessions.
   scope: { kind: 'session' },
-  install: (destination) => Promise.resolve(installClaudeCodeInstrumentation(destination)),
+  install: installClaudeCodeInstrumentation,
   payloadCodec: {
-    eventName: (raw) => hookField(raw, 'hook_event_name'),
+    eventName: (raw) =>
+      typeof raw === 'object' && raw !== null && 'context_window' in raw
+        ? 'PodiumContextStatus'
+        : hookField(raw, 'hook_event_name'),
     sessionId: (raw) => hookField(raw, 'session_id'),
     transcriptPath: (raw) => hookField(raw, 'transcript_path'),
     decode: decodeClaudeHookPayload,

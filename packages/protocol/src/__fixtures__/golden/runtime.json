@@ -46,6 +46,1163 @@
       "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1}"
     },
     {
+      "schema": "ContextDetailRequest",
+      "variant": "minimal",
+      "wire": {
+        "timeoutMs": 1,
+        "sample": {
+          "observerGeneration": 1,
+          "turnEpoch": 1,
+          "bindingVersion": 1,
+          "contextRevision": 1,
+          "id": "sample.id",
+          "at": "2026-01-02T03:04:05.000Z"
+        },
+        "maxRows": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"timeoutMs\":1,\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\"},\"maxRows\":1}"
+    },
+    {
+      "schema": "ContextDetailRequest",
+      "variant": "full",
+      "wire": {
+        "timeoutMs": 1,
+        "sample": {
+          "observerGeneration": 1,
+          "turnEpoch": 1,
+          "bindingVersion": 1,
+          "contextRevision": 1,
+          "id": "sample.id",
+          "at": "2026-01-02T03:04:05.000Z",
+          "turnRevision": "sample.turnRevision",
+          "nativeSessionId": "sample.nativeSessionId",
+          "nativeSampleId": "sample.nativeSampleId"
+        },
+        "maxRows": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"timeoutMs\":1,\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"sample.turnRevision\",\"nativeSessionId\":\"sample.nativeSessionId\",\"nativeSampleId\":\"sample.nativeSampleId\"},\"maxRows\":1}"
+    },
+    {
+      "schema": "ContextDetailResult",
+      "variant": "minimal",
+      "wire": {
+        "version": 1,
+        "sample": {
+          "observerGeneration": 1,
+          "turnEpoch": 1,
+          "bindingVersion": 1,
+          "contextRevision": 1,
+          "id": "sample.id",
+          "at": "2026-01-02T03:04:05.000Z"
+        },
+        "status": "available",
+        "lastRequest": {
+          "input": {
+            "value": 0,
+            "accuracy": "reported",
+            "source": "synthetic request"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"version\":1,\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\"},\"status\":\"available\",\"lastRequest\":{\"input\":{\"value\":0,\"accuracy\":\"reported\",\"source\":\"synthetic request\"}}}"
+    },
+    {
+      "schema": "ContextDetailResult",
+      "variant": "full/arm0",
+      "wire": {
+        "version": 1,
+        "sample": {
+          "observerGeneration": 1,
+          "turnEpoch": 1,
+          "bindingVersion": 1,
+          "contextRevision": 1,
+          "id": "sample.id",
+          "at": "2026-01-02T03:04:05.000Z",
+          "turnRevision": "sample.turnRevision",
+          "nativeSessionId": "sample.nativeSessionId",
+          "nativeSampleId": "sample.nativeSampleId"
+        },
+        "status": "available",
+        "lastRequest": {
+          "requestId": "lastRequest.requestId",
+          "model": {
+            "modelId": "lastRequest.model.modelId",
+            "providerId": "lastRequest.model.providerId"
+          },
+          "input": {
+            "value": 2,
+            "accuracy": "reported",
+            "source": "lastRequest.input.source"
+          },
+          "output": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "lastRequest.output.source"
+          },
+          "cacheRead": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "lastRequest.cacheRead.source"
+          },
+          "cacheWrite": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "lastRequest.cacheWrite.source"
+          },
+          "reasoning": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "lastRequest.reasoning.source"
+          }
+        },
+        "composition": {
+          "coverage": "partial",
+          "usedTokens": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "composition.usedTokens.source"
+          },
+          "rows": [
+            {
+              "id": "composition.rows[0].id-parent",
+              "label": "composition.rows[0].label",
+              "category": "composition.rows[0].category",
+              "kind": "used",
+              "attribution": "category",
+              "tokens": {
+                "value": 1,
+                "accuracy": "reported",
+                "source": "composition.rows[0].tokens.source"
+              },
+              "childrenCoverage": "complete"
+            },
+            {
+              "id": "composition.rows[0].id",
+              "parentId": "composition.rows[0].id-parent",
+              "label": "composition.rows[0].label",
+              "category": "composition.rows[0].category",
+              "kind": "used",
+              "attribution": "category",
+              "tokens": {
+                "value": 1,
+                "accuracy": "reported",
+                "source": "composition.rows[0].tokens.source"
+              },
+              "childrenCoverage": "complete"
+            }
+          ],
+          "truncated": true
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"version\":1,\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"sample.turnRevision\",\"nativeSessionId\":\"sample.nativeSessionId\",\"nativeSampleId\":\"sample.nativeSampleId\"},\"status\":\"available\",\"lastRequest\":{\"requestId\":\"lastRequest.requestId\",\"model\":{\"modelId\":\"lastRequest.model.modelId\",\"providerId\":\"lastRequest.model.providerId\"},\"input\":{\"value\":2,\"accuracy\":\"reported\",\"source\":\"lastRequest.input.source\"},\"output\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"lastRequest.output.source\"},\"cacheRead\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"lastRequest.cacheRead.source\"},\"cacheWrite\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"lastRequest.cacheWrite.source\"},\"reasoning\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"lastRequest.reasoning.source\"}},\"composition\":{\"coverage\":\"partial\",\"usedTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"composition.usedTokens.source\"},\"rows\":[{\"id\":\"composition.rows[0].id-parent\",\"label\":\"composition.rows[0].label\",\"category\":\"composition.rows[0].category\",\"kind\":\"used\",\"attribution\":\"category\",\"tokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"composition.rows[0].tokens.source\"},\"childrenCoverage\":\"complete\"},{\"id\":\"composition.rows[0].id\",\"parentId\":\"composition.rows[0].id-parent\",\"label\":\"composition.rows[0].label\",\"category\":\"composition.rows[0].category\",\"kind\":\"used\",\"attribution\":\"category\",\"tokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"composition.rows[0].tokens.source\"},\"childrenCoverage\":\"complete\"}],\"truncated\":true}}"
+    },
+    {
+      "schema": "ContextDetailResult",
+      "variant": "full/arm1",
+      "wire": {
+        "version": 1,
+        "sample": {
+          "observerGeneration": 2,
+          "turnEpoch": 2,
+          "bindingVersion": 2,
+          "contextRevision": 2,
+          "id": "sample.id",
+          "at": "2026-01-02T03:04:05.000Z",
+          "turnRevision": "sample.turnRevision",
+          "nativeSessionId": "sample.nativeSessionId",
+          "nativeSampleId": "sample.nativeSampleId"
+        },
+        "status": "refused",
+        "reason": {
+          "code": "reason.code",
+          "message": "reason.message"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"version\":1,\"sample\":{\"observerGeneration\":2,\"turnEpoch\":2,\"bindingVersion\":2,\"contextRevision\":2,\"id\":\"sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"sample.turnRevision\",\"nativeSessionId\":\"sample.nativeSessionId\",\"nativeSampleId\":\"sample.nativeSampleId\"},\"status\":\"refused\",\"reason\":{\"code\":\"reason.code\",\"message\":\"reason.message\"}}"
+    },
+    {
+      "schema": "ContextObservation",
+      "variant": "minimal",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "bootstrap",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "components": {}
+        },
+        "observerGeneration": 1,
+        "turnEpoch": 1,
+        "context": {
+          "sample": {
+            "observerGeneration": 1,
+            "turnEpoch": 1,
+            "bindingVersion": 1,
+            "contextRevision": 1,
+            "id": "context.sample.id",
+            "at": "2026-01-02T03:04:05.000Z"
+          },
+          "occupancy": {
+            "basis": "current-context",
+            "usedTokens": {
+              "value": 0,
+              "accuracy": "reported",
+              "source": "synthetic measurement"
+            }
+          },
+          "version": 1,
+          "status": "available"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"components\":{}},\"observerGeneration\":1,\"turnEpoch\":1,\"context\":{\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"context.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\"},\"occupancy\":{\"basis\":\"current-context\",\"usedTokens\":{\"value\":0,\"accuracy\":\"reported\",\"source\":\"synthetic measurement\"}},\"version\":1,\"status\":\"available\"}}"
+    },
+    {
+      "schema": "ContextObservation",
+      "variant": "full/arm0",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "bootstrap",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 1
+          }
+        },
+        "observerGeneration": 1,
+        "turnEpoch": 1,
+        "context": {
+          "sample": {
+            "observerGeneration": 1,
+            "turnEpoch": 1,
+            "bindingVersion": 1,
+            "contextRevision": 1,
+            "id": "context.sample.id",
+            "at": "2026-01-02T03:04:05.000Z",
+            "turnRevision": "context.sample.turnRevision",
+            "nativeSessionId": "context.sample.nativeSessionId",
+            "nativeSampleId": "context.sample.nativeSampleId"
+          },
+          "model": {
+            "modelId": "context.model.modelId",
+            "providerId": "context.model.providerId"
+          },
+          "occupancy": {
+            "basis": "current-context",
+            "usedTokens": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "context.occupancy.usedTokens.source"
+            },
+            "remainingTokens": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "context.occupancy.remainingTokens.source"
+            },
+            "percent": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "context.occupancy.percent.source"
+            }
+          },
+          "effectiveCapacity": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "context.effectiveCapacity.source",
+            "basis": "native"
+          },
+          "modelCapacity": {
+            "value": 1,
+            "accuracy": "reported",
+            "source": "context.modelCapacity.source",
+            "basis": "native"
+          },
+          "compaction": {
+            "source": "context.compaction.source",
+            "enabled": true,
+            "thresholdTokens": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "context.compaction.thresholdTokens.source"
+            },
+            "thresholdPercent": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "context.compaction.thresholdPercent.source"
+            },
+            "reserveTokens": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "context.compaction.reserveTokens.source"
+            }
+          },
+          "version": 1,
+          "status": "available"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"context\":{\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"context.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"context.sample.turnRevision\",\"nativeSessionId\":\"context.sample.nativeSessionId\",\"nativeSampleId\":\"context.sample.nativeSampleId\"},\"model\":{\"modelId\":\"context.model.modelId\",\"providerId\":\"context.model.providerId\"},\"occupancy\":{\"basis\":\"current-context\",\"usedTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.occupancy.usedTokens.source\"},\"remainingTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.occupancy.remainingTokens.source\"},\"percent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.occupancy.percent.source\"}},\"effectiveCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.effectiveCapacity.source\",\"basis\":\"native\"},\"modelCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.modelCapacity.source\",\"basis\":\"native\"},\"compaction\":{\"source\":\"context.compaction.source\",\"enabled\":true,\"thresholdTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"available\"}}"
+    },
+    {
+      "schema": "ContextObservation",
+      "variant": "full/arm1",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "live",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 2
+          }
+        },
+        "observerGeneration": 2,
+        "turnEpoch": 2,
+        "context": {
+          "sample": {
+            "observerGeneration": 2,
+            "turnEpoch": 2,
+            "bindingVersion": 2,
+            "contextRevision": 2,
+            "id": "context.sample.id",
+            "at": "2026-01-02T03:04:05.000Z",
+            "turnRevision": "context.sample.turnRevision",
+            "nativeSessionId": "context.sample.nativeSessionId",
+            "nativeSampleId": "context.sample.nativeSampleId"
+          },
+          "model": {
+            "modelId": "context.model.modelId",
+            "providerId": "context.model.providerId"
+          },
+          "occupancy": {
+            "basis": "last-request",
+            "usedTokens": {
+              "value": 2,
+              "accuracy": "estimated",
+              "source": "context.occupancy.usedTokens.source"
+            },
+            "remainingTokens": {
+              "value": 2,
+              "accuracy": "estimated",
+              "source": "context.occupancy.remainingTokens.source"
+            },
+            "percent": {
+              "value": 2,
+              "accuracy": "estimated",
+              "source": "context.occupancy.percent.source"
+            }
+          },
+          "effectiveCapacity": {
+            "value": 2,
+            "accuracy": "estimated",
+            "source": "context.effectiveCapacity.source",
+            "basis": "configured"
+          },
+          "modelCapacity": {
+            "value": 2,
+            "accuracy": "estimated",
+            "source": "context.modelCapacity.source",
+            "basis": "configured"
+          },
+          "compaction": {
+            "source": "context.compaction.source",
+            "enabled": false,
+            "thresholdTokens": {
+              "value": 2,
+              "accuracy": "estimated",
+              "source": "context.compaction.thresholdTokens.source"
+            },
+            "thresholdPercent": {
+              "value": 2,
+              "accuracy": "estimated",
+              "source": "context.compaction.thresholdPercent.source"
+            },
+            "reserveTokens": {
+              "value": 2,
+              "accuracy": "estimated",
+              "source": "context.compaction.reserveTokens.source"
+            }
+          },
+          "version": 1,
+          "status": "stale",
+          "reason": {
+            "code": "context.reason.code",
+            "message": "context.reason.message"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"context\":{\"sample\":{\"observerGeneration\":2,\"turnEpoch\":2,\"bindingVersion\":2,\"contextRevision\":2,\"id\":\"context.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"context.sample.turnRevision\",\"nativeSessionId\":\"context.sample.nativeSessionId\",\"nativeSampleId\":\"context.sample.nativeSampleId\"},\"model\":{\"modelId\":\"context.model.modelId\",\"providerId\":\"context.model.providerId\"},\"occupancy\":{\"basis\":\"last-request\",\"usedTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.occupancy.usedTokens.source\"},\"remainingTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.occupancy.remainingTokens.source\"},\"percent\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.occupancy.percent.source\"}},\"effectiveCapacity\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.effectiveCapacity.source\",\"basis\":\"configured\"},\"modelCapacity\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.modelCapacity.source\",\"basis\":\"configured\"},\"compaction\":{\"source\":\"context.compaction.source\",\"enabled\":false,\"thresholdTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"stale\",\"reason\":{\"code\":\"context.reason.code\",\"message\":\"context.reason.message\"}}}"
+    },
+    {
+      "schema": "ContextObservation",
+      "variant": "full/arm2",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "replay",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 3
+          }
+        },
+        "observerGeneration": 3,
+        "turnEpoch": 3,
+        "context": {
+          "model": {
+            "modelId": "context.model.modelId",
+            "providerId": "context.model.providerId"
+          },
+          "effectiveCapacity": {
+            "value": 3,
+            "accuracy": "estimated",
+            "source": "context.effectiveCapacity.source",
+            "basis": "model-metadata"
+          },
+          "modelCapacity": {
+            "value": 3,
+            "accuracy": "estimated",
+            "source": "context.modelCapacity.source",
+            "basis": "model-metadata"
+          },
+          "compaction": {
+            "source": "context.compaction.source",
+            "enabled": true,
+            "thresholdTokens": {
+              "value": 3,
+              "accuracy": "estimated",
+              "source": "context.compaction.thresholdTokens.source"
+            },
+            "thresholdPercent": {
+              "value": 3,
+              "accuracy": "estimated",
+              "source": "context.compaction.thresholdPercent.source"
+            },
+            "reserveTokens": {
+              "value": 3,
+              "accuracy": "estimated",
+              "source": "context.compaction.reserveTokens.source"
+            }
+          },
+          "version": 1,
+          "status": "pending",
+          "revision": {
+            "observerGeneration": 3,
+            "turnEpoch": 3,
+            "bindingVersion": 3,
+            "contextRevision": 3
+          },
+          "reason": {
+            "code": "context.reason.code",
+            "message": "context.reason.message"
+          },
+          "invalidation": {
+            "cause": "reset",
+            "previousSample": {
+              "observerGeneration": 3,
+              "turnEpoch": 3,
+              "bindingVersion": 3,
+              "contextRevision": 3,
+              "id": "context.invalidation.previousSample.id",
+              "at": "2026-01-02T03:04:05.000Z",
+              "turnRevision": "context.invalidation.previousSample.turnRevision",
+              "nativeSessionId": "context.invalidation.previousSample.nativeSessionId",
+              "nativeSampleId": "context.invalidation.previousSample.nativeSampleId"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"context\":{\"model\":{\"modelId\":\"context.model.modelId\",\"providerId\":\"context.model.providerId\"},\"effectiveCapacity\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"context.effectiveCapacity.source\",\"basis\":\"model-metadata\"},\"modelCapacity\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"context.modelCapacity.source\",\"basis\":\"model-metadata\"},\"compaction\":{\"source\":\"context.compaction.source\",\"enabled\":true,\"thresholdTokens\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"pending\",\"revision\":{\"observerGeneration\":3,\"turnEpoch\":3,\"bindingVersion\":3,\"contextRevision\":3},\"reason\":{\"code\":\"context.reason.code\",\"message\":\"context.reason.message\"},\"invalidation\":{\"cause\":\"reset\",\"previousSample\":{\"observerGeneration\":3,\"turnEpoch\":3,\"bindingVersion\":3,\"contextRevision\":3,\"id\":\"context.invalidation.previousSample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"context.invalidation.previousSample.turnRevision\",\"nativeSessionId\":\"context.invalidation.previousSample.nativeSessionId\",\"nativeSampleId\":\"context.invalidation.previousSample.nativeSampleId\"}}}}"
+    },
+    {
+      "schema": "ContextObservation",
+      "variant": "full/arm3",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "replay",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 4
+          }
+        },
+        "observerGeneration": 4,
+        "turnEpoch": 4,
+        "context": {
+          "model": {
+            "modelId": "context.model.modelId",
+            "providerId": "context.model.providerId"
+          },
+          "effectiveCapacity": {
+            "value": 4,
+            "accuracy": "estimated",
+            "source": "context.effectiveCapacity.source",
+            "basis": "fallback"
+          },
+          "modelCapacity": {
+            "value": 4,
+            "accuracy": "estimated",
+            "source": "context.modelCapacity.source",
+            "basis": "fallback"
+          },
+          "compaction": {
+            "source": "context.compaction.source",
+            "enabled": false,
+            "thresholdTokens": {
+              "value": 4,
+              "accuracy": "estimated",
+              "source": "context.compaction.thresholdTokens.source"
+            },
+            "thresholdPercent": {
+              "value": 4,
+              "accuracy": "estimated",
+              "source": "context.compaction.thresholdPercent.source"
+            },
+            "reserveTokens": {
+              "value": 4,
+              "accuracy": "estimated",
+              "source": "context.compaction.reserveTokens.source"
+            }
+          },
+          "version": 1,
+          "status": "unavailable",
+          "revision": {
+            "observerGeneration": 4,
+            "turnEpoch": 4,
+            "bindingVersion": 4,
+            "contextRevision": 4
+          },
+          "reason": {
+            "code": "context.reason.code",
+            "message": "context.reason.message"
+          },
+          "invalidation": {
+            "cause": "rewind",
+            "previousSample": {
+              "observerGeneration": 4,
+              "turnEpoch": 4,
+              "bindingVersion": 4,
+              "contextRevision": 4,
+              "id": "context.invalidation.previousSample.id",
+              "at": "2026-01-02T03:04:05.000Z",
+              "turnRevision": "context.invalidation.previousSample.turnRevision",
+              "nativeSessionId": "context.invalidation.previousSample.nativeSessionId",
+              "nativeSampleId": "context.invalidation.previousSample.nativeSampleId"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"context\":{\"model\":{\"modelId\":\"context.model.modelId\",\"providerId\":\"context.model.providerId\"},\"effectiveCapacity\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"context.effectiveCapacity.source\",\"basis\":\"fallback\"},\"modelCapacity\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"context.modelCapacity.source\",\"basis\":\"fallback\"},\"compaction\":{\"source\":\"context.compaction.source\",\"enabled\":false,\"thresholdTokens\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"unavailable\",\"revision\":{\"observerGeneration\":4,\"turnEpoch\":4,\"bindingVersion\":4,\"contextRevision\":4},\"reason\":{\"code\":\"context.reason.code\",\"message\":\"context.reason.message\"},\"invalidation\":{\"cause\":\"rewind\",\"previousSample\":{\"observerGeneration\":4,\"turnEpoch\":4,\"bindingVersion\":4,\"contextRevision\":4,\"id\":\"context.invalidation.previousSample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"context.invalidation.previousSample.turnRevision\",\"nativeSessionId\":\"context.invalidation.previousSample.nativeSessionId\",\"nativeSampleId\":\"context.invalidation.previousSample.nativeSampleId\"}}}}"
+    },
+    {
+      "schema": "ContextObservation",
+      "variant": "full/arm4",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "replay",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 5
+          }
+        },
+        "observerGeneration": 5,
+        "turnEpoch": 5,
+        "context": {
+          "version": 1,
+          "status": "unsupported",
+          "reason": {
+            "code": "context.reason.code",
+            "message": "context.reason.message"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"context\":{\"version\":1,\"status\":\"unsupported\",\"reason\":{\"code\":\"context.reason.code\",\"message\":\"context.reason.message\"}}}"
+    },
+    {
+      "schema": "ContextReadRequest",
+      "variant": "minimal",
+      "wire": {
+        "timeoutMs": 1,
+        "intent": "summary"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"timeoutMs\":1,\"intent\":\"summary\"}"
+    },
+    {
+      "schema": "ContextReadRequest",
+      "variant": "full/arm0",
+      "wire": {
+        "timeoutMs": 1,
+        "intent": "summary"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"timeoutMs\":1,\"intent\":\"summary\"}"
+    },
+    {
+      "schema": "ContextReadRequest",
+      "variant": "full/arm1",
+      "wire": {
+        "timeoutMs": 2,
+        "sample": {
+          "observerGeneration": 2,
+          "turnEpoch": 2,
+          "bindingVersion": 2,
+          "contextRevision": 2,
+          "id": "sample.id",
+          "at": "2026-01-02T03:04:05.000Z",
+          "turnRevision": "sample.turnRevision",
+          "nativeSessionId": "sample.nativeSessionId",
+          "nativeSampleId": "sample.nativeSampleId"
+        },
+        "maxRows": 2,
+        "intent": "breakdown"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"timeoutMs\":2,\"sample\":{\"observerGeneration\":2,\"turnEpoch\":2,\"bindingVersion\":2,\"contextRevision\":2,\"id\":\"sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"sample.turnRevision\",\"nativeSessionId\":\"sample.nativeSessionId\",\"nativeSampleId\":\"sample.nativeSampleId\"},\"maxRows\":2,\"intent\":\"breakdown\"}"
+    },
+    {
+      "schema": "ContextReadResult",
+      "variant": "minimal",
+      "wire": {
+        "intent": "summary",
+        "result": {
+          "status": "observation",
+          "observation": {
+            "at": "2026-01-02T03:04:05.000Z",
+            "provenance": "bootstrap",
+            "cursor": {
+              "segmentId": "result.observation.cursor.segmentId",
+              "components": {}
+            },
+            "observerGeneration": 1,
+            "turnEpoch": 1,
+            "context": {
+              "sample": {
+                "observerGeneration": 1,
+                "turnEpoch": 1,
+                "bindingVersion": 1,
+                "contextRevision": 1,
+                "id": "result.observation.context.sample.id",
+                "at": "2026-01-02T03:04:05.000Z"
+              },
+              "occupancy": {
+                "basis": "current-context",
+                "usedTokens": {
+                  "value": 0,
+                  "accuracy": "reported",
+                  "source": "synthetic measurement"
+                }
+              },
+              "version": 1,
+              "status": "available"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"intent\":\"summary\",\"result\":{\"status\":\"observation\",\"observation\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"result.observation.cursor.segmentId\",\"components\":{}},\"observerGeneration\":1,\"turnEpoch\":1,\"context\":{\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"result.observation.context.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\"},\"occupancy\":{\"basis\":\"current-context\",\"usedTokens\":{\"value\":0,\"accuracy\":\"reported\",\"source\":\"synthetic measurement\"}},\"version\":1,\"status\":\"available\"}}}}"
+    },
+    {
+      "schema": "ContextReadResult",
+      "variant": "full/arm0",
+      "wire": {
+        "intent": "summary",
+        "result": {
+          "status": "observation",
+          "observation": {
+            "at": "2026-01-02T03:04:05.000Z",
+            "provenance": "bootstrap",
+            "cursor": {
+              "segmentId": "result.observation.cursor.segmentId",
+              "predecessorSegmentId": "result.observation.cursor.predecessorSegmentId",
+              "pathHint": "result.observation.cursor.pathHint",
+              "device": "result.observation.cursor.device",
+              "inode": "result.observation.cursor.inode",
+              "integrity": "result.observation.cursor.integrity",
+              "components": {
+                "result.observation.cursor.components.key": 1
+              }
+            },
+            "observerGeneration": 1,
+            "turnEpoch": 1,
+            "context": {
+              "sample": {
+                "observerGeneration": 1,
+                "turnEpoch": 1,
+                "bindingVersion": 1,
+                "contextRevision": 1,
+                "id": "result.observation.context.sample.id",
+                "at": "2026-01-02T03:04:05.000Z",
+                "turnRevision": "result.observation.context.sample.turnRevision",
+                "nativeSessionId": "result.observation.context.sample.nativeSessionId",
+                "nativeSampleId": "result.observation.context.sample.nativeSampleId"
+              },
+              "model": {
+                "modelId": "result.observation.context.model.modelId",
+                "providerId": "result.observation.context.model.providerId"
+              },
+              "occupancy": {
+                "basis": "current-context",
+                "usedTokens": {
+                  "value": 1,
+                  "accuracy": "reported",
+                  "source": "result.observation.context.occupancy.usedTokens.source"
+                },
+                "remainingTokens": {
+                  "value": 1,
+                  "accuracy": "reported",
+                  "source": "result.observation.context.occupancy.remainingTokens.source"
+                },
+                "percent": {
+                  "value": 1,
+                  "accuracy": "reported",
+                  "source": "result.observation.context.occupancy.percent.source"
+                }
+              },
+              "effectiveCapacity": {
+                "value": 1,
+                "accuracy": "reported",
+                "source": "result.observation.context.effectiveCapacity.source",
+                "basis": "native"
+              },
+              "modelCapacity": {
+                "value": 1,
+                "accuracy": "reported",
+                "source": "result.observation.context.modelCapacity.source",
+                "basis": "native"
+              },
+              "compaction": {
+                "source": "result.observation.context.compaction.source",
+                "enabled": true,
+                "thresholdTokens": {
+                  "value": 1,
+                  "accuracy": "reported",
+                  "source": "result.observation.context.compaction.thresholdTokens.source"
+                },
+                "thresholdPercent": {
+                  "value": 1,
+                  "accuracy": "reported",
+                  "source": "result.observation.context.compaction.thresholdPercent.source"
+                },
+                "reserveTokens": {
+                  "value": 1,
+                  "accuracy": "reported",
+                  "source": "result.observation.context.compaction.reserveTokens.source"
+                }
+              },
+              "version": 1,
+              "status": "available"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"intent\":\"summary\",\"result\":{\"status\":\"observation\",\"observation\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"result.observation.cursor.segmentId\",\"predecessorSegmentId\":\"result.observation.cursor.predecessorSegmentId\",\"pathHint\":\"result.observation.cursor.pathHint\",\"device\":\"result.observation.cursor.device\",\"inode\":\"result.observation.cursor.inode\",\"integrity\":\"result.observation.cursor.integrity\",\"components\":{\"result.observation.cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"context\":{\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"result.observation.context.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"result.observation.context.sample.turnRevision\",\"nativeSessionId\":\"result.observation.context.sample.nativeSessionId\",\"nativeSampleId\":\"result.observation.context.sample.nativeSampleId\"},\"model\":{\"modelId\":\"result.observation.context.model.modelId\",\"providerId\":\"result.observation.context.model.providerId\"},\"occupancy\":{\"basis\":\"current-context\",\"usedTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.observation.context.occupancy.usedTokens.source\"},\"remainingTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.observation.context.occupancy.remainingTokens.source\"},\"percent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.observation.context.occupancy.percent.source\"}},\"effectiveCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.observation.context.effectiveCapacity.source\",\"basis\":\"native\"},\"modelCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.observation.context.modelCapacity.source\",\"basis\":\"native\"},\"compaction\":{\"source\":\"result.observation.context.compaction.source\",\"enabled\":true,\"thresholdTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.observation.context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.observation.context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.observation.context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"available\"}}}}"
+    },
+    {
+      "schema": "ContextReadResult",
+      "variant": "full/arm1",
+      "wire": {
+        "intent": "breakdown",
+        "result": {
+          "version": 1,
+          "sample": {
+            "observerGeneration": 2,
+            "turnEpoch": 2,
+            "bindingVersion": 2,
+            "contextRevision": 2,
+            "id": "result.sample.id",
+            "at": "2026-01-02T03:04:05.000Z",
+            "turnRevision": "result.sample.turnRevision",
+            "nativeSessionId": "result.sample.nativeSessionId",
+            "nativeSampleId": "result.sample.nativeSampleId"
+          },
+          "status": "refused",
+          "reason": {
+            "code": "result.reason.code",
+            "message": "result.reason.message"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"intent\":\"breakdown\",\"result\":{\"version\":1,\"sample\":{\"observerGeneration\":2,\"turnEpoch\":2,\"bindingVersion\":2,\"contextRevision\":2,\"id\":\"result.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"result.sample.turnRevision\",\"nativeSessionId\":\"result.sample.nativeSessionId\",\"nativeSampleId\":\"result.sample.nativeSampleId\"},\"status\":\"refused\",\"reason\":{\"code\":\"result.reason.code\",\"message\":\"result.reason.message\"}}}"
+    },
+    {
+      "schema": "ContextReadResult",
+      "variant": "full/arm2",
+      "wire": {
+        "intent": "breakdown",
+        "result": {
+          "version": 1,
+          "sample": {
+            "observerGeneration": 3,
+            "turnEpoch": 3,
+            "bindingVersion": 3,
+            "contextRevision": 3,
+            "id": "result.sample.id",
+            "at": "2026-01-02T03:04:05.000Z",
+            "turnRevision": "result.sample.turnRevision",
+            "nativeSessionId": "result.sample.nativeSessionId",
+            "nativeSampleId": "result.sample.nativeSampleId"
+          },
+          "status": "superseded",
+          "reason": {
+            "code": "result.reason.code",
+            "message": "result.reason.message"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"intent\":\"breakdown\",\"result\":{\"version\":1,\"sample\":{\"observerGeneration\":3,\"turnEpoch\":3,\"bindingVersion\":3,\"contextRevision\":3,\"id\":\"result.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"result.sample.turnRevision\",\"nativeSessionId\":\"result.sample.nativeSessionId\",\"nativeSampleId\":\"result.sample.nativeSampleId\"},\"status\":\"superseded\",\"reason\":{\"code\":\"result.reason.code\",\"message\":\"result.reason.message\"}}}"
+    },
+    {
+      "schema": "ContextReadResult",
+      "variant": "full/arm3",
+      "wire": {
+        "intent": "breakdown",
+        "result": {
+          "version": 1,
+          "sample": {
+            "observerGeneration": 4,
+            "turnEpoch": 4,
+            "bindingVersion": 4,
+            "contextRevision": 4,
+            "id": "result.sample.id",
+            "at": "2026-01-02T03:04:05.000Z",
+            "turnRevision": "result.sample.turnRevision",
+            "nativeSessionId": "result.sample.nativeSessionId",
+            "nativeSampleId": "result.sample.nativeSampleId"
+          },
+          "status": "unavailable",
+          "reason": {
+            "code": "result.reason.code",
+            "message": "result.reason.message"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"intent\":\"breakdown\",\"result\":{\"version\":1,\"sample\":{\"observerGeneration\":4,\"turnEpoch\":4,\"bindingVersion\":4,\"contextRevision\":4,\"id\":\"result.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"result.sample.turnRevision\",\"nativeSessionId\":\"result.sample.nativeSessionId\",\"nativeSampleId\":\"result.sample.nativeSampleId\"},\"status\":\"unavailable\",\"reason\":{\"code\":\"result.reason.code\",\"message\":\"result.reason.message\"}}}"
+    },
+    {
+      "schema": "ContextReadResult",
+      "variant": "full/arm4",
+      "wire": {
+        "intent": "breakdown",
+        "result": {
+          "version": 1,
+          "sample": {
+            "observerGeneration": 5,
+            "turnEpoch": 5,
+            "bindingVersion": 5,
+            "contextRevision": 5,
+            "id": "result.sample.id",
+            "at": "2026-01-02T03:04:05.000Z",
+            "turnRevision": "result.sample.turnRevision",
+            "nativeSessionId": "result.sample.nativeSessionId",
+            "nativeSampleId": "result.sample.nativeSampleId"
+          },
+          "status": "unsupported",
+          "reason": {
+            "code": "result.reason.code",
+            "message": "result.reason.message"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"intent\":\"breakdown\",\"result\":{\"version\":1,\"sample\":{\"observerGeneration\":5,\"turnEpoch\":5,\"bindingVersion\":5,\"contextRevision\":5,\"id\":\"result.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"result.sample.turnRevision\",\"nativeSessionId\":\"result.sample.nativeSessionId\",\"nativeSampleId\":\"result.sample.nativeSampleId\"},\"status\":\"unsupported\",\"reason\":{\"code\":\"result.reason.code\",\"message\":\"result.reason.message\"}}}"
+    },
+    {
+      "schema": "ContextSummaryReadResult",
+      "variant": "minimal",
+      "wire": {
+        "status": "observation",
+        "observation": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "bootstrap",
+          "cursor": {
+            "segmentId": "observation.cursor.segmentId",
+            "components": {}
+          },
+          "observerGeneration": 1,
+          "turnEpoch": 1,
+          "context": {
+            "sample": {
+              "observerGeneration": 1,
+              "turnEpoch": 1,
+              "bindingVersion": 1,
+              "contextRevision": 1,
+              "id": "observation.context.sample.id",
+              "at": "2026-01-02T03:04:05.000Z"
+            },
+            "occupancy": {
+              "basis": "current-context",
+              "usedTokens": {
+                "value": 0,
+                "accuracy": "reported",
+                "source": "synthetic measurement"
+              }
+            },
+            "version": 1,
+            "status": "available"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"status\":\"observation\",\"observation\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"observation.cursor.segmentId\",\"components\":{}},\"observerGeneration\":1,\"turnEpoch\":1,\"context\":{\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"observation.context.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\"},\"occupancy\":{\"basis\":\"current-context\",\"usedTokens\":{\"value\":0,\"accuracy\":\"reported\",\"source\":\"synthetic measurement\"}},\"version\":1,\"status\":\"available\"}}}"
+    },
+    {
+      "schema": "ContextSummaryReadResult",
+      "variant": "full/arm0",
+      "wire": {
+        "status": "observation",
+        "observation": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "bootstrap",
+          "cursor": {
+            "segmentId": "observation.cursor.segmentId",
+            "predecessorSegmentId": "observation.cursor.predecessorSegmentId",
+            "pathHint": "observation.cursor.pathHint",
+            "device": "observation.cursor.device",
+            "inode": "observation.cursor.inode",
+            "integrity": "observation.cursor.integrity",
+            "components": {
+              "observation.cursor.components.key": 1
+            }
+          },
+          "observerGeneration": 1,
+          "turnEpoch": 1,
+          "context": {
+            "sample": {
+              "observerGeneration": 1,
+              "turnEpoch": 1,
+              "bindingVersion": 1,
+              "contextRevision": 1,
+              "id": "observation.context.sample.id",
+              "at": "2026-01-02T03:04:05.000Z",
+              "turnRevision": "observation.context.sample.turnRevision",
+              "nativeSessionId": "observation.context.sample.nativeSessionId",
+              "nativeSampleId": "observation.context.sample.nativeSampleId"
+            },
+            "model": {
+              "modelId": "observation.context.model.modelId",
+              "providerId": "observation.context.model.providerId"
+            },
+            "occupancy": {
+              "basis": "current-context",
+              "usedTokens": {
+                "value": 1,
+                "accuracy": "reported",
+                "source": "observation.context.occupancy.usedTokens.source"
+              },
+              "remainingTokens": {
+                "value": 1,
+                "accuracy": "reported",
+                "source": "observation.context.occupancy.remainingTokens.source"
+              },
+              "percent": {
+                "value": 1,
+                "accuracy": "reported",
+                "source": "observation.context.occupancy.percent.source"
+              }
+            },
+            "effectiveCapacity": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "observation.context.effectiveCapacity.source",
+              "basis": "native"
+            },
+            "modelCapacity": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "observation.context.modelCapacity.source",
+              "basis": "native"
+            },
+            "compaction": {
+              "source": "observation.context.compaction.source",
+              "enabled": true,
+              "thresholdTokens": {
+                "value": 1,
+                "accuracy": "reported",
+                "source": "observation.context.compaction.thresholdTokens.source"
+              },
+              "thresholdPercent": {
+                "value": 1,
+                "accuracy": "reported",
+                "source": "observation.context.compaction.thresholdPercent.source"
+              },
+              "reserveTokens": {
+                "value": 1,
+                "accuracy": "reported",
+                "source": "observation.context.compaction.reserveTokens.source"
+              }
+            },
+            "version": 1,
+            "status": "available"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"status\":\"observation\",\"observation\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"observation.cursor.segmentId\",\"predecessorSegmentId\":\"observation.cursor.predecessorSegmentId\",\"pathHint\":\"observation.cursor.pathHint\",\"device\":\"observation.cursor.device\",\"inode\":\"observation.cursor.inode\",\"integrity\":\"observation.cursor.integrity\",\"components\":{\"observation.cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"context\":{\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"observation.context.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"observation.context.sample.turnRevision\",\"nativeSessionId\":\"observation.context.sample.nativeSessionId\",\"nativeSampleId\":\"observation.context.sample.nativeSampleId\"},\"model\":{\"modelId\":\"observation.context.model.modelId\",\"providerId\":\"observation.context.model.providerId\"},\"occupancy\":{\"basis\":\"current-context\",\"usedTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"observation.context.occupancy.usedTokens.source\"},\"remainingTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"observation.context.occupancy.remainingTokens.source\"},\"percent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"observation.context.occupancy.percent.source\"}},\"effectiveCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"observation.context.effectiveCapacity.source\",\"basis\":\"native\"},\"modelCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"observation.context.modelCapacity.source\",\"basis\":\"native\"},\"compaction\":{\"source\":\"observation.context.compaction.source\",\"enabled\":true,\"thresholdTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"observation.context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"observation.context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"observation.context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"available\"}}}"
+    },
+    {
+      "schema": "ContextSummaryReadResult",
+      "variant": "full/arm1",
+      "wire": {
+        "status": "refused",
+        "reason": {
+          "code": "reason.code",
+          "message": "reason.message"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"status\":\"refused\",\"reason\":{\"code\":\"reason.code\",\"message\":\"reason.message\"}}"
+    },
+    {
+      "schema": "ContextSummaryReadResult",
+      "variant": "full/arm2",
+      "wire": {
+        "status": "refused",
+        "reason": {
+          "code": "reason.code",
+          "message": "reason.message"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"status\":\"refused\",\"reason\":{\"code\":\"reason.code\",\"message\":\"reason.message\"}}"
+    },
+    {
+      "schema": "ContextSummaryReadResult",
+      "variant": "full/arm3",
+      "wire": {
+        "status": "refused",
+        "reason": {
+          "code": "reason.code",
+          "message": "reason.message"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"status\":\"refused\",\"reason\":{\"code\":\"reason.code\",\"message\":\"reason.message\"}}"
+    },
+    {
+      "schema": "ContextSummaryReadResult",
+      "variant": "full/arm4",
+      "wire": {
+        "status": "refused",
+        "reason": {
+          "code": "reason.code",
+          "message": "reason.message"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"status\":\"refused\",\"reason\":{\"code\":\"reason.code\",\"message\":\"reason.message\"}}"
+    },
+    {
+      "schema": "ContextSummaryRequest",
+      "variant": "minimal",
+      "wire": {
+        "timeoutMs": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"timeoutMs\":1}"
+    },
+    {
+      "schema": "ContextSummaryRequest",
+      "variant": "full",
+      "wire": {
+        "timeoutMs": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"timeoutMs\":1}"
+    },
+    {
       "schema": "CwdChanged",
       "variant": "minimal",
       "wire": {
@@ -1987,6 +3144,388 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"runtimeConfigureResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\",\"cause\":\"unconfirmed\"}}"
+    },
+    {
+      "schema": "RuntimeContextReadCancelMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeContextReadCancel",
+        "requestId": "requestId",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeContextReadCancel\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "RuntimeContextReadCancelMessage",
+      "variant": "full",
+      "wire": {
+        "type": "runtimeContextReadCancel",
+        "requestId": "requestId",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeContextReadCancel\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "RuntimeContextReadRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "sessionId": "sessionId",
+        "read": {
+          "timeoutMs": 1,
+          "intent": "summary"
+        },
+        "type": "runtimeContextReadRequest",
+        "requestId": "requestId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"read\":{\"timeoutMs\":1,\"intent\":\"summary\"},\"type\":\"runtimeContextReadRequest\",\"requestId\":\"requestId\"}"
+    },
+    {
+      "schema": "RuntimeContextReadRequestMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "sessionId": "sessionId",
+        "read": {
+          "timeoutMs": 1,
+          "intent": "summary"
+        },
+        "type": "runtimeContextReadRequest",
+        "requestId": "requestId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"read\":{\"timeoutMs\":1,\"intent\":\"summary\"},\"type\":\"runtimeContextReadRequest\",\"requestId\":\"requestId\"}"
+    },
+    {
+      "schema": "RuntimeContextReadRequestMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "sessionId": "sessionId",
+        "read": {
+          "timeoutMs": 2,
+          "sample": {
+            "observerGeneration": 2,
+            "turnEpoch": 2,
+            "bindingVersion": 2,
+            "contextRevision": 2,
+            "id": "read.sample.id",
+            "at": "2026-01-02T03:04:05.000Z",
+            "turnRevision": "read.sample.turnRevision",
+            "nativeSessionId": "read.sample.nativeSessionId",
+            "nativeSampleId": "read.sample.nativeSampleId"
+          },
+          "maxRows": 2,
+          "intent": "breakdown"
+        },
+        "type": "runtimeContextReadRequest",
+        "requestId": "requestId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"read\":{\"timeoutMs\":2,\"sample\":{\"observerGeneration\":2,\"turnEpoch\":2,\"bindingVersion\":2,\"contextRevision\":2,\"id\":\"read.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"read.sample.turnRevision\",\"nativeSessionId\":\"read.sample.nativeSessionId\",\"nativeSampleId\":\"read.sample.nativeSampleId\"},\"maxRows\":2,\"intent\":\"breakdown\"},\"type\":\"runtimeContextReadRequest\",\"requestId\":\"requestId\"}"
+    },
+    {
+      "schema": "RuntimeContextReadResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeContextReadResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "intent": "summary",
+          "result": {
+            "status": "observation",
+            "observation": {
+              "at": "2026-01-02T03:04:05.000Z",
+              "provenance": "bootstrap",
+              "cursor": {
+                "segmentId": "result.result.observation.cursor.segmentId",
+                "components": {}
+              },
+              "observerGeneration": 1,
+              "turnEpoch": 1,
+              "context": {
+                "sample": {
+                  "observerGeneration": 1,
+                  "turnEpoch": 1,
+                  "bindingVersion": 1,
+                  "contextRevision": 1,
+                  "id": "result.result.observation.context.sample.id",
+                  "at": "2026-01-02T03:04:05.000Z"
+                },
+                "occupancy": {
+                  "basis": "current-context",
+                  "usedTokens": {
+                    "value": 0,
+                    "accuracy": "reported",
+                    "source": "synthetic measurement"
+                  }
+                },
+                "version": 1,
+                "status": "available"
+              }
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeContextReadResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"intent\":\"summary\",\"result\":{\"status\":\"observation\",\"observation\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"result.result.observation.cursor.segmentId\",\"components\":{}},\"observerGeneration\":1,\"turnEpoch\":1,\"context\":{\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"result.result.observation.context.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\"},\"occupancy\":{\"basis\":\"current-context\",\"usedTokens\":{\"value\":0,\"accuracy\":\"reported\",\"source\":\"synthetic measurement\"}},\"version\":1,\"status\":\"available\"}}}}}"
+    },
+    {
+      "schema": "RuntimeContextReadResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "runtimeContextReadResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "intent": "summary",
+          "result": {
+            "status": "observation",
+            "observation": {
+              "at": "2026-01-02T03:04:05.000Z",
+              "provenance": "bootstrap",
+              "cursor": {
+                "segmentId": "result.result.observation.cursor.segmentId",
+                "predecessorSegmentId": "result.result.observation.cursor.predecessorSegmentId",
+                "pathHint": "result.result.observation.cursor.pathHint",
+                "device": "result.result.observation.cursor.device",
+                "inode": "result.result.observation.cursor.inode",
+                "integrity": "result.result.observation.cursor.integrity",
+                "components": {
+                  "result.result.observation.cursor.components.key": 1
+                }
+              },
+              "observerGeneration": 1,
+              "turnEpoch": 1,
+              "context": {
+                "sample": {
+                  "observerGeneration": 1,
+                  "turnEpoch": 1,
+                  "bindingVersion": 1,
+                  "contextRevision": 1,
+                  "id": "result.result.observation.context.sample.id",
+                  "at": "2026-01-02T03:04:05.000Z",
+                  "turnRevision": "result.result.observation.context.sample.turnRevision",
+                  "nativeSessionId": "result.result.observation.context.sample.nativeSessionId",
+                  "nativeSampleId": "result.result.observation.context.sample.nativeSampleId"
+                },
+                "model": {
+                  "modelId": "result.result.observation.context.model.modelId",
+                  "providerId": "result.result.observation.context.model.providerId"
+                },
+                "occupancy": {
+                  "basis": "current-context",
+                  "usedTokens": {
+                    "value": 1,
+                    "accuracy": "reported",
+                    "source": "result.result.observation.context.occupancy.usedTokens.source"
+                  },
+                  "remainingTokens": {
+                    "value": 1,
+                    "accuracy": "reported",
+                    "source": "result.result.observation.context.occupancy.remainingTokens.source"
+                  },
+                  "percent": {
+                    "value": 1,
+                    "accuracy": "reported",
+                    "source": "result.result.observation.context.occupancy.percent.source"
+                  }
+                },
+                "effectiveCapacity": {
+                  "value": 1,
+                  "accuracy": "reported",
+                  "source": "result.result.observation.context.effectiveCapacity.source",
+                  "basis": "native"
+                },
+                "modelCapacity": {
+                  "value": 1,
+                  "accuracy": "reported",
+                  "source": "result.result.observation.context.modelCapacity.source",
+                  "basis": "native"
+                },
+                "compaction": {
+                  "source": "result.result.observation.context.compaction.source",
+                  "enabled": true,
+                  "thresholdTokens": {
+                    "value": 1,
+                    "accuracy": "reported",
+                    "source": "result.result.observation.context.compaction.thresholdTokens.source"
+                  },
+                  "thresholdPercent": {
+                    "value": 1,
+                    "accuracy": "reported",
+                    "source": "result.result.observation.context.compaction.thresholdPercent.source"
+                  },
+                  "reserveTokens": {
+                    "value": 1,
+                    "accuracy": "reported",
+                    "source": "result.result.observation.context.compaction.reserveTokens.source"
+                  }
+                },
+                "version": 1,
+                "status": "available"
+              }
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeContextReadResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"intent\":\"summary\",\"result\":{\"status\":\"observation\",\"observation\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"result.result.observation.cursor.segmentId\",\"predecessorSegmentId\":\"result.result.observation.cursor.predecessorSegmentId\",\"pathHint\":\"result.result.observation.cursor.pathHint\",\"device\":\"result.result.observation.cursor.device\",\"inode\":\"result.result.observation.cursor.inode\",\"integrity\":\"result.result.observation.cursor.integrity\",\"components\":{\"result.result.observation.cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"context\":{\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"result.result.observation.context.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"result.result.observation.context.sample.turnRevision\",\"nativeSessionId\":\"result.result.observation.context.sample.nativeSessionId\",\"nativeSampleId\":\"result.result.observation.context.sample.nativeSampleId\"},\"model\":{\"modelId\":\"result.result.observation.context.model.modelId\",\"providerId\":\"result.result.observation.context.model.providerId\"},\"occupancy\":{\"basis\":\"current-context\",\"usedTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.result.observation.context.occupancy.usedTokens.source\"},\"remainingTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.result.observation.context.occupancy.remainingTokens.source\"},\"percent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.result.observation.context.occupancy.percent.source\"}},\"effectiveCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.result.observation.context.effectiveCapacity.source\",\"basis\":\"native\"},\"modelCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.result.observation.context.modelCapacity.source\",\"basis\":\"native\"},\"compaction\":{\"source\":\"result.result.observation.context.compaction.source\",\"enabled\":true,\"thresholdTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.result.observation.context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.result.observation.context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.result.observation.context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"available\"}}}}}"
+    },
+    {
+      "schema": "RuntimeContextReadResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "runtimeContextReadResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "intent": "breakdown",
+          "result": {
+            "version": 1,
+            "sample": {
+              "observerGeneration": 2,
+              "turnEpoch": 2,
+              "bindingVersion": 2,
+              "contextRevision": 2,
+              "id": "result.result.sample.id",
+              "at": "2026-01-02T03:04:05.000Z",
+              "turnRevision": "result.result.sample.turnRevision",
+              "nativeSessionId": "result.result.sample.nativeSessionId",
+              "nativeSampleId": "result.result.sample.nativeSampleId"
+            },
+            "status": "refused",
+            "reason": {
+              "code": "result.result.reason.code",
+              "message": "result.result.reason.message"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeContextReadResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"intent\":\"breakdown\",\"result\":{\"version\":1,\"sample\":{\"observerGeneration\":2,\"turnEpoch\":2,\"bindingVersion\":2,\"contextRevision\":2,\"id\":\"result.result.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"result.result.sample.turnRevision\",\"nativeSessionId\":\"result.result.sample.nativeSessionId\",\"nativeSampleId\":\"result.result.sample.nativeSampleId\"},\"status\":\"refused\",\"reason\":{\"code\":\"result.result.reason.code\",\"message\":\"result.result.reason.message\"}}}}"
+    },
+    {
+      "schema": "RuntimeContextReadResultMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "runtimeContextReadResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "intent": "breakdown",
+          "result": {
+            "version": 1,
+            "sample": {
+              "observerGeneration": 3,
+              "turnEpoch": 3,
+              "bindingVersion": 3,
+              "contextRevision": 3,
+              "id": "result.result.sample.id",
+              "at": "2026-01-02T03:04:05.000Z",
+              "turnRevision": "result.result.sample.turnRevision",
+              "nativeSessionId": "result.result.sample.nativeSessionId",
+              "nativeSampleId": "result.result.sample.nativeSampleId"
+            },
+            "status": "superseded",
+            "reason": {
+              "code": "result.result.reason.code",
+              "message": "result.result.reason.message"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeContextReadResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"intent\":\"breakdown\",\"result\":{\"version\":1,\"sample\":{\"observerGeneration\":3,\"turnEpoch\":3,\"bindingVersion\":3,\"contextRevision\":3,\"id\":\"result.result.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"result.result.sample.turnRevision\",\"nativeSessionId\":\"result.result.sample.nativeSessionId\",\"nativeSampleId\":\"result.result.sample.nativeSampleId\"},\"status\":\"superseded\",\"reason\":{\"code\":\"result.result.reason.code\",\"message\":\"result.result.reason.message\"}}}}"
+    },
+    {
+      "schema": "RuntimeContextReadResultMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "runtimeContextReadResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "intent": "breakdown",
+          "result": {
+            "version": 1,
+            "sample": {
+              "observerGeneration": 4,
+              "turnEpoch": 4,
+              "bindingVersion": 4,
+              "contextRevision": 4,
+              "id": "result.result.sample.id",
+              "at": "2026-01-02T03:04:05.000Z",
+              "turnRevision": "result.result.sample.turnRevision",
+              "nativeSessionId": "result.result.sample.nativeSessionId",
+              "nativeSampleId": "result.result.sample.nativeSampleId"
+            },
+            "status": "unavailable",
+            "reason": {
+              "code": "result.result.reason.code",
+              "message": "result.result.reason.message"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeContextReadResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"intent\":\"breakdown\",\"result\":{\"version\":1,\"sample\":{\"observerGeneration\":4,\"turnEpoch\":4,\"bindingVersion\":4,\"contextRevision\":4,\"id\":\"result.result.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"result.result.sample.turnRevision\",\"nativeSessionId\":\"result.result.sample.nativeSessionId\",\"nativeSampleId\":\"result.result.sample.nativeSampleId\"},\"status\":\"unavailable\",\"reason\":{\"code\":\"result.result.reason.code\",\"message\":\"result.result.reason.message\"}}}}"
+    },
+    {
+      "schema": "RuntimeContextReadResultMessage",
+      "variant": "full/arm4",
+      "wire": {
+        "type": "runtimeContextReadResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "intent": "breakdown",
+          "result": {
+            "version": 1,
+            "sample": {
+              "observerGeneration": 5,
+              "turnEpoch": 5,
+              "bindingVersion": 5,
+              "contextRevision": 5,
+              "id": "result.result.sample.id",
+              "at": "2026-01-02T03:04:05.000Z",
+              "turnRevision": "result.result.sample.turnRevision",
+              "nativeSessionId": "result.result.sample.nativeSessionId",
+              "nativeSampleId": "result.result.sample.nativeSampleId"
+            },
+            "status": "unsupported",
+            "reason": {
+              "code": "result.result.reason.code",
+              "message": "result.result.reason.message"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeContextReadResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"intent\":\"breakdown\",\"result\":{\"version\":1,\"sample\":{\"observerGeneration\":5,\"turnEpoch\":5,\"bindingVersion\":5,\"contextRevision\":5,\"id\":\"result.result.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"result.result.sample.turnRevision\",\"nativeSessionId\":\"result.result.sample.nativeSessionId\",\"nativeSampleId\":\"result.result.sample.nativeSampleId\"},\"status\":\"unsupported\",\"reason\":{\"code\":\"result.result.reason.code\",\"message\":\"result.result.reason.message\"}}}}"
     },
     {
       "schema": "RuntimeDaemonMessage",
@@ -6335,6 +7874,91 @@
                 }
               }
             ],
+            "context": {
+              "at": "2026-01-02T03:04:05.000Z",
+              "provenance": "bootstrap",
+              "cursor": {
+                "segmentId": "result.snapshot.context.cursor.segmentId",
+                "predecessorSegmentId": "result.snapshot.context.cursor.predecessorSegmentId",
+                "pathHint": "result.snapshot.context.cursor.pathHint",
+                "device": "result.snapshot.context.cursor.device",
+                "inode": "result.snapshot.context.cursor.inode",
+                "integrity": "result.snapshot.context.cursor.integrity",
+                "components": {
+                  "result.snapshot.context.cursor.components.key": 1
+                }
+              },
+              "observerGeneration": 1,
+              "turnEpoch": 1,
+              "context": {
+                "sample": {
+                  "observerGeneration": 1,
+                  "turnEpoch": 1,
+                  "bindingVersion": 1,
+                  "contextRevision": 1,
+                  "id": "result.snapshot.context.context.sample.id",
+                  "at": "2026-01-02T03:04:05.000Z",
+                  "turnRevision": "result.snapshot.context.context.sample.turnRevision",
+                  "nativeSessionId": "result.snapshot.context.context.sample.nativeSessionId",
+                  "nativeSampleId": "result.snapshot.context.context.sample.nativeSampleId"
+                },
+                "model": {
+                  "modelId": "result.snapshot.context.context.model.modelId",
+                  "providerId": "result.snapshot.context.context.model.providerId"
+                },
+                "occupancy": {
+                  "basis": "current-context",
+                  "usedTokens": {
+                    "value": 1,
+                    "accuracy": "reported",
+                    "source": "result.snapshot.context.context.occupancy.usedTokens.source"
+                  },
+                  "remainingTokens": {
+                    "value": 1,
+                    "accuracy": "reported",
+                    "source": "result.snapshot.context.context.occupancy.remainingTokens.source"
+                  },
+                  "percent": {
+                    "value": 1,
+                    "accuracy": "reported",
+                    "source": "result.snapshot.context.context.occupancy.percent.source"
+                  }
+                },
+                "effectiveCapacity": {
+                  "value": 1,
+                  "accuracy": "reported",
+                  "source": "result.snapshot.context.context.effectiveCapacity.source",
+                  "basis": "native"
+                },
+                "modelCapacity": {
+                  "value": 1,
+                  "accuracy": "reported",
+                  "source": "result.snapshot.context.context.modelCapacity.source",
+                  "basis": "native"
+                },
+                "compaction": {
+                  "source": "result.snapshot.context.context.compaction.source",
+                  "enabled": true,
+                  "thresholdTokens": {
+                    "value": 1,
+                    "accuracy": "reported",
+                    "source": "result.snapshot.context.context.compaction.thresholdTokens.source"
+                  },
+                  "thresholdPercent": {
+                    "value": 1,
+                    "accuracy": "reported",
+                    "source": "result.snapshot.context.context.compaction.thresholdPercent.source"
+                  },
+                  "reserveTokens": {
+                    "value": 1,
+                    "accuracy": "reported",
+                    "source": "result.snapshot.context.context.compaction.reserveTokens.source"
+                  }
+                },
+                "version": 1,
+                "status": "available"
+              }
+            },
             "at": "2026-01-02T03:04:05.000Z"
           }
         }
@@ -6342,7 +7966,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"snapshot\":{\"binding\":{\"sessionId\":\"result.snapshot.binding.sessionId\",\"driver\":\"result.snapshot.binding.driver\",\"family\":\"server\",\"harness\":\"result.snapshot.binding.harness\",\"workdir\":\"result.snapshot.binding.workdir\",\"resume\":{\"kind\":\"result.snapshot.binding.resume.kind\",\"value\":\"result.snapshot.binding.resume.value\"},\"principal\":\"result.snapshot.binding.principal\",\"process\":{\"key\":\"result.snapshot.binding.process.key\",\"scopeUnit\":\"result.snapshot.binding.process.scopeUnit\",\"pid\":1},\"bindingVersion\":1},\"state\":{\"result.snapshot.state.key\":{\"unknownFixture\":\"result.snapshot.state.result.snapshot.state.key\"}},\"cursor\":{\"segmentId\":\"result.snapshot.cursor.segmentId\",\"predecessorSegmentId\":\"result.snapshot.cursor.predecessorSegmentId\",\"pathHint\":\"result.snapshot.cursor.pathHint\",\"device\":\"result.snapshot.cursor.device\",\"inode\":\"result.snapshot.cursor.inode\",\"integrity\":\"result.snapshot.cursor.integrity\",\"components\":{\"result.snapshot.cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"interactions\":[{\"id\":\"result.snapshot.interactions[0].id\",\"sessionId\":\"result.snapshot.interactions[0].sessionId\",\"kind\":\"permission\",\"payload\":{\"v\":1,\"toolName\":\"result.snapshot.interactions[0].payload.toolName\",\"inputSummary\":\"result.snapshot.interactions[0].payload.inputSummary\",\"canAlwaysAllow\":true,\"suggestions\":[{\"unknownFixture\":\"result.snapshot.interactions[0].payload.suggestions[0]\"}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"title\":\"result.snapshot.title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"result.snapshot.metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"result.snapshot.metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"result.snapshot.metadata[0].cursor.pathHint\",\"device\":\"result.snapshot.metadata[0].cursor.device\",\"inode\":\"result.snapshot.metadata[0].cursor.inode\",\"integrity\":\"result.snapshot.metadata[0].cursor.integrity\",\"components\":{\"result.snapshot.metadata[0].cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"metadata\",\"change\":{\"kind\":\"title\",\"source\":\"osc\",\"title\":\"result.snapshot.metadata[0].change.title\"}}],\"at\":\"2026-01-02T03:04:05.000Z\"}}}"
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"snapshot\":{\"binding\":{\"sessionId\":\"result.snapshot.binding.sessionId\",\"driver\":\"result.snapshot.binding.driver\",\"family\":\"server\",\"harness\":\"result.snapshot.binding.harness\",\"workdir\":\"result.snapshot.binding.workdir\",\"resume\":{\"kind\":\"result.snapshot.binding.resume.kind\",\"value\":\"result.snapshot.binding.resume.value\"},\"principal\":\"result.snapshot.binding.principal\",\"process\":{\"key\":\"result.snapshot.binding.process.key\",\"scopeUnit\":\"result.snapshot.binding.process.scopeUnit\",\"pid\":1},\"bindingVersion\":1},\"state\":{\"result.snapshot.state.key\":{\"unknownFixture\":\"result.snapshot.state.result.snapshot.state.key\"}},\"cursor\":{\"segmentId\":\"result.snapshot.cursor.segmentId\",\"predecessorSegmentId\":\"result.snapshot.cursor.predecessorSegmentId\",\"pathHint\":\"result.snapshot.cursor.pathHint\",\"device\":\"result.snapshot.cursor.device\",\"inode\":\"result.snapshot.cursor.inode\",\"integrity\":\"result.snapshot.cursor.integrity\",\"components\":{\"result.snapshot.cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"interactions\":[{\"id\":\"result.snapshot.interactions[0].id\",\"sessionId\":\"result.snapshot.interactions[0].sessionId\",\"kind\":\"permission\",\"payload\":{\"v\":1,\"toolName\":\"result.snapshot.interactions[0].payload.toolName\",\"inputSummary\":\"result.snapshot.interactions[0].payload.inputSummary\",\"canAlwaysAllow\":true,\"suggestions\":[{\"unknownFixture\":\"result.snapshot.interactions[0].payload.suggestions[0]\"}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"title\":\"result.snapshot.title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"result.snapshot.metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"result.snapshot.metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"result.snapshot.metadata[0].cursor.pathHint\",\"device\":\"result.snapshot.metadata[0].cursor.device\",\"inode\":\"result.snapshot.metadata[0].cursor.inode\",\"integrity\":\"result.snapshot.metadata[0].cursor.integrity\",\"components\":{\"result.snapshot.metadata[0].cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"metadata\",\"change\":{\"kind\":\"title\",\"source\":\"osc\",\"title\":\"result.snapshot.metadata[0].change.title\"}}],\"context\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"result.snapshot.context.cursor.segmentId\",\"predecessorSegmentId\":\"result.snapshot.context.cursor.predecessorSegmentId\",\"pathHint\":\"result.snapshot.context.cursor.pathHint\",\"device\":\"result.snapshot.context.cursor.device\",\"inode\":\"result.snapshot.context.cursor.inode\",\"integrity\":\"result.snapshot.context.cursor.integrity\",\"components\":{\"result.snapshot.context.cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"context\":{\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"result.snapshot.context.context.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"result.snapshot.context.context.sample.turnRevision\",\"nativeSessionId\":\"result.snapshot.context.context.sample.nativeSessionId\",\"nativeSampleId\":\"result.snapshot.context.context.sample.nativeSampleId\"},\"model\":{\"modelId\":\"result.snapshot.context.context.model.modelId\",\"providerId\":\"result.snapshot.context.context.model.providerId\"},\"occupancy\":{\"basis\":\"current-context\",\"usedTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.snapshot.context.context.occupancy.usedTokens.source\"},\"remainingTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.snapshot.context.context.occupancy.remainingTokens.source\"},\"percent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.snapshot.context.context.occupancy.percent.source\"}},\"effectiveCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.snapshot.context.context.effectiveCapacity.source\",\"basis\":\"native\"},\"modelCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.snapshot.context.context.modelCapacity.source\",\"basis\":\"native\"},\"compaction\":{\"source\":\"result.snapshot.context.context.compaction.source\",\"enabled\":true,\"thresholdTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.snapshot.context.context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.snapshot.context.context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"result.snapshot.context.context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"available\"}},\"at\":\"2026-01-02T03:04:05.000Z\"}}}"
     },
     {
       "schema": "RuntimeSnapshotResultMessage",
@@ -6638,6 +8262,63 @@
       "encoded": "{\"sessionId\":\"sessionId\",\"driver\":\"driver\",\"family\":\"server\",\"harness\":\"harness\",\"workdir\":\"workdir\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"principal\":\"principal\",\"process\":{\"key\":\"process.key\",\"scopeUnit\":\"process.scopeUnit\",\"pid\":1},\"bindingVersion\":1}"
     },
     {
+      "schema": "SessionContextReadInput",
+      "variant": "minimal",
+      "wire": {
+        "sessionId": "sessionId",
+        "read": {
+          "timeoutMs": 1,
+          "intent": "summary"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"read\":{\"timeoutMs\":1,\"intent\":\"summary\"}}"
+    },
+    {
+      "schema": "SessionContextReadInput",
+      "variant": "full/arm0",
+      "wire": {
+        "sessionId": "sessionId",
+        "read": {
+          "timeoutMs": 1,
+          "intent": "summary"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"read\":{\"timeoutMs\":1,\"intent\":\"summary\"}}"
+    },
+    {
+      "schema": "SessionContextReadInput",
+      "variant": "full/arm1",
+      "wire": {
+        "sessionId": "sessionId",
+        "read": {
+          "timeoutMs": 2,
+          "sample": {
+            "observerGeneration": 2,
+            "turnEpoch": 2,
+            "bindingVersion": 2,
+            "contextRevision": 2,
+            "id": "read.sample.id",
+            "at": "2026-01-02T03:04:05.000Z",
+            "turnRevision": "read.sample.turnRevision",
+            "nativeSessionId": "read.sample.nativeSessionId",
+            "nativeSampleId": "read.sample.nativeSampleId"
+          },
+          "maxRows": 2,
+          "intent": "breakdown"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"read\":{\"timeoutMs\":2,\"sample\":{\"observerGeneration\":2,\"turnEpoch\":2,\"bindingVersion\":2,\"contextRevision\":2,\"id\":\"read.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"read.sample.turnRevision\",\"nativeSessionId\":\"read.sample.nativeSessionId\",\"nativeSampleId\":\"read.sample.nativeSampleId\"},\"maxRows\":2,\"intent\":\"breakdown\"}}"
+    },
+    {
       "schema": "SessionMetadataChange",
       "variant": "minimal",
       "wire": {
@@ -6702,6 +8383,42 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"kind\":\"context\",\"source\":\"transcript\",\"percent\":4}"
+    },
+    {
+      "schema": "SessionMetadataChange",
+      "variant": "full/arm4",
+      "wire": {
+        "kind": "context-observation",
+        "context": {
+          "version": 1,
+          "status": "unsupported",
+          "reason": {
+            "code": "context.reason.code",
+            "message": "context.reason.message"
+          }
+        },
+        "source": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "replay",
+          "cursor": {
+            "segmentId": "source.cursor.segmentId",
+            "predecessorSegmentId": "source.cursor.predecessorSegmentId",
+            "pathHint": "source.cursor.pathHint",
+            "device": "source.cursor.device",
+            "inode": "source.cursor.inode",
+            "integrity": "source.cursor.integrity",
+            "components": {
+              "source.cursor.components.key": 5
+            }
+          },
+          "observerGeneration": 5,
+          "turnEpoch": 5
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"context-observation\",\"context\":{\"version\":1,\"status\":\"unsupported\",\"reason\":{\"code\":\"context.reason.code\",\"message\":\"context.reason.message\"}},\"source\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"source.cursor.segmentId\",\"predecessorSegmentId\":\"source.cursor.predecessorSegmentId\",\"pathHint\":\"source.cursor.pathHint\",\"device\":\"source.cursor.device\",\"inode\":\"source.cursor.inode\",\"integrity\":\"source.cursor.integrity\",\"components\":{\"source.cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5}}"
     },
     {
       "schema": "SessionMetadataObservation",
@@ -6853,6 +8570,60 @@
       "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"metadata\",\"change\":{\"kind\":\"context\",\"source\":\"transcript\",\"percent\":4}}"
     },
     {
+      "schema": "SessionMetadataObservation",
+      "variant": "full/arm4",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "replay",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 5
+          }
+        },
+        "observerGeneration": 5,
+        "turnEpoch": 5,
+        "t": "metadata",
+        "change": {
+          "kind": "context-observation",
+          "context": {
+            "version": 1,
+            "status": "unsupported",
+            "reason": {
+              "code": "change.context.reason.code",
+              "message": "change.context.reason.message"
+            }
+          },
+          "source": {
+            "at": "2026-01-02T03:04:05.000Z",
+            "provenance": "replay",
+            "cursor": {
+              "segmentId": "change.source.cursor.segmentId",
+              "predecessorSegmentId": "change.source.cursor.predecessorSegmentId",
+              "pathHint": "change.source.cursor.pathHint",
+              "device": "change.source.cursor.device",
+              "inode": "change.source.cursor.inode",
+              "integrity": "change.source.cursor.integrity",
+              "components": {
+                "change.source.cursor.components.key": 5
+              }
+            },
+            "observerGeneration": 5,
+            "turnEpoch": 5
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"metadata\",\"change\":{\"kind\":\"context-observation\",\"context\":{\"version\":1,\"status\":\"unsupported\",\"reason\":{\"code\":\"change.context.reason.code\",\"message\":\"change.context.reason.message\"}},\"source\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"change.source.cursor.segmentId\",\"predecessorSegmentId\":\"change.source.cursor.predecessorSegmentId\",\"pathHint\":\"change.source.cursor.pathHint\",\"device\":\"change.source.cursor.device\",\"inode\":\"change.source.cursor.inode\",\"integrity\":\"change.source.cursor.integrity\",\"components\":{\"change.source.cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5}}}"
+    },
+    {
       "schema": "SessionSnapshot",
       "variant": "minimal",
       "wire": {
@@ -6972,12 +8743,97 @@
             }
           }
         ],
+        "context": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "bootstrap",
+          "cursor": {
+            "segmentId": "context.cursor.segmentId",
+            "predecessorSegmentId": "context.cursor.predecessorSegmentId",
+            "pathHint": "context.cursor.pathHint",
+            "device": "context.cursor.device",
+            "inode": "context.cursor.inode",
+            "integrity": "context.cursor.integrity",
+            "components": {
+              "context.cursor.components.key": 1
+            }
+          },
+          "observerGeneration": 1,
+          "turnEpoch": 1,
+          "context": {
+            "sample": {
+              "observerGeneration": 1,
+              "turnEpoch": 1,
+              "bindingVersion": 1,
+              "contextRevision": 1,
+              "id": "context.context.sample.id",
+              "at": "2026-01-02T03:04:05.000Z",
+              "turnRevision": "context.context.sample.turnRevision",
+              "nativeSessionId": "context.context.sample.nativeSessionId",
+              "nativeSampleId": "context.context.sample.nativeSampleId"
+            },
+            "model": {
+              "modelId": "context.context.model.modelId",
+              "providerId": "context.context.model.providerId"
+            },
+            "occupancy": {
+              "basis": "current-context",
+              "usedTokens": {
+                "value": 1,
+                "accuracy": "reported",
+                "source": "context.context.occupancy.usedTokens.source"
+              },
+              "remainingTokens": {
+                "value": 1,
+                "accuracy": "reported",
+                "source": "context.context.occupancy.remainingTokens.source"
+              },
+              "percent": {
+                "value": 1,
+                "accuracy": "reported",
+                "source": "context.context.occupancy.percent.source"
+              }
+            },
+            "effectiveCapacity": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "context.context.effectiveCapacity.source",
+              "basis": "native"
+            },
+            "modelCapacity": {
+              "value": 1,
+              "accuracy": "reported",
+              "source": "context.context.modelCapacity.source",
+              "basis": "native"
+            },
+            "compaction": {
+              "source": "context.context.compaction.source",
+              "enabled": true,
+              "thresholdTokens": {
+                "value": 1,
+                "accuracy": "reported",
+                "source": "context.context.compaction.thresholdTokens.source"
+              },
+              "thresholdPercent": {
+                "value": 1,
+                "accuracy": "reported",
+                "source": "context.context.compaction.thresholdPercent.source"
+              },
+              "reserveTokens": {
+                "value": 1,
+                "accuracy": "reported",
+                "source": "context.context.compaction.reserveTokens.source"
+              }
+            },
+            "version": 1,
+            "status": "available"
+          }
+        },
         "at": "2026-01-02T03:04:05.000Z"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"server\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":1},\"bindingVersion\":1},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"permission\",\"payload\":{\"v\":1,\"toolName\":\"interactions[0].payload.toolName\",\"inputSummary\":\"interactions[0].payload.inputSummary\",\"canAlwaysAllow\":true,\"suggestions\":[{\"unknownFixture\":\"interactions[0].payload.suggestions[0]\"}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"metadata\",\"change\":{\"kind\":\"title\",\"source\":\"osc\",\"title\":\"metadata[0].change.title\"}}],\"at\":\"2026-01-02T03:04:05.000Z\"}"
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"server\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":1},\"bindingVersion\":1},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"permission\",\"payload\":{\"v\":1,\"toolName\":\"interactions[0].payload.toolName\",\"inputSummary\":\"interactions[0].payload.inputSummary\",\"canAlwaysAllow\":true,\"suggestions\":[{\"unknownFixture\":\"interactions[0].payload.suggestions[0]\"}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"metadata\",\"change\":{\"kind\":\"title\",\"source\":\"osc\",\"title\":\"metadata[0].change.title\"}}],\"context\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"context.cursor.segmentId\",\"predecessorSegmentId\":\"context.cursor.predecessorSegmentId\",\"pathHint\":\"context.cursor.pathHint\",\"device\":\"context.cursor.device\",\"inode\":\"context.cursor.inode\",\"integrity\":\"context.cursor.integrity\",\"components\":{\"context.cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"context\":{\"sample\":{\"observerGeneration\":1,\"turnEpoch\":1,\"bindingVersion\":1,\"contextRevision\":1,\"id\":\"context.context.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"context.context.sample.turnRevision\",\"nativeSessionId\":\"context.context.sample.nativeSessionId\",\"nativeSampleId\":\"context.context.sample.nativeSampleId\"},\"model\":{\"modelId\":\"context.context.model.modelId\",\"providerId\":\"context.context.model.providerId\"},\"occupancy\":{\"basis\":\"current-context\",\"usedTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.context.occupancy.usedTokens.source\"},\"remainingTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.context.occupancy.remainingTokens.source\"},\"percent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.context.occupancy.percent.source\"}},\"effectiveCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.context.effectiveCapacity.source\",\"basis\":\"native\"},\"modelCapacity\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.context.modelCapacity.source\",\"basis\":\"native\"},\"compaction\":{\"source\":\"context.context.compaction.source\",\"enabled\":true,\"thresholdTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":1,\"accuracy\":\"reported\",\"source\":\"context.context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"available\"}},\"at\":\"2026-01-02T03:04:05.000Z\"}"
     },
     {
       "schema": "SessionSnapshot",
@@ -7077,12 +8933,101 @@
             }
           }
         ],
+        "context": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "live",
+          "cursor": {
+            "segmentId": "context.cursor.segmentId",
+            "predecessorSegmentId": "context.cursor.predecessorSegmentId",
+            "pathHint": "context.cursor.pathHint",
+            "device": "context.cursor.device",
+            "inode": "context.cursor.inode",
+            "integrity": "context.cursor.integrity",
+            "components": {
+              "context.cursor.components.key": 2
+            }
+          },
+          "observerGeneration": 2,
+          "turnEpoch": 2,
+          "context": {
+            "sample": {
+              "observerGeneration": 2,
+              "turnEpoch": 2,
+              "bindingVersion": 2,
+              "contextRevision": 2,
+              "id": "context.context.sample.id",
+              "at": "2026-01-02T03:04:05.000Z",
+              "turnRevision": "context.context.sample.turnRevision",
+              "nativeSessionId": "context.context.sample.nativeSessionId",
+              "nativeSampleId": "context.context.sample.nativeSampleId"
+            },
+            "model": {
+              "modelId": "context.context.model.modelId",
+              "providerId": "context.context.model.providerId"
+            },
+            "occupancy": {
+              "basis": "last-request",
+              "usedTokens": {
+                "value": 2,
+                "accuracy": "estimated",
+                "source": "context.context.occupancy.usedTokens.source"
+              },
+              "remainingTokens": {
+                "value": 2,
+                "accuracy": "estimated",
+                "source": "context.context.occupancy.remainingTokens.source"
+              },
+              "percent": {
+                "value": 2,
+                "accuracy": "estimated",
+                "source": "context.context.occupancy.percent.source"
+              }
+            },
+            "effectiveCapacity": {
+              "value": 2,
+              "accuracy": "estimated",
+              "source": "context.context.effectiveCapacity.source",
+              "basis": "configured"
+            },
+            "modelCapacity": {
+              "value": 2,
+              "accuracy": "estimated",
+              "source": "context.context.modelCapacity.source",
+              "basis": "configured"
+            },
+            "compaction": {
+              "source": "context.context.compaction.source",
+              "enabled": false,
+              "thresholdTokens": {
+                "value": 2,
+                "accuracy": "estimated",
+                "source": "context.context.compaction.thresholdTokens.source"
+              },
+              "thresholdPercent": {
+                "value": 2,
+                "accuracy": "estimated",
+                "source": "context.context.compaction.thresholdPercent.source"
+              },
+              "reserveTokens": {
+                "value": 2,
+                "accuracy": "estimated",
+                "source": "context.context.compaction.reserveTokens.source"
+              }
+            },
+            "version": 1,
+            "status": "stale",
+            "reason": {
+              "code": "context.context.reason.code",
+              "message": "context.context.reason.message"
+            }
+          }
+        },
         "at": "2026-01-02T03:04:05.000Z"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":2},\"bindingVersion\":2},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"question\",\"payload\":{\"v\":1,\"questions\":[{\"question\":\"interactions[0].payload.questions[0].question\",\"header\":\"interactions[0].payload.questions[0].header\",\"multiSelect\":false,\"otherIndex\":2,\"previewLayout\":false,\"options\":[{\"label\":\"interactions[0].payload.questions[0].options[0].label\",\"description\":\"interactions[0].payload.questions[0].options[0].description\",\"preview\":\"interactions[0].payload.questions[0].options[0].preview\"}]}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"sdk-callback\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"auto-denied\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"t\":\"metadata\",\"change\":{\"kind\":\"model\",\"source\":\"native\",\"model\":\"metadata[0].change.model\",\"effort\":\"metadata[0].change.effort\"}}],\"at\":\"2026-01-02T03:04:05.000Z\"}"
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":2},\"bindingVersion\":2},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"question\",\"payload\":{\"v\":1,\"questions\":[{\"question\":\"interactions[0].payload.questions[0].question\",\"header\":\"interactions[0].payload.questions[0].header\",\"multiSelect\":false,\"otherIndex\":2,\"previewLayout\":false,\"options\":[{\"label\":\"interactions[0].payload.questions[0].options[0].label\",\"description\":\"interactions[0].payload.questions[0].options[0].description\",\"preview\":\"interactions[0].payload.questions[0].options[0].preview\"}]}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"sdk-callback\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"auto-denied\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"t\":\"metadata\",\"change\":{\"kind\":\"model\",\"source\":\"native\",\"model\":\"metadata[0].change.model\",\"effort\":\"metadata[0].change.effort\"}}],\"context\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"context.cursor.segmentId\",\"predecessorSegmentId\":\"context.cursor.predecessorSegmentId\",\"pathHint\":\"context.cursor.pathHint\",\"device\":\"context.cursor.device\",\"inode\":\"context.cursor.inode\",\"integrity\":\"context.cursor.integrity\",\"components\":{\"context.cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"context\":{\"sample\":{\"observerGeneration\":2,\"turnEpoch\":2,\"bindingVersion\":2,\"contextRevision\":2,\"id\":\"context.context.sample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"context.context.sample.turnRevision\",\"nativeSessionId\":\"context.context.sample.nativeSessionId\",\"nativeSampleId\":\"context.context.sample.nativeSampleId\"},\"model\":{\"modelId\":\"context.context.model.modelId\",\"providerId\":\"context.context.model.providerId\"},\"occupancy\":{\"basis\":\"last-request\",\"usedTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.context.occupancy.usedTokens.source\"},\"remainingTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.context.occupancy.remainingTokens.source\"},\"percent\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.context.occupancy.percent.source\"}},\"effectiveCapacity\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.context.effectiveCapacity.source\",\"basis\":\"configured\"},\"modelCapacity\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.context.modelCapacity.source\",\"basis\":\"configured\"},\"compaction\":{\"source\":\"context.context.compaction.source\",\"enabled\":false,\"thresholdTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":2,\"accuracy\":\"estimated\",\"source\":\"context.context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"stale\",\"reason\":{\"code\":\"context.context.reason.code\",\"message\":\"context.context.reason.message\"}}},\"at\":\"2026-01-02T03:04:05.000Z\"}"
     },
     {
       "schema": "SessionSnapshot",
@@ -7167,12 +9112,92 @@
             }
           }
         ],
+        "context": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "replay",
+          "cursor": {
+            "segmentId": "context.cursor.segmentId",
+            "predecessorSegmentId": "context.cursor.predecessorSegmentId",
+            "pathHint": "context.cursor.pathHint",
+            "device": "context.cursor.device",
+            "inode": "context.cursor.inode",
+            "integrity": "context.cursor.integrity",
+            "components": {
+              "context.cursor.components.key": 3
+            }
+          },
+          "observerGeneration": 3,
+          "turnEpoch": 3,
+          "context": {
+            "model": {
+              "modelId": "context.context.model.modelId",
+              "providerId": "context.context.model.providerId"
+            },
+            "effectiveCapacity": {
+              "value": 3,
+              "accuracy": "estimated",
+              "source": "context.context.effectiveCapacity.source",
+              "basis": "model-metadata"
+            },
+            "modelCapacity": {
+              "value": 3,
+              "accuracy": "estimated",
+              "source": "context.context.modelCapacity.source",
+              "basis": "model-metadata"
+            },
+            "compaction": {
+              "source": "context.context.compaction.source",
+              "enabled": true,
+              "thresholdTokens": {
+                "value": 3,
+                "accuracy": "estimated",
+                "source": "context.context.compaction.thresholdTokens.source"
+              },
+              "thresholdPercent": {
+                "value": 3,
+                "accuracy": "estimated",
+                "source": "context.context.compaction.thresholdPercent.source"
+              },
+              "reserveTokens": {
+                "value": 3,
+                "accuracy": "estimated",
+                "source": "context.context.compaction.reserveTokens.source"
+              }
+            },
+            "version": 1,
+            "status": "pending",
+            "revision": {
+              "observerGeneration": 3,
+              "turnEpoch": 3,
+              "bindingVersion": 3,
+              "contextRevision": 3
+            },
+            "reason": {
+              "code": "context.context.reason.code",
+              "message": "context.context.reason.message"
+            },
+            "invalidation": {
+              "cause": "reset",
+              "previousSample": {
+                "observerGeneration": 3,
+                "turnEpoch": 3,
+                "bindingVersion": 3,
+                "contextRevision": 3,
+                "id": "context.context.invalidation.previousSample.id",
+                "at": "2026-01-02T03:04:05.000Z",
+                "turnRevision": "context.context.invalidation.previousSample.turnRevision",
+                "nativeSessionId": "context.context.invalidation.previousSample.nativeSessionId",
+                "nativeSampleId": "context.context.invalidation.previousSample.nativeSampleId"
+              }
+            }
+          }
+        },
         "at": "2026-01-02T03:04:05.000Z"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"server\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":3},\"bindingVersion\":3},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"plan-approval\",\"payload\":{\"v\":1,\"plan\":\"interactions[0].payload.plan\",\"autoAcceptOffered\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"hook\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"t\":\"metadata\",\"change\":{\"kind\":\"color\",\"source\":\"transcript\",\"color\":\"metadata[0].change.color\"}}],\"at\":\"2026-01-02T03:04:05.000Z\"}"
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"server\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":3},\"bindingVersion\":3},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"plan-approval\",\"payload\":{\"v\":1,\"plan\":\"interactions[0].payload.plan\",\"autoAcceptOffered\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"hook\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"t\":\"metadata\",\"change\":{\"kind\":\"color\",\"source\":\"transcript\",\"color\":\"metadata[0].change.color\"}}],\"context\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"context.cursor.segmentId\",\"predecessorSegmentId\":\"context.cursor.predecessorSegmentId\",\"pathHint\":\"context.cursor.pathHint\",\"device\":\"context.cursor.device\",\"inode\":\"context.cursor.inode\",\"integrity\":\"context.cursor.integrity\",\"components\":{\"context.cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"context\":{\"model\":{\"modelId\":\"context.context.model.modelId\",\"providerId\":\"context.context.model.providerId\"},\"effectiveCapacity\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"context.context.effectiveCapacity.source\",\"basis\":\"model-metadata\"},\"modelCapacity\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"context.context.modelCapacity.source\",\"basis\":\"model-metadata\"},\"compaction\":{\"source\":\"context.context.compaction.source\",\"enabled\":true,\"thresholdTokens\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"context.context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"context.context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":3,\"accuracy\":\"estimated\",\"source\":\"context.context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"pending\",\"revision\":{\"observerGeneration\":3,\"turnEpoch\":3,\"bindingVersion\":3,\"contextRevision\":3},\"reason\":{\"code\":\"context.context.reason.code\",\"message\":\"context.context.reason.message\"},\"invalidation\":{\"cause\":\"reset\",\"previousSample\":{\"observerGeneration\":3,\"turnEpoch\":3,\"bindingVersion\":3,\"contextRevision\":3,\"id\":\"context.context.invalidation.previousSample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"context.context.invalidation.previousSample.turnRevision\",\"nativeSessionId\":\"context.context.invalidation.previousSample.nativeSessionId\",\"nativeSampleId\":\"context.context.invalidation.previousSample.nativeSampleId\"}}}},\"at\":\"2026-01-02T03:04:05.000Z\"}"
     },
     {
       "schema": "SessionSnapshot",
@@ -7262,12 +9287,92 @@
             }
           }
         ],
+        "context": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "replay",
+          "cursor": {
+            "segmentId": "context.cursor.segmentId",
+            "predecessorSegmentId": "context.cursor.predecessorSegmentId",
+            "pathHint": "context.cursor.pathHint",
+            "device": "context.cursor.device",
+            "inode": "context.cursor.inode",
+            "integrity": "context.cursor.integrity",
+            "components": {
+              "context.cursor.components.key": 4
+            }
+          },
+          "observerGeneration": 4,
+          "turnEpoch": 4,
+          "context": {
+            "model": {
+              "modelId": "context.context.model.modelId",
+              "providerId": "context.context.model.providerId"
+            },
+            "effectiveCapacity": {
+              "value": 4,
+              "accuracy": "estimated",
+              "source": "context.context.effectiveCapacity.source",
+              "basis": "fallback"
+            },
+            "modelCapacity": {
+              "value": 4,
+              "accuracy": "estimated",
+              "source": "context.context.modelCapacity.source",
+              "basis": "fallback"
+            },
+            "compaction": {
+              "source": "context.context.compaction.source",
+              "enabled": false,
+              "thresholdTokens": {
+                "value": 4,
+                "accuracy": "estimated",
+                "source": "context.context.compaction.thresholdTokens.source"
+              },
+              "thresholdPercent": {
+                "value": 4,
+                "accuracy": "estimated",
+                "source": "context.context.compaction.thresholdPercent.source"
+              },
+              "reserveTokens": {
+                "value": 4,
+                "accuracy": "estimated",
+                "source": "context.context.compaction.reserveTokens.source"
+              }
+            },
+            "version": 1,
+            "status": "unavailable",
+            "revision": {
+              "observerGeneration": 4,
+              "turnEpoch": 4,
+              "bindingVersion": 4,
+              "contextRevision": 4
+            },
+            "reason": {
+              "code": "context.context.reason.code",
+              "message": "context.context.reason.message"
+            },
+            "invalidation": {
+              "cause": "rewind",
+              "previousSample": {
+                "observerGeneration": 4,
+                "turnEpoch": 4,
+                "bindingVersion": 4,
+                "contextRevision": 4,
+                "id": "context.context.invalidation.previousSample.id",
+                "at": "2026-01-02T03:04:05.000Z",
+                "turnRevision": "context.context.invalidation.previousSample.turnRevision",
+                "nativeSessionId": "context.context.invalidation.previousSample.nativeSessionId",
+                "nativeSampleId": "context.context.invalidation.previousSample.nativeSampleId"
+              }
+            }
+          }
+        },
         "at": "2026-01-02T03:04:05.000Z"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":4},\"bindingVersion\":4},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"elicitation\",\"payload\":{\"v\":1,\"message\":\"interactions[0].payload.message\",\"requestedSchema\":{\"interactions[0].payload.requestedSchema.key\":{\"unknownFixture\":\"interactions[0].payload.requestedSchema.interactions[0].payload.requestedSchema.key\"}},\"serverName\":\"interactions[0].payload.serverName\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"metadata\",\"change\":{\"kind\":\"context\",\"source\":\"transcript\",\"percent\":4}}],\"at\":\"2026-01-02T03:04:05.000Z\"}"
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":4},\"bindingVersion\":4},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"elicitation\",\"payload\":{\"v\":1,\"message\":\"interactions[0].payload.message\",\"requestedSchema\":{\"interactions[0].payload.requestedSchema.key\":{\"unknownFixture\":\"interactions[0].payload.requestedSchema.interactions[0].payload.requestedSchema.key\"}},\"serverName\":\"interactions[0].payload.serverName\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"metadata\",\"change\":{\"kind\":\"context\",\"source\":\"transcript\",\"percent\":4}}],\"context\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"context.cursor.segmentId\",\"predecessorSegmentId\":\"context.cursor.predecessorSegmentId\",\"pathHint\":\"context.cursor.pathHint\",\"device\":\"context.cursor.device\",\"inode\":\"context.cursor.inode\",\"integrity\":\"context.cursor.integrity\",\"components\":{\"context.cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"context\":{\"model\":{\"modelId\":\"context.context.model.modelId\",\"providerId\":\"context.context.model.providerId\"},\"effectiveCapacity\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"context.context.effectiveCapacity.source\",\"basis\":\"fallback\"},\"modelCapacity\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"context.context.modelCapacity.source\",\"basis\":\"fallback\"},\"compaction\":{\"source\":\"context.context.compaction.source\",\"enabled\":false,\"thresholdTokens\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"context.context.compaction.thresholdTokens.source\"},\"thresholdPercent\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"context.context.compaction.thresholdPercent.source\"},\"reserveTokens\":{\"value\":4,\"accuracy\":\"estimated\",\"source\":\"context.context.compaction.reserveTokens.source\"}},\"version\":1,\"status\":\"unavailable\",\"revision\":{\"observerGeneration\":4,\"turnEpoch\":4,\"bindingVersion\":4,\"contextRevision\":4},\"reason\":{\"code\":\"context.context.reason.code\",\"message\":\"context.context.reason.message\"},\"invalidation\":{\"cause\":\"rewind\",\"previousSample\":{\"observerGeneration\":4,\"turnEpoch\":4,\"bindingVersion\":4,\"contextRevision\":4,\"id\":\"context.context.invalidation.previousSample.id\",\"at\":\"2026-01-02T03:04:05.000Z\",\"turnRevision\":\"context.context.invalidation.previousSample.turnRevision\",\"nativeSessionId\":\"context.context.invalidation.previousSample.nativeSessionId\",\"nativeSampleId\":\"context.context.invalidation.previousSample.nativeSampleId\"}}}},\"at\":\"2026-01-02T03:04:05.000Z\"}"
     },
     {
       "schema": "SessionSnapshot",
@@ -7347,18 +9452,66 @@
             "turnEpoch": 5,
             "t": "metadata",
             "change": {
-              "kind": "context",
-              "source": "transcript",
-              "percent": 5
+              "kind": "context-observation",
+              "context": {
+                "version": 1,
+                "status": "unsupported",
+                "reason": {
+                  "code": "metadata[0].change.context.reason.code",
+                  "message": "metadata[0].change.context.reason.message"
+                }
+              },
+              "source": {
+                "at": "2026-01-02T03:04:05.000Z",
+                "provenance": "replay",
+                "cursor": {
+                  "segmentId": "metadata[0].change.source.cursor.segmentId",
+                  "predecessorSegmentId": "metadata[0].change.source.cursor.predecessorSegmentId",
+                  "pathHint": "metadata[0].change.source.cursor.pathHint",
+                  "device": "metadata[0].change.source.cursor.device",
+                  "inode": "metadata[0].change.source.cursor.inode",
+                  "integrity": "metadata[0].change.source.cursor.integrity",
+                  "components": {
+                    "metadata[0].change.source.cursor.components.key": 5
+                  }
+                },
+                "observerGeneration": 5,
+                "turnEpoch": 5
+              }
             }
           }
         ],
+        "context": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "replay",
+          "cursor": {
+            "segmentId": "context.cursor.segmentId",
+            "predecessorSegmentId": "context.cursor.predecessorSegmentId",
+            "pathHint": "context.cursor.pathHint",
+            "device": "context.cursor.device",
+            "inode": "context.cursor.inode",
+            "integrity": "context.cursor.integrity",
+            "components": {
+              "context.cursor.components.key": 5
+            }
+          },
+          "observerGeneration": 5,
+          "turnEpoch": 5,
+          "context": {
+            "version": 1,
+            "status": "unsupported",
+            "reason": {
+              "code": "context.context.reason.code",
+              "message": "context.context.reason.message"
+            }
+          }
+        },
         "at": "2026-01-02T03:04:05.000Z"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"server\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":5},\"bindingVersion\":5},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"login\",\"payload\":{\"v\":1,\"provider\":\"interactions[0].payload.provider\",\"reason\":\"re-auth\",\"url\":\"interactions[0].payload.url\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"metadata\",\"change\":{\"kind\":\"context\",\"source\":\"transcript\",\"percent\":5}}],\"at\":\"2026-01-02T03:04:05.000Z\"}"
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"server\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":5},\"bindingVersion\":5},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"login\",\"payload\":{\"v\":1,\"provider\":\"interactions[0].payload.provider\",\"reason\":\"re-auth\",\"url\":\"interactions[0].payload.url\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"metadata\",\"change\":{\"kind\":\"context-observation\",\"context\":{\"version\":1,\"status\":\"unsupported\",\"reason\":{\"code\":\"metadata[0].change.context.reason.code\",\"message\":\"metadata[0].change.context.reason.message\"}},\"source\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].change.source.cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].change.source.cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].change.source.cursor.pathHint\",\"device\":\"metadata[0].change.source.cursor.device\",\"inode\":\"metadata[0].change.source.cursor.inode\",\"integrity\":\"metadata[0].change.source.cursor.integrity\",\"components\":{\"metadata[0].change.source.cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5}}}],\"context\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"context.cursor.segmentId\",\"predecessorSegmentId\":\"context.cursor.predecessorSegmentId\",\"pathHint\":\"context.cursor.pathHint\",\"device\":\"context.cursor.device\",\"inode\":\"context.cursor.inode\",\"integrity\":\"context.cursor.integrity\",\"components\":{\"context.cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"context\":{\"version\":1,\"status\":\"unsupported\",\"reason\":{\"code\":\"context.context.reason.code\",\"message\":\"context.context.reason.message\"}}},\"at\":\"2026-01-02T03:04:05.000Z\"}"
     },
     {
       "schema": "SessionSnapshot",
@@ -7438,18 +9591,66 @@
             "turnEpoch": 6,
             "t": "metadata",
             "change": {
-              "kind": "context",
-              "source": "transcript",
-              "percent": 6
+              "kind": "context-observation",
+              "context": {
+                "version": 1,
+                "status": "unsupported",
+                "reason": {
+                  "code": "metadata[0].change.context.reason.code",
+                  "message": "metadata[0].change.context.reason.message"
+                }
+              },
+              "source": {
+                "at": "2026-01-02T03:04:05.000Z",
+                "provenance": "replay",
+                "cursor": {
+                  "segmentId": "metadata[0].change.source.cursor.segmentId",
+                  "predecessorSegmentId": "metadata[0].change.source.cursor.predecessorSegmentId",
+                  "pathHint": "metadata[0].change.source.cursor.pathHint",
+                  "device": "metadata[0].change.source.cursor.device",
+                  "inode": "metadata[0].change.source.cursor.inode",
+                  "integrity": "metadata[0].change.source.cursor.integrity",
+                  "components": {
+                    "metadata[0].change.source.cursor.components.key": 6
+                  }
+                },
+                "observerGeneration": 6,
+                "turnEpoch": 6
+              }
             }
           }
         ],
+        "context": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "replay",
+          "cursor": {
+            "segmentId": "context.cursor.segmentId",
+            "predecessorSegmentId": "context.cursor.predecessorSegmentId",
+            "pathHint": "context.cursor.pathHint",
+            "device": "context.cursor.device",
+            "inode": "context.cursor.inode",
+            "integrity": "context.cursor.integrity",
+            "components": {
+              "context.cursor.components.key": 6
+            }
+          },
+          "observerGeneration": 6,
+          "turnEpoch": 6,
+          "context": {
+            "version": 1,
+            "status": "unsupported",
+            "reason": {
+              "code": "context.context.reason.code",
+              "message": "context.context.reason.message"
+            }
+          }
+        },
         "at": "2026-01-02T03:04:05.000Z"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":6},\"bindingVersion\":6},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"recovery\",\"payload\":{\"v\":1,\"reason\":\"unknown\",\"prompt\":\"interactions[0].payload.prompt\",\"offered\":[\"abandon\"]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"t\":\"metadata\",\"change\":{\"kind\":\"context\",\"source\":\"transcript\",\"percent\":6}}],\"at\":\"2026-01-02T03:04:05.000Z\"}"
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":6},\"bindingVersion\":6},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"recovery\",\"payload\":{\"v\":1,\"reason\":\"unknown\",\"prompt\":\"interactions[0].payload.prompt\",\"offered\":[\"abandon\"]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"t\":\"metadata\",\"change\":{\"kind\":\"context-observation\",\"context\":{\"version\":1,\"status\":\"unsupported\",\"reason\":{\"code\":\"metadata[0].change.context.reason.code\",\"message\":\"metadata[0].change.context.reason.message\"}},\"source\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].change.source.cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].change.source.cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].change.source.cursor.pathHint\",\"device\":\"metadata[0].change.source.cursor.device\",\"inode\":\"metadata[0].change.source.cursor.inode\",\"integrity\":\"metadata[0].change.source.cursor.integrity\",\"components\":{\"metadata[0].change.source.cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6}}}],\"context\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"context.cursor.segmentId\",\"predecessorSegmentId\":\"context.cursor.predecessorSegmentId\",\"pathHint\":\"context.cursor.pathHint\",\"device\":\"context.cursor.device\",\"inode\":\"context.cursor.inode\",\"integrity\":\"context.cursor.integrity\",\"components\":{\"context.cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"context\":{\"version\":1,\"status\":\"unsupported\",\"reason\":{\"code\":\"context.context.reason.code\",\"message\":\"context.context.reason.message\"}}},\"at\":\"2026-01-02T03:04:05.000Z\"}"
     },
     {
       "schema": "StagedAttachmentRef",

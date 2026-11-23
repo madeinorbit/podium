@@ -7,6 +7,7 @@ import {
 } from '@podium/protocol'
 import { SUPERAGENT_HARNESS_PRIORITY } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
+import { declinedContext } from './context-types.js'
 import { testAccount, testHarnessContext } from './driver/testing/harness-context.js'
 import {
   type AgentManifest,
@@ -853,6 +854,9 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       // always one of the ways (POD-1761 §2). What a minimal manifest may
       // decline is the two PROTOCOL families — which is what this declares.
       runtime: {
+        context: declinedContext(
+          'The synthetic minimal harness has no context measurement channel',
+        ),
         server: unsupported('no server mode'),
         embedded: unsupported('no library to host'),
         terminal: {

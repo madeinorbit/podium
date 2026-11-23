@@ -9,6 +9,7 @@
 
 import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
 import type { HeadlessTurnEvent } from '@podium/protocol'
+import type { HarnessContext } from '../../../harness-context-types.js'
 import type { LaunchPosture } from '../../../launch-terms.js'
 import { HeadlessTurnFailure } from '../turn-error.js'
 
@@ -42,6 +43,8 @@ export interface HeadlessTurnSpec {
   durableLabel?: string
   /** Absolute executable captured from the current generation. */
   executablePath?: string
+  /** The actual invocation's pinned installation/account, when available. */
+  harnessContext?: HarnessContext
   /**
    * Route tool authorization through structured RuntimeDriver interactions:
    * the turn's asks reach chat. Set by the runtime, never by a caller, for a
@@ -114,6 +117,13 @@ export interface HeadlessTurnHandle {
  *  the stream-json claude turn honours them; every other turn is a
  *  non-interactive CLI surface with no permission channel. */
 export interface HeadlessTurnHooks {
+  /** Fresh native starts only. Resume/adoption hints are not writer witnesses. */
+  onInvocationStart?(input: {
+    harnessContext?: HarnessContext
+    startedAtMs: number
+    nativeSessionId?: string
+  }): void
+  onNativePayload?(payload: unknown): void
   onPermission?: (request: {
     id: string
     toolName: string

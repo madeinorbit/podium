@@ -16,7 +16,8 @@
  * harness switch replaced by section dispatch — which is what deletes the
  * `harness-branching` violations those files carried.
  */
-import { mkdir, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { createServer, type RequestListener } from 'node:http'
 import { dirname } from 'node:path'
 import type { SessionId } from '@podium/model'
@@ -82,6 +83,17 @@ export interface HookIngest {
   /** Stable, instance-scoped harness endpoint when configured. */
   socketPath?: string
   endpointFor(sessionId: SessionId): string
+  /** One invocation's capability on this same listener. Re-adoption may
+   * register its ring-carried id; another session cannot use that capability. */
+  register(
+    sessionId: SessionId,
+    onPayload: (payload: unknown) => void,
+    id?: string,
+  ): {
+    id: string
+    endpointUrl: string
+    dispose(): void
+  }
   close(): Promise<void>
 }
 
@@ -136,8 +148,17 @@ export async function startHookIngest(opts: {
   /** Max time for driver context and legacy responders together before falling back to `'{}'`. Default 3000. */
   respondTimeoutMs?: number
 }): Promise<HookIngest> {
+  const callbacks = new Map<string, { sessionId: SessionId; onPayload(payload: unknown): void }>()
   const onRequest: RequestListener = (req, res) => {
-    const match = /^\/hooks\/([\w.-]+)$/.exec(req.url ?? '')
+    let url: URL
+    try {
+      url = new URL(req.url ?? '/', 'http://127.0.0.1')
+    } catch {
+      res.writeHead(404)
+      res.end()
+      return
+    }
+    const match = /^\/hooks\/([\w.-]+)$/.exec(url.pathname)
     if (!match || req.method !== 'POST') {
       res.writeHead(404)
       res.end()
@@ -146,6 +167,13 @@ export async function startHookIngest(opts: {
     // DECODE EDGE: the session id comes off the HTTP path (`/agent/<sessionId>`),
     // so this is where an untyped request segment re-enters the branded id space.
     const sessionId = asSessionId(match[1] as string)
+    const callbackId = url.searchParams.get('invocation')
+    const callback = callbackId ? callbacks.get(callbackId) : undefined
+    if (callbackId !== null && (!callback || callback.sessionId !== sessionId)) {
+      res.writeHead(403)
+      res.end()
+      return
+    }
     const chunks: Buffer[] = []
     let total = 0
     let aborted = false
@@ -176,6 +204,25 @@ export async function startHookIngest(opts: {
         return
       }
       void (async () => {
+        // Recheck after body collection: a disposed/replaced invocation can
+        // never borrow the current session's identity during an in-flight POST.
+        if (callbackId && callbacks.get(callbackId) !== callback) {
+          res.writeHead(403)
+          res.end()
+          return
+        }
+        if (callback) {
+          // Invocation telemetry is opaque. It neither establishes a native
+          // receipt nor runs a terminal hook responder/state decoder.
+          try {
+            callback.onPayload(payload)
+          } catch {
+            /* Observe only. */
+          }
+          res.writeHead(200, { 'content-type': 'application/json' })
+          res.end('{}')
+          return
+        }
         try {
           await opts.beforeAck?.(sessionId, payload)
         } catch {
@@ -275,7 +322,22 @@ export async function startHookIngest(opts: {
     ...(conflict ? { portConflict: conflict } : {}),
     ...(opts.socketPath ? { socketPath: opts.socketPath } : {}),
     endpointFor: (sessionId) => `http://127.0.0.1:${port}/hooks/${sessionId}`,
+    register(sessionId, onPayload, id = randomUUID()) {
+      const previous = callbacks.get(id)
+      if (previous && previous.sessionId !== sessionId)
+        throw new Error('invocation callback belongs to another session')
+      const callback = { sessionId, onPayload }
+      callbacks.set(id, callback)
+      return {
+        id,
+        endpointUrl: `http://127.0.0.1:${port}/hooks/${sessionId}?invocation=${encodeURIComponent(id)}`,
+        dispose() {
+          if (callbacks.get(id) === callback) callbacks.delete(id)
+        },
+      }
+    },
     close: async () => {
+      callbacks.clear()
       await Promise.all([
         new Promise<void>((resolve) => server.close(() => resolve())),
         socketServer?.close(),
@@ -329,7 +391,10 @@ export async function installTerminalInstrumentation(input: {
    * context: the folders and the verified version the install uses. A Pick, so
    * the family cannot reach session fields it was not handed either.
    */
-  spec: Pick<SessionSpec, 'instrumentation' | 'harnessContext'>
+  spec: Pick<SessionSpec, 'instrumentation' | 'harnessContext'> &
+    Partial<Pick<SessionSpec, 'workdir' | 'toolPolicy'>>
+  /** Absent preserves the original terminal-only call contract. */
+  driverId?: string
   /** The adapter sections this family owns — its only adapter knowledge. */
   sections: TerminalInstrumentationSections
   settingsDir: string
@@ -345,13 +410,17 @@ export async function installTerminalInstrumentation(input: {
   if (!instrumentation) {
     throw new Error(`no instrumentation installer for ${input.harness}`)
   }
+  if (!instrumentationSupportsDriver(instrumentation, input.driverId ?? 'generic-pty'))
+    return { args: [] }
   const destination: InstrumentationDestination = {
+    ...(input.spec.workdir ? { workdir: input.spec.workdir } : {}),
     sessionId: input.sessionId,
     endpointUrl: channel.endpointUrl,
     ...(channel.socketPath ? { socketPath: channel.socketPath } : {}),
     ...(channel.seedTheme !== undefined ? { seedTheme: channel.seedTheme } : {}),
     settingsDir: input.settingsDir,
     harnessContext: spec.harnessContext,
+    extensionsAllowed: spec.toolPolicy !== 'none',
     ...(input.reportVersionProbe ? { reportVersionProbe: input.reportVersionProbe } : {}),
     ...(input.launchHookTrust ? { launchHookTrust: input.launchHookTrust } : {}),
   }
@@ -391,6 +460,12 @@ export async function installTerminalInstrumentation(input: {
       await mkdir(dirname(wiring.file.path), { recursive: true })
       await writeFile(wiring.file.path, wiring.file.contents)
     } catch (error) {
+      try {
+        await wiring.cleanup?.()
+      } catch {
+        /* Preserve the install degradation. */
+      }
+      await rm(wiring.file.path, { force: true }).catch(() => {})
       // A missing per-session settings file must not become a fatal CLI argument.
       return {
         args: [],
@@ -401,10 +476,25 @@ export async function installTerminalInstrumentation(input: {
       }
     }
   }
+  let cleaned = false
   return {
     args: wiring.args,
     ...(wiring.env ? { env: wiring.env } : {}),
     ...(wiring.hookFile ? { hookFile: wiring.hookFile } : {}),
+    ...(wiring.file ? { file: wiring.file } : {}),
+    ...(wiring.file || wiring.cleanup
+      ? {
+          cleanup: async () => {
+            if (cleaned) return
+            cleaned = true
+            try {
+              await wiring.cleanup?.()
+            } finally {
+              if (wiring.file) await rm(wiring.file.path, { force: true })
+            }
+          },
+        }
+      : {}),
     ...(wiring.degradedReason
       ? {
           degradedReason: wiring.degradedReason,
@@ -412,6 +502,14 @@ export async function installTerminalInstrumentation(input: {
         }
       : {}),
   }
+}
+
+/** Driver opt-in is generic declaration data. Old sections remain terminal-only. */
+export function instrumentationSupportsDriver(
+  instrumentation: HarnessInstrumentation,
+  driverId: string,
+): boolean {
+  return instrumentation.driverIds?.includes(driverId) ?? driverId === 'generic-pty'
 }
 
 const warnings = new WeakMap<object, Set<string>>()

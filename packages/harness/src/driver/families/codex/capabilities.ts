@@ -25,10 +25,12 @@
  */
 
 import { supported, unsupported } from '../../../manifest.js'
+import { contextCapabilityFor } from '../../../registry.js'
 import type { DriverCapabilities } from '../../capabilities.js'
 
 export function codexAppServerCapabilities(): DriverCapabilities {
   return {
+    context: contextCapabilityFor('codex', 'codex-app-server'),
     // ---- CORE ----
     send: {
       readiness: { kind: 'driver-managed' },

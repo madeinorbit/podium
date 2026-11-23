@@ -21,6 +21,7 @@
 
 import { asUserId, type SessionId, SessionIdField } from '@podium/model'
 import type { SessionIdentifierResolution } from '@podium/protocol'
+import { contextReadFailure, SessionContextReadInput } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import type { FamilyState } from '../derived-family'
@@ -74,6 +75,15 @@ export async function resolveReadableIdentifier(
 }
 
 export const SESSION_QUERIES = {
+  /** Explicit read only. Ownership is checked for every observer and again
+   * after IO; missing and unauthorized sessions have the identical answer. */
+  contextRead: q(SessionContextReadInput, async (s, input, options) => {
+    const denied = () =>
+      contextReadFailure(input.read, 'refused', 'unauthorized', 'Context read is not authorized')
+    if (!(await s.privateAccess.ownsSession(input.sessionId))) return denied()
+    const result = await s.modules.sessions.contextReads.read(input, options?.signal)
+    return (await s.privateAccess.ownsSession(input.sessionId)) ? result : denied()
+  }),
   /** ONE of the three surfaces that may build the full reader-scoped
    *  projection [POD-3857] — this is the client's own session list, so it is
    *  the projection by definition. Labelled `rpc` so the perf phase can tell it

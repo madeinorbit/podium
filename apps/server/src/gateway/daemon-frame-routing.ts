@@ -178,6 +178,7 @@ export const DAEMON_FRAME_PORTS = {
    *  server re-reads after a stream gap (POD-2023). Same correlator, no new
    *  port. */
   runtimeSnapshotResult: ['rpc'],
+  runtimeContextReadResult: ['rpc'],
   runtimeHistoryResult: ['rpc'],
 
   // ---- headless-owned ----
@@ -250,6 +251,7 @@ export type RpcDaemonFrame = Extract<DaemonMessage, { type: RpcDaemonFrameType }
  * carries the principal to the one that exists.
  */
 export const MACHINE_SCOPE_CARRIER = {
+  runtimeContextReadResult: 'request-correlated',
   inventoryReport: 'principal',
   machineDiagnostic: 'principal',
   machineHarnessVersion: 'principal',

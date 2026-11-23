@@ -12,7 +12,7 @@ describe('per-harness runtime readers', () => {
     expect(observed).toEqual({ model: 'gpt-5.7-codex', effort: 'high' })
   })
 
-  it('computes Codex context use only from an exact window and token count', () => {
+  it('leaves Codex context to the stateful normalized strategy', () => {
     const observed = codexRuntime({
       type: 'event_msg',
       payload: {
@@ -23,7 +23,7 @@ describe('per-harness runtime readers', () => {
         },
       },
     })
-    expect(observed).toEqual({ contextUsagePercent: 22.3 })
+    expect(observed).toEqual({})
   })
 
   it('does not guess a context percentage when the harness omits its window', () => {

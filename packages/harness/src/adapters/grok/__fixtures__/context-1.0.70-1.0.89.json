@@ -1,0 +1,2748 @@
+{
+  "evidence": "POD-6574 RUN; captured native fields, identities/paths replaced with public fixture placeholders; no usage_update emitted",
+  "acp": {
+    "1.0.70/live": {
+      "sha256": "15e751573113ea9fa03d25c3f040e559612b461451b180abd5a094e2993f83b5",
+      "frames": [
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-70-status/workspace",
+              "session_id": "native-primary",
+              "model": {
+                "id": "probe-a",
+                "display_name": "Probe A"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-70-status/workspace"
+              },
+              "version": "1.0.70",
+              "cost": {
+                "total_duration_ms": 53,
+                "total_api_duration_ms": 0
+              },
+              "context_window": {
+                "context_window_size": 100000,
+                "context_tokens": 1333,
+                "session_input_tokens": 0,
+                "session_output_tokens": 0,
+                "used_percentage": 1,
+                "remaining_percentage": 99,
+                "auto_compact_threshold_percent": 85
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795295985171
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-70-status/workspace",
+              "session_id": "native-primary",
+              "model": {
+                "id": "probe-a",
+                "display_name": "Probe A"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-70-status/workspace"
+              },
+              "version": "1.0.70",
+              "cost": {
+                "total_duration_ms": 72,
+                "total_api_duration_ms": 0
+              },
+              "context_window": {
+                "context_window_size": 100000,
+                "context_tokens": 1333,
+                "session_input_tokens": 0,
+                "session_output_tokens": 0,
+                "used_percentage": 1,
+                "remaining_percentage": 99,
+                "auto_compact_threshold_percent": 85
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795295985189
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-70-status/workspace",
+              "session_id": "native-primary",
+              "prompt_id": "fc16aca3-5908-4650-89ba-928d9e114b27",
+              "model": {
+                "id": "probe-a",
+                "display_name": "Probe A"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-70-status/workspace"
+              },
+              "version": "1.0.70",
+              "cost": {
+                "total_duration_ms": 725,
+                "total_api_duration_ms": 0
+              },
+              "context_window": {
+                "context_window_size": 100000,
+                "context_tokens": 1333,
+                "session_input_tokens": 0,
+                "session_output_tokens": 0,
+                "used_percentage": 1,
+                "remaining_percentage": 99,
+                "auto_compact_threshold_percent": 85
+              },
+              "turn": {
+                "started_at_ms": 1795295985840
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795295985843
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "fc16aca3-5908-4650-89ba-928d9e114b27",
+              "stop_reason": "end_turn",
+              "usage": {
+                "inputTokens": 12000,
+                "outputTokens": 25,
+                "totalTokens": 12025,
+                "cachedReadTokens": 3000,
+                "cacheCreationTokens": 0,
+                "reasoningTokens": 7,
+                "modelCalls": 1,
+                "apiDurationMs": 7,
+                "modelUsage": {
+                  "probe-a": {
+                    "inputTokens": 12000,
+                    "outputTokens": 25,
+                    "totalTokens": 12025,
+                    "cachedReadTokens": 3000,
+                    "cacheCreationTokens": 0,
+                    "reasoningTokens": 7,
+                    "modelCalls": 1,
+                    "apiDurationMs": 7
+                  }
+                },
+                "numTurns": 1
+              },
+              "elapsed_ms": 101
+            },
+            "_meta": {
+              "eventId": "native-primary-8",
+              "agentTimestampMs": 1795295985941
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-70-status/workspace",
+              "session_id": "native-primary",
+              "transcript_path": "/tmp/podium-grok-context/acp-70-status/home/.grok/sessions/%2Ftmp%2Fpodium-grok-context%2Facp-70-status%2Fworkspace/native-primary/updates.jsonl",
+              "model": {
+                "id": "probe-a",
+                "display_name": "Probe A"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-70-status/workspace"
+              },
+              "version": "1.0.70",
+              "cost": {
+                "total_duration_ms": 826,
+                "total_api_duration_ms": 7
+              },
+              "context_window": {
+                "context_window_size": 100000,
+                "context_tokens": 12025,
+                "session_input_tokens": 12000,
+                "session_output_tokens": 25,
+                "session_usage": {
+                  "input_tokens": 9000,
+                  "output_tokens": 25,
+                  "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 3000
+                },
+                "used_percentage": 12,
+                "remaining_percentage": 88,
+                "auto_compact_threshold_percent": 85
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795295985944
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "id": 3,
+          "result": {
+            "stopReason": "end_turn",
+            "_meta": {
+              "sessionId": "native-primary",
+              "requestId": "fc16aca3-5908-4650-89ba-928d9e114b27",
+              "promptId": "fc16aca3-5908-4650-89ba-928d9e114b27",
+              "totalTokens": 12025,
+              "modelId": "probe-a",
+              "inputTokens": 12000,
+              "outputTokens": 25,
+              "cachedReadTokens": 3000,
+              "reasoningTokens": 7,
+              "usage": {
+                "inputTokens": 12000,
+                "outputTokens": 25,
+                "totalTokens": 12025,
+                "cachedReadTokens": 3000,
+                "cacheCreationTokens": 0,
+                "reasoningTokens": 7,
+                "modelCalls": 1,
+                "apiDurationMs": 7,
+                "modelUsage": {
+                  "probe-a": {
+                    "inputTokens": 12000,
+                    "outputTokens": 25,
+                    "totalTokens": 12025,
+                    "cachedReadTokens": 3000,
+                    "cacheCreationTokens": 0,
+                    "reasoningTokens": 7,
+                    "modelCalls": 1,
+                    "apiDurationMs": 7
+                  }
+                },
+                "numTurns": 1
+              }
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-70-status/workspace",
+              "session_id": "native-primary",
+              "prompt_id": "832953ce-f93f-42b7-aad4-f2f367358653",
+              "transcript_path": "/tmp/podium-grok-context/acp-70-status/home/.grok/sessions/%2Ftmp%2Fpodium-grok-context%2Facp-70-status%2Fworkspace/native-primary/updates.jsonl",
+              "model": {
+                "id": "probe-a",
+                "display_name": "Probe A"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-70-status/workspace"
+              },
+              "version": "1.0.70",
+              "cost": {
+                "total_duration_ms": 2094,
+                "total_api_duration_ms": 7
+              },
+              "context_window": {
+                "context_window_size": 100000,
+                "context_tokens": 12025,
+                "session_input_tokens": 12000,
+                "session_output_tokens": 25,
+                "session_usage": {
+                  "input_tokens": 9000,
+                  "output_tokens": 25,
+                  "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 3000
+                },
+                "used_percentage": 12,
+                "remaining_percentage": 88,
+                "auto_compact_threshold_percent": 85
+              },
+              "turn": {
+                "started_at_ms": 1795295987207
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795295987212
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "832953ce-f93f-42b7-aad4-f2f367358653",
+              "stop_reason": "end_turn",
+              "usage": {
+                "inputTokens": 12500,
+                "outputTokens": 25,
+                "totalTokens": 12525,
+                "cachedReadTokens": 3000,
+                "cacheCreationTokens": 0,
+                "reasoningTokens": 7,
+                "modelCalls": 1,
+                "apiDurationMs": 6,
+                "modelUsage": {
+                  "probe-a": {
+                    "inputTokens": 12500,
+                    "outputTokens": 25,
+                    "totalTokens": 12525,
+                    "cachedReadTokens": 3000,
+                    "cacheCreationTokens": 0,
+                    "reasoningTokens": 7,
+                    "modelCalls": 1,
+                    "apiDurationMs": 6
+                  }
+                },
+                "numTurns": 1
+              },
+              "elapsed_ms": 88
+            },
+            "_meta": {
+              "eventId": "native-primary-15",
+              "agentTimestampMs": 1795295987296
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-70-status/workspace",
+              "session_id": "native-primary",
+              "transcript_path": "/tmp/podium-grok-context/acp-70-status/home/.grok/sessions/%2Ftmp%2Fpodium-grok-context%2Facp-70-status%2Fworkspace/native-primary/updates.jsonl",
+              "model": {
+                "id": "probe-a",
+                "display_name": "Probe A"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-70-status/workspace"
+              },
+              "version": "1.0.70",
+              "cost": {
+                "total_duration_ms": 2180,
+                "total_api_duration_ms": 13
+              },
+              "context_window": {
+                "context_window_size": 100000,
+                "context_tokens": 12525,
+                "session_input_tokens": 24500,
+                "session_output_tokens": 50,
+                "session_usage": {
+                  "input_tokens": 18500,
+                  "output_tokens": 50,
+                  "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 6000
+                },
+                "used_percentage": 13,
+                "remaining_percentage": 87,
+                "auto_compact_threshold_percent": 85
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795295987298
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "id": 4,
+          "result": {
+            "stopReason": "end_turn",
+            "_meta": {
+              "sessionId": "native-primary",
+              "requestId": "832953ce-f93f-42b7-aad4-f2f367358653",
+              "promptId": "832953ce-f93f-42b7-aad4-f2f367358653",
+              "totalTokens": 12525,
+              "modelId": "probe-a",
+              "inputTokens": 12500,
+              "outputTokens": 25,
+              "cachedReadTokens": 3000,
+              "reasoningTokens": 7,
+              "usage": {
+                "inputTokens": 12500,
+                "outputTokens": 25,
+                "totalTokens": 12525,
+                "cachedReadTokens": 3000,
+                "cacheCreationTokens": 0,
+                "reasoningTokens": 7,
+                "modelCalls": 1,
+                "apiDurationMs": 6,
+                "modelUsage": {
+                  "probe-a": {
+                    "inputTokens": 12500,
+                    "outputTokens": 25,
+                    "totalTokens": 12525,
+                    "cachedReadTokens": 3000,
+                    "cacheCreationTokens": 0,
+                    "reasoningTokens": 7,
+                    "modelCalls": 1,
+                    "apiDurationMs": 6
+                  }
+                },
+                "numTurns": 1
+              }
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "2a6a8f41-52b2-46e8-9157-82548131df98",
+              "stop_reason": "end_turn",
+              "elapsed_ms": 4
+            },
+            "_meta": {
+              "eventId": "native-primary-17",
+              "agentTimestampMs": 1795295988546
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-70-status/workspace",
+              "session_id": "native-primary",
+              "transcript_path": "/tmp/podium-grok-context/acp-70-status/home/.grok/sessions/%2Ftmp%2Fpodium-grok-context%2Facp-70-status%2Fworkspace/native-primary/updates.jsonl",
+              "model": {
+                "id": "probe-a",
+                "display_name": "Probe A"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-70-status/workspace"
+              },
+              "version": "1.0.70",
+              "cost": {
+                "total_duration_ms": 3431,
+                "total_api_duration_ms": 13
+              },
+              "context_window": {
+                "context_window_size": 100000,
+                "context_tokens": 12525,
+                "session_input_tokens": 24500,
+                "session_output_tokens": 50,
+                "session_usage": {
+                  "input_tokens": 18500,
+                  "output_tokens": 50,
+                  "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 6000
+                },
+                "used_percentage": 13,
+                "remaining_percentage": 87,
+                "auto_compact_threshold_percent": 85
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795295988548
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-70-status/workspace",
+              "session_id": "native-primary",
+              "transcript_path": "/tmp/podium-grok-context/acp-70-status/home/.grok/sessions/%2Ftmp%2Fpodium-grok-context%2Facp-70-status%2Fworkspace/native-primary/updates.jsonl",
+              "model": {
+                "id": "probe-a",
+                "display_name": "Probe A"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-70-status/workspace"
+              },
+              "version": "1.0.70",
+              "cost": {
+                "total_duration_ms": 3432,
+                "total_api_duration_ms": 13
+              },
+              "context_window": {
+                "context_window_size": 100000,
+                "context_tokens": 12525,
+                "session_input_tokens": 24500,
+                "session_output_tokens": 50,
+                "session_usage": {
+                  "input_tokens": 18500,
+                  "output_tokens": 50,
+                  "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 6000
+                },
+                "used_percentage": 13,
+                "remaining_percentage": 87,
+                "auto_compact_threshold_percent": 85
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795295988549
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "model_changed",
+              "model_id": "probe-b"
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "session/update",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "config_option_update",
+              "configOptions": [
+                {
+                  "id": "model",
+                  "name": "Model",
+                  "category": "model",
+                  "type": "select",
+                  "currentValue": "probe-b",
+                  "options": [
+                    {
+                      "value": "probe-a",
+                      "name": "Probe A"
+                    },
+                    {
+                      "value": "probe-b",
+                      "name": "Probe B"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-70-status/workspace",
+              "session_id": "native-primary",
+              "transcript_path": "/tmp/podium-grok-context/acp-70-status/home/.grok/sessions/%2Ftmp%2Fpodium-grok-context%2Facp-70-status%2Fworkspace/native-primary/updates.jsonl",
+              "model": {
+                "id": "probe-b",
+                "display_name": "Probe B"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-70-status/workspace"
+              },
+              "version": "1.0.70",
+              "cost": {
+                "total_duration_ms": 3960,
+                "total_api_duration_ms": 13
+              },
+              "context_window": {
+                "context_window_size": 200000,
+                "context_tokens": 12525,
+                "session_input_tokens": 24500,
+                "session_output_tokens": 50,
+                "session_usage": {
+                  "input_tokens": 18500,
+                  "output_tokens": 50,
+                  "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 6000
+                },
+                "used_percentage": 6,
+                "remaining_percentage": 94,
+                "auto_compact_threshold_percent": 85
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795295989077
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-70-status/workspace",
+              "session_id": "native-primary",
+              "prompt_id": "7a657bd5-e9eb-4049-acba-a819f603cc01",
+              "transcript_path": "/tmp/podium-grok-context/acp-70-status/home/.grok/sessions/%2Ftmp%2Fpodium-grok-context%2Facp-70-status%2Fworkspace/native-primary/updates.jsonl",
+              "model": {
+                "id": "probe-b",
+                "display_name": "Probe B"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-70-status/workspace"
+              },
+              "version": "1.0.70",
+              "cost": {
+                "total_duration_ms": 4707,
+                "total_api_duration_ms": 13
+              },
+              "context_window": {
+                "context_window_size": 200000,
+                "context_tokens": 12525,
+                "session_input_tokens": 24500,
+                "session_output_tokens": 50,
+                "session_usage": {
+                  "input_tokens": 18500,
+                  "output_tokens": 50,
+                  "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 6000
+                },
+                "used_percentage": 6,
+                "remaining_percentage": 94,
+                "auto_compact_threshold_percent": 85
+              },
+              "turn": {
+                "started_at_ms": 1795295989822
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795295989825
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "7a657bd5-e9eb-4049-acba-a819f603cc01",
+              "stop_reason": "end_turn",
+              "usage": {
+                "inputTokens": 13000,
+                "outputTokens": 25,
+                "totalTokens": 13025,
+                "cachedReadTokens": 3000,
+                "cacheCreationTokens": 0,
+                "reasoningTokens": 7,
+                "modelCalls": 1,
+                "apiDurationMs": 6,
+                "modelUsage": {
+                  "probe-b": {
+                    "inputTokens": 13000,
+                    "outputTokens": 25,
+                    "totalTokens": 13025,
+                    "cachedReadTokens": 3000,
+                    "cacheCreationTokens": 0,
+                    "reasoningTokens": 7,
+                    "modelCalls": 1,
+                    "apiDurationMs": 6
+                  }
+                },
+                "numTurns": 1
+              },
+              "elapsed_ms": 92
+            },
+            "_meta": {
+              "eventId": "native-primary-24",
+              "agentTimestampMs": 1795295989915
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-70-status/workspace",
+              "session_id": "native-primary",
+              "transcript_path": "/tmp/podium-grok-context/acp-70-status/home/.grok/sessions/%2Ftmp%2Fpodium-grok-context%2Facp-70-status%2Fworkspace/native-primary/updates.jsonl",
+              "model": {
+                "id": "probe-b",
+                "display_name": "Probe B"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-70-status/workspace"
+              },
+              "version": "1.0.70",
+              "cost": {
+                "total_duration_ms": 4800,
+                "total_api_duration_ms": 19
+              },
+              "context_window": {
+                "context_window_size": 200000,
+                "context_tokens": 13025,
+                "session_input_tokens": 37500,
+                "session_output_tokens": 75,
+                "session_usage": {
+                  "input_tokens": 28500,
+                  "output_tokens": 75,
+                  "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 9000
+                },
+                "used_percentage": 7,
+                "remaining_percentage": 93,
+                "auto_compact_threshold_percent": 85
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795295989918
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "id": 7,
+          "result": {
+            "stopReason": "end_turn",
+            "_meta": {
+              "sessionId": "native-primary",
+              "requestId": "7a657bd5-e9eb-4049-acba-a819f603cc01",
+              "promptId": "7a657bd5-e9eb-4049-acba-a819f603cc01",
+              "totalTokens": 13025,
+              "modelId": "probe-b",
+              "inputTokens": 13000,
+              "outputTokens": 25,
+              "cachedReadTokens": 3000,
+              "reasoningTokens": 7,
+              "usage": {
+                "inputTokens": 13000,
+                "outputTokens": 25,
+                "totalTokens": 13025,
+                "cachedReadTokens": 3000,
+                "cacheCreationTokens": 0,
+                "reasoningTokens": 7,
+                "modelCalls": 1,
+                "apiDurationMs": 6,
+                "modelUsage": {
+                  "probe-b": {
+                    "inputTokens": 13000,
+                    "outputTokens": 25,
+                    "totalTokens": 13025,
+                    "cachedReadTokens": 3000,
+                    "cacheCreationTokens": 0,
+                    "reasoningTokens": 7,
+                    "modelCalls": 1,
+                    "apiDurationMs": 6
+                  }
+                },
+                "numTurns": 1
+              }
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-70-status/workspace",
+              "session_id": "native-primary",
+              "prompt_id": "26a28247-4679-497d-9aca-7eeedd6f8790",
+              "transcript_path": "/tmp/podium-grok-context/acp-70-status/home/.grok/sessions/%2Ftmp%2Fpodium-grok-context%2Facp-70-status%2Fworkspace/native-primary/updates.jsonl",
+              "model": {
+                "id": "probe-b",
+                "display_name": "Probe B"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-70-status/workspace"
+              },
+              "version": "1.0.70",
+              "cost": {
+                "total_duration_ms": 5514,
+                "total_api_duration_ms": 19
+              },
+              "context_window": {
+                "context_window_size": 200000,
+                "context_tokens": 13025,
+                "session_input_tokens": 37500,
+                "session_output_tokens": 75,
+                "session_usage": {
+                  "input_tokens": 28500,
+                  "output_tokens": 75,
+                  "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 9000
+                },
+                "used_percentage": 7,
+                "remaining_percentage": 93,
+                "auto_compact_threshold_percent": 85
+              },
+              "turn": {
+                "started_at_ms": 1795295990629
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795295990631
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "auto_compact_completed",
+              "tokens_before": 13025,
+              "tokens_after": 13025,
+              "summary_preview": null
+            },
+            "_meta": {
+              "eventId": "native-primary-27",
+              "agentTimestampMs": 1795295990650
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "26a28247-4679-497d-9aca-7eeedd6f8790",
+              "stop_reason": "end_turn",
+              "elapsed_ms": 21
+            },
+            "_meta": {
+              "eventId": "native-primary-28",
+              "agentTimestampMs": 1795295990650
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-70-status/workspace",
+              "session_id": "native-primary",
+              "transcript_path": "/tmp/podium-grok-context/acp-70-status/home/.grok/sessions/%2Ftmp%2Fpodium-grok-context%2Facp-70-status%2Fworkspace/native-primary/updates.jsonl",
+              "model": {
+                "id": "probe-b",
+                "display_name": "Probe B"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-70-status/workspace"
+              },
+              "version": "1.0.70",
+              "cost": {
+                "total_duration_ms": 5534,
+                "total_api_duration_ms": 19
+              },
+              "context_window": {
+                "context_window_size": 200000,
+                "context_tokens": 13053,
+                "session_input_tokens": 37500,
+                "session_output_tokens": 75,
+                "session_usage": {
+                  "input_tokens": 28500,
+                  "output_tokens": 75,
+                  "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 9000
+                },
+                "used_percentage": 7,
+                "remaining_percentage": 93,
+                "auto_compact_threshold_percent": 85
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795295990651
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-70-status/workspace",
+              "session_id": "native-primary",
+              "transcript_path": "/tmp/podium-grok-context/acp-70-status/home/.grok/sessions/%2Ftmp%2Fpodium-grok-context%2Facp-70-status%2Fworkspace/native-primary/updates.jsonl",
+              "model": {
+                "id": "probe-b",
+                "display_name": "Probe B"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-70-status/workspace"
+              },
+              "version": "1.0.70",
+              "cost": {
+                "total_duration_ms": 5534,
+                "total_api_duration_ms": 19
+              },
+              "context_window": {
+                "context_window_size": 200000,
+                "context_tokens": 13053,
+                "session_input_tokens": 37500,
+                "session_output_tokens": 75,
+                "session_usage": {
+                  "input_tokens": 28500,
+                  "output_tokens": 75,
+                  "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 9000
+                },
+                "used_percentage": 7,
+                "remaining_percentage": 93,
+                "auto_compact_threshold_percent": 85
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795295990651
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-70-status/workspace",
+              "session_id": "native-primary",
+              "prompt_id": "ba22aa48-3911-4cfc-9856-4b57e2679b90",
+              "transcript_path": "/tmp/podium-grok-context/acp-70-status/home/.grok/sessions/%2Ftmp%2Fpodium-grok-context%2Facp-70-status%2Fworkspace/native-primary/updates.jsonl",
+              "model": {
+                "id": "probe-b",
+                "display_name": "Probe B"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-70-status/workspace"
+              },
+              "version": "1.0.70",
+              "cost": {
+                "total_duration_ms": 6335,
+                "total_api_duration_ms": 19
+              },
+              "context_window": {
+                "context_window_size": 200000,
+                "context_tokens": 13053,
+                "session_input_tokens": 37500,
+                "session_output_tokens": 75,
+                "session_usage": {
+                  "input_tokens": 28500,
+                  "output_tokens": 75,
+                  "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 9000
+                },
+                "used_percentage": 7,
+                "remaining_percentage": 93,
+                "auto_compact_threshold_percent": 85
+              },
+              "turn": {
+                "started_at_ms": 1795295991449
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795295991453
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "ba22aa48-3911-4cfc-9856-4b57e2679b90",
+              "stop_reason": "end_turn",
+              "usage": {
+                "inputTokens": 3500,
+                "outputTokens": 25,
+                "totalTokens": 3525,
+                "cachedReadTokens": 3000,
+                "cacheCreationTokens": 0,
+                "reasoningTokens": 7,
+                "modelCalls": 1,
+                "apiDurationMs": 5,
+                "modelUsage": {
+                  "probe-b": {
+                    "inputTokens": 3500,
+                    "outputTokens": 25,
+                    "totalTokens": 3525,
+                    "cachedReadTokens": 3000,
+                    "cacheCreationTokens": 0,
+                    "reasoningTokens": 7,
+                    "modelCalls": 1,
+                    "apiDurationMs": 5
+                  }
+                },
+                "numTurns": 1
+              },
+              "elapsed_ms": 61
+            },
+            "_meta": {
+              "eventId": "native-primary-35",
+              "agentTimestampMs": 1795295991511
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-70-status/workspace",
+              "session_id": "native-primary",
+              "transcript_path": "/tmp/podium-grok-context/acp-70-status/home/.grok/sessions/%2Ftmp%2Fpodium-grok-context%2Facp-70-status%2Fworkspace/native-primary/updates.jsonl",
+              "model": {
+                "id": "probe-b",
+                "display_name": "Probe B"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-70-status/workspace"
+              },
+              "version": "1.0.70",
+              "cost": {
+                "total_duration_ms": 6396,
+                "total_api_duration_ms": 24
+              },
+              "context_window": {
+                "context_window_size": 200000,
+                "context_tokens": 3525,
+                "session_input_tokens": 41000,
+                "session_output_tokens": 100,
+                "session_usage": {
+                  "input_tokens": 29000,
+                  "output_tokens": 100,
+                  "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 12000
+                },
+                "used_percentage": 2,
+                "remaining_percentage": 98,
+                "auto_compact_threshold_percent": 85
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795295991514
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "id": 9,
+          "result": {
+            "stopReason": "end_turn",
+            "_meta": {
+              "sessionId": "native-primary",
+              "requestId": "ba22aa48-3911-4cfc-9856-4b57e2679b90",
+              "promptId": "ba22aa48-3911-4cfc-9856-4b57e2679b90",
+              "totalTokens": 3525,
+              "modelId": "probe-b",
+              "inputTokens": 3500,
+              "outputTokens": 25,
+              "cachedReadTokens": 3000,
+              "reasoningTokens": 7,
+              "usage": {
+                "inputTokens": 3500,
+                "outputTokens": 25,
+                "totalTokens": 3525,
+                "cachedReadTokens": 3000,
+                "cacheCreationTokens": 0,
+                "reasoningTokens": 7,
+                "modelCalls": 1,
+                "apiDurationMs": 5,
+                "modelUsage": {
+                  "probe-b": {
+                    "inputTokens": 3500,
+                    "outputTokens": 25,
+                    "totalTokens": 3525,
+                    "cachedReadTokens": 3000,
+                    "cacheCreationTokens": 0,
+                    "reasoningTokens": 7,
+                    "modelCalls": 1,
+                    "apiDurationMs": 5
+                  }
+                },
+                "numTurns": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "1.0.70/resume": {
+      "sha256": "975b5913f3ef022698863ede54ab4e74b2b286eeab3af78757f35da613a5f3ef",
+      "frames": [
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "fc16aca3-5908-4650-89ba-928d9e114b27",
+              "stop_reason": "end_turn",
+              "usage": {
+                "inputTokens": 12000,
+                "outputTokens": 25,
+                "totalTokens": 12025,
+                "cachedReadTokens": 3000,
+                "cacheCreationTokens": 0,
+                "reasoningTokens": 7,
+                "modelCalls": 1,
+                "apiDurationMs": 7,
+                "modelUsage": {
+                  "probe-a": {
+                    "inputTokens": 12000,
+                    "outputTokens": 25,
+                    "totalTokens": 12025,
+                    "cachedReadTokens": 3000,
+                    "cacheCreationTokens": 0,
+                    "reasoningTokens": 7,
+                    "modelCalls": 1,
+                    "apiDurationMs": 7
+                  }
+                },
+                "numTurns": 1
+              },
+              "elapsed_ms": 101
+            },
+            "_meta": {
+              "eventId": "native-primary-8",
+              "agentTimestampMs": 1795295985941,
+              "isReplay": true
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "832953ce-f93f-42b7-aad4-f2f367358653",
+              "stop_reason": "end_turn",
+              "usage": {
+                "inputTokens": 12500,
+                "outputTokens": 25,
+                "totalTokens": 12525,
+                "cachedReadTokens": 3000,
+                "cacheCreationTokens": 0,
+                "reasoningTokens": 7,
+                "modelCalls": 1,
+                "apiDurationMs": 6,
+                "modelUsage": {
+                  "probe-a": {
+                    "inputTokens": 12500,
+                    "outputTokens": 25,
+                    "totalTokens": 12525,
+                    "cachedReadTokens": 3000,
+                    "cacheCreationTokens": 0,
+                    "reasoningTokens": 7,
+                    "modelCalls": 1,
+                    "apiDurationMs": 6
+                  }
+                },
+                "numTurns": 1
+              },
+              "elapsed_ms": 88
+            },
+            "_meta": {
+              "eventId": "native-primary-15",
+              "agentTimestampMs": 1795295987296,
+              "isReplay": true
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "2a6a8f41-52b2-46e8-9157-82548131df98",
+              "stop_reason": "end_turn",
+              "elapsed_ms": 4
+            },
+            "_meta": {
+              "eventId": "native-primary-17",
+              "agentTimestampMs": 1795295988546,
+              "isReplay": true
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "7a657bd5-e9eb-4049-acba-a819f603cc01",
+              "stop_reason": "end_turn",
+              "usage": {
+                "inputTokens": 13000,
+                "outputTokens": 25,
+                "totalTokens": 13025,
+                "cachedReadTokens": 3000,
+                "cacheCreationTokens": 0,
+                "reasoningTokens": 7,
+                "modelCalls": 1,
+                "apiDurationMs": 6,
+                "modelUsage": {
+                  "probe-b": {
+                    "inputTokens": 13000,
+                    "outputTokens": 25,
+                    "totalTokens": 13025,
+                    "cachedReadTokens": 3000,
+                    "cacheCreationTokens": 0,
+                    "reasoningTokens": 7,
+                    "modelCalls": 1,
+                    "apiDurationMs": 6
+                  }
+                },
+                "numTurns": 1
+              },
+              "elapsed_ms": 92
+            },
+            "_meta": {
+              "eventId": "native-primary-24",
+              "agentTimestampMs": 1795295989915,
+              "isReplay": true
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "compaction_checkpoint",
+              "checkpoint_id": "00d6df47-b94b-4532-938c-f12706656951",
+              "prompt_index_at_compaction": 3,
+              "checkpoint_file": "compaction_checkpoints/00d6df47-b94b-4532-938c-f12706656951.json",
+              "schema_version": 1,
+              "created_at": "2026-11-21T21:19:50.650104568+00:00"
+            },
+            "_meta": {
+              "eventId": "native-primary-26",
+              "agentTimestampMs": 1795295990650,
+              "isReplay": true
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "auto_compact_completed",
+              "tokens_before": 13025,
+              "tokens_after": 13025,
+              "summary_preview": null
+            },
+            "_meta": {
+              "eventId": "native-primary-27",
+              "agentTimestampMs": 1795295990650,
+              "isReplay": true
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "26a28247-4679-497d-9aca-7eeedd6f8790",
+              "stop_reason": "end_turn",
+              "elapsed_ms": 21
+            },
+            "_meta": {
+              "eventId": "native-primary-28",
+              "agentTimestampMs": 1795295990650,
+              "isReplay": true
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session/update",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "ba22aa48-3911-4cfc-9856-4b57e2679b90",
+              "stop_reason": "end_turn",
+              "usage": {
+                "inputTokens": 3500,
+                "outputTokens": 25,
+                "totalTokens": 3525,
+                "cachedReadTokens": 3000,
+                "cacheCreationTokens": 0,
+                "reasoningTokens": 7,
+                "modelCalls": 1,
+                "apiDurationMs": 5,
+                "modelUsage": {
+                  "probe-b": {
+                    "inputTokens": 3500,
+                    "outputTokens": 25,
+                    "totalTokens": 3525,
+                    "cachedReadTokens": 3000,
+                    "cacheCreationTokens": 0,
+                    "reasoningTokens": 7,
+                    "modelCalls": 1,
+                    "apiDurationMs": 5
+                  }
+                },
+                "numTurns": 1
+              },
+              "elapsed_ms": 61
+            },
+            "_meta": {
+              "eventId": "native-primary-35",
+              "agentTimestampMs": 1795295991511,
+              "isReplay": true
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-70-status/workspace",
+              "session_id": "native-primary",
+              "transcript_path": "/tmp/podium-grok-context/acp-70-status/home/.grok/sessions/%2Ftmp%2Fpodium-grok-context%2Facp-70-status%2Fworkspace/native-primary/updates.jsonl",
+              "model": {
+                "id": "probe-b",
+                "display_name": "Probe B"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-70-status/workspace"
+              },
+              "version": "1.0.70",
+              "cost": {
+                "total_duration_ms": 13,
+                "total_api_duration_ms": 0
+              },
+              "context_window": {
+                "context_window_size": 200000,
+                "context_tokens": 13068,
+                "session_input_tokens": 0,
+                "session_output_tokens": 0,
+                "used_percentage": 7,
+                "remaining_percentage": 93,
+                "auto_compact_threshold_percent": 85
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795295994855
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "model_changed",
+              "model_id": "probe-b"
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-70-status/workspace",
+              "session_id": "native-primary",
+              "transcript_path": "/tmp/podium-grok-context/acp-70-status/home/.grok/sessions/%2Ftmp%2Fpodium-grok-context%2Facp-70-status%2Fworkspace/native-primary/updates.jsonl",
+              "model": {
+                "id": "probe-b",
+                "display_name": "Probe B"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-70-status/workspace"
+              },
+              "version": "1.0.70",
+              "cost": {
+                "total_duration_ms": 32,
+                "total_api_duration_ms": 0
+              },
+              "context_window": {
+                "context_window_size": 200000,
+                "context_tokens": 13068,
+                "session_input_tokens": 0,
+                "session_output_tokens": 0,
+                "used_percentage": 7,
+                "remaining_percentage": 93,
+                "auto_compact_threshold_percent": 85
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795295994873
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-70-status/workspace",
+              "session_id": "native-primary",
+              "prompt_id": "c8847cfc-cc32-4078-b259-345ed1ee285e",
+              "transcript_path": "/tmp/podium-grok-context/acp-70-status/home/.grok/sessions/%2Ftmp%2Fpodium-grok-context%2Facp-70-status%2Fworkspace/native-primary/updates.jsonl",
+              "model": {
+                "id": "probe-b",
+                "display_name": "Probe B"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-70-status/workspace"
+              },
+              "version": "1.0.70",
+              "cost": {
+                "total_duration_ms": 756,
+                "total_api_duration_ms": 0
+              },
+              "context_window": {
+                "context_window_size": 200000,
+                "context_tokens": 13068,
+                "session_input_tokens": 0,
+                "session_output_tokens": 0,
+                "used_percentage": 7,
+                "remaining_percentage": 93,
+                "auto_compact_threshold_percent": 85
+              },
+              "turn": {
+                "started_at_ms": 1795295995590
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795295995597
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "c8847cfc-cc32-4078-b259-345ed1ee285e",
+              "stop_reason": "end_turn",
+              "usage": {
+                "inputTokens": 4500,
+                "outputTokens": 25,
+                "totalTokens": 4525,
+                "cachedReadTokens": 3000,
+                "cacheCreationTokens": 0,
+                "reasoningTokens": 7,
+                "modelCalls": 1,
+                "apiDurationMs": 10,
+                "modelUsage": {
+                  "probe-b": {
+                    "inputTokens": 4500,
+                    "outputTokens": 25,
+                    "totalTokens": 4525,
+                    "cachedReadTokens": 3000,
+                    "cacheCreationTokens": 0,
+                    "reasoningTokens": 7,
+                    "modelCalls": 1,
+                    "apiDurationMs": 10
+                  }
+                },
+                "numTurns": 1
+              },
+              "elapsed_ms": 100
+            },
+            "_meta": {
+              "eventId": "native-primary-46",
+              "agentTimestampMs": 1795295995691
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-70-status/workspace",
+              "session_id": "native-primary",
+              "transcript_path": "/tmp/podium-grok-context/acp-70-status/home/.grok/sessions/%2Ftmp%2Fpodium-grok-context%2Facp-70-status%2Fworkspace/native-primary/updates.jsonl",
+              "model": {
+                "id": "probe-b",
+                "display_name": "Probe B"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-70-status/workspace"
+              },
+              "version": "1.0.70",
+              "cost": {
+                "total_duration_ms": 853,
+                "total_api_duration_ms": 10
+              },
+              "context_window": {
+                "context_window_size": 200000,
+                "context_tokens": 4525,
+                "session_input_tokens": 4500,
+                "session_output_tokens": 25,
+                "session_usage": {
+                  "input_tokens": 1500,
+                  "output_tokens": 25,
+                  "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 3000
+                },
+                "used_percentage": 2,
+                "remaining_percentage": 98,
+                "auto_compact_threshold_percent": 85
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795295995695
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "id": 3,
+          "result": {
+            "stopReason": "end_turn",
+            "_meta": {
+              "sessionId": "native-primary",
+              "requestId": "c8847cfc-cc32-4078-b259-345ed1ee285e",
+              "promptId": "c8847cfc-cc32-4078-b259-345ed1ee285e",
+              "totalTokens": 4525,
+              "modelId": "probe-b",
+              "inputTokens": 4500,
+              "outputTokens": 25,
+              "cachedReadTokens": 3000,
+              "reasoningTokens": 7,
+              "usage": {
+                "inputTokens": 4500,
+                "outputTokens": 25,
+                "totalTokens": 4525,
+                "cachedReadTokens": 3000,
+                "cacheCreationTokens": 0,
+                "reasoningTokens": 7,
+                "modelCalls": 1,
+                "apiDurationMs": 10,
+                "modelUsage": {
+                  "probe-b": {
+                    "inputTokens": 4500,
+                    "outputTokens": 25,
+                    "totalTokens": 4525,
+                    "cachedReadTokens": 3000,
+                    "cacheCreationTokens": 0,
+                    "reasoningTokens": 7,
+                    "modelCalls": 1,
+                    "apiDurationMs": 10
+                  }
+                },
+                "numTurns": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "1.0.89/live": {
+      "sha256": "fb2393fa6c5039348c775ff03badc2579f101084c369169b47b64a98276b3d8b",
+      "frames": [
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-89-clean/workspace",
+              "session_id": "native-primary",
+              "model": {
+                "id": "probe-a",
+                "display_name": "Probe A"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-89-clean/workspace"
+              },
+              "version": "1.0.89",
+              "cost": {
+                "total_duration_ms": 23,
+                "total_api_duration_ms": 0
+              },
+              "context_window": {
+                "context_window_size": 100000,
+                "context_tokens": 1333,
+                "session_input_tokens": 0,
+                "session_output_tokens": 0,
+                "used_percentage": 1,
+                "remaining_percentage": 99,
+                "auto_compact_threshold_percent": 85
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795296866401
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-89-clean/workspace",
+              "session_id": "native-primary",
+              "model": {
+                "id": "probe-a",
+                "display_name": "Probe A"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-89-clean/workspace"
+              },
+              "version": "1.0.89",
+              "cost": {
+                "total_duration_ms": 24,
+                "total_api_duration_ms": 0
+              },
+              "context_window": {
+                "context_window_size": 100000,
+                "context_tokens": 1333,
+                "session_input_tokens": 0,
+                "session_output_tokens": 0,
+                "used_percentage": 1,
+                "remaining_percentage": 99,
+                "auto_compact_threshold_percent": 85
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795296866402
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-89-clean/workspace",
+              "session_id": "native-primary",
+              "prompt_id": "e0a6ee41-bad3-4fe4-99b1-c3eab0e76836",
+              "model": {
+                "id": "probe-a",
+                "display_name": "Probe A"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-89-clean/workspace"
+              },
+              "version": "1.0.89",
+              "cost": {
+                "total_duration_ms": 728,
+                "total_api_duration_ms": 0
+              },
+              "context_window": {
+                "context_window_size": 100000,
+                "context_tokens": 1333,
+                "session_input_tokens": 0,
+                "session_output_tokens": 0,
+                "used_percentage": 1,
+                "remaining_percentage": 99,
+                "auto_compact_threshold_percent": 85
+              },
+              "turn": {
+                "started_at_ms": 1795296867101
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795296867106
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "e0a6ee41-bad3-4fe4-99b1-c3eab0e76836",
+              "stop_reason": "end_turn",
+              "usage": {
+                "inputTokens": 12000,
+                "outputTokens": 25,
+                "totalTokens": 12025,
+                "cachedReadTokens": 3000,
+                "cacheCreationTokens": 0,
+                "reasoningTokens": 7,
+                "modelCalls": 1,
+                "apiDurationMs": 18,
+                "modelUsage": {
+                  "probe-a": {
+                    "inputTokens": 12000,
+                    "outputTokens": 25,
+                    "totalTokens": 12025,
+                    "cachedReadTokens": 3000,
+                    "cacheCreationTokens": 0,
+                    "reasoningTokens": 7,
+                    "modelCalls": 1,
+                    "apiDurationMs": 18
+                  }
+                },
+                "numTurns": 1
+              },
+              "elapsed_ms": 163
+            },
+            "_meta": {
+              "eventId": "native-primary-8",
+              "agentTimestampMs": 1795296867266
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-89-clean/workspace",
+              "session_id": "native-primary",
+              "transcript_path": "/tmp/podium-grok-context/acp-89-clean/home/.grok/sessions/%2Ftmp%2Fpodium-grok-context%2Facp-89-clean%2Fworkspace/native-primary/updates.jsonl",
+              "model": {
+                "id": "probe-a",
+                "display_name": "Probe A"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-89-clean/workspace"
+              },
+              "version": "1.0.89",
+              "cost": {
+                "total_duration_ms": 892,
+                "total_api_duration_ms": 18
+              },
+              "context_window": {
+                "context_window_size": 100000,
+                "context_tokens": 12025,
+                "session_input_tokens": 12000,
+                "session_output_tokens": 25,
+                "session_usage": {
+                  "input_tokens": 9000,
+                  "output_tokens": 25,
+                  "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 3000
+                },
+                "used_percentage": 12,
+                "remaining_percentage": 88,
+                "auto_compact_threshold_percent": 85
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795296867270
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "id": 3,
+          "result": {
+            "stopReason": "end_turn",
+            "_meta": {
+              "sessionId": "native-primary",
+              "requestId": "e0a6ee41-bad3-4fe4-99b1-c3eab0e76836",
+              "promptId": "e0a6ee41-bad3-4fe4-99b1-c3eab0e76836",
+              "totalTokens": 12025,
+              "modelId": "probe-a",
+              "inputTokens": 12000,
+              "outputTokens": 25,
+              "cachedReadTokens": 3000,
+              "reasoningTokens": 7,
+              "usage": {
+                "inputTokens": 12000,
+                "outputTokens": 25,
+                "totalTokens": 12025,
+                "cachedReadTokens": 3000,
+                "cacheCreationTokens": 0,
+                "reasoningTokens": 7,
+                "modelCalls": 1,
+                "apiDurationMs": 18,
+                "modelUsage": {
+                  "probe-a": {
+                    "inputTokens": 12000,
+                    "outputTokens": 25,
+                    "totalTokens": 12025,
+                    "cachedReadTokens": 3000,
+                    "cacheCreationTokens": 0,
+                    "reasoningTokens": 7,
+                    "modelCalls": 1,
+                    "apiDurationMs": 18
+                  }
+                },
+                "numTurns": 1
+              }
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-89-clean/workspace",
+              "session_id": "native-primary",
+              "prompt_id": "e55002ef-cfcb-41e0-b34c-0474bbf6d814",
+              "transcript_path": "/tmp/podium-grok-context/acp-89-clean/home/.grok/sessions/%2Ftmp%2Fpodium-grok-context%2Facp-89-clean%2Fworkspace/native-primary/updates.jsonl",
+              "model": {
+                "id": "probe-a",
+                "display_name": "Probe A"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-89-clean/workspace"
+              },
+              "version": "1.0.89",
+              "cost": {
+                "total_duration_ms": 2165,
+                "total_api_duration_ms": 18
+              },
+              "context_window": {
+                "context_window_size": 100000,
+                "context_tokens": 12025,
+                "session_input_tokens": 12000,
+                "session_output_tokens": 25,
+                "session_usage": {
+                  "input_tokens": 9000,
+                  "output_tokens": 25,
+                  "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 3000
+                },
+                "used_percentage": 12,
+                "remaining_percentage": 88,
+                "auto_compact_threshold_percent": 85
+              },
+              "turn": {
+                "started_at_ms": 1795296868533
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795296868543
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "turn_completed",
+              "prompt_id": "e55002ef-cfcb-41e0-b34c-0474bbf6d814",
+              "stop_reason": "end_turn",
+              "usage": {
+                "inputTokens": 12500,
+                "outputTokens": 25,
+                "totalTokens": 12525,
+                "cachedReadTokens": 3000,
+                "cacheCreationTokens": 0,
+                "reasoningTokens": 7,
+                "modelCalls": 1,
+                "apiDurationMs": 6,
+                "modelUsage": {
+                  "probe-a": {
+                    "inputTokens": 12500,
+                    "outputTokens": 25,
+                    "totalTokens": 12525,
+                    "cachedReadTokens": 3000,
+                    "cacheCreationTokens": 0,
+                    "reasoningTokens": 7,
+                    "modelCalls": 1,
+                    "apiDurationMs": 6
+                  }
+                },
+                "numTurns": 1
+              },
+              "elapsed_ms": 99
+            },
+            "_meta": {
+              "eventId": "native-primary-15",
+              "agentTimestampMs": 1795296868632
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "_x.ai/session_notification",
+          "params": {
+            "sessionId": "native-primary",
+            "update": {
+              "sessionUpdate": "session_status",
+              "schema_version": 1,
+              "cwd": "/tmp/podium-grok-context/acp-89-clean/workspace",
+              "session_id": "native-primary",
+              "transcript_path": "/tmp/podium-grok-context/acp-89-clean/home/.grok/sessions/%2Ftmp%2Fpodium-grok-context%2Facp-89-clean%2Fworkspace/native-primary/updates.jsonl",
+              "model": {
+                "id": "probe-a",
+                "display_name": "Probe A"
+              },
+              "workspace": {
+                "current_dir": "/tmp/podium-grok-context/acp-89-clean/workspace"
+              },
+              "version": "1.0.89",
+              "cost": {
+                "total_duration_ms": 2256,
+                "total_api_duration_ms": 24
+              },
+              "context_window": {
+                "context_window_size": 100000,
+                "context_tokens": 12525,
+                "session_input_tokens": 24500,
+                "session_output_tokens": 50,
+                "session_usage": {
+                  "input_tokens": 18500,
+                  "output_tokens": 50,
+                  "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 6000
+                },
+                "used_percentage": 13,
+                "remaining_percentage": 87,
+                "auto_compact_threshold_percent": 85
+              }
+            },
+            "_meta": {
+              "agentTimestampMs": 1795296868634
+            }
+          }
+        },
+        {
+          "jsonrpc": "2.0",
+          "id": 4,
+          "result": {
+            "stopReason": "end_turn",
+            "_meta": {
+              "sessionId": "native-primary",
+              "requestId": "e55002ef-cfcb-41e0-b34c-0474bbf6d814",
+              "promptId": "e55002ef-cfcb-41e0-b34c-0474bbf6d814",
+              "totalTokens": 12525,
+              "modelId": "probe-a",
+              "inputTokens": 12500,
+              "outputTokens": 25,
+              "cachedReadTokens": 3000,
+              "reasoningTokens": 7,
+              "usage": {
+                "inputTokens": 12500,
+                "outputTokens": 25,
+                "totalTokens": 12525,
+                "cachedReadTokens": 3000,
+                "cacheCreationTokens": 0,
+                "reasoningTokens": 7,
+                "modelCalls": 1,
+                "apiDurationMs": 6,
+                "modelUsage": {
+                  "probe-a": {
+                    "inputTokens": 12500,
+                    "outputTokens": 25,
+                    "totalTokens": 12525,
+                    "cachedReadTokens": 3000,
+                    "cacheCreationTokens": 0,
+                    "reasoningTokens": 7,
+                    "modelCalls": 1,
+                    "apiDurationMs": 6
+                  }
+                },
+                "numTurns": 1
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "terminal": {
+    "1.0.70": [
+      {
+        "schema_version": 1,
+        "session_id": "native-primary",
+        "model": {
+          "id": "probe-a",
+          "display_name": "Probe A"
+        },
+        "version": "1.0.70",
+        "cost": {
+          "total_duration_ms": 36,
+          "total_api_duration_ms": 0
+        },
+        "context_window": {
+          "context_window_size": 100000,
+          "context_tokens": 1331,
+          "session_input_tokens": 0,
+          "session_output_tokens": 0,
+          "used_percentage": 1,
+          "remaining_percentage": 99,
+          "auto_compact_threshold_percent": 85
+        },
+        "trigger": "state"
+      },
+      {
+        "schema_version": 1,
+        "session_id": "native-primary",
+        "model": {
+          "id": "probe-a",
+          "display_name": "Probe A"
+        },
+        "version": "1.0.70",
+        "cost": {
+          "total_duration_ms": 267,
+          "total_api_duration_ms": 19
+        },
+        "context_window": {
+          "context_window_size": 100000,
+          "context_tokens": 12025,
+          "session_input_tokens": 12000,
+          "session_output_tokens": 25,
+          "session_usage": {
+            "input_tokens": 9000,
+            "output_tokens": 25,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 3000
+          },
+          "used_percentage": 12,
+          "remaining_percentage": 88,
+          "auto_compact_threshold_percent": 85
+        },
+        "trigger": "state"
+      },
+      {
+        "schema_version": 1,
+        "session_id": "native-primary",
+        "model": {
+          "id": "probe-a",
+          "display_name": "Probe A"
+        },
+        "version": "1.0.70",
+        "cost": {
+          "total_duration_ms": 267,
+          "total_api_duration_ms": 19
+        },
+        "context_window": {
+          "context_window_size": 100000,
+          "context_tokens": 12025,
+          "session_input_tokens": 12000,
+          "session_output_tokens": 25,
+          "session_usage": {
+            "input_tokens": 9000,
+            "output_tokens": 25,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 3000
+          },
+          "used_percentage": 12,
+          "remaining_percentage": 88,
+          "auto_compact_threshold_percent": 85
+        },
+        "trigger": "state"
+      },
+      {
+        "schema_version": 1,
+        "session_id": "native-primary",
+        "model": {
+          "id": "probe-a",
+          "display_name": "Probe A"
+        },
+        "version": "1.0.70",
+        "cost": {
+          "total_duration_ms": 267,
+          "total_api_duration_ms": 19
+        },
+        "context_window": {
+          "context_window_size": 100000,
+          "context_tokens": 12025,
+          "session_input_tokens": 12000,
+          "session_output_tokens": 25,
+          "session_usage": {
+            "input_tokens": 9000,
+            "output_tokens": 25,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 3000
+          },
+          "used_percentage": 12,
+          "remaining_percentage": 88,
+          "auto_compact_threshold_percent": 85
+        },
+        "trigger": "refresh_interval"
+      },
+      {
+        "schema_version": 1,
+        "session_id": "native-primary",
+        "prompt_id": "2cd0918c-41ed-49dc-941b-b96caa424893",
+        "model": {
+          "id": "probe-a",
+          "display_name": "Probe A"
+        },
+        "version": "1.0.70",
+        "cost": {
+          "total_duration_ms": 1640,
+          "total_api_duration_ms": 19
+        },
+        "context_window": {
+          "context_window_size": 100000,
+          "context_tokens": 12025,
+          "session_input_tokens": 12000,
+          "session_output_tokens": 25,
+          "session_usage": {
+            "input_tokens": 9000,
+            "output_tokens": 25,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 3000
+          },
+          "used_percentage": 12,
+          "remaining_percentage": 88,
+          "auto_compact_threshold_percent": 85
+        },
+        "turn": {
+          "started_at_ms": 1795296023126
+        },
+        "trigger": "state"
+      },
+      {
+        "schema_version": 1,
+        "session_id": "native-primary",
+        "model": {
+          "id": "probe-a",
+          "display_name": "Probe A"
+        },
+        "version": "1.0.70",
+        "cost": {
+          "total_duration_ms": 1733,
+          "total_api_duration_ms": 41
+        },
+        "context_window": {
+          "context_window_size": 100000,
+          "context_tokens": 12525,
+          "session_input_tokens": 24500,
+          "session_output_tokens": 50,
+          "session_usage": {
+            "input_tokens": 18500,
+            "output_tokens": 50,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 6000
+          },
+          "used_percentage": 13,
+          "remaining_percentage": 87,
+          "auto_compact_threshold_percent": 85
+        },
+        "trigger": "state"
+      },
+      {
+        "schema_version": 1,
+        "session_id": "native-primary",
+        "model": {
+          "id": "probe-a",
+          "display_name": "Probe A"
+        },
+        "version": "1.0.70",
+        "cost": {
+          "total_duration_ms": 1733,
+          "total_api_duration_ms": 41
+        },
+        "context_window": {
+          "context_window_size": 100000,
+          "context_tokens": 12525,
+          "session_input_tokens": 24500,
+          "session_output_tokens": 50,
+          "session_usage": {
+            "input_tokens": 18500,
+            "output_tokens": 50,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 6000
+          },
+          "used_percentage": 13,
+          "remaining_percentage": 87,
+          "auto_compact_threshold_percent": 85
+        },
+        "trigger": "refresh_interval"
+      },
+      {
+        "schema_version": 1,
+        "session_id": "native-primary",
+        "model": {
+          "id": "probe-a",
+          "display_name": "Probe A"
+        },
+        "version": "1.0.70",
+        "cost": {
+          "total_duration_ms": 1733,
+          "total_api_duration_ms": 41
+        },
+        "context_window": {
+          "context_window_size": 100000,
+          "context_tokens": 12525,
+          "session_input_tokens": 24500,
+          "session_output_tokens": 50,
+          "session_usage": {
+            "input_tokens": 18500,
+            "output_tokens": 50,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 6000
+          },
+          "used_percentage": 13,
+          "remaining_percentage": 87,
+          "auto_compact_threshold_percent": 85
+        },
+        "trigger": "refresh_interval"
+      },
+      {
+        "schema_version": 1,
+        "session_id": "native-primary",
+        "model": {
+          "id": "probe-a",
+          "display_name": "Probe A"
+        },
+        "version": "1.0.70",
+        "cost": {
+          "total_duration_ms": 3117,
+          "total_api_duration_ms": 41
+        },
+        "context_window": {
+          "context_window_size": 100000,
+          "context_tokens": 12553,
+          "session_input_tokens": 24500,
+          "session_output_tokens": 50,
+          "session_usage": {
+            "input_tokens": 18500,
+            "output_tokens": 50,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 6000
+          },
+          "used_percentage": 13,
+          "remaining_percentage": 87,
+          "auto_compact_threshold_percent": 85
+        },
+        "trigger": "state"
+      },
+      {
+        "schema_version": 1,
+        "session_id": "native-primary",
+        "model": {
+          "id": "probe-a",
+          "display_name": "Probe A"
+        },
+        "version": "1.0.70",
+        "cost": {
+          "total_duration_ms": 3117,
+          "total_api_duration_ms": 41
+        },
+        "context_window": {
+          "context_window_size": 100000,
+          "context_tokens": 12553,
+          "session_input_tokens": 24500,
+          "session_output_tokens": 50,
+          "session_usage": {
+            "input_tokens": 18500,
+            "output_tokens": 50,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 6000
+          },
+          "used_percentage": 13,
+          "remaining_percentage": 87,
+          "auto_compact_threshold_percent": 85
+        },
+        "trigger": "refresh_interval"
+      },
+      {
+        "schema_version": 1,
+        "session_id": "native-primary",
+        "model": {
+          "id": "probe-a",
+          "display_name": "Probe A"
+        },
+        "version": "1.0.70",
+        "cost": {
+          "total_duration_ms": 80,
+          "total_api_duration_ms": 0
+        },
+        "context_window": {
+          "context_window_size": 100000,
+          "context_tokens": 2957,
+          "session_input_tokens": 0,
+          "session_output_tokens": 0,
+          "used_percentage": 3,
+          "remaining_percentage": 97,
+          "auto_compact_threshold_percent": 85
+        },
+        "trigger": "state"
+      },
+      {
+        "schema_version": 1,
+        "session_id": "native-primary",
+        "prompt_id": "24c312bf-49a7-418e-ae42-838d61b48e5a",
+        "model": {
+          "id": "probe-b",
+          "display_name": "Probe B"
+        },
+        "version": "1.0.70",
+        "cost": {
+          "total_duration_ms": 234,
+          "total_api_duration_ms": 0
+        },
+        "context_window": {
+          "context_window_size": 200000,
+          "context_tokens": 2957,
+          "session_input_tokens": 0,
+          "session_output_tokens": 0,
+          "used_percentage": 1,
+          "remaining_percentage": 99,
+          "auto_compact_threshold_percent": 85
+        },
+        "turn": {
+          "started_at_ms": 1795296027012
+        },
+        "trigger": "state"
+      },
+      {
+        "schema_version": 1,
+        "session_id": "native-primary",
+        "model": {
+          "id": "probe-b",
+          "display_name": "Probe B"
+        },
+        "version": "1.0.70",
+        "cost": {
+          "total_duration_ms": 559,
+          "total_api_duration_ms": 40
+        },
+        "context_window": {
+          "context_window_size": 200000,
+          "context_tokens": 13025,
+          "session_input_tokens": 13000,
+          "session_output_tokens": 25,
+          "session_usage": {
+            "input_tokens": 10000,
+            "output_tokens": 25,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 3000
+          },
+          "used_percentage": 7,
+          "remaining_percentage": 93,
+          "auto_compact_threshold_percent": 85
+        },
+        "trigger": "state"
+      },
+      {
+        "schema_version": 1,
+        "session_id": "native-primary",
+        "model": {
+          "id": "probe-b",
+          "display_name": "Probe B"
+        },
+        "version": "1.0.70",
+        "cost": {
+          "total_duration_ms": 559,
+          "total_api_duration_ms": 40
+        },
+        "context_window": {
+          "context_window_size": 200000,
+          "context_tokens": 13025,
+          "session_input_tokens": 13000,
+          "session_output_tokens": 25,
+          "session_usage": {
+            "input_tokens": 10000,
+            "output_tokens": 25,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 3000
+          },
+          "used_percentage": 7,
+          "remaining_percentage": 93,
+          "auto_compact_threshold_percent": 85
+        },
+        "trigger": "refresh_interval"
+      }
+    ],
+    "1.0.89": [
+      {
+        "schema_version": 1,
+        "session_id": "native-primary",
+        "model": {
+          "id": "probe-a",
+          "display_name": "Probe A"
+        },
+        "version": "1.0.89",
+        "cost": {
+          "total_duration_ms": 25,
+          "total_api_duration_ms": 0
+        },
+        "context_window": {
+          "context_window_size": 100000,
+          "context_tokens": 1331,
+          "session_input_tokens": 0,
+          "session_output_tokens": 0,
+          "used_percentage": 1,
+          "remaining_percentage": 99,
+          "auto_compact_threshold_percent": 85
+        },
+        "trigger": "state"
+      },
+      {
+        "schema_version": 1,
+        "session_id": "native-primary",
+        "model": {
+          "id": "probe-a",
+          "display_name": "Probe A"
+        },
+        "version": "1.0.89",
+        "cost": {
+          "total_duration_ms": 210,
+          "total_api_duration_ms": 6
+        },
+        "context_window": {
+          "context_window_size": 100000,
+          "context_tokens": 12025,
+          "session_input_tokens": 12000,
+          "session_output_tokens": 25,
+          "session_usage": {
+            "input_tokens": 9000,
+            "output_tokens": 25,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 3000
+          },
+          "used_percentage": 12,
+          "remaining_percentage": 88,
+          "auto_compact_threshold_percent": 85
+        },
+        "trigger": "state"
+      },
+      {
+        "schema_version": 1,
+        "session_id": "native-primary",
+        "model": {
+          "id": "probe-a",
+          "display_name": "Probe A"
+        },
+        "version": "1.0.89",
+        "cost": {
+          "total_duration_ms": 210,
+          "total_api_duration_ms": 6
+        },
+        "context_window": {
+          "context_window_size": 100000,
+          "context_tokens": 12025,
+          "session_input_tokens": 12000,
+          "session_output_tokens": 25,
+          "session_usage": {
+            "input_tokens": 9000,
+            "output_tokens": 25,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 3000
+          },
+          "used_percentage": 12,
+          "remaining_percentage": 88,
+          "auto_compact_threshold_percent": 85
+        },
+        "trigger": "refresh_interval"
+      },
+      {
+        "schema_version": 1,
+        "session_id": "native-primary",
+        "prompt_id": "88133e7f-be88-420a-b631-96df90f1b633",
+        "model": {
+          "id": "probe-a",
+          "display_name": "Probe A"
+        },
+        "version": "1.0.89",
+        "cost": {
+          "total_duration_ms": 1577,
+          "total_api_duration_ms": 6
+        },
+        "context_window": {
+          "context_window_size": 100000,
+          "context_tokens": 12025,
+          "session_input_tokens": 12000,
+          "session_output_tokens": 25,
+          "session_usage": {
+            "input_tokens": 9000,
+            "output_tokens": 25,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 3000
+          },
+          "used_percentage": 12,
+          "remaining_percentage": 88,
+          "auto_compact_threshold_percent": 85
+        },
+        "turn": {
+          "started_at_ms": 1795296131651
+        },
+        "trigger": "state"
+      },
+      {
+        "schema_version": 1,
+        "session_id": "native-primary",
+        "model": {
+          "id": "probe-a",
+          "display_name": "Probe A"
+        },
+        "version": "1.0.89",
+        "cost": {
+          "total_duration_ms": 1683,
+          "total_api_duration_ms": 14
+        },
+        "context_window": {
+          "context_window_size": 100000,
+          "context_tokens": 12525,
+          "session_input_tokens": 24500,
+          "session_output_tokens": 50,
+          "session_usage": {
+            "input_tokens": 18500,
+            "output_tokens": 50,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 6000
+          },
+          "used_percentage": 13,
+          "remaining_percentage": 87,
+          "auto_compact_threshold_percent": 85
+        },
+        "trigger": "state"
+      },
+      {
+        "schema_version": 1,
+        "session_id": "native-primary",
+        "model": {
+          "id": "probe-a",
+          "display_name": "Probe A"
+        },
+        "version": "1.0.89",
+        "cost": {
+          "total_duration_ms": 1683,
+          "total_api_duration_ms": 14
+        },
+        "context_window": {
+          "context_window_size": 100000,
+          "context_tokens": 12525,
+          "session_input_tokens": 24500,
+          "session_output_tokens": 50,
+          "session_usage": {
+            "input_tokens": 18500,
+            "output_tokens": 50,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 6000
+          },
+          "used_percentage": 13,
+          "remaining_percentage": 87,
+          "auto_compact_threshold_percent": 85
+        },
+        "trigger": "refresh_interval"
+      }
+    ]
+  },
+  "signals": {
+    "terminal/01-reply": {
+      "turnCount": 1,
+      "contextWindowUsage": 1,
+      "contextTokensUsed": 1347,
+      "contextWindowTokens": 100000,
+      "sessionId": "native-primary"
+    },
+    "terminal/02-reply": {
+      "turnCount": 2,
+      "contextWindowUsage": 12,
+      "contextTokensUsed": 12041,
+      "contextWindowTokens": 100000,
+      "sessionId": "native-primary"
+    },
+    "headless/01-reply": {
+      "turnCount": 1,
+      "contextWindowUsage": 1,
+      "contextTokensUsed": 1254,
+      "contextWindowTokens": 100000,
+      "sessionId": "native-primary"
+    },
+    "headless/02-reply": {
+      "turnCount": 2,
+      "contextWindowUsage": 1,
+      "contextTokensUsed": 1270,
+      "contextWindowTokens": 100000,
+      "sessionId": "native-primary"
+    }
+  },
+  "sessionResults": {
+    "new": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "sessionId": "native-primary",
+        "models": {
+          "currentModelId": "probe-a",
+          "availableModels": [
+            {
+              "modelId": "probe-a",
+              "name": "Probe A",
+              "_meta": {
+                "totalContextTokens": 100000,
+                "agentType": "grok-build-plan"
+              }
+            },
+            {
+              "modelId": "probe-b",
+              "name": "Probe B",
+              "_meta": {
+                "totalContextTokens": 200000,
+                "agentType": "grok-build-plan"
+              }
+            }
+          ]
+        },
+        "configOptions": [
+          {
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": "probe-a",
+            "options": [
+              {
+                "value": "probe-a",
+                "name": "Probe A"
+              },
+              {
+                "value": "probe-b",
+                "name": "Probe B"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "load": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "result": {
+        "models": {
+          "currentModelId": "probe-b",
+          "availableModels": [
+            {
+              "modelId": "probe-a",
+              "name": "Probe A",
+              "_meta": {
+                "totalContextTokens": 100000,
+                "agentType": "grok-build-plan"
+              }
+            },
+            {
+              "modelId": "probe-b",
+              "name": "Probe B",
+              "_meta": {
+                "totalContextTokens": 200000,
+                "agentType": "grok-build-plan"
+              }
+            }
+          ]
+        },
+        "configOptions": [
+          {
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": "probe-b",
+            "options": [
+              {
+                "value": "probe-a",
+                "name": "Probe A"
+              },
+              {
+                "value": "probe-b",
+                "name": "Probe B"
+              }
+            ]
+          }
+        ],
+        "_meta": {
+          "x.ai/sessionDetail": {
+            "sessionId": "native-primary",
+            "currentModelId": "probe-b"
+          }
+        }
+      }
+    }
+  }
+}

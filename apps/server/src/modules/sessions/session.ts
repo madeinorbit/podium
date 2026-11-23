@@ -1,3 +1,4 @@
+import { compareProviderCursor, providerCursorRegressed } from '@podium/harness/metadata'
 import { createLogger } from '@podium/logger'
 import type {
   AccountId,
@@ -21,8 +22,9 @@ import type {
   UserId,
   WorkState,
 } from '@podium/model'
+import { contextUsagePercentOf, sameContextSample } from '@podium/model'
 import type { DaemonPtyInputBatch, SessionObservationCheckpointV1 } from '@podium/protocol'
-import type { ControlMessage } from '@podium/protocol/daemon'
+import type { ContextObservation, ControlMessage, RuntimeEvent } from '@podium/protocol/daemon'
 import { driverFamilyForId } from '../../harness-manifest'
 import type {
   ConversationBinding,
@@ -451,7 +453,203 @@ export class Session {
    * goes out on the `session.condition` topic and is re-learned from the
    * transcript tail after a restart.
    */
-  contextUsagePercent: number | undefined = undefined
+  contextObservation: ContextObservation | undefined = undefined
+  private legacyContextUsagePercent: number | undefined = undefined
+  /** Live synchronization only; the observation above remains the sole sample. */
+  private contextAuthority: {
+    epoch: number
+    verified: boolean
+    pending: boolean
+    scope?: { bindingVersion: number; observerGeneration: number }
+    /** Unsupported descriptors carry no revision; retain only their binding affiliation. */
+    projectionBinding?: number
+  } = { epoch: 0, verified: false, pending: false }
+
+  contextAuthorityNeedsRefresh(event: RuntimeEvent): boolean {
+    const scope = this.contextAuthority.scope
+    if (!scope) return true
+    if (event.t === 'binding') {
+      if (event.bindingVersion < scope.bindingVersion) return false
+      if (event.bindingVersion !== scope.bindingVersion) return true
+    }
+    return event.observerGeneration !== scope.observerGeneration
+  }
+
+  beginContextBootstrap(): { epoch: number; changed: boolean } {
+    this.contextAuthority = {
+      ...this.contextAuthority,
+      epoch: this.contextAuthority.epoch + 1,
+      verified: false,
+      pending: true,
+    }
+    const current = this.contextObservation
+    const changed =
+      current?.context.status === 'available' &&
+      this.setContextObservation({
+        ...current,
+        context: {
+          ...current.context,
+          status: 'stale',
+          reason: {
+            code: 'binding-pending',
+            message: 'Waiting for the current driver binding snapshot',
+          },
+        },
+      })
+    return { epoch: this.contextAuthority.epoch, changed: Boolean(changed) }
+  }
+
+  confirmContextBootstrap(
+    epoch: number,
+    bindingVersion: number,
+    observerGeneration: number,
+  ): boolean {
+    if (epoch !== this.contextAuthority.epoch) return false
+    const scope = this.contextAuthority.scope
+    if (
+      scope &&
+      (bindingVersion < scope.bindingVersion ||
+        (bindingVersion === scope.bindingVersion && observerGeneration < scope.observerGeneration))
+    )
+      return false
+    this.contextAuthority = {
+      ...this.contextAuthority,
+      epoch,
+      verified: true,
+      pending: false,
+      scope: { bindingVersion, observerGeneration },
+    }
+    return true
+  }
+
+  finishContextBootstrap(epoch: number): void {
+    if (epoch === this.contextAuthority.epoch) this.contextAuthority.pending = false
+  }
+
+  contextBootstrapPending(): boolean {
+    return this.contextAuthority.pending
+  }
+
+  contextAdmissionMatches(bindingVersion: number, observerGeneration: number): boolean {
+    const scope = this.contextAuthority.scope
+    return (
+      this.contextAuthority.verified &&
+      scope !== undefined &&
+      scope.bindingVersion === bindingVersion &&
+      scope.observerGeneration === observerGeneration
+    )
+  }
+
+  get contextUsagePercent(): number | undefined {
+    return this.contextObservation
+      ? contextUsagePercentOf(this.contextObservation.context)
+      : this.legacyContextUsagePercent
+  }
+
+  /** Atomic live truth. No row, replica record or durable event owns telemetry. */
+  setContextObservation(next: ContextObservation): boolean {
+    const identity = (value: ContextObservation['context']) =>
+      value.status === 'available' || value.status === 'stale'
+        ? value.sample
+        : value.status === 'pending' || value.status === 'unavailable'
+          ? value.revision
+          : undefined
+    const previous = this.contextObservation
+    const after = identity(next.context)
+    const authority = this.contextAuthority
+    const afterBinding =
+      after?.bindingVersion ??
+      (authority.verified && authority.scope?.observerGeneration === next.observerGeneration
+        ? authority.scope.bindingVersion
+        : undefined)
+    if (previous) {
+      const before = identity(previous.context)
+      const beforeBinding = before?.bindingVersion ?? authority.projectionBinding
+      if (afterBinding !== undefined && afterBinding !== beforeBinding) {
+        if (beforeBinding !== undefined && afterBinding < beforeBinding) return false
+        // The caller admitted this active binding. Its counters have their own scope.
+      } else {
+        if (next.observerGeneration < previous.observerGeneration) return false
+        if (next.observerGeneration === previous.observerGeneration) {
+          if (before && after && after.contextRevision < before.contextRevision) return false
+          if (!before || !after || after.contextRevision === before.contextRevision) {
+            const afterClear =
+              (previous.context.status === 'pending' ||
+                previous.context.status === 'unavailable') &&
+              previous.context.invalidation !== undefined &&
+              previous.context.invalidation.cause !== 'binding-changed' &&
+              previous.context.invalidation.cause !== 'resume'
+            if (
+              before &&
+              after &&
+              (((previous.context.status === 'available' ||
+                previous.context.status === 'stale' ||
+                afterClear) &&
+                after.turnEpoch < before.turnEpoch) ||
+                (afterClear && providerCursorRegressed(previous.cursor, next.cursor)))
+            )
+              return false
+            const sameMeasurementStateChange =
+              (previous.context.status === 'available' || previous.context.status === 'stale') &&
+              (next.context.status === 'available' || next.context.status === 'stale') &&
+              previous.context.status !== next.context.status &&
+              sameContextSample(previous.context.sample, next.context.sample)
+            if (!sameMeasurementStateChange) {
+              if (
+                previous.context.status === 'unsupported' &&
+                providerCursorRegressed(previous.cursor, next.cursor)
+              )
+                return false
+              const measuredAfterBoundary =
+                (previous.context.status === 'pending' ||
+                  previous.context.status === 'unavailable' ||
+                  previous.context.status === 'unsupported') &&
+                next.context.status === 'available'
+              if (
+                !measuredAfterBoundary &&
+                compareProviderCursor(previous.cursor, next.cursor) !== 'after'
+              )
+                return false
+              if (
+                before &&
+                after &&
+                'at' in before &&
+                'at' in after &&
+                Date.parse(after.at) < Date.parse(before.at)
+              )
+                return false
+              if (before && after && 'id' in before && 'id' in after && before.id === after.id)
+                return false
+            }
+          }
+        }
+      }
+    }
+    this.contextObservation = next
+    this.contextAuthority.projectionBinding = afterBinding
+    this.legacyContextUsagePercent = undefined
+    return true
+  }
+
+  markContextOffline(): boolean {
+    this.contextAuthority = {
+      ...this.contextAuthority,
+      epoch: this.contextAuthority.epoch + 1,
+      verified: false,
+      pending: false,
+    }
+    const observation = this.contextObservation
+    if (!observation || observation.context.status !== 'available') return false
+    this.contextObservation = {
+      ...observation,
+      context: {
+        ...observation.context,
+        status: 'stale',
+        reason: { code: 'offline', message: 'The native observer is disconnected' },
+      },
+    }
+    return true
+  }
   /** Transient UI overlay while the canonical row moves machines. */
   handoffTargetMachineId: MachineId | undefined
   /** Stable Podium conversation identity (conversation registry). Stamped by the
@@ -928,10 +1126,11 @@ export class Session {
 
   /** A live reading, set on the session itself: there is no row to write. */
   setContextUsagePercent(percent: number): boolean {
-    if (!Number.isFinite(percent)) return false
-    const next = Math.min(100, Math.max(0, percent))
-    if (next === this.contextUsagePercent) return false
-    this.contextUsagePercent = next
+    if (this.contextObservation || !Number.isFinite(percent) || percent < 0 || percent > 100)
+      return false
+    const next = percent
+    if (next === this.legacyContextUsagePercent) return false
+    this.legacyContextUsagePercent = next
     return true
   }
 

@@ -113,10 +113,10 @@ describe('terminal instrumentation installation', () => {
   })
 
   it('requires instrumentation for every hook-installing manifest', () => {
-    for (const harness of ['claude-code', 'codex', 'grok'] as const) {
+    for (const harness of ['claude-code', 'codex', 'grok', 'pi'] as const) {
       expect(terminalProfileFor(harness)?.instrumentationRequired).toBe(true)
     }
-    for (const harness of ['opencode', 'pi', 'cursor'] as const) {
+    for (const harness of ['opencode', 'cursor'] as const) {
       expect(terminalProfileFor(harness)?.instrumentationRequired).toBe(false)
     }
   })

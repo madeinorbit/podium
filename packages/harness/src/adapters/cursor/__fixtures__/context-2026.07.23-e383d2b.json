@@ -1,0 +1,165 @@
+{
+  "cursorAgentVersion": "2026.07.23-e383d2b",
+  "reviewedAt": "2026-11-22",
+  "outcomes": {
+    "generic-pty": "unsupported",
+    "headless": "unsupported"
+  },
+  "evidence": "READ of accepted evidence and admitted grammars, not a new native RUN. Payloads are synthetic representatives with invented identities/content unless explicitly marked as an exact prior capture. Success messages below are documentation/grammar fixtures, not completed fake-provider conversations.",
+  "sources": {
+    "accepted-r6": {
+      "reference": "POD-6564/report.md, Cursor R6, audited 2026-11-06",
+      "version": "2026.07.23-e383d2b",
+      "limit": "Fake auth/model-list exchange reached system/init only. The model was a display label; per-chat metadata had cwd/timestamps/hasConversation. No completed proprietary model transport or resolved Auto/provider capacity was established. Raw R6 logs were not attached."
+    },
+    "transcript": {
+      "reference": "docs/agent-harness-reference/cursor.md section 10; adapters/cursor/transcript.ts and transcript.test.ts",
+      "limit": "Admitted plain transcript grammar, not a new version-specific native success capture. Roles, text, tools and turn boundaries do not witness hidden context or capacity."
+    },
+    "print-error": {
+      "reference": "docs/measurements/pod-4834-receipt-proof/cursor-agent-2026.07.23/raw/print-mode-transcript-1b74af65.jsonl; results.md",
+      "version": "2026.07.23-e383d2b",
+      "limit": "RUN by POD-4865 on 2026-09-29, READ here. Failed before a model reply."
+    },
+    "output-docs": {
+      "reference": "https://cursor.com/docs/cli/reference/output-format",
+      "retrievedAt": "2026-11-22",
+      "limit": "Unversioned official reference. Its documented result/stream shapes are negative fixtures, not proof of a successful run of the pinned executable. Field additions require fresh adapter validation."
+    },
+    "synthetic-nonsource": {
+      "reference": "Invented counterexamples; not native captures",
+      "limit": "Configuration, visible content size and account quota must not become session occupancy or capacity."
+    }
+  },
+  "cases": [
+    {
+      "id": "transcript-user",
+      "source": "transcript",
+      "payload": {
+        "role": "user",
+        "message": {
+          "content": [{ "type": "text", "text": "<user_query>\nhello\n</user_query>" }]
+        }
+      }
+    },
+    {
+      "id": "transcript-assistant-and-tool",
+      "source": "transcript",
+      "payload": {
+        "role": "assistant",
+        "message": {
+          "content": [
+            { "type": "text", "text": "Fixture answer" },
+            { "type": "tool_use", "name": "Read", "input": { "path": "fixture.txt" } }
+          ]
+        }
+      }
+    },
+    {
+      "id": "transcript-turn-ended",
+      "source": "transcript",
+      "payload": { "type": "turn_ended", "status": "success" }
+    },
+    {
+      "id": "captured-print-error",
+      "source": "print-error",
+      "evidence": "Exact prior captured record, no substitutions required",
+      "payload": { "type": "turn_ended", "status": "error", "error": "[internal] Protocol error" }
+    },
+    {
+      "id": "headless-text",
+      "source": "output-docs",
+      "payload": "Fixture final answer without telemetry"
+    },
+    {
+      "id": "stream-init-display-label",
+      "source": "accepted-r6",
+      "evidence": "Reconstructed representative of reported fields, not raw R6 bytes",
+      "payload": {
+        "type": "system",
+        "subtype": "init",
+        "model": "GPT 5",
+        "session_id": "00000000-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "id": "stream-user",
+      "source": "output-docs",
+      "payload": {
+        "type": "user",
+        "message": { "role": "user", "content": [{ "type": "text", "text": "Fixture prompt" }] },
+        "session_id": "00000000-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "id": "stream-assistant",
+      "source": "output-docs",
+      "payload": {
+        "type": "assistant",
+        "message": {
+          "role": "assistant",
+          "content": [{ "type": "text", "text": "Fixture answer" }]
+        },
+        "session_id": "00000000-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "id": "stream-tool-result-size",
+      "source": "output-docs",
+      "payload": {
+        "type": "tool_call",
+        "subtype": "completed",
+        "call_id": "fixture-tool",
+        "tool_call": {
+          "readToolCall": {
+            "args": { "path": "fixture.txt" },
+            "result": {
+              "success": { "content": "Fixture file", "totalLines": 54, "totalChars": 1254 }
+            }
+          }
+        },
+        "session_id": "00000000-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "id": "json-and-stream-terminal-result",
+      "source": "output-docs",
+      "payload": {
+        "type": "result",
+        "subtype": "success",
+        "is_error": false,
+        "duration_ms": 1234,
+        "duration_api_ms": 1234,
+        "result": "Fixture answer",
+        "session_id": "00000000-0000-4000-8000-000000000001",
+        "request_id": "fixture-request"
+      }
+    },
+    {
+      "id": "per-chat-metadata",
+      "source": "accepted-r6",
+      "evidence": "Synthetic values for the reported metadata categories, not raw meta.json",
+      "payload": {
+        "cwd": "/fixture/workspace",
+        "createdAtMs": 1000,
+        "updatedAtMs": 2000,
+        "hasConversation": true
+      }
+    },
+    {
+      "id": "global-model-default",
+      "source": "synthetic-nonsource",
+      "payload": { "model": { "modelId": "auto", "displayName": "Auto" }, "maxMode": true }
+    },
+    {
+      "id": "account-quota",
+      "source": "synthetic-nonsource",
+      "payload": { "used": 20, "limit": 100, "remaining": 80, "period": "month" }
+    },
+    {
+      "id": "model-marketing-limit",
+      "source": "synthetic-nonsource",
+      "payload": { "model": "fixture-model", "contextWindow": 200000 }
+    }
+  ]
+}

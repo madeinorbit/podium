@@ -64,11 +64,16 @@ do it, for a reader deciding whether the gap is permanent.
   `handoffTranscript`, `conversationFile`, `classifyBrowserOpen`, plus the nested declarations the
   `sectionStatusesOf` walk covers (`inventory.loginCommand`,
   `loginCommandProbe`, `loginIdentity`, `portableCredential`;
-  `runtime.server`, `runtime.embedded`; `usage.quota/history/transcripts`;
+  `runtime.server`, `runtime.embedded`, `runtime.context.forDriver`;
+  `usage.quota/history/transcripts`;
   `headless.buildExec`; `runtime.server.versionRange/clientTerminal`;
   `transcript.recordToItems/recordRuntime/recordColor/chainPaths/sqliteLocator`;
   `credentials.transfer`). A harness may land with launch and discovery only
   and `unsupported('…')` for the rest, then grow sections in later PRs.
+- [ ] Context observation follows the [normalized context contract](architecture/context-observation.md):
+  adapter-owned native interpretation, immutable sample/clear replay, one machine
+  capability projection and demand-owned detail. A new harness needs no consumer
+  branch; decline each mode without a verified source.
 - [ ] `capabilities` fully stated (no parallel table): `argvPrompt`,
   `effortFlag`, `systemPromptFlag`, `newSessionIdFlag`, `quota`, `cloud`,
   `oscTitle`, `subagentModelEnv`, `promptModeHints`,

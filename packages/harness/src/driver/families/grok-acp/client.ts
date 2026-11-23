@@ -1,7 +1,9 @@
+import { initializeContextPayload } from '../../context-relay.js'
+
 /** A strict newline-delimited JSON-RPC client for `grok agent stdio`. */
 
-import { RequestNotSentError } from '../../errors.js'
 import { createLogger } from '@podium/logger'
+import { RequestNotSentError } from '../../errors.js'
 import {
   GROK_ACP_METHODS,
   type GrokAcpFrame,
@@ -32,6 +34,7 @@ export interface GrokAcpClientConfig {
   /** Every parsed inbound frame, before dispatching it to a request/update
    * consumer. Kept optional so ordinary hosts pay no diagnostic cost. */
   onFrame?(frame: GrokAcpFrame): void
+  onNativePayload?(payload: unknown): void
   /** A response matched to this client's pending request, synchronously before
    *  its Promise is resolved or rejected. */
   onResponse?(method: string, frame: GrokAcpFrame): void
@@ -128,6 +131,7 @@ export function createGrokAcpClient(config: GrokAcpClientConfig): GrokAcpClient 
     } catch {
       return
     }
+    config.onNativePayload?.(raw)
     const parsed = GrokAcpFrameSchema.safeParse(raw)
     if (!parsed.success) return
     const frame = parsed.data
@@ -226,13 +230,16 @@ export function createGrokAcpClient(config: GrokAcpClientConfig): GrokAcpClient 
     async initialize() {
       if (initialized) throw new GrokAcpProtocolError('grok ACP initialize already performed')
       initialized = true
-      const result = await call<unknown>(GROK_ACP_METHODS.initialize, {
-        protocolVersion: 1,
-        clientInfo: { name: 'Podium', version: '1' },
-        // Declaring a callback without serving it deadlocks Grok on its first
-        // delegated file read. The W7 probe reproduced that failure.
-        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
-      })
+      const result = await call<unknown>(
+        GROK_ACP_METHODS.initialize,
+        initializeContextPayload('grok', 'grok-acp', {
+          protocolVersion: 1,
+          clientInfo: { name: 'Podium', version: '1' },
+          // Declaring a callback without serving it deadlocks Grok on its first
+          // delegated file read. The W7 probe reproduced that failure.
+          clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
+        }),
+      )
       const response = GrokAcpInitializeResultSchema.parse(result)
       ready = true
       return response

@@ -9,8 +9,9 @@
  * for fixture" because the family looked the harness up by name itself;
  * the red run is recorded in VERIFY-4521.
  */
-import { describe, expect, it } from 'vitest'
+
 import { asSessionId } from '@podium/model'
+import { describe, expect, it, vi } from 'vitest'
 import type { HarnessContext } from '../../../harness-context.js'
 import type {
   InstalledInstrumentation,
@@ -61,6 +62,59 @@ function fixtureSections(
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 describe('handed terminal instrumentation sections', () => {
+  it.each([
+    { declared: undefined, driver: undefined, installs: true },
+    { declared: undefined, driver: 'headless', installs: false },
+    { declared: ['invented-driver'], driver: 'headless', installs: false },
+    { declared: ['invented-driver'], driver: 'invented-driver', installs: true },
+    { declared: ['headless'], driver: undefined, installs: false },
+  ])('honors generic driver opt-in for an unknown harness: %j', async ({
+    declared,
+    driver,
+    installs,
+  }) => {
+    const install = vi.fn(async () => ({ args: ['--invented-observation'] }))
+    const sections = fixtureSections({ kind: 'session' }, install)
+    sections.instrumentation.driverIds = declared
+    const result = await installTerminalInstrumentation({
+      sessionId: asSessionId('unknown-instrumented'),
+      harness: 'never-registered',
+      driverId: driver,
+      sections,
+      settingsDir: '/unused',
+      spec: {
+        instrumentation: { endpointUrl: 'http://127.0.0.1:1/hooks/invented' },
+        harnessContext: testHarnessContext({ kind: 'codex' }),
+      },
+    })
+    expect(install).toHaveBeenCalledTimes(installs ? 1 : 0)
+    expect(result.args).toEqual(installs ? ['--invented-observation'] : [])
+  })
+
+  it.each([
+    undefined,
+    'none',
+  ] as const)('forwards actual terminal policy %s and the identical pinned context', async (toolPolicy) => {
+    const install = vi.fn(async () => ({ args: [] }))
+    const context = testHarnessContext({ kind: 'codex', version: 'invented-version' })
+    await installTerminalInstrumentation({
+      sessionId: asSessionId('terminal-policy'),
+      harness: 'unknown',
+      sections: fixtureSections({ kind: 'session' }, install),
+      settingsDir: '/unused',
+      spec: {
+        toolPolicy,
+        harnessContext: context,
+        instrumentation: { endpointUrl: 'http://127.0.0.1:1/hooks/policy' },
+      },
+    })
+    expect(install).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extensionsAllowed: toolPolicy !== 'none',
+        harnessContext: context,
+      }),
+    )
+  })
   it('installs for a harness with no registry entry', async () => {
     const wiring = await installTerminalInstrumentation({
       sessionId: asSessionId('fixture-session'),

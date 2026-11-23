@@ -11,6 +11,7 @@ import {
   unsupported,
 } from '../../manifest.js'
 import { cursorCatalog } from './catalog.js'
+import { cursorContext } from './context.js'
 import { cursorCredentials } from './credentials.js'
 import { cursorDescriptor } from './descriptor.js'
 import { createCursorConversationProvider } from './discovery.js'
@@ -139,6 +140,7 @@ export const cursorManifest: AgentManifest = {
   // an open question in the reason below rather than asserted as an absence,
   // because POD-2025 has just shown how easily that assertion turns out wrong.
   runtime: {
+    context: cursorContext,
     server: unsupported(
       'no verified server mode: the public ACP registry lists Cursor as an agent, but nobody has probed cursor-agent the way POD-2025 probed grok — verify before turning this into a spec',
     ),
