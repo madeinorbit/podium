@@ -183,8 +183,8 @@ describe('kernel replica cross-tab convergence', () => {
     await vi.waitFor(() => {
       expect(firstObserver.rows('issueProjections')).toHaveLength(1)
       expect(secondObserver.rows('issueProjections')).toHaveLength(1)
-      expect(first?.progress.getSnapshot().phase).toBe('ready')
-      expect(second?.progress.getSnapshot().phase).toBe('ready')
+      expect(first?.progress.getSnapshot()).toMatchObject({ phase: 'ready', failure: null })
+      expect(second?.progress.getSnapshot()).toMatchObject({ phase: 'ready', failure: null })
     })
 
     const changed = vi.fn()

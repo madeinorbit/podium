@@ -243,7 +243,12 @@ describe('web legacy issue retention', () => {
       ),
     )
     after.assembly.feed.connected(true)
-    await vi.waitFor(() => expect(after.assembly.progress.getSnapshot().phase).toBe('ready'))
+    await vi.waitFor(() =>
+      expect(after.assembly.progress.getSnapshot()).toMatchObject({
+        phase: 'ready',
+        failure: null,
+      }),
+    )
     after.assembly.feed.frame({
       type: 'feedDelta',
       feedId: 'f',

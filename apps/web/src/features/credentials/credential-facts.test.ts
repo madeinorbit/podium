@@ -138,12 +138,13 @@ describe('choices', () => {
     expect(inferenceChoices(all)).toEqual([key, openai, router])
   })
 
-  it('the paste types are the four whose obtain includes paste', () => {
+  it('offers pasteable API keys and tokens, excluding machine logins and OAuth plans', () => {
     expect(pasteTypes()).toEqual([
       'anthropic.api-key',
       'anthropic.claude-token',
       'openai.api-key',
       'openrouter.api-key',
+      'google.api-key',
     ])
   })
 

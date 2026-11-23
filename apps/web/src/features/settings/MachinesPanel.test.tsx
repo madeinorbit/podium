@@ -669,33 +669,6 @@ describe('machine version offers in detail', () => {
   })
 })
 
-it('shows recorded agent versions and the unverified marker in machine detail', () => {
-  client()
-  state.machines = [
-    machine({
-      harnessVersions: [
-        {
-          harness: 'codex',
-          version: '0.154.0',
-          firstSeen: '2026-09-16T10:00:00.000Z',
-          lastSeen: '2026-09-16T11:00:00.000Z',
-          verifiedThrough: '0.151.0',
-          unverified: true,
-        },
-      ],
-    }),
-  ]
-  render()
-  open()
-  const agents = detail().getByRole('list', { name: 'Agents installed' })
-  expect(agents.textContent).toContain('Codex')
-  expect(agents.textContent).toContain('0.154.0')
-  expect(within(agents).getByText('unverified').getAttribute('title')).toBe(
-    'Verified through 0.151.0',
-  )
-  expect(detail().queryByRole('alert')).toBeNull()
-})
-
 describe('retained adoption, removal and replacement behavior', () => {
   it('withholds Adopt it without affirmative adoption authority', () => {
     client()

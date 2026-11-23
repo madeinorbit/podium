@@ -3,6 +3,7 @@ import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { fixtureUiHooks } from '@podium/client-core/test-support/react'
 import { vi } from 'vitest'
 import { useConversation } from '../../../../../../packages/client-core/src/react/use-conversation'
+import { useSessionTransition } from '../../../../../../packages/client-core/src/react/use-session-transition'
 /**
  * The presence seam, stubbed for suites that render `AgentPanel` for reasons
  * other than presence (POD-1535).
@@ -52,6 +53,7 @@ export function presenceSeamStub(owner?: typeof paneOwner): Record<string, unkno
   return {
     ...fixtureUiHooks(() => fixtureOwner ?? paneOwner),
     useConversation,
+    useSessionTransition,
     usePresenceRoom: () => ({ status: 'unknown' as const }),
     useCurrentPrincipal: () => null,
     ...fixtureRuntimeHooks(() => fixtureOwner ?? paneOwner),

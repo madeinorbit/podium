@@ -16,6 +16,7 @@ vi.mock('./shell-data', () => ({
   useShellActions: () => ({ trpc }),
   useShellDock: () => ({ active }),
 }))
+vi.mock('./store-worklist-pool', () => ({ useWorklistPool: () => null }))
 
 // The task panel owns which task is showing and what its header says; the
 // dock's job here is to mount it and give it the header.
