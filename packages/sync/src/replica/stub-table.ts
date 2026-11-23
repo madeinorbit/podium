@@ -19,11 +19,13 @@
  * row in the store's map; here it only has its stub columns.
  */
 
+import { SideMap } from './side-state'
 import type { EntityRecord, StubRow } from './types'
 
 type Value = string | number | boolean | null
 
 /** Fields with few distinct values: their strings are shared, not copied per row. */
+// side-state: declaration: field names, fixed
 const SHARED = new Set(['repoId', 'stage', 'closedReason', 'audience'])
 
 /** What a reader of the stubs needs: the replica and the loader read only this. */
@@ -40,17 +42,17 @@ export interface StubTableReader {
 
 /** One record type's stubs, by id. */
 export class StubTable implements StubTableReader {
-  private readonly slots = new Map<string, number>()
+  private readonly slots = new SideMap<string, number>('stubTable.slots')
   private readonly ids: (string | undefined)[] = []
   private readonly free: number[] = []
   /** Column per declared field (`id` excepted: it is `ids`). */
-  private readonly columns = new Map<string, (Value | undefined)[]>()
-  private readonly strings = new Map<string, string>()
+  private readonly columns = new SideMap<string, (Value | undefined)[]>('stubTable.columns')
+  private readonly strings = new SideMap<string, string>('stubTable.strings')
   /** Parent id → child ids, when the record type declares a parent field. */
-  private readonly children = new Map<string, Set<string>>()
+  private readonly children = new SideMap<string, Set<string>>('stubTable.children')
   /** `repoId:seq` → the ids holding that reference (normally one). */
-  private readonly references = new Map<string, Set<string>>()
-  private childLists = new Map<string, readonly string[]>()
+  private readonly references = new SideMap<string, Set<string>>('stubTable.references')
+  private childLists = new SideMap<string, readonly string[]>('stubTable.childLists')
   private rowsCache: { readonly version: number; readonly rows: readonly StubRow[] } | undefined
   private changes = 0
   // A row held as its stub alone: its slot is marked, and its row fields are
@@ -64,7 +66,7 @@ export class StubTable implements StubTableReader {
   private readonly causationIds: (string | undefined)[] = []
   private readonly mutationIds: (string | undefined)[] = []
   /** A stub value the columns cannot give back as it came (a field not declared, say). */
-  private readonly verbatim = new Map<string, unknown>()
+  private readonly verbatim = new SideMap<string, unknown>('stubTable.verbatim')
 
   constructor(
     private readonly fields: readonly string[],

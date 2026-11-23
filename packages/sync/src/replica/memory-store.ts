@@ -53,6 +53,7 @@ import type {
 } from './ports'
 import { ReplicaStoreCorruptError } from './ports'
 import { RowMirror } from './row-mirror'
+import { SideMap } from './side-state'
 import type { StubTableReader } from './stub-table'
 import type { CachePolicy, Cursor, EntityRecord, InstanceRecord, KindTokens } from './types'
 
@@ -80,7 +81,7 @@ export interface OutboxEntry {
  */
 export class InMemoryOutbox {
   private entries: OutboxEntry[] = []
-  private readonly drafts = new Map<SyncSpan, OutboxEntry[]>()
+  private readonly drafts = new SideMap<SyncSpan, OutboxEntry[]>('memoryOutbox.drafts')
   /** Every batch this region was handed, one entry per call. Proves batching, not a stat. */
   readonly batches: RetirementIntent[][] = []
 
@@ -152,10 +153,10 @@ interface CacheDraft {
 class InMemoryCache implements ReplicaCacheStore {
   // POD-7115: a stub is kept only in its record type's stub table.
   private rows = new RowMirror()
-  private disk = new Map<string, EntityRecord>()
+  private disk: Map<string, EntityRecord> = new SideMap<string, EntityRecord>('memoryStore.disk')
   private index = new DiskIndex()
   private meta: CacheMeta = EMPTY_CACHE_META
-  private readonly drafts = new Map<SyncSpan, CacheDraft>()
+  private readonly drafts = new SideMap<SyncSpan, CacheDraft>('memoryStore.drafts')
   corrupt = false
   failNextPrepare: string | null = null
   mode: 'durable' | 'degraded-memory' | 'unavailable' = 'degraded-memory'
@@ -318,7 +319,7 @@ class InMemoryCache implements ReplicaCacheStore {
     // in which the replica holds a mixture of two principals' slices.
     const draft = span === undefined ? undefined : this.draftFor(span)
     const replacement = RowMirror.of(rows)
-    const diskRows = new Map<string, EntityRecord>()
+    const diskRows = new SideMap<string, EntityRecord>('memoryStore.disk')
     const index = new DiskIndexDraft(this.index)
     index.clearAll()
     for (const row of rows) {
@@ -366,7 +367,7 @@ class InMemoryCache implements ReplicaCacheStore {
     // span either: a discard is a lone single-region operation (D10 clause 2), so
     // it cannot be composed into a transaction that also touches the outbox.
     this.rows = new RowMirror()
-    this.disk = new Map()
+    this.disk = new SideMap('memoryStore.disk')
     this.index.clear()
     this.meta = EMPTY_CACHE_META
     this.physical.countTransaction()
@@ -538,7 +539,7 @@ class InMemorySpan implements OwnedSyncSpan {
 export class InMemoryReplicaStore {
   private transactionCount = 0
   private transactQueue: Promise<unknown> = Promise.resolve()
-  private readonly views = new Map<string, StoreView>()
+  private readonly views = new SideMap<string, StoreView>('memoryStore.views')
   readonly cache: StoreView['cache']
   readonly outbox: InMemoryOutbox
 

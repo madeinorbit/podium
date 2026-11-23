@@ -8,11 +8,15 @@ import { MobxPool } from './pool'
 import { omitGone } from './lookup'
 import type { RowRecord } from './shared/source'
 import { LOADING, type Loaded } from './worklist/rollup'
+import { SideSet } from '@podium/sync/side-state'
 
 /** The source retains membership IDs and links. All record facts live in the
  * owning pool's generic tables; standalone source callers get their own pool. */
 export class AutomationSource {
-  private readonly ids = { automation: new Set<string>(), automationRun: new Set<string>() }
+  private readonly ids = {
+    automation: new SideSet<string>('automationSource.automation'),
+    automationRun: new SideSet<string>('automationSource.automationRun'),
+  }
   private readonly relations = new RelationBuckets({ trackedForward: true, sorted: true })
   @observable accessor loaded = false
   @observableRef accessor catalogRow: AutomationRows['automationCatalog'] | undefined = undefined

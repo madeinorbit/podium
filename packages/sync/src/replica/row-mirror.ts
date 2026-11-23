@@ -21,14 +21,20 @@
 
 import { recordOf } from '@podium/model'
 import { stubFieldsOf } from './holdings'
+import { SideMap } from './side-state'
 import { StubTable, type StubTableReader } from './stub-table'
 import type { EntityRecord } from './types'
 
 const SEPARATOR = '\u0000'
 
 /** Every row of one principal: whole records by key, stubs in their tables. */
-export class RowMirror extends Map<string, EntityRecord> {
-  private readonly tables = new Map<string, StubTable>()
+export class RowMirror extends SideMap<string, EntityRecord> {
+  private readonly tables = new SideMap<string, StubTable>('rowMirror.tables')
+
+  /** The resident rows are side state: screens read them through the pool's tables (POD-7454). */
+  constructor() {
+    super('replica.rows')
+  }
 
   /** A mirror holding `rows`. */
   static of(rows: Iterable<EntityRecord>): RowMirror {

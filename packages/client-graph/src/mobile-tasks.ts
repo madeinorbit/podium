@@ -42,6 +42,7 @@ const requireRow = <T>(row: Loaded<T>): T | undefined => {
   if (row === LOADING) throw LOADING
   return row
 }
+// side-state: declaration: a fixed table, never written after module initialization
 const CLOSED_STATUSES: ReadonlySet<string> = new Set([
   'done',
   'cancelled',

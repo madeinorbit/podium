@@ -27,6 +27,7 @@
 
 import { createDemandAtoms } from '@podium/mobx-helpers'
 import { isFinished } from '@podium/model/browser'
+import { SideMap, SideSet, sideStateUpkeep, signalledRead } from '@podium/sync/side-state'
 import { action, createAtom, type IAtom, runInAction } from 'mobx'
 import { LOADING } from './loading'
 import { type Gone, NOT_VISIBLE } from './lookup'
@@ -134,7 +135,7 @@ const sameChildCounts = (a: StubChildCounts, b: StubChildCounts): boolean =>
  * re-ran every row's reads once per answer, and once per parent in a chain.
  */
 class KeyedReads<T> {
-  private readonly seen = new Map<string, T>()
+  private readonly seen = new SideMap<string, T>('collections.keyedReads.seen')
   private readonly demand: ReturnType<typeof createDemandAtoms<string>>
 
   constructor(
@@ -153,9 +154,12 @@ class KeyedReads<T> {
 
   /** TRACKED: the value at `key`. */
   read(key: string): T {
-    const value = this.value(key)
-    if (this.demand.observe(key) && !this.seen.has(key)) this.seen.set(key, value)
-    return value
+    // untracked-read: collections-keyed-read
+    return signalledRead(() => {
+      const value = this.value(key)
+      if (this.demand.observe(key) && !this.seen.has(key)) this.seen.set(key, value)
+      return value
+    })
   }
 
   /** Whether a reader observes `key`. */
@@ -207,18 +211,18 @@ export class PoolCollections {
    * What an open view reads, by its key: the instance, its hold's release
    * once taken, and for a "one record" instance the record it is for.
    */
-  private readonly reads = new Map<
+  private readonly reads = new SideMap<
     string,
     { spec: LoaderInstance; release?: () => void; record?: { entity: LoaderEntity; id: string } }
-  >()
+  >('collections.reads')
   /**
    * The records whose "one record" instance an open view holds now, by
    * entity: a reader of such a record keeps the hold after the record
    * arrived (`keepRecord`). Only held ones; a release forgets the id.
    */
   private readonly heldRecords: Record<LoaderEntity, Set<string>> = {
-    issue: new Set(),
-    session: new Set(),
+    issue: new SideSet('collections.heldRecords.issue'),
+    session: new SideSet('collections.heldRecords.session'),
   }
   /**
    * HOLDING FOLLOWS READING (POD-7155, POD-7158; design POD-7157 "Layer 2:
@@ -244,7 +248,7 @@ export class PoolCollections {
   })
 
   /** POD-7165: the instances whose markers views read, by key, each told only when it moved. */
-  private readonly markerSpecs = new Map<string, LoaderInstance>()
+  private readonly markerSpecs = new SideMap<string, LoaderInstance>('collections.markerSpecs')
   private readonly markerReads = new KeyedReads<MarkerSeen>(
     'pool.collections.marker',
     (key) => this.markerOf(this.markerSpecs.get(key)),
@@ -313,6 +317,17 @@ export class PoolCollections {
     return loader
   }
 
+  /**
+   * A TRACKED answer's loader reads (POD-7454). The loader's state is side
+   * state; each caller observes, in the same derivation, the marker, stub,
+   * connection or attachment atom its answer depends on, and the loader's
+   * notifications report those atoms.
+   */
+  private behind<T>(read: () => T): T {
+    // untracked-read: collections-loader-read
+    return signalledRead(read)
+  }
+
   /** Whether this pool reads a device store with collections at all. */
   get available(): boolean {
     return this.loader() !== undefined
@@ -322,17 +337,21 @@ export class PoolCollections {
 
   /** TRACKED: whether the device holds the instance complete. */
   complete(spec: LoaderInstance): boolean {
-    this.observeMarker(spec)
-    return this.loader()?.isComplete(spec) !== undefined
+    return this.behind(() => {
+      this.observeMarker(spec)
+      return this.loader()?.isComplete(spec) !== undefined
+    })
   }
 
   /** TRACKED: here, on its way, or not loadable without a connection. */
   status(spec: LoaderInstance): Availability {
-    this.observeMarker(spec)
-    this.connection.reportObserved()
-    const loader = this.loader()
-    if (loader?.isComplete(spec) !== undefined && loader.isStale?.(spec)) return 'refreshing'
-    return loader?.status(spec) ?? 'complete'
+    return this.behind(() => {
+      this.observeMarker(spec)
+      this.connection.reportObserved()
+      const loader = this.loader()
+      if (loader?.isComplete(spec) !== undefined && loader.isStale?.(spec)) return 'refreshing'
+      return loader?.status(spec) ?? 'complete'
+    })
   }
 
   /**
@@ -341,14 +360,18 @@ export class PoolCollections {
    * a read reloads it in place. POD-7166 shows it as refreshing.
    */
   isStale(spec: LoaderInstance): boolean {
-    this.observeMarker(spec)
-    return this.loader()?.isStale?.(spec) === true
+    return this.behind(() => {
+      this.observeMarker(spec)
+      return this.loader()?.isStale?.(spec) === true
+    })
   }
 
   /** TRACKED: whether the device has a connection to load over. */
   get online(): boolean {
-    this.connection.reportObserved()
-    return this.loader()?.online ?? true
+    return this.behind(() => {
+      this.connection.reportObserved()
+      return this.loader()?.online ?? true
+    })
   }
 
   /**
@@ -356,8 +379,10 @@ export class PoolCollections {
    * A reload after a gap is not one: its old rows stay on screen.
    */
   get firstDownload(): boolean {
-    this.markers.reportObserved()
-    return this.loader()?.firstDownload ?? false
+    return this.behind(() => {
+      this.markers.reportObserved()
+      return this.loader()?.firstDownload ?? false
+    })
   }
 
   /**
@@ -400,12 +425,14 @@ export class PoolCollections {
    * device that holds no page of it asks for the first.
    */
   pageEnded(spec: LoaderInstance): boolean {
-    const loader = this.loader()
-    this.observeMarker(spec)
-    this.holdWhileRead(spec)
-    const marker = loader?.isComplete(spec)
-    if (marker === undefined) loader?.request([spec], 'visible')
-    return marker !== undefined && (marker.range === undefined || marker.range.end)
+    return this.behind(() => {
+      const loader = this.loader()
+      this.observeMarker(spec)
+      this.holdWhileRead(spec)
+      const marker = loader?.isComplete(spec)
+      if (marker === undefined) loader?.request([spec], 'visible')
+      return marker !== undefined && (marker.range === undefined || marker.range.end)
+    })
   }
 
   /**
@@ -413,12 +440,14 @@ export class PoolCollections {
    * page. The reader holds the instance while it reads it, as `pageEnded`.
    */
   pageTotal(spec: LoaderInstance): number | typeof LOADING {
-    const loader = this.loader()
-    this.observeMarker(spec)
-    this.holdWhileRead(spec)
-    const marker = loader?.isComplete(spec)
-    if (marker === undefined) loader?.request([spec], 'visible')
-    return marker?.total ?? LOADING
+    return this.behind(() => {
+      const loader = this.loader()
+      this.observeMarker(spec)
+      this.holdWhileRead(spec)
+      const marker = loader?.isComplete(spec)
+      if (marker === undefined) loader?.request([spec], 'visible')
+      return marker?.total ?? LOADING
+    })
   }
 
   /**
@@ -443,12 +472,14 @@ export class PoolCollections {
    * Without a loader the pool holds what it was given: true.
    */
   held(spec: LoaderInstance): boolean {
-    const loader = this.loader()
-    if (loader === undefined) return true
-    this.holdWhileRead(spec)
-    if (this.complete(spec)) return true
-    loader.request([spec], 'visible')
-    return false
+    return this.behind(() => {
+      const loader = this.loader()
+      if (loader === undefined) return true
+      this.holdWhileRead(spec)
+      if (this.complete(spec)) return true
+      loader.request([spec], 'visible')
+      return false
+    })
   }
 
   /**
@@ -471,13 +502,15 @@ export class PoolCollections {
    * nothing to ask: `undefined`, and the caller answers as it did before.
    */
   absent(entity: LoaderEntity, id: string): typeof LOADING | Gone | undefined {
-    const loader = this.loader()
-    if (loader === undefined) return undefined
-    const spec = this.holdRecord(entity, id)
-    this.observeMarker(spec)
-    if (loader.isComplete(spec) !== undefined || loader.wasRefused(spec)) return NOT_VISIBLE
-    loader.request([spec], 'visible')
-    return LOADING
+    return this.behind(() => {
+      const loader = this.loader()
+      if (loader === undefined) return undefined
+      const spec = this.holdRecord(entity, id)
+      this.observeMarker(spec)
+      if (loader.isComplete(spec) !== undefined || loader.wasRefused(spec)) return NOT_VISIBLE
+      loader.request([spec], 'visible')
+      return LOADING
+    })
   }
 
   /**
@@ -485,12 +518,17 @@ export class PoolCollections {
    * disk and not in memory: its reader gets LOADING and a disk load.
    */
   unloaded(entity: string, id: string): boolean {
-    return this.loader()?.unloaded?.(replicaKind(entity), id) === true
+    const loader = this.loader()
+    // untracked-read: collections-unloaded
+    return signalledRead(() => loader?.unloaded?.(replicaKind(entity), id) === true)
   }
 
   /** POD-7159 — read an unloaded record from disk, batched in the loader's window. */
   reload(entity: string, id: string): void {
-    this.loader()?.loadFromDisk?.(replicaKind(entity), [id])
+    // untracked-read: collections-reload
+    sideStateUpkeep(() => {
+      this.loader()?.loadFromDisk?.(replicaKind(entity), [id])
+    })
   }
 
   /**
@@ -502,7 +540,9 @@ export class PoolCollections {
    * costs one set lookup.
    */
   keepRecord(entity: LoaderEntity, id: string): void {
-    if (this.heldRecords[entity].has(id)) this.holdWhileRead(oneRecordOf(entity, id))
+    // untracked-read: collections-keep-record
+    if (sideStateUpkeep(() => this.heldRecords[entity].has(id)))
+      this.holdWhileRead(oneRecordOf(entity, id))
   }
 
   /** TRACKED: the issue's stub as the device holds it (a stub, or picked from the whole record). */
@@ -512,53 +552,59 @@ export class PoolCollections {
 
   /** TRACKED: the issue with this repository and number, by the stubs the device holds. */
   stubIdAt(repoId: string, seq: number): string | undefined {
-    const loader = this.loader()
-    if (loader === undefined) return undefined
-    this.stubs.reportObserved()
-    if (loader.stubIdAt !== undefined) return loader.stubIdAt(ISSUE, repoId, seq)
-    const rows = loader.stubRows(ISSUE)
-    let index = this.refIndexes.get(rows)
-    if (index === undefined) {
-      index = new Map()
-      for (const row of rows) {
-        const { repoId: repo, seq: number } = row.stub
-        if (typeof repo !== 'string' || typeof number !== 'number') continue
-        const key = `${repo}:${number}`
-        const held = index.get(key)
-        if (held === undefined || row.id < held) index.set(key, row.id)
+    return this.behind(() => {
+      const loader = this.loader()
+      if (loader === undefined) return undefined
+      this.stubs.reportObserved()
+      if (loader.stubIdAt !== undefined) return loader.stubIdAt(ISSUE, repoId, seq)
+      const rows = loader.stubRows(ISSUE)
+      let index = this.refIndexes.get(rows)
+      if (index === undefined) {
+        index = new Map()
+        for (const row of rows) {
+          const { repoId: repo, seq: number } = row.stub
+          if (typeof repo !== 'string' || typeof number !== 'number') continue
+          const key = `${repo}:${number}`
+          const held = index.get(key)
+          if (held === undefined || row.id < held) index.set(key, row.id)
+        }
+        this.refIndexes.set(rows, index)
       }
-      this.refIndexes.set(rows, index)
-    }
-    return index.get(`${repoId}:${seq}`)
+      return index.get(`${repoId}:${seq}`)
+    })
   }
 
   /** TRACKED: whether the device holds a stub in the repository (undeleted unless asked). */
   hasStubIn(repoId: string, includeDeleted = false): boolean {
-    const loader = this.loader()
-    if (loader === undefined) return false
-    this.stubs.reportObserved()
-    const rows = loader.stubRows(ISSUE)
-    let presence = this.repoPresence.get(rows)
-    if (presence === undefined) {
-      presence = new Map()
-      for (const row of rows) {
-        const repo = row.stub['repoId']
-        if (typeof repo !== 'string') continue
-        const live = !row.stub['deletedAt']
-        presence.set(repo, presence.get(repo) === 'live' || live ? 'live' : 'deleted')
+    return this.behind(() => {
+      const loader = this.loader()
+      if (loader === undefined) return false
+      this.stubs.reportObserved()
+      const rows = loader.stubRows(ISSUE)
+      let presence = this.repoPresence.get(rows)
+      if (presence === undefined) {
+        presence = new Map()
+        for (const row of rows) {
+          const repo = row.stub['repoId']
+          if (typeof repo !== 'string') continue
+          const live = !row.stub['deletedAt']
+          presence.set(repo, presence.get(repo) === 'live' || live ? 'live' : 'deleted')
+        }
+        this.repoPresence.set(rows, presence)
       }
-      this.repoPresence.set(rows, presence)
-    }
-    const held = presence.get(repoId)
-    return held === 'live' || (includeDeleted && held === 'deleted')
+      const held = presence.get(repoId)
+      return held === 'live' || (includeDeleted && held === 'deleted')
+    })
   }
 
   /** An existence question over the fixed issue stub fields, for all history. */
   someIssue(test: (stub: IssueStub) => boolean): boolean | typeof LOADING {
-    const loader = this.loader()
-    if (!loader || !this.stubsComplete) return LOADING
-    this.stubs.reportObserved()
-    return loader.stubRows(ISSUE).some(({ stub }) => test(stub as unknown as IssueStub))
+    return this.behind(() => {
+      const loader = this.loader()
+      if (!loader || !this.stubsComplete) return LOADING
+      this.stubs.reportObserved()
+      return loader.stubRows(ISSUE).some(({ stub }) => test(stub as unknown as IssueStub))
+    })
   }
 
   /** TRACKED: whether the device's stubs cover all history. */
@@ -573,26 +619,28 @@ export class PoolCollections {
    * (`stage`, `repoId`), counted locally once the stubs are complete.
    */
   countBy(field: keyof IssueStub): ReadonlyMap<unknown, number> | typeof LOADING {
-    const loader = this.loader()
-    if (loader === undefined || !this.stubsComplete) return LOADING
-    this.stubs.reportObserved()
-    const rows = loader.stubRows(ISSUE)
-    let byField = this.tallies.get(rows)
-    if (byField === undefined) {
-      byField = new Map()
-      this.tallies.set(rows, byField)
-    }
-    let tally = byField.get(field)
-    if (tally === undefined) {
-      const counts = new Map<unknown, number>()
-      for (const row of rows) {
-        const value = row.stub[field] ?? null
-        counts.set(value, (counts.get(value) ?? 0) + 1)
+    return this.behind(() => {
+      const loader = this.loader()
+      if (loader === undefined || !this.stubsComplete) return LOADING
+      this.stubs.reportObserved()
+      const rows = loader.stubRows(ISSUE)
+      let byField = this.tallies.get(rows)
+      if (byField === undefined) {
+        byField = new Map()
+        this.tallies.set(rows, byField)
       }
-      tally = counts
-      byField.set(field, tally)
-    }
-    return tally
+      let tally = byField.get(field)
+      if (tally === undefined) {
+        const counts = new Map<unknown, number>()
+        for (const row of rows) {
+          const value = row.stub[field] ?? null
+          counts.set(value, (counts.get(value) ?? 0) + 1)
+        }
+        tally = counts
+        byField.set(field, tally)
+      }
+      return tally
+    })
   }
 
   /**
@@ -605,25 +653,28 @@ export class PoolCollections {
     key: string,
     test: (stub: IssueStub, stubOf: (id: string) => IssueStub | undefined) => boolean,
   ): number | typeof LOADING {
-    const loader = this.loader()
-    if (loader === undefined || !this.stubsComplete) return LOADING
-    this.stubs.reportObserved()
-    const rows = loader.stubRows(ISSUE)
-    let byKey = this.tallies.get(rows)
-    if (byKey === undefined) {
-      byKey = new Map()
-      this.tallies.set(rows, byKey)
-    }
-    const memo = `test:${key}`
-    let tally = byKey.get(memo)
-    if (tally === undefined) {
-      const stubOf = (id: string) => loader.stubOf(ISSUE, id) as IssueStub | undefined
-      let count = 0
-      for (const row of rows) if (test({ id: row.id, ...row.stub } as IssueStub, stubOf)) count += 1
-      tally = new Map([[true, count]])
-      byKey.set(memo, tally)
-    }
-    return tally.get(true) ?? 0
+    return this.behind(() => {
+      const loader = this.loader()
+      if (loader === undefined || !this.stubsComplete) return LOADING
+      this.stubs.reportObserved()
+      const rows = loader.stubRows(ISSUE)
+      let byKey = this.tallies.get(rows)
+      if (byKey === undefined) {
+        byKey = new Map()
+        this.tallies.set(rows, byKey)
+      }
+      const memo = `test:${key}`
+      let tally = byKey.get(memo)
+      if (tally === undefined) {
+        const stubOf = (id: string) => loader.stubOf(ISSUE, id) as IssueStub | undefined
+        let count = 0
+        for (const row of rows)
+          if (test({ id: row.id, ...row.stub } as IssueStub, stubOf)) count += 1
+        tally = new Map([[true, count]])
+        byKey.set(memo, tally)
+      }
+      return tally.get(true) ?? 0
+    })
   }
 
   /** TRACKED: a parent's children and how many are done, from the stubs, for all history. */
@@ -635,22 +686,24 @@ export class PoolCollections {
 
   /** TRACKED: every issue under `root` and how many are done, from the stubs. */
   treeProgress(root: string): StubTreeProgress | typeof LOADING {
-    const loader = this.loader()
-    if (loader === undefined || !this.coversTreeOf(root)) return LOADING
-    this.stubs.reportObserved()
-    let total = 0
-    let done = 0
-    const todo = [...loader.stubsByParent(root)]
-    const seen = new Set<string>([root])
-    while (todo.length > 0) {
-      const id = todo.pop()!
-      if (seen.has(id)) continue
-      seen.add(id)
-      total += 1
-      if (isFinished(loader.stubOf(ISSUE, id) ?? {})) done += 1
-      todo.push(...loader.stubsByParent(id))
-    }
-    return { total, done }
+    return this.behind(() => {
+      const loader = this.loader()
+      if (loader === undefined || !this.coversTreeOf(root)) return LOADING
+      this.stubs.reportObserved()
+      let total = 0
+      let done = 0
+      const todo = [...loader.stubsByParent(root)]
+      const seen = new Set<string>([root])
+      while (todo.length > 0) {
+        const id = todo.pop()!
+        if (seen.has(id)) continue
+        seen.add(id)
+        total += 1
+        if (isFinished(loader.stubOf(ISSUE, id) ?? {})) done += 1
+        todo.push(...loader.stubsByParent(id))
+      }
+      return { total, done }
+    })
   }
 
   /**
@@ -664,26 +717,31 @@ export class PoolCollections {
    * holds what it was given, so it answers true.
    */
   treeHeld(id: string): boolean {
-    const loader = this.loader()
-    if (loader === undefined) return true
-    const own = this.complete(treeOf(id, 'main'))
-    const root = own ? id : (this.topOf(id) ?? id)
-    this.holdWhileRead(treeOf(root, 'main'))
-    if (own || this.complete(treeOf(root, 'main'))) return true
-    loader.request([treeOf(root, 'main')], 'visible')
-    return false
+    return this.behind(() => {
+      const loader = this.loader()
+      if (loader === undefined) return true
+      const own = this.complete(treeOf(id, 'main'))
+      const root = own ? id : (this.topOf(id) ?? id)
+      this.holdWhileRead(treeOf(root, 'main'))
+      if (own || this.complete(treeOf(root, 'main'))) return true
+      loader.request([treeOf(root, 'main')], 'visible')
+      return false
+    })
   }
 
   /** TRACKED: what a reader reads of `spec`'s marker. */
   private observeMarker(spec: LoaderInstance): void {
     const key = readKey(spec)
-    if (!this.markerSpecs.has(key)) {
-      const { after: _position, ...instance } = spec
-      this.markerSpecs.set(key, instance)
-    }
-    this.markerReads.read(key)
-    // Read outside a view: nothing to tell later.
-    if (!this.markerReads.tracks(key)) this.markerSpecs.delete(key)
+    // untracked-read: collections-observe-marker
+    sideStateUpkeep(() => {
+      if (!this.markerSpecs.has(key)) {
+        const { after: _position, ...instance } = spec
+        this.markerSpecs.set(key, instance)
+      }
+      this.markerReads.read(key)
+      // Read outside a view: nothing to tell later.
+      if (!this.markerReads.tracks(key)) this.markerSpecs.delete(key)
+    })
   }
 
   private markerOf(spec: LoaderInstance | undefined): MarkerSeen {
@@ -708,7 +766,7 @@ export class PoolCollections {
    */
   private moved(change: 'markers' | 'stubs'): void {
     if (this.pendingMoves === undefined) {
-      this.pendingMoves = new Set()
+      this.pendingMoves = new SideSet('collections.pendingMoves')
       queueMicrotask(() => {
         const moves = this.pendingMoves
         this.pendingMoves = undefined
@@ -748,22 +806,26 @@ export class PoolCollections {
    */
   private holdWhileRead(spec: LoaderInstance): string | undefined {
     const key = readKey(spec)
-    if (!this.reads.has(key)) {
-      const { after: _position, ...instance } = spec
-      this.reads.set(key, { spec: instance })
-    }
-    if (!this.readDemand.observe(key) && !this.readDemand.has(key)) {
-      this.reads.delete(key)
-      return undefined
-    }
-    return key
+    // untracked-read: collections-hold-while-read
+    return sideStateUpkeep(() => {
+      if (!this.reads.has(key)) {
+        const { after: _position, ...instance } = spec
+        this.reads.set(key, { spec: instance })
+      }
+      if (!this.readDemand.observe(key) && !this.readDemand.has(key)) {
+        this.reads.delete(key)
+        return undefined
+      }
+      return key
+    })
   }
 
   /** TRACKED: an open view reads one record: its "one record" instance, held while observed. */
   private holdRecord(entity: LoaderEntity, id: string): LoaderInstance {
     const spec = oneRecordOf(entity, id)
     const key = this.holdWhileRead(spec)
-    const read = key === undefined ? undefined : this.reads.get(key)
+    // untracked-read: collections-hold-record
+    const read = key === undefined ? undefined : sideStateUpkeep(() => this.reads.get(key))
     if (read !== undefined && read.record === undefined) {
       read.record = { entity, id }
       this.heldRecords[entity].add(id)
@@ -780,18 +842,20 @@ export class PoolCollections {
 
   /** TRACKED: the top-level ancestor of `id` by the stubs, or undefined when the chain leaves them. */
   private topOf(id: string): string | undefined {
-    const loader = this.loader()
-    if (loader === undefined) return undefined
-    this.stubs.reportObserved()
-    let at = id
-    for (let guard = 0; guard < 10_000; guard += 1) {
-      const stub = loader.stubOf(ISSUE, at)
-      if (stub === undefined) return undefined
-      const parent = stub['parentId']
-      if (typeof parent !== 'string' || parent === '') return at
-      at = parent
-    }
-    return undefined
+    return this.behind(() => {
+      const loader = this.loader()
+      if (loader === undefined) return undefined
+      this.stubs.reportObserved()
+      let at = id
+      for (let guard = 0; guard < 10_000; guard += 1) {
+        const stub = loader.stubOf(ISSUE, at)
+        if (stub === undefined) return undefined
+        const parent = stub['parentId']
+        if (typeof parent !== 'string' || parent === '') return at
+        at = parent
+      }
+      return undefined
+    })
   }
 
   /**

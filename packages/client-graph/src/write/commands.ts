@@ -44,7 +44,9 @@ export class WriteContractError extends Error {
   override readonly name = 'WriteContractError'
 }
 
+// side-state: declaration: a fixed table, never written after module initialization
 const EDITABLE_STAGE_SET: ReadonlySet<string> = new Set(EDITABLE_STAGES)
+// side-state: declaration: a fixed table, never written after module initialization
 const ISSUE_FIELDS: ReadonlySet<string> = new Set(['title', 'stage', 'readAt'])
 
 /**

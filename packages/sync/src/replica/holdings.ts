@@ -190,9 +190,11 @@ export class HeldIndex {
     readonly args: RuleArgs,
     fetching: Iterable<HeldSpec> = [],
   ) {
+    // side-state: snapshot: a held index is rebuilt when its inputs change
     this.markers = isSpecMap(instances)
       ? instances
       : new Map([...instances].map((spec) => [instanceKey(spec), spec]))
+    // side-state: snapshot: a held index is rebuilt when its inputs change
     this.fetching = new Map([...fetching].map((spec) => [instanceKey(spec), spec]))
     const listedFetches = [...this.fetching.values()].filter(isListed)
     this.listed = [...listedMarkers(this.markers).values(), ...listedFetches]
@@ -348,6 +350,7 @@ export function comesWithInstance(
  * that collection).
  */
 /** Per kind, the collections that declare comes-with (`collectionComesWithSettled`). */
+// side-state: declaration: a memo over the declared collections
 const collectionComesWith = new Map<
   string,
   readonly {

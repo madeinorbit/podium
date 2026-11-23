@@ -260,6 +260,7 @@ export interface SubsetSpec {
  * answers (`ready`, `loading`) and the id reads a typed link exposes (`ids`,
  * `size`).
  */
+// side-state: declaration: a fixed table, never written after module initialization
 export const RESERVED_SUBSET_NAMES: ReadonlySet<string> = new Set(['ready', 'loading', 'ids', 'size'])
 
 export interface PrefixSpec extends RelationCommon {
@@ -487,6 +488,7 @@ const scan = (schema: 'GitRepositoryWire' | 'GitWorktreeWire', property?: string
 // ---------------------------------------------------------------------------
 
 /** A group holding a row in one of these is kept in full. */
+// side-state: declaration: a fixed table, never written after module initialization
 const ACTIVE_SESSION_STATUSES: ReadonlySet<string> = new Set(['live', 'starting'])
 
 /** Rank within a collapsing group; anything else (exited) ranks 0. */

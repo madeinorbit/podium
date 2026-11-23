@@ -3,6 +3,7 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { machinePathKey } from '@podium/model'
 import { normalizeOriginUrl } from '@podium/model/browser'
+import { SideMap } from '@podium/sync/side-state'
 import { compareStructural, computed, observable, observe, runInAction } from 'mobx'
 import {
   COMMAND_ENTITIES,
@@ -49,12 +50,14 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     deep: false,
   })
   private readonly relations = new RelationBuckets()
+  // side-state: snapshot: rebuilt and assigned whole when discovery moves
   private worktreesByPath = new Map<string, string[]>()
+  // side-state: snapshot: rebuilt and assigned whole when discovery moves
   private repositoriesByRoot = new Map<string, string[]>()
   /** Resident sessions by their cwd and every '/'-prefix of it: a discovery
    *  re-links only the sessions under a path whose targets moved. */
-  private readonly sessionsByPath = new Map<string, Set<string>>()
-  private readonly sessionCwd = new Map<string, string>()
+  private readonly sessionsByPath = new SideMap<string, Set<string>>('commandLaunch.sessionsByPath')
+  private readonly sessionCwd = new SideMap<string, string>('commandLaunch.sessionCwd')
   private readonly stops: (() => void)[] = []
   private readonly source = defineSource({
     readById: this.readById.bind(this),

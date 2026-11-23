@@ -76,6 +76,7 @@ import {
 } from './holdings'
 import { cachedKeyField, keyedShapesOfKind } from './instance-shapes'
 import type { CacheMutation, CacheOperation } from './ports'
+import { SideMap, SideSet } from './side-state'
 import type { CachePolicy, EntityRecord, InstanceRecord, InstanceSpec } from './types'
 import { rowAsOf } from './types'
 
@@ -181,6 +182,7 @@ export function pointerTargetOf(spec: InstanceSpec): string | undefined {
 }
 
 /** Per record kind, its declared comes-with pointers (`comesWith` entries with a key). */
+// side-state: declaration: a memo over the declared comes-with pointers
 const pointerEntries = new Map<string, readonly ComesWith[]>()
 
 /**
@@ -371,6 +373,7 @@ export function staleRecordHolders(
   return [...stale]
 }
 
+// side-state: declaration: the shared empty answer
 const EMPTY_SET: ReadonlySet<string> = new Set()
 const NO_HOLDERS: readonly string[] = Object.freeze([]) as readonly string[]
 const NO_VIAS: readonly string[] = NO_HOLDERS
@@ -381,6 +384,7 @@ const NO_VIAS: readonly string[] = NO_HOLDERS
  * entry per record, not one array per record).
  */
 class HolderLists {
+  // side-state: identity: one shared array per holder list; lists are replaced, never edited
   private readonly lists = new Map<string, readonly string[]>()
 
   of(holders: readonly string[]): readonly string[] {
@@ -412,27 +416,30 @@ export function approxBytes(row: Pick<EntityRecord, 'value'>): number {
 
 /** The index of one principal's disk, in memory. Changed only by publishing a draft (or at open). */
 export class DiskIndex implements DiskIndexReader {
-  private readonly entries = new Map<string, RecordEntry>()
-  private readonly members = new Map<string, Set<string>>()
+  private readonly entries = new SideMap<string, RecordEntry>('diskIndex.entries')
+  private readonly members = new SideMap<string, Set<string>>('diskIndex.members')
   /** POD-7186 — per record, the records whose entry points to it (the reverse of `pt`). */
-  private readonly pointers = new Map<string, Set<string>>()
+  private readonly pointers = new SideMap<string, Set<string>>('diskIndex.pointers')
   /** POD-7160 — how many buckets the disk keeps (`bucketCountFor`). */
   private count = INDEX_BUCKETS
   /** The record keys of each disk bucket (a commit rewrites the buckets it touched). */
-  private buckets: Set<string>[] = Array.from({ length: INDEX_BUCKETS }, () => new Set())
+  private buckets: Set<string>[] = Array.from(
+    { length: INDEX_BUCKETS },
+    () => new SideSet<string>('diskIndex.bucket'),
+  )
   /**
    * POD-7160 — buckets as last written this session, so the next write patches
    * the records that changed instead of encoding the whole bucket again. Only
    * buckets written since the open (the start heap does not hold them all),
    * the oldest dropped past `ENCODED_BUCKETS`.
    */
-  private readonly encoded = new Map<number, StoredBucket>()
+  private readonly encoded = new SideMap<number, StoredBucket>('diskIndex.encoded')
   /** POD-7160 — the journal rows on disk, and the records they hold (with their bucket). */
-  private readonly journalRows = new Set<string>()
+  private readonly journalRows = new SideSet<string>('diskIndex.journalRows')
   private journalSeq = 0
-  private readonly journaled = new Map<string, number>()
-  private readonly states = new Map<string, InstanceState>()
-  private readonly memory = new Set<string>()
+  private readonly journaled = new SideMap<string, number>('diskIndex.journaled')
+  private readonly states = new SideMap<string, InstanceState>('diskIndex.states')
+  private readonly memory = new SideSet<string>('diskIndex.memory')
   private readonly lists = new HolderLists()
   private totalBytes = 0
   private changes = 0
@@ -496,7 +503,7 @@ export class DiskIndex implements DiskIndexReader {
   setBucketCount(count: number): void {
     if (count === this.count) return
     this.count = count
-    this.buckets = Array.from({ length: count }, () => new Set<string>())
+    this.buckets = Array.from({ length: count }, () => new SideSet<string>('diskIndex.bucket'))
     for (const key of this.entries.keys()) this.buckets[bucketOf(key, count)]?.add(key)
     this.encoded.clear()
     for (const key of this.journaled.keys()) this.journaled.set(key, bucketOf(key, count))
@@ -723,17 +730,23 @@ export type IndexWrite =
  * discipline as the rows: a draft that aborts changes nothing).
  */
 export class DiskIndexDraft {
+  // side-state: scratch: one transaction's draft, published or dropped when its span ends
   readonly recordChanges = new Map<string, RecordEntry | null>()
+  // side-state: scratch: one transaction's draft, published or dropped when its span ends
   readonly instanceChanges = new Map<string, InstanceState | null>()
+  // side-state: scratch: one transaction's draft, published or dropped when its span ends
   readonly droppedInstances = new Set<string>()
+  // side-state: scratch: one transaction's draft, published or dropped when its span ends
   readonly markedInMemory = new Set<string>()
   cleared = false
   instancesCleared = false
   /** The durable writes, in order. */
   readonly writes: IndexWrite[] = []
   /** POD-7160 — the buckets an adapter encoded for this draft, kept by the index at publish. */
+  // side-state: scratch: one transaction's draft, published or dropped when its span ends
   readonly encoded = new Map<number, StoredBucket>()
   /** POD-7160 — the bucket each changed record was hashed to (`indexChanges`), reused at publish. */
+  // side-state: scratch: one transaction's draft, published or dropped when its span ends
   readonly hashed = new Map<string, number>()
   /** POD-7160 — how an adapter wrote this draft's index (`planIndexWrite`). */
   indexWrite:
@@ -1694,6 +1707,7 @@ export interface DiskOnlyMirror {
  * read the new stub.
  */
 export class DiskOnlyWrites {
+  // side-state: scratch: one transaction's disk-only writes, published when its span ends
   private readonly rows = new Map<string, EntityRecord>()
 
   get size(): number {
@@ -1809,11 +1823,15 @@ export function retainedComesWith(
  * members are among what the answer named.
  */
 export class AnswerMembers {
+  // side-state: scratch: one answer's members, built while the answer installs
   private readonly named = new Set<string>()
   /** The comes-with instances (via a holder) the answer marked complete, by key. */
+  // side-state: scratch: one answer's members, built while the answer installs
   readonly comesWith = new Map<string, InstanceSpec>()
+  // side-state: scratch: one answer's members, built while the answer installs
   private readonly byKind = new Map<string, string[]>()
   /** `kind\0field` → field value → row keys. */
+  // side-state: scratch: one answer's members, built while the answer installs
   private readonly byField = new Map<string, Map<unknown, string[]>>()
 
   add(entity: string, entityId: string, value: unknown): void {

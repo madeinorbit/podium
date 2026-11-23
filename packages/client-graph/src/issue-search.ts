@@ -45,6 +45,7 @@ export const ISSUE_SEARCH_PAGE = 50
  * them (POD-7158). */
 export class IssueSearch {
   private query: IssueSearchQuery | undefined
+  // side-state: identity: one stable request per query; its answer is observable
   private readonly requests = new Map<string, SearchRequest>()
   private readonly connection = createAtom('issueSearch.source')
   private disposed = false

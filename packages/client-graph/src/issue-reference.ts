@@ -41,6 +41,7 @@ export interface IssueReferenceReader {
  * resident table is enumerated or watched when this reader is constructed. */
 export class IssueReferences implements IssueReferenceReader {
   private readonly requests = observable.map<string, string | null | typeof LOADING>(undefined, { deep: false })
+  // side-state: signal: the demand atoms readers observe; a request answer is the observable requests map
   private readonly demand = new Map<string, { atom: IAtom; observed: boolean }>()
   private disposed = false
   // Reference projections construct a new record when their row changes.

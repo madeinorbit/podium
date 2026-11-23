@@ -242,6 +242,7 @@ export type LaunchWorkMode = 'work' | 'paths' | 'both'
 export class LaunchWorkPicker {
   @observableRef accessor pathOrder: string[] = []
   @observableRef accessor projectOrder: string[] = []
+  // side-state: snapshot: held in an observable reference and replaced whole
   @observableRef accessor usageAt: ReadonlyMap<string, number> = new Map()
   @observable accessor opened = false
   constructor(private readonly pool: MobxPool) {}

@@ -1,9 +1,9 @@
-import { spliceQueryResult } from '../query-result'
 import { lazy } from '@podium/mobx-helpers'
-import { MobileSection } from './mobile'
 import { machinePathBasename } from '@podium/model/browser'
 import { debugName } from '../debug-name'
 import type { MobxPool } from '../pool'
+import { spliceQueryResult } from '../query-result'
+import { MobileSection } from './mobile'
 import { worklistView } from './view-model'
 /**
  * The worklist's groups and closed folds, over the ordered
@@ -340,6 +340,7 @@ export class WorklistGroups {
    * key answers never changes), read inside `keys`; every value the node
    * gives is tracked (`clock.ts` lists it).
    */
+  // side-state: identity: one stable node per group key; every value a node gives is tracked
   private readonly nodes = new Map<string, GroupNode>()
   /** Reported by every lane read (`GroupsHost.demand`). */
   private readonly demand = (): void => this.host.demand?.()

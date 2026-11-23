@@ -1,11 +1,12 @@
-import { omitGone } from './lookup'
-import { action, compareShallow, observable, observableRef, reaction } from 'mobx'
-import { lazy } from '@podium/mobx-helpers'
-import { type IssueStub, stagePage } from './collections'
-import { readPageIssue, type PageIssue } from './issue-page'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { MobxPool } from './pool'
+import { lazy } from '@podium/mobx-helpers'
+import { SideSet } from '@podium/sync/side-state'
+import { action, compareShallow, observable, observableRef, reaction } from 'mobx'
+import { type IssueStub, stagePage } from './collections'
+import { type PageIssue, readPageIssue } from './issue-page'
 import { LOADING, type Loaded } from './loading'
+import { omitGone } from './lookup'
+import type { MobxPool } from './pool'
 
 type ScreeningSummary = Pick<
   IssueViewModel,
@@ -121,7 +122,7 @@ export function reconcileScreeningIds<T extends string>(
 export class ProposalScreening {
   @observableRef accessor order: readonly string[] = EMPTY
   @observable accessor index = 0
-  private readonly waits = new Set<() => void>()
+  private readonly waits = new SideSet<() => void>('proposalScreening.waits')
   constructor(readonly pool: MobxPool) {}
   @lazy get queue() {
     return screeningQueue(this.pool)

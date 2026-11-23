@@ -10,6 +10,7 @@ import type { MobxPool } from '../pool'
 import { worklistView } from './view-model'
 import { LOADING } from './rollup'
 import { sidebarView, type SidebarState } from './sidebar'
+import { signalledRead } from '@podium/sync/side-state'
 
 export interface MobileWorkState extends SidebarState {
   /** Search overrides folds; text matching stays in the native UI. */
@@ -55,11 +56,13 @@ export class MobileSection {
     const groups = () => worklistGroups(this.pool)
     const lane = () => this.kind === 'pinned' ? groups().rootPinned : groups().rootOpen
     const key = this.kind === 'pinned' ? 'pinned' : this.key
+    // untracked-read: phone-section-member
+    const member = (id: string) => signalledRead(() => lane().hasIn(key, id))
     return createQueryResult<string>({
       name: `worklist.phone@${this.key}.members`,
       ids: () => lane().lane(key),
-      has: id => lane().hasIn(key, id),
-      read: id => lane().hasIn(key, id) ? id : undefined,
+      has: id => member(id),
+      read: id => member(id) ? id : undefined,
       order: id => JSON.stringify(groups().rankOf(id)),
       compareOrder: (a, b) => compareRank(JSON.parse(a), JSON.parse(b)),
       matches: [id => this.root.sectionAsking(id), id => !this.root.sectionAsking(id)],

@@ -53,6 +53,7 @@ import {
 
 type Row = Readonly<Record<string, unknown>>
 
+// side-state: declaration: the shared frozen empty answer
 const NONE: ReadonlySet<string> = Object.freeze(new Set<string>())
 
 /** A relation resolved from its own row: `belongsTo`, `prefix`, outgoing `edge`. */

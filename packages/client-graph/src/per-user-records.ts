@@ -58,6 +58,7 @@ export function pinnedIds(
 
 type PinSets = Readonly<Record<PinKind, IComputedValue<ReadonlySet<string>>>>
 
+// side-state: declaration: the shared frozen empty answer
 const NO_PINS: ReadonlySet<string> = Object.freeze(new Set<string>())
 
 /** One set per pin kind, rebuilt only when that kind's pins change. */

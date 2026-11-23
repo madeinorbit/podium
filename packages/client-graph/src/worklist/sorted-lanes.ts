@@ -3,6 +3,7 @@
 import { createAtom, type IAtom, type ObservableMap, observable } from 'mobx'
 import { debugName } from '../debug-name'
 import { createKeyedAnswer, mapQueryResult, type KeyedAnswer } from '../query-result'
+import { SideMap, SideSet, sideStateUpkeep } from '@podium/sync/side-state'
 
 const EMPTY: readonly string[] = Object.freeze([])
 interface Filed<K, S> { readonly key: K; readonly sort: S }
@@ -15,8 +16,8 @@ interface Lane<S> {
 
 export class SortedLanes<K, S> {
   private readonly lanes: ObservableMap<K, Lane<S>>
-  private readonly filed = new Map<string, Filed<K, S>>()
-  private readonly listeners = new Map<K, Set<(id: string | undefined) => void>>()
+  private readonly filed = new SideMap<string, Filed<K, S>>('sortedLanes.filed')
+  private readonly listeners = new SideMap<K, Set<(id: string | undefined) => void>>('sortedLanes.listeners')
   constructor(
     private readonly compare: (a: S, b: S) => number,
     private readonly name: string,
@@ -35,11 +36,14 @@ export class SortedLanes<K, S> {
   has(id: string): boolean { return this.filed.has(id) }
   hasIn(key: K, id: string): boolean { return this.filed.get(id)?.key === key }
   subscribe(key: K, changed: (id: string | undefined) => void): () => void {
-    this.demand?.()
-    let listeners = this.listeners.get(key)
-    if (!listeners) { listeners = new Set(); this.listeners.set(key, listeners) }
-    listeners.add(changed)
-    return () => { listeners.delete(changed); if (!listeners.size) this.listeners.delete(key) }
+    // untracked-read: sorted-lanes-subscribe
+    return sideStateUpkeep(() => {
+      this.demand?.()
+      let listeners = this.listeners.get(key)
+      if (!listeners) { listeners = new SideSet('sortedLanes.subscribers'); this.listeners.set(key, listeners) }
+      listeners.add(changed)
+      return () => { listeners.delete(changed); if (!listeners.size) this.listeners.delete(key) }
+    })
   }
   private changed(key: K, lane: Lane<S>, id: string) {
     lane.ids = undefined

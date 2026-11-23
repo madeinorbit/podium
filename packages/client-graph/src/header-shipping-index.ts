@@ -10,6 +10,7 @@ interface Shipped {
 /** The shipping panel's history order: newest change first, then the order id. */
 const newestFirst = (a: Shipped, b: Shipped): number =>
   b.changedAt - a.changedAt || a.id.localeCompare(b.id)
+// side-state: declaration: the shared frozen empty answer
 const NONE: ReadonlySet<string> = Object.freeze(new Set<string>())
 const UNFINISHED = HEADER_SCHEMA.shipOrder.counts.unfinished as readonly string[]
 

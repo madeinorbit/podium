@@ -86,6 +86,7 @@ const EMPTY_DEPENDENTS: readonly { id: string; type: string }[] = Object.freeze(
 
 // Direct work-row paint readers need scalar equality when an unrelated stored
 // field changes. Other installed stored getters stay plain.
+// side-state: declaration: a fixed table, never written after module initialization
 const ISSUE_PAINT_FIELDS: ReadonlySet<string> = new Set([
   'title', 'audience', 'linearIdentifier', 'seq', 'acceptance',
   'stage', 'closedReason', 'blocked', 'branch', 'gitState', 'parentBranch',
@@ -152,6 +153,7 @@ export class EntityModel {
    * The schema fields this class answers with its own getter (`installFields`
    * keeps it and adds only the setter).
    */
+  // side-state: declaration: a fixed table, never written after module initialization
   static readonly answers: ReadonlySet<string> = new Set<string>()
 
   constructor(
@@ -371,6 +373,7 @@ export type RelationGetters<E extends EntityName> = {
 /** The one shared issue record. Worklist presentation belongs to WorklistIssue. */
 export class IssueModel extends EntityModel {
   readonly readObservation = new ReadObservation()
+  // side-state: declaration: a fixed table, never written after module initialization
   static override readonly answers: ReadonlySet<string> = new Set([
     'description',
     'brief',
@@ -953,6 +956,7 @@ export class IssueModel extends EntityModel {
 /** THE session: its row, and what its issues read of it. */
 export class SessionModel extends EntityModel {
   readonly readObservation = new ReadObservation()
+  // side-state: declaration: a fixed table, never written after module initialization
   static override readonly answers = new Set(['archived', 'unread', 'cwd', 'issueId', 'machineId', 'status', 'messageDraft'])
 
   constructor(id: string, host: ModelHost) {

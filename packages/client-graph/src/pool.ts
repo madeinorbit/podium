@@ -96,6 +96,7 @@ import type {
   WorkflowWire,
 } from '@podium/model'
 import { NO_INTERACTIONS, type SeatInteractions } from '@podium/model/browser'
+import { SideMap } from '@podium/sync/side-state'
 import {
   action,
   compareShallow,
@@ -422,14 +423,14 @@ export class MobxPool {
    * showable stays a filing candidate. Maintenance only, never read by a
    * derivation; kept from the session table's own changes.
    */
-  private readonly keepers = new Map<string, Set<string>>()
+  private readonly keepers = new SideMap<string, Set<string>>('pool.keepers')
   /** The issue each session was last judged to keep (`keepers`, inverted): what it lets go of. */
-  private readonly keeperOf = new Map<string, string>()
+  private readonly keeperOf = new SideMap<string, string>('pool.keeperOf')
   readonly sources = new PoolSources(this)
   /** The index's `positionVersion` the settings rows last saw. */
   private positionsSeen = -1
   /** Only demanded positions are retained; the device index owns the values. */
-  private readonly sourcePositions = new Map<string, number | undefined>()
+  private readonly sourcePositions = new SideMap<string, number | undefined>('pool.sourcePositions')
   private readonly sourcePositionDemand: ReturnType<typeof createDemandAtoms<string>> | undefined
   /** The device index's undeleted issue count, published with each batch. */
   private readonly issueCount = observable.box(0)
@@ -598,6 +599,7 @@ export class MobxPool {
       lazy?.clock ??
       (locals.coarseNow === undefined ? deadlineClock : new DeadlineClock(locals.coarseNow))
     this.models = Object.fromEntries(
+      // side-state: identity: one model object per row; its facts are read from the tracked tables
       ENTITIES.map((entity) => [entity, new Map()]),
     ) as MobxPool['models']
     this.target = {

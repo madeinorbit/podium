@@ -42,6 +42,7 @@ export interface SyncSignals {
   readonly undelivered: number
 }
 
+// side-state: declaration: a fixed table, never written after module initialization
 const CATCHING_UP_PHASES: ReadonlySet<SyncReplicaSignal['phase']> = new Set([
   'connecting',
   'reconnecting',

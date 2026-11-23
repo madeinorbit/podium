@@ -30,6 +30,7 @@
 
 import { COLLECTIONS, recordOf } from '@podium/model'
 import { instanceKey } from './cache-state'
+import { SideMap, SideSet } from './side-state'
 import type {
   InstanceRecord,
   InstanceRequest,
@@ -133,18 +134,21 @@ export class CollectionLoader {
   readonly stats: LoaderStats = { requests: 0, instances: 0, viewInstances: 0, notifications: 0 }
   private readonly replica: LoaderReplica
   private readonly schedule: LoaderSchedule
-  private readonly queue = new Map<string, Queued>()
+  private readonly queue = new SideMap<string, Queued>('loader.queue')
   /** Sent and not answered yet; a key here is never sent again. */
-  private readonly inFlight = new Map<string, InstanceRequest>()
+  private readonly inFlight = new SideMap<string, InstanceRequest>('loader.inFlight')
   /** Sent in the first download's view step; back to the queue if it ends without them. */
-  private readonly riding = new Map<string, InstanceRequest>()
+  private readonly riding = new SideMap<string, InstanceRequest>('loader.riding')
   /** POD-7159 — records to read from disk in the next window. */
-  private readonly diskRecords = new Map<string, { readonly entity: string; readonly id: string }>()
-  private readonly listeners = new Set<(change: LoaderChange) => void>()
+  private readonly diskRecords = new SideMap<
+    string,
+    { readonly entity: string; readonly id: string }
+  >('loader.diskRecords')
+  private readonly listeners = new SideSet<(change: LoaderChange) => void>('loader.listeners')
   private cancel: (() => void) | null = null
   /** Inside a burst of the Replica's events: what moved, told once when it ends. */
   private burst = 0
-  private readonly moved = new Set<LoaderChange>()
+  private readonly moved = new SideSet<LoaderChange>('loader.moved')
   private connected = false
   private disposed = false
   /** The device started empty and its first download has not finished. */
@@ -524,7 +528,7 @@ export class CollectionLoader {
   }
 
   /** Answered in full without a marker: the server will not say this one is complete. */
-  private readonly refusedKeys = new Set<string>()
+  private readonly refusedKeys = new SideSet<string>('loader.refusedKeys')
 
   /** Whether an answer came back in full without this instance's marker. */
   wasRefused(spec: InstanceSpec): boolean {

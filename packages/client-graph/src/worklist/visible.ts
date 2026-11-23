@@ -122,6 +122,7 @@ import {
 } from './rollup'
 import { NO_SEATS, type SeatSummary } from './seat-verdicts'
 import { SortedLanes } from './sorted-lanes'
+import { SideMap, sideStateUpkeep } from '@podium/sync/side-state'
 
 /** `SIDEBAR_FINISHED_UNREAD_WINDOW_MS` (`visibility.ts:22`). */
 export const FINISHED_UNREAD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
@@ -1470,7 +1471,7 @@ export class VisibleCollection {
    * stop while the list is live, else null (maintenance only, never read by a
    * derivation).
    */
-  private readonly stops = new Map<string, (() => void) | null>()
+  private readonly stops = new SideMap<string, (() => void) | null>('visible.stops')
   /** Holds taken by screens that draw the list (`retain`). */
   private holds = 0
   /** Whether some derivation reads a lane (the demand atom is observed). */
@@ -1554,7 +1555,10 @@ export class VisibleCollection {
   private activate(): void {
     if (this.live) return
     this.live = true
-    for (const id of this.stops.keys()) this.stops.set(id, this.start(id))
+    // untracked-read: worklist-activate
+    sideStateUpkeep(() => {
+      for (const id of this.stops.keys()) this.stops.set(id, this.start(id))
+    })
   }
 
   /** With no hold and no reader left, stop every reaction and empty the lanes. */

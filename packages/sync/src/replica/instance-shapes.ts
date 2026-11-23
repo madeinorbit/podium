@@ -49,6 +49,7 @@ function keyFieldOf(collection: Collection): string | undefined {
   return undefined
 }
 
+// side-state: declaration: a memo over the declared collections
 const keyFieldCache = new Map<string, string | null>()
 /** The field a keyed collection's one argument equals; `undefined` for any other collection. */
 export function cachedKeyField(collection: Collection): string | undefined {
@@ -91,9 +92,11 @@ function viasOf(collection: string): ReadonlySet<string> {
   }
   return viasByCollection.get(collection) ?? EMPTY_SET
 }
+// side-state: declaration: the shared empty answer
 const EMPTY_SET: ReadonlySet<string> = new Set()
 
 /** A collection's keyed shape, by id; `null` for one found by listing its instances. */
+// side-state: declaration: a memo over the declared collections
 const keyedShapes = new Map<string, KeyedShape | null>()
 export function keyedShapeOf(collectionId: string): KeyedShape | undefined {
   let shape = keyedShapes.get(collectionId)
@@ -117,6 +120,7 @@ export function keyedShapeOf(collectionId: string): KeyedShape | undefined {
 }
 
 /** The keyed shapes of a record kind's collections, in declaration order. */
+// side-state: declaration: a memo over the declared collections
 const keyedByKind = new Map<string, readonly KeyedShape[]>()
 export function keyedShapesOfKind(kind: string): readonly KeyedShape[] {
   let shapes = keyedByKind.get(kind)

@@ -16,6 +16,7 @@
  * once, as before: they derive in their own read.
  */
 
+import { SideMap, SideSet } from '@podium/sync/side-state'
 import { autorun, createAtom, observable, runInAction, untracked } from 'mobx'
 import { LOADING } from './loading'
 
@@ -58,8 +59,8 @@ export class SlicedWarmup {
    * row that moves re-reads only its slice, and a new slice reads only its
    * own rows.
    */
-  private readonly slices = new Set<Slice>()
-  private readonly sliceOf = new Map<string, Slice>()
+  private readonly slices = new SideSet<Slice>('slicedWarmup.slices')
+  private readonly sliceOf = new SideMap<string, Slice>('slicedWarmup.sliceOf')
   /** List rows no slice holds yet, in list order. */
   private pending: string[] = []
   private readonly budgetMs: number

@@ -4,6 +4,7 @@ import type { ScreenState } from '@podium/client-core/ui'
 import type { SuperagentSliceValue, SuperThreadView } from '@podium/client-core/values'
 import type { GitRepositoryWire, IssueEventWire, SessionId } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
+import { SideSet } from '@podium/sync/side-state'
 import { observable as observableValue } from 'mobx'
 import { headerEntities } from './header-entities'
 import { omitGone } from './lookup'
@@ -94,7 +95,7 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<
   class Source {
     private readonly rows = observable.map<string, object>(undefined, { deep: false })
     private readonly loaded = observable.set<string>()
-    private readonly demanded = new Set<string>()
+    private readonly demanded = new SideSet<string>('superagentSource.demanded')
     /** Keyed (POD-5433): what each wake moved. */
     private localDirty = true
     private bootingDirty = true

@@ -3,6 +3,7 @@ import type { IssueCloseMemberCounts } from '@podium/client-core/values'
 import { createDemandAtoms } from '@podium/mobx-helpers'
 import { machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
 import { parseSessionRef } from '@podium/protocol'
+import { SideMap, SideSet, sideStateUpkeep, signalledRead } from '@podium/sync/side-state'
 import { createAtom, type IAtom, observe, untracked } from 'mobx'
 import { residentIds } from './enumerate'
 import { omitGone } from './lookup'
@@ -50,44 +51,61 @@ interface WatchedQuestion {
 /** Query bridge over the pool's device index (`MobxPool.deviceIndex`), which
  * covers exactly the rows in memory (POD-7094). */
 export class ReaderQueries {
+  // side-state: signal: a registry of the atoms readers observe; each answer kept beside its atom is reported through it
   private readonly sessionAtoms = new Map<string, IAtom>()
+  // side-state: signal: a registry of the atoms readers observe; each answer kept beside its atom is reported through it
   private readonly issueScopeAtoms = new Map<string, { atom: IAtom; bits: number }>()
+  // side-state: signal: a registry of the atoms readers observe; each answer kept beside its atom is reported through it
   private readonly issueCloseAtoms = new Map<
     string,
     { atom: IAtom; value: IssueCloseMemberCounts }
   >()
+  // side-state: signal: a registry of the atoms readers observe; each answer kept beside its atom is reported through it
   private readonly issueChildAtoms = new Map<string, { atom: IAtom; value: IssueChildCounts }>()
+  // side-state: signal: a registry of the atoms readers observe; each answer kept beside its atom is reported through it
   private readonly containingIssueAtoms = new Map<
     string,
     { atom: IAtom; value: string | undefined }
   >()
-  private readonly containingIssuePaths = new Map<string, Set<string>>()
+  private readonly containingIssuePaths = new SideMap<string, Set<string>>(
+    'readerQueries.containingIssuePaths',
+  )
   private effectiveIssues: IssueQuestions | undefined
   private effectiveIssueSource: DeviceQueries | undefined
   private effectiveIssueIdentities: IssueIdentities | undefined
   private effectiveIdentitySource: DeviceQueries | undefined
+  // side-state: signal: a registry of the atoms readers observe; each answer kept beside its atom is reported through it
   private readonly linkedIssueAtoms = new Map<
     string,
     { atom: IAtom; value: string | undefined; identifier: string; referenceOnly: boolean }
   >()
+  // side-state: signal: a registry of the atoms readers observe; each answer kept beside its atom is reported through it
   private readonly issuePrefixAtoms = new Map<
     string,
     { atom: IAtom; value: boolean; prefix: string; includeDeleted: boolean }
   >()
-  private readonly linkedAliases = new Map<string, Set<string>>()
-  private readonly linkedPrefixes = new Map<string, Set<string>>()
-  private readonly repoOverrides = new Map<string, string | undefined>()
-  private readonly repoPrefixCounts = new Map<string, number>()
+  private readonly linkedAliases = new SideMap<string, Set<string>>('readerQueries.linkedAliases')
+  private readonly linkedPrefixes = new SideMap<string, Set<string>>('readerQueries.linkedPrefixes')
+  private readonly repoOverrides = new SideMap<string, string | undefined>(
+    'readerQueries.repoOverrides',
+  )
+  private readonly repoPrefixCounts = new SideMap<string, number>('readerQueries.repoPrefixCounts')
   private readonly repoPrefixes: string[] = []
   private readonly repoPrefixAtom = createAtom('history.repositoryPrefixKey')
   private repoPrefixValue = ''
-  private readonly referenceTokens = new Map<string, Set<string>>()
+  private readonly referenceTokens = new SideMap<string, Set<string>>(
+    'readerQueries.referenceTokens',
+  )
+  // side-state: signal: a registry of the atoms readers observe; each answer kept beside its atom is reported through it
   private readonly sessionReferenceAtoms = new Map<
     string,
     { atom: IAtom; value: string | undefined; ready: boolean; keys: readonly string[] }
   >()
+  // side-state: signal: a registry of the atoms readers observe; each answer kept beside its atom is reported through it
   private readonly sessionPathAtoms = new Map<string, { atom: IAtom; value: boolean }>()
-  private readonly topologyListeners = new Set<(delta: NavigationTopologyDelta) => void>()
+  private readonly topologyListeners = new SideSet<(delta: NavigationTopologyDelta) => void>(
+    'readerQueries.topologyListeners',
+  )
   private readonly worktrees = createWorktreeQuestions()
   private readonly worktreePathAtoms = createDemandAtoms<string>(
     (key) => `history.worktreePath:${key}`,
@@ -95,17 +113,18 @@ export class ReaderQueries {
   private readonly firstWorktreeAtom = createAtom('history.firstWorktree')
   private effectiveSessions: SessionQuestions | undefined
   private effectiveSource: DeviceQueries | undefined
+  // side-state: signal: watched questions and their atoms; a question reader observes the atom
   private readonly observed = new Map<string, WatchedQuestion>()
-  private readonly queryRoutes = new Map<string, Set<string>>()
-  private readonly dirtyQueries = new Map<string, Set<string>>()
-  private readonly questionMembers = new Map<
+  private readonly queryRoutes = new SideMap<string, Set<string>>('readerQueries.queryRoutes')
+  private readonly dirtyQueries = new SideMap<string, Set<string>>('readerQueries.dirtyQueries')
+  private readonly questionMembers = new SideMap<
     string,
     {
       question: ReaderQuestion
       keys: readonly string[]
       listeners: Set<(id: string | undefined) => void>
     }
-  >()
+  >('readerQueries.questionMembers')
   private publishing = false
   /**
    * Whether a feed publication is being installed now (between
@@ -120,26 +139,32 @@ export class ReaderQueries {
   private readerChangeSource: DeviceQueries | undefined
   private stopReaderChanges: (() => void) | undefined
   private stopResidentChanges: (() => void) | undefined
-  private readonly listeners = new Set<(event: RowSourceEvent) => void>()
-  private readonly memberListeners = new Map<string, Set<(id: string | undefined) => void>>()
+  private readonly listeners = new SideSet<(event: RowSourceEvent) => void>(
+    'readerQueries.listeners',
+  )
+  private readonly memberListeners = new SideMap<string, Set<(id: string | undefined) => void>>(
+    'readerQueries.memberListeners',
+  )
   private sourceSeen: DeviceQueries | undefined
+  // side-state: signal: identity answers kept while their watched question atom is observed
   private readonly identities = new Map<string, IdentityResult>()
   /** Resident edits shadow the source by address. Predicate membership is
    * maintained at ingestion, never discovered by walking resident history. */
   private readonly residents = createReaderIndex({ targetSearch: false, recent: false })
-  private readonly residentIssueIds = new Set<string>()
+  private readonly residentIssueIds = new SideSet<string>('readerQueries.residentIssueIds')
   private readonly residentOrder = {
-    issue: new Map<string, number>(),
-    session: new Map<string, number>(),
+    issue: new SideMap<string, number>('readerQueries.residentOrder.issue'),
+    session: new SideMap<string, number>('readerQueries.residentOrder.session'),
   }
   private residentSequence = 0
+  // side-state: identity: one stable result object per question; its answer is observable
   private readonly results = new Map<string, ReturnType<typeof createQueryResult<unknown>>>()
   // Only residents unknown to the effective source contribute this correction.
   // Existing question atoms publish changes; these sets add no tracking objects.
   // Hydration, eviction and optimistic table writes all pass these observers.
   private readonly extras = {
-    issue: new Set<string>(),
-    session: new Set<string>(),
+    issue: new SideSet<string>('readerQueries.extras.issue'),
+    session: new SideSet<string>('readerQueries.extras.session'),
   }
   private readonly stopTables: (() => void)[] = []
   readonly counts = {
@@ -208,7 +233,8 @@ export class ReaderQueries {
   }
   registeredWorktreePath(path: string): string | undefined {
     this.worktreePathAtoms.observe(machinePathKey(path))
-    return this.worktrees.path(path)
+    // untracked-read: worktree-path
+    return signalledRead(() => this.worktrees.path(path))
   }
   firstWorktreePath(): string | null {
     this.firstWorktreeAtom.reportObserved()
@@ -348,9 +374,12 @@ export class ReaderQueries {
     const source = this.index()
     if (!this.effectiveIssueIdentities || this.effectiveIdentitySource !== source) {
       this.effectiveIdentitySource = source
-      this.effectiveIssueIdentities = source.forkIssueIdentities()
-      for (const [id, prefix] of this.repoOverrides)
-        this.effectiveIssueIdentities.setRepo(id, prefix)
+      const identities = source.forkIssueIdentities()
+      this.effectiveIssueIdentities = identities
+      // untracked-read: reader-identity-fork
+      sideStateUpkeep(() => {
+        for (const [id, prefix] of this.repoOverrides) identities.setRepo(id, prefix)
+      })
     }
     return this.effectiveIssueIdentities
   }
@@ -365,44 +394,47 @@ export class ReaderQueries {
     return this.readIssueIdentity(token, true)
   }
   private readIssueIdentity(identifier: string, referenceOnly: boolean): string | undefined {
-    const identities = this.issueIdentities()
-    const value = referenceOnly
-      ? identities.referenceId(identifier)
-      : identities.resolve(identifier)
-    const question = JSON.stringify([referenceOnly, identifier])
-    const state = this.linkedIssueAtoms.get(question)
-    if (state) state.atom.reportObserved()
-    else {
-      const keys = identities.aliasKeys(identifier)
-      const prefixes = keys
-        .filter((key) => !key.startsWith('#'))
-        .map((key) => JSON.parse(key)[0] as string)
-      const atom = createAtom(`history.linkedIssue:${identifier}`, undefined, () => {
-        this.linkedIssueAtoms.delete(question)
-        const remove = (map: Map<string, Set<string>>, key: string) => {
-          const ids = map.get(key)
-          ids?.delete(question)
-          if (!ids?.size) map.delete(key)
-        }
-        for (const key of keys) remove(this.linkedAliases, key)
-        for (const prefix of prefixes) remove(this.linkedPrefixes, prefix)
-      })
-      if (atom.reportObserved()) {
-        this.linkedIssueAtoms.set(question, { atom, value, identifier, referenceOnly })
-        const add = (map: Map<string, Set<string>>, key: string) => {
-          let ids = map.get(key)
-          if (!ids) {
-            ids = new Set()
-            map.set(key, ids)
+    // untracked-read: reader-linked-issue
+    return signalledRead(() => {
+      const identities = this.issueIdentities()
+      const value = referenceOnly
+        ? identities.referenceId(identifier)
+        : identities.resolve(identifier)
+      const question = JSON.stringify([referenceOnly, identifier])
+      const state = this.linkedIssueAtoms.get(question)
+      if (state) state.atom.reportObserved()
+      else {
+        const keys = identities.aliasKeys(identifier)
+        const prefixes = keys
+          .filter((key) => !key.startsWith('#'))
+          .map((key) => JSON.parse(key)[0] as string)
+        const atom = createAtom(`history.linkedIssue:${identifier}`, undefined, () => {
+          this.linkedIssueAtoms.delete(question)
+          const remove = (map: Map<string, Set<string>>, key: string) => {
+            const ids = map.get(key)
+            ids?.delete(question)
+            if (!ids?.size) map.delete(key)
           }
-          ids.add(question)
+          for (const key of keys) remove(this.linkedAliases, key)
+          for (const prefix of prefixes) remove(this.linkedPrefixes, prefix)
+        })
+        if (atom.reportObserved()) {
+          this.linkedIssueAtoms.set(question, { atom, value, identifier, referenceOnly })
+          const add = (map: Map<string, Set<string>>, key: string) => {
+            let ids = map.get(key)
+            if (!ids) {
+              ids = new Set()
+              map.set(key, ids)
+            }
+            ids.add(question)
+          }
+          for (const key of keys) add(this.linkedAliases, key)
+          for (const prefix of prefixes) add(this.linkedPrefixes, prefix)
         }
-        for (const key of keys) add(this.linkedAliases, key)
-        for (const prefix of prefixes) add(this.linkedPrefixes, prefix)
       }
-    }
-    this.counts.scalarVisits++
-    return value ?? this.stubIdentity(identities, identifier)
+      this.counts.scalarVisits++
+      return value ?? this.stubIdentity(identities, identifier)
+    })
   }
   /**
    * A reference to an issue the device holds only as a stub: the stub knows
@@ -580,30 +612,33 @@ export class ReaderQueries {
     return first
   }
   sessionReferenceId(ref: string): string | undefined {
-    const questions = this.sessionQuestions(),
-      before = questions.visits,
-      value = this.referenceWinner(ref, questions)
-    this.counts.scalarVisits += questions.visits - before
-    const state = this.sessionReferenceAtoms.get(ref)
-    if (state) state.atom.reportObserved()
-    else {
-      const atom = createAtom(`history.sessionReference:${ref}`, undefined, () =>
-        this.releaseReference(ref),
-      )
-      if (atom.reportObserved()) {
-        const keys = this.referenceKeys(ref)
-        this.sessionReferenceAtoms.set(ref, { atom, value, ready: this.index().version > 0, keys })
-        for (const key of keys) {
-          let tokens = this.referenceTokens.get(key)
-          if (!tokens) {
-            tokens = new Set()
-            this.referenceTokens.set(key, tokens)
+    // untracked-read: reader-session-reference
+    return signalledRead(() => {
+      const questions = this.sessionQuestions(),
+        before = questions.visits,
+        value = this.referenceWinner(ref, questions)
+      this.counts.scalarVisits += questions.visits - before
+      const state = this.sessionReferenceAtoms.get(ref)
+      if (state) state.atom.reportObserved()
+      else {
+        const atom = createAtom(`history.sessionReference:${ref}`, undefined, () =>
+          this.releaseReference(ref),
+        )
+        if (atom.reportObserved()) {
+          const keys = this.referenceKeys(ref)
+          this.sessionReferenceAtoms.set(ref, { atom, value, ready: this.index().version > 0, keys })
+          for (const key of keys) {
+            let tokens = this.referenceTokens.get(key)
+            if (!tokens) {
+              tokens = new Set()
+              this.referenceTokens.set(key, tokens)
+            }
+            tokens.add(ref)
           }
-          tokens.add(ref)
         }
       }
-    }
-    return value
+      return value
+    })
   }
   linkedSessionId(identifier: string): string | undefined {
     this.observeSession('presence', identifier)
@@ -672,15 +707,18 @@ export class ReaderQueries {
   /** Ancestor scope follows only its four visibility bits, never its title or
    * other presentation fields. Resident writes shadow the source by address. */
   issueScope(id: string): IssueScopeFacts | undefined {
-    const value = this.issueScopeValue(id)
-    const state = this.issueScopeAtoms.get(id)
-    if (!state) {
-      const atom = createAtom(`history.issueScope:${id}`, undefined, () =>
-        this.issueScopeAtoms.delete(id),
-      )
-      if (atom.reportObserved()) this.issueScopeAtoms.set(id, { atom, bits: this.scopeBits(value) })
-    } else state.atom.reportObserved()
-    return value
+    // untracked-read: reader-issue-scope
+    return signalledRead(() => {
+      const value = this.issueScopeValue(id)
+      const state = this.issueScopeAtoms.get(id)
+      if (!state) {
+        const atom = createAtom(`history.issueScope:${id}`, undefined, () =>
+          this.issueScopeAtoms.delete(id),
+        )
+        if (atom.reportObserved()) this.issueScopeAtoms.set(id, { atom, bits: this.scopeBits(value) })
+      } else state.atom.reportObserved()
+      return value
+    })
   }
   private issueScopeValue(id: string): IssueScopeFacts | undefined {
     if (this.residentIssueIds.has(id)) return this.residents.issueScope(id)
@@ -936,41 +974,44 @@ export class ReaderQueries {
   /** One live issue for a file's path: longest containing root, then the
    * smallest sequence and that root's source insertion order. */
   containingIssueId(cwd: string): string | undefined {
-    cwd = machinePathKey(cwd)
-    const value = this.issueQuestions().containingIssueId(cwd),
-      state = this.containingIssueAtoms.get(cwd)
-    if (state) state.atom.reportObserved()
-    else {
-      const paths = new Set([machinePathKey(cwd)])
-      if (machinePathSeparator(cwd) === '\\') {
-        for (const ancestor of machinePathAncestors(cwd)) paths.add(machinePathKey(ancestor))
-      } else
-        for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1)) {
-          paths.add(cwd.slice(0, at))
-          paths.add(cwd.slice(0, at + 1))
-        }
-      const atom = createAtom(`history.containingIssue:${cwd}`, undefined, () => {
-        this.containingIssueAtoms.delete(cwd)
-        for (const path of paths) {
-          const questions = this.containingIssuePaths.get(machinePathKey(path))
-          questions?.delete(cwd)
-          if (!questions?.size) this.containingIssuePaths.delete(machinePathKey(path))
-        }
-      })
-      if (atom.reportObserved()) {
-        this.containingIssueAtoms.set(cwd, { atom, value })
-        for (const path of paths) {
-          let questions = this.containingIssuePaths.get(machinePathKey(path))
-          if (!questions) {
-            questions = new Set()
-            this.containingIssuePaths.set(machinePathKey(path), questions)
+    // untracked-read: reader-containing-issue
+    return signalledRead(() => {
+      cwd = machinePathKey(cwd)
+      const value = this.issueQuestions().containingIssueId(cwd),
+        state = this.containingIssueAtoms.get(cwd)
+      if (state) state.atom.reportObserved()
+      else {
+        const paths = new Set([machinePathKey(cwd)])
+        if (machinePathSeparator(cwd) === '\\') {
+          for (const ancestor of machinePathAncestors(cwd)) paths.add(machinePathKey(ancestor))
+        } else
+          for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1)) {
+            paths.add(cwd.slice(0, at))
+            paths.add(cwd.slice(0, at + 1))
           }
-          questions.add(cwd)
+        const atom = createAtom(`history.containingIssue:${cwd}`, undefined, () => {
+          this.containingIssueAtoms.delete(cwd)
+          for (const path of paths) {
+            const questions = this.containingIssuePaths.get(machinePathKey(path))
+            questions?.delete(cwd)
+            if (!questions?.size) this.containingIssuePaths.delete(machinePathKey(path))
+          }
+        })
+        if (atom.reportObserved()) {
+          this.containingIssueAtoms.set(cwd, { atom, value })
+          for (const path of paths) {
+            let questions = this.containingIssuePaths.get(machinePathKey(path))
+            if (!questions) {
+              questions = new Set()
+              this.containingIssuePaths.set(machinePathKey(path), questions)
+            }
+            questions.add(cwd)
+          }
         }
       }
-    }
-    this.counts.scalarVisits++
-    return value
+      this.counts.scalarVisits++
+      return value
+    })
   }
   private publishContainingIssue(cwd: string): void {
     const state = this.containingIssueAtoms.get(cwd)
@@ -1017,12 +1058,15 @@ export class ReaderQueries {
     for (const [route, ids] of changes) for (const id of ids) this.routeQuery(route, id)
   }
   private unrouteQuery(key: string, state: { keys: readonly string[] }): void {
-    for (const route of state.keys) {
-      const keys = this.queryRoutes.get(route)
-      keys?.delete(key)
-      if (!keys?.size) this.queryRoutes.delete(route)
-    }
-    if (!this.queryRoutes.size) this.releaseReaderChanges()
+    // untracked-read: reader-unroute-query
+    sideStateUpkeep(() => {
+      for (const route of state.keys) {
+        const keys = this.queryRoutes.get(route)
+        keys?.delete(key)
+        if (!keys?.size) this.queryRoutes.delete(route)
+      }
+      if (!this.queryRoutes.size) this.releaseReaderChanges()
+    })
   }
   private refileQuery(key: string, state: WatchedQuestion, index: DeviceQueries): void {
     this.unrouteQuery(key, state)
@@ -1038,14 +1082,17 @@ export class ReaderQueries {
       this.readerChangeSource = index
       this.stopReaderChanges = index.watchReaderChanges()
     }
-    for (const route of routes) {
-      let keys = this.queryRoutes.get(route)
-      if (!keys) {
-        keys = new Set()
-        this.queryRoutes.set(route, keys)
+    // untracked-read: reader-register-routes
+    sideStateUpkeep(() => {
+      for (const route of routes) {
+        let keys = this.queryRoutes.get(route)
+        if (!keys) {
+          keys = new Set()
+          this.queryRoutes.set(route, keys)
+        }
+        keys.add(key)
       }
-      keys.add(key)
-    }
+    })
   }
   private releaseReaderChanges(): void {
     this.stopReaderChanges?.()
@@ -1108,32 +1155,35 @@ export class ReaderQueries {
     question: ReaderQuestion,
     listener: (id: string | undefined) => void,
   ): () => void {
-    const questionKey = JSON.stringify(question)
-    // Source-only projections and identity readers ask the same revision
-    // question. Share its existing routes rather than registering them twice.
-    const key = this.sourceOnly(question) ? questionKey : `members:${questionKey}`
-    const observed = this.observed.get(key)
-    let state = this.questionMembers.get(key)
-    if (!state) {
-      state = {
-        question,
-        keys: observed?.keys ?? this.questionRoutesFor(question, this.index()),
-        listeners: new Set(),
+    // untracked-read: reader-on-question-members
+    return sideStateUpkeep(() => {
+      const questionKey = JSON.stringify(question)
+      // Source-only projections and identity readers ask the same revision
+      // question. Share its existing routes rather than registering them twice.
+      const key = this.sourceOnly(question) ? questionKey : `members:${questionKey}`
+      const observed = this.observed.get(key)
+      let state = this.questionMembers.get(key)
+      if (!state) {
+        state = {
+          question,
+          keys: observed?.keys ?? this.questionRoutesFor(question, this.index()),
+          listeners: new Set(),
+        }
+        this.questionMembers.set(key, state)
+        if (!observed) this.registerRoutes(key, state.keys)
       }
-      this.questionMembers.set(key, state)
-      if (!observed) this.registerRoutes(key, state.keys)
-    }
-    state.listeners.add(listener)
-    return () => {
-      state.listeners.delete(listener)
-      if (!state.listeners.size) {
-        this.questionMembers.delete(key)
-        if (!this.observed.has(key)) {
-          this.unrouteQuery(key, state)
-          this.dirtyQueries.delete(key)
+      state.listeners.add(listener)
+      return () => {
+        state.listeners.delete(listener)
+        if (!state.listeners.size) {
+          this.questionMembers.delete(key)
+          if (!this.observed.has(key)) {
+            this.unrouteQuery(key, state)
+            this.dirtyQueries.delete(key)
+          }
         }
       }
-    }
+    })
   }
   private watch(
     key: string,
@@ -1350,17 +1400,20 @@ export class ReaderQueries {
     relation: string,
     listener: (id: string | undefined) => void,
   ): () => void {
-    const key = `${entity}.${relation}:${owner}`
-    let listeners = this.memberListeners.get(key)
-    if (!listeners) {
-      listeners = new Set()
-      this.memberListeners.set(key, listeners)
-    }
-    listeners.add(listener)
-    return () => {
-      listeners.delete(listener)
-      if (!listeners.size) this.memberListeners.delete(key)
-    }
+    // untracked-read: reader-on-members
+    return sideStateUpkeep(() => {
+      const key = `${entity}.${relation}:${owner}`
+      let listeners = this.memberListeners.get(key)
+      if (!listeners) {
+        listeners = new Set()
+        this.memberListeners.set(key, listeners)
+      }
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+        if (!listeners.size) this.memberListeners.delete(key)
+      }
+    })
   }
   /** Addressed membership in the source's declared relation. Maintenance
    * callers pair this with onMembers, rather than enumerating the bucket. */
@@ -1543,7 +1596,8 @@ export class ReaderQueries {
       (value) => value.readerRevision(question),
       () => [`${entity}:all`],
     )
-    return index.count(entity) + this.extras[entity].size
+    // untracked-read: reader-held-count
+    return index.count(entity) + signalledRead(() => this.extras[entity].size)
   }
   repoIds(repoPath?: string): string[] {
     const key =

@@ -1,4 +1,5 @@
 import { machinePathKey } from '@podium/model/browser'
+import { SideMap } from '@podium/sync/side-state'
 import { createKeyedAnswer } from '../query-result'
 
 type Row = Readonly<Record<string, unknown>>
@@ -11,7 +12,8 @@ export function createWorktreeQuestions() {
     a.project - b.project || a.root - b.root || a.ordinal - b.ordinal
   let lanes = createKeyedAnswer<WorktreeOrder>(compare)
   let sequence = 0
-  const paths = new Map<string, string>()
+  // Read by `path` only behind the reader's per-path atom (`ReaderQueries.registeredWorktreePath`).
+  const paths = new SideMap<string, string>('worktreeQuestions.paths')
   return {
     set(id: string, row: Row | undefined) {
       if (row?.path !== id) { lanes.delete(id); if (paths.get(machinePathKey(id)) === id) paths.delete(machinePathKey(id)); return }

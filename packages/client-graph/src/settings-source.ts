@@ -3,6 +3,7 @@ import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
 import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { createDemandAtoms } from '@podium/mobx-helpers'
 import { parseMachineAccessRowId } from '@podium/model'
+import { SideMap, SideSet, sideStateUpkeep } from '@podium/sync/side-state'
 import { compareStructural, runInAction } from 'mobx'
 import { here } from './lookup'
 import type { MobxPool } from './pool'
@@ -29,6 +30,7 @@ export type SettingsOwner = Pick<ClientRuntime, 'ui'> & {
  *  records (POD-6644). Both follow the replica's addressed batches. */
 type Discovery = 'machines' | 'repos'
 const ENTITY = { machines: 'settingsMachine', repos: 'settingsRepository' } as const
+// side-state: declaration: a fixed table, never written after module initialization
 const KINDS: Record<Discovery, ReadonlySet<string>> = {
   machines: new Set(['machines', 'machineAccess']),
   repos: new Set(['checkouts']),
@@ -67,6 +69,7 @@ type Entry = {
  * Observed rows follow their keys, and release their channel on unmount. */
 export class SettingsSource {
   private pool: MobxPool | undefined
+  // side-state: signal: entries live while their demand atom is observed; a reader observes it before reading one, and each load reports it
   private readonly rows = new Map<string, Entry>()
   private readonly atoms = createDemandAtoms<string>((key) => `settingsSource.${key}`, {
     onObserved: (key) => {
@@ -88,8 +91,10 @@ export class SettingsSource {
       this.pending.delete(key)
     },
   })
-  private readonly pending = new Set<string>()
-  private readonly lists = new Map<Discovery, { readers: number; stop: () => void }>()
+  private readonly pending = new SideSet<string>('settingsSource.pending')
+  private readonly lists = new SideMap<Discovery, { readers: number; stop: () => void }>(
+    'settingsSource.lists',
+  )
   private window: { readers: number; stop: () => void } | undefined
   private readonly source = defineSource({
     readById: this.readById.bind(this),
@@ -142,22 +147,25 @@ export class SettingsSource {
   }
 
   private followList(name: Discovery): () => void {
-    let list = this.lists.get(name)
-    if (!list) {
-      const stop =
-        this.owner.replica.subscribeAddressedBatch?.((batch) => this.changed(name, batch)) ??
-        (() => {})
-      list = { readers: 0, stop }
-      this.lists.set(name, list)
-    }
-    list.readers++
-    const current = list
-    return () => {
-      if (--current.readers === 0) {
-        current.stop()
-        this.lists.delete(name)
+    // untracked-read: settings-follow-list
+    return sideStateUpkeep(() => {
+      let list = this.lists.get(name)
+      if (!list) {
+        const stop =
+          this.owner.replica.subscribeAddressedBatch?.((batch) => this.changed(name, batch)) ??
+          (() => {})
+        list = { readers: 0, stop }
+        this.lists.set(name, list)
       }
-    }
+      list.readers++
+      const current = list
+      return () => {
+        if (--current.readers === 0) {
+          current.stop()
+          this.lists.delete(name)
+        }
+      }
+    })
   }
 
   /**

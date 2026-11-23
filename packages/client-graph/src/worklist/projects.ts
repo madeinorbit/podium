@@ -8,6 +8,7 @@ import type { MobxPool } from '../pool'
 import type { SliceWorktree } from '../shared/slice-types'
 import { LOADING } from './rollup'
 import type { SidebarState } from './sidebar'
+import { SideMap } from '@podium/sync/side-state'
 
 /** The pool builds this with its tables, so it sees every worktree row. */
 export function projectIndex(pool: MobxPool): ProjectIndex {
@@ -19,7 +20,7 @@ export class ProjectIndex {
   private readonly roots = observable.set<string>(undefined, { deep: false, name: debugName(() => 'pool.projects.roots') })
   /** Resident worktrees per project index. */
   private readonly counts = observable.map<number | undefined, number>(undefined, { deep: false, name: debugName(() => 'pool.projects.counts') })
-  private readonly projectOf = new Map<string, number | undefined>()
+  private readonly projectOf = new SideMap<string, number | undefined>('projects.projectOf')
   private readonly stop: () => void
 
   constructor(private readonly pool: MobxPool) {

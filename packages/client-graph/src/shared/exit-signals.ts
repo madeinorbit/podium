@@ -17,6 +17,7 @@ import { createAtom, type IAtom } from 'mobx'
  * reaches its readers through the table slot they already observe.
  */
 export class ExitSignals {
+  // side-state: signal: the exit atoms readers observe (POD-7422)
   private readonly atoms = new Map<string, IAtom>()
 
   /** Observe the exit evidence of `key` (`kind:id`) from the current derivation. */

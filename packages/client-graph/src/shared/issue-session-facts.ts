@@ -1,3 +1,4 @@
+import { SideMap } from '@podium/sync/side-state'
 import { observable, runInAction } from 'mobx'
 
 /** Raw ownership summaries include archived and headless sessions, independently
@@ -15,9 +16,11 @@ type Totals = { replicaActivityAt?: string; tipActivityAt?: string; staffed: num
 const EMPTY: IssueSessionFacts = { headlessStaffed: false, headlessOccupied: false }
 
 export class IssueSessionFactsIndex {
-  private readonly sessions = new Map<string, Contribution>()
-  private readonly owners = new Map<string, Map<string, Contribution>>()
-  private readonly totals = new Map<string, Totals>()
+  private readonly sessions = new SideMap<string, Contribution>('issueSessionFacts.sessions')
+  private readonly owners = new SideMap<string, Map<string, Contribution>>(
+    'issueSessionFacts.owners',
+  )
+  private readonly totals = new SideMap<string, Totals>('issueSessionFacts.totals')
   private readonly values = {
     replicaActivityAt: observable.map<string, string | undefined>(undefined, { deep: false }),
     tipActivityAt: observable.map<string, string | undefined>(undefined, { deep: false }),

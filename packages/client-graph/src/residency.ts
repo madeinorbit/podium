@@ -29,6 +29,7 @@
  * (`requestReference`), so a burst of references costs one action.
  */
 
+import { SideSet } from '@podium/sync/side-state'
 import { LOADING } from './loading'
 import { type Gone, NOT_VISIBLE, REMOVED } from './lookup'
 import type { EntityName, ModelSchema } from './shared/schema'
@@ -80,7 +81,7 @@ export class Residency {
   private readonly unloadedRow: ResidencyOptions['unloaded']
   private readonly reload: ResidencyOptions['reload']
   private readonly schedule: Schedule
-  private readonly referenceQueue = new Set<string>()
+  private readonly referenceQueue = new SideSet<string>('residency.referenceQueue')
   private cancel: (() => void) | null = null
   /** Runs a closed window's batch (the pool's action). */
   private due: () => void = () => {}

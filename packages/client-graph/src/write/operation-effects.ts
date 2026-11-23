@@ -16,6 +16,7 @@ import type { EffectModel } from '../models'
 import type { MobxPool } from '../pool'
 
 /** The effect kinds a software update or a server move starts from. */
+// side-state: declaration: a fixed table, never written after module initialization
 export const OPERATION_EFFECT_KINDS: ReadonlySet<string> = new Set(['server.update', 'server.move'])
 
 const lists = new WeakMap<MobxPool, IComputedValue<readonly EffectModel[]>>()

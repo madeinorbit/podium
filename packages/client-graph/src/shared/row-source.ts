@@ -50,6 +50,8 @@ import {
   type WorkflowBindingTarget,
   workflowBindingRowId,
 } from '@podium/model'
+import { SideMap, SideSet, signalledRead } from '@podium/sync/side-state'
+import { isSideStateReadError } from '../side-state-guard'
 import { repositoriesFromCheckouts } from './checkout-repositories'
 import { ExitSignals } from './exit-signals'
 import { FeedDiagnostics } from './feed-diagnostics'
@@ -177,6 +179,7 @@ export interface RowSourceRepaint {
   flush?(): RowSourceEvent | null
 }
 
+// side-state: declaration: a fixed table, never written after module initialization
 const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
   'sessions',
   'sessionUserStates',
@@ -268,11 +271,13 @@ const RECORD_COMPANIONS = {
 } as const satisfies Record<string, ReplicaKind>
 export type RecordCompanion = keyof typeof RECORD_COMPANIONS
 const RECORD_COMPANION_KINDS = Object.keys(RECORD_COMPANIONS) as RecordCompanion[]
+// side-state: declaration: a fixed table, never written after module initialization
 const RECORD_COMPANION_BY_REPLICA = new Map<string, RecordCompanion>(
   RECORD_COMPANION_KINDS.map((kind) => [RECORD_COMPANIONS[kind], kind]),
 )
 const isRecordCompanion = (kind: string): kind is RecordCompanion =>
   Object.hasOwn(RECORD_COMPANIONS, kind)
+// side-state: declaration: a fixed table, never written after module initialization
 const BINDING_TARGETS: ReadonlySet<string> = new Set(['global', 'repository', 'issue', 'session'])
 
 /** A record companion's feed id, from its replica row. */
@@ -315,6 +320,7 @@ const PER_USER_KINDS = {
   instancePreferences: { replica: 'instancePreferences', target: 'instancePreferences' },
 } as const satisfies Record<string, { replica: ReplicaKind; target: OverlayTarget | undefined }>
 type PerUserKind = keyof typeof PER_USER_KINDS
+// side-state: declaration: a fixed table, never written after module initialization
 const PER_USER_BY_REPLICA = new Map<string, PerUserKind>(
   (Object.keys(PER_USER_KINDS) as PerUserKind[]).map((kind) => [
     PER_USER_KINDS[kind].replica,
@@ -331,6 +337,7 @@ const isPerUserKind = (kind: string): kind is PerUserKind => Object.hasOwn(PER_U
  * share stays gone however it is painted), and never a record with an
  * identity of its own (an issue, a session, a thread).
  */
+// side-state: declaration: a fixed table, never written after module initialization
 const RECREATABLE: ReadonlySet<string> = new Set<PerUserKind>([
   'pin',
   'userLayout',
@@ -420,12 +427,12 @@ export function createRowSource(
 
   const readRow: NonNullable<RowSourceReplica['row']> = rowOf
   const subscribeAddressed: NonNullable<RowSourceReplica['subscribeAddressedBatch']> = addressedOf
-  const listeners = new Set<(event: RowSourceEvent) => void>()
+  const listeners = new SideSet<(event: RowSourceEvent) => void>('rowSource.listeners')
   let disposed = false
   const diagnostics = new FeedDiagnostics()
   const exits = new ExitSignals()
 
-  const userStateKeys = new Map<string, string>()
+  const userStateKeys = new SideMap<string, string>('rowSource.userStateKeys')
   function installUserKey(key: string): string {
     const { entityId } = parseIssueUserStateRowId(key)
     if (authority('issueUserStates', key)) userStateKeys.set(entityId, key)
@@ -445,7 +452,7 @@ export function createRowSource(
     }
   }
 
-  const sessionUserKeys = new Map<string, string>()
+  const sessionUserKeys = new SideMap<string, string>('rowSource.sessionUserKeys')
   function installSessionUserKey(key: string): string | undefined {
     const parsed = parseSessionUserStateRowId(key)
     if (runtime.principal && parsed.userId !== runtime.principal.userId) return undefined
@@ -518,18 +525,20 @@ export function createRowSource(
   }
 
   // Pending signals since the last flush.
-  const pendingAddresses = new Map<string, { kind: ReplicaKind; id: string }>()
+  const pendingAddresses = new SideMap<string, { kind: ReplicaKind; id: string }>(
+    'rowSource.pendingAddresses',
+  )
   let pendingReplace: 'bootstrap' | 'rescope' | null = null
   let scheduled = false
 
   /** Last published values, including bootstrap snapshots. Compare by the
    *  record's own fields before waking the pool; a new replica object alone
    *  is not a client change. Removed rows and scope replacements drop entries. */
-  const published = new Map<string, RowRecord['value']>()
-  const seededKinds = new Set<RowRecord['kind']>()
+  const published = new SideMap<string, RowRecord['value']>('rowSource.published')
+  const seededKinds = new SideSet<RowRecord['kind']>('rowSource.seededKinds')
 
   // Worktree lanes memoized by path signature (path|repoId|repoPath|name|prefix).
-  const laneCache = new Map<string, { sig: string; lane: SliceWorktree }>()
+  const laneCache = new SideMap<string, { sig: string; lane: SliceWorktree }>('rowSource.laneCache')
   /** The latest repo index, memoized by the `repos` array it was built from. */
   let repoIndex: RepoIndex | null = null
   /** The lanes the arms hold, by path, and the `repos` array they come from.
@@ -605,7 +614,9 @@ export function createRowSource(
   function authority(kind: ReplicaKind, id: string): AnyRow | undefined {
     try {
       return readRow(kind, id)
-    } catch {
+    } catch (error) {
+      // The side-state guard's error is a test failure, never an absent row (POD-7454).
+      if (isSideStateReadError(error)) throw error
       // The facade's row() never throws; a fake that does reads as gone.
       return undefined
     }
@@ -622,10 +633,12 @@ export function createRowSource(
 
   /** One slice row's current value. `pending: null` resolves server truth
    *  alone — the value the arms hold for a row that had no overlay. */
-  const edgeRows = new Map<string, { from: string; to: string; type: string }>()
-  const outgoing = new Map<string, SliceIssue['deps']>()
-  const incoming = new Map<string, Set<string>>()
-  const closure = new Map<string, boolean>()
+  const edgeRows = new SideMap<string, { from: string; to: string; type: string }>(
+    'rowSource.edgeRows',
+  )
+  const outgoing = new SideMap<string, SliceIssue['deps']>('rowSource.outgoing')
+  const incoming = new SideMap<string, Set<string>>('rowSource.incoming')
+  const closure = new SideMap<string, boolean>('rowSource.closure')
   let edgesReady = false
   // Maintained raw ownership facts are read as scalars by IssueModel. They
   // never become part of an issue row or a synthetic issue publication.
@@ -801,7 +814,8 @@ export function createRowSource(
   function currentRepos(): readonly RepoEntry[] {
     try {
       return repositoriesFromCheckouts(replica.rows('checkouts') as readonly CheckoutWire[])
-    } catch {
+    } catch (error) {
+      if (isSideStateReadError(error)) throw error
       return EMPTY
     }
   }
@@ -881,7 +895,8 @@ export function createRowSource(
 
   /** Every lane of `repos`, by path, each one resolved (and counted). */
   function lanesByPath(repos: readonly RepoEntry[]): Map<string, SliceWorktree> {
-    const out = new Map<string, SliceWorktree>()
+    // Kept as the held lanes (`held`): side state from then on.
+    const out = new SideMap<string, SliceWorktree>('rowSource.heldLanes')
     const index = indexFor(repos)
     for (const repo of index.roots) {
       for (const lane of lanesOf(repo, index.projects.get(repo)!)) {
@@ -1156,7 +1171,10 @@ export function createRowSource(
       const lanes = allLanes()
       // Every subscriber now holds these lanes.
       heldFrom = currentRepos()
-      held = new Map(lanes.map((row) => [row.id, row.value as SliceWorktree]))
+      held = new SideMap(
+        'rowSource.heldLanes',
+        lanes.map((row) => [row.id, row.value as SliceWorktree]),
+      )
       const event: RowSourceEvent = {
         type: 'replace',
         rows: [
@@ -1438,7 +1456,8 @@ export function createRowSource(
     row,
     exitKind(kind, id) {
       const entity = kind === 'issue' ? 'issueProjection' : kind
-      const exit = replica.exitKind?.(entity, id)
+      // untracked-read: row-exit-kind
+      const exit = signalledRead(() => replica.exitKind?.(entity, id))
       if (exit === undefined) return undefined
       // TRACKED from here (POD-7422): the row's way back moves this signal.
       exits.observe(`${kind}:${id}`)

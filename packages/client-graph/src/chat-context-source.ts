@@ -1,6 +1,7 @@
 import { outboxChatSends } from '@podium/client-core/chat-values'
 import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { asSessionId } from '@podium/model'
+import { SideMap, SideSet, signalledRead } from '@podium/sync/side-state'
 import {
   compareStructural,
   computed,
@@ -26,14 +27,14 @@ interface ChatOrder {
 export class ChatContextSource {
   private readonly rows = observable.map<string, object>(undefined, { deep: false })
   private readonly loaded = observable.set<string>()
-  private readonly demanded = new Set<string>()
+  private readonly demanded = new SideSet<string>('chatContext.demanded')
   /** Demanded keys a wake moved (POD-5433): one draft, the window, the held sends. */
-  private readonly dirty = new Set<string>()
+  private readonly dirty = new SideSet<string>('chatContext.dirty')
   private outboxDirty = true
   /** The order lists, kept by address (finding 13): membership in replica
    *  insertion order, which a reader's `{ ids }` is derived from. A
    *  batch costs its addresses; the list is built only when it moved. */
-  private readonly orders = new Map<string, ChatOrder>()
+  private readonly orders = new SideMap<string, ChatOrder>('chatContext.orders')
   private readonly source = defineSource({
     readById: this.readById.bind(this),
     refresh: this.refresh.bind(this),
@@ -100,24 +101,27 @@ export class ChatContextSource {
     entity: keyof ChatContextRows,
     id: string,
   ): Loaded<ChatContextRows[keyof ChatContextRows]> {
-    if (entity === 'chatWindow') {
-      const ui = this.owner.ui
-      return {
-        get attachedSessionId() {
-          return ui.attachedSessionId
-        },
+    // untracked-read: chat-context-read-by-id
+    return signalledRead(() => {
+      if (entity === 'chatWindow') {
+        const ui = this.owner.ui
+        return {
+          get attachedSessionId() {
+            return ui.attachedSessionId
+          },
+        }
       }
-    }
-    if (entity === 'chatContextReader') return this.reader
-    const key = `${entity}:${id}`
-    this.demanded.add(key)
-    if (!this.loaded.has(key)) {
-      this.schedule()
-      return LOADING
-    }
-    const order = this.orders.get(entity)
-    if (order !== undefined && id === 'order') return order.row.get()
-    return this.rows.get(key) as ChatContextRows[keyof ChatContextRows] | undefined
+      if (entity === 'chatContextReader') return this.reader
+      const key = `${entity}:${id}`
+      this.demanded.add(key)
+      if (!this.loaded.has(key)) {
+        this.schedule()
+        return LOADING
+      }
+      const order = this.orders.get(entity)
+      if (order !== undefined && id === 'order') return order.row.get()
+      return this.rows.get(key) as ChatContextRows[keyof ChatContextRows] | undefined
+    })
   }
 
   private set(key: string, row: object): void {

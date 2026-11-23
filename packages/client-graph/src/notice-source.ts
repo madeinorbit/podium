@@ -8,6 +8,7 @@ import {
   parseInteractionRowId,
   parseMessageRecordRowId,
 } from '@podium/model'
+import { SideMap, signalledRead } from '@podium/sync/side-state'
 import { compareStructural, runInAction } from 'mobx'
 import { omitGone } from './lookup'
 import { ingestMessageRecords } from './message-models'
@@ -61,11 +62,13 @@ function newestOrder(value: string): string {
  * answers release with their last observer. */
 export class NoticeSource {
   private readonly identities = {
+    // side-state: identity: one stable identity per record; its fields are read tracked
     messageRecord: new Map<string, Identity>(),
+    // side-state: identity: one stable identity per record; its fields are read tracked
     pendingInteraction: new Map<string, Identity>(),
   }
   private readonly positions = { messageRecord: 0, pendingInteraction: 0 }
-  private readonly sessions = new Map<string, SessionMembers>()
+  private readonly sessions = new SideMap<string, SessionMembers>('noticeSource.sessions')
   private readonly watched = createDemandAtoms<string>((key) => key, {
     onObserved: (key) => {
       if (key.startsWith('outboxDeadLetter:')) this.recoveryReaders++
@@ -174,43 +177,46 @@ export class NoticeSource {
   }
 
   private readById(entity: NoticeEntity, id: string): Loaded<NoticeRows[NoticeEntity]> {
-    if (
-      (entity === 'noticeAttention' && id !== 'attention') ||
-      ((entity === 'noticeCatalog' ||
-        entity === 'noticeMessageCatalog' ||
-        entity === 'noticeRecoveryCatalog') &&
-        id !== 'catalog')
-    )
-      return undefined
-    const tracked = this.watch(entity, id)
-    if (!this.loaded) {
-      if (!tracked) this.imperativeLoad = true
-      this.schedule()
-      return LOADING
-    }
-    if (entity === 'messageRecord' || entity === 'pendingInteraction') {
-      this.counts.payloadReads++
-      return omitGone(this.pool.row(entity, id)) as Loaded<NoticeRows[NoticeEntity]>
-    }
-    if (entity === 'noticeSession') {
-      const members = this.sessions.get(id)
-      return members
-        ? { messages: members.messages.snapshot(), interactions: members.interactions.snapshot() }
-        : undefined
-    }
-    if (entity === 'noticeAttention') {
-      const ids = this.attention().snapshot()
-      return { count: ids.length, newest: ids[0] }
-    }
-    if (entity === 'noticeMessageCatalog') return { messages: this.attention().snapshot() }
-    if (entity === 'noticeRecoveryCatalog') return { deadLetters: this.recovery().ids }
-    if (entity === 'outboxDeadLetter') return this.recovery().rows.get(id)
-    const catalog = this.catalog()
-    return {
-      messages: catalog.messages.snapshot(),
-      interactions: catalog.interactions.snapshot(),
-      deadLetters: this.recovery().ids,
-    }
+    // untracked-read: notice-read-by-id
+    return signalledRead(() => {
+      if (
+        (entity === 'noticeAttention' && id !== 'attention') ||
+        ((entity === 'noticeCatalog' ||
+          entity === 'noticeMessageCatalog' ||
+          entity === 'noticeRecoveryCatalog') &&
+          id !== 'catalog')
+      )
+        return undefined
+      const tracked = this.watch(entity, id)
+      if (!this.loaded) {
+        if (!tracked) this.imperativeLoad = true
+        this.schedule()
+        return LOADING
+      }
+      if (entity === 'messageRecord' || entity === 'pendingInteraction') {
+        this.counts.payloadReads++
+        return omitGone(this.pool.row(entity, id)) as Loaded<NoticeRows[NoticeEntity]>
+      }
+      if (entity === 'noticeSession') {
+        const members = this.sessions.get(id)
+        return members
+          ? { messages: members.messages.snapshot(), interactions: members.interactions.snapshot() }
+          : undefined
+      }
+      if (entity === 'noticeAttention') {
+        const ids = this.attention().snapshot()
+        return { count: ids.length, newest: ids[0] }
+      }
+      if (entity === 'noticeMessageCatalog') return { messages: this.attention().snapshot() }
+      if (entity === 'noticeRecoveryCatalog') return { deadLetters: this.recovery().ids }
+      if (entity === 'outboxDeadLetter') return this.recovery().rows.get(id)
+      const catalog = this.catalog()
+      return {
+        messages: catalog.messages.snapshot(),
+        interactions: catalog.interactions.snapshot(),
+        deadLetters: this.recovery().ids,
+      }
+    })
   }
 
   private watch(entity: NoticeEntity, id: string): boolean {

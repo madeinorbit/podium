@@ -1,4 +1,5 @@
 import { machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
+import { SideMap } from '@podium/sync/side-state'
 /** Scalar history question. Storage can answer the same maximum without
  * exposing session rows or a history map to its caller. */
 export interface SessionActivityQuestion {
@@ -15,7 +16,7 @@ const better = (a: Entry, b: Entry) => a.at > b.at || (a.at === b.at && a.id < b
 
 class Maximum {
   private readonly entries: Entry[] = []
-  private readonly positions = new Map<string, number>()
+  private readonly positions = new SideMap<string, number>('sessionActivity.positions')
   get size() {
     return this.entries.length
   }

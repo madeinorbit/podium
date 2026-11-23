@@ -68,12 +68,14 @@ const issueNavigationOverlay = createRowOverlay()
 const menuIssueOverlay = createRowOverlay()
 const menuSessionOverlay = createRowOverlay()
 const MENU_SESSION_OVERRIDES = Object.freeze({})
+// side-state: declaration: a fixed table, never written after module initialization
 const MENU_SESSION_OMISSIONS = new Set<PropertyKey>([
   'machineName',
   'condition',
   'handoffTarget',
   'displayRef',
 ])
+// side-state: declaration: a fixed table, never written after module initialization
 const MENU_OMISSIONS = new Set<PropertyKey>(['memberSessionIds', 'childIds', 'dependents'])
 
 export interface MissionRowPresentation {
@@ -1010,6 +1012,7 @@ const rootDepartures = (deck: MissionDeckModel) => deck.view.departures(deck)
 /** A deck's last row placements, by path: reused while their path holds. Weak,
  * so a closed deck keeps none (companions hold no registries of their own). */
 const placementsByPath = new WeakMap<MissionDeckModel, ReadonlyMap<string, MissionDeckIssueModel>>()
+// side-state: declaration: the shared frozen empty answer
 const NO_PLACEMENTS: ReadonlyMap<string, MissionDeckIssueModel> = new Map()
 
 /** Root questions contain IDs and mission-wide numbers. MobX owns every cache

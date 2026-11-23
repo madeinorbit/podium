@@ -99,6 +99,7 @@ import {
   type SyncSpan,
   type SyncUnitOfWork,
 } from './ports'
+import { SideMap, SideSet } from './side-state'
 import { transitionRow } from './transition-table'
 import {
   type BootstrapChunk,
@@ -414,7 +415,7 @@ export class Replica implements DeviceCollectionReads {
    */
   private buffer: DeltaFrame[] = []
   /** How each entity left the view. The model-level remove-vs-evict distinction (D14.5). */
-  private readonly exits = new Map<string, ExitKind>()
+  private readonly exits = new SideMap<string, ExitKind>('replica.exits')
   /** Set while a bootstrap walk is in flight; bumped to abandon a superseded walk. */
   private walkGeneration = 0
   private walkAbort = new AbortController()
@@ -443,9 +444,11 @@ export class Replica implements DeviceCollectionReads {
 
   private readonly now: () => number
   /** Instances an open view holds, with how many holds each has (design "Two holders"). */
-  private readonly holds = new Map<string, { readonly spec: InstanceSpec; count: number }>()
+  private readonly holds = new SideMap<string, { readonly spec: InstanceSpec; count: number }>(
+    'replica.holds',
+  )
   /** Instances a fetch is answering now: they count as held, so the feed keeps their records. */
-  private readonly inFlight = new Map<string, InstanceSpec>()
+  private readonly inFlight = new SideMap<string, InstanceSpec>('replica.inFlight')
   private inFlightVersion = 0
   /**
    * The feed number of every change seen while a fetch is in flight, by record.
@@ -477,30 +480,32 @@ export class Replica implements DeviceCollectionReads {
    */
   private tail: { readonly generation: number; readonly named: Set<string> } | null = null
   /** The fetch answering each instance now: a second asker waits for its answer (POD-7169). */
-  private readonly inFlightAnswers = new Map<string, Promise<unknown>>()
+  private readonly inFlightAnswers = new SideMap<string, Promise<unknown>>(
+    'replica.inFlightAnswers',
+  )
   /** POD-7159 — the disk load answering each instance now: a second asker waits for it. */
-  private readonly diskLoads = new Map<string, Promise<void>>()
+  private readonly diskLoads = new SideMap<string, Promise<void>>('replica.diskLoads')
   /** POD-7159 — the records each comes-with instance was asked for, until its answer completes them. */
-  private readonly askedComesWith = new Map<string, Set<string>>()
+  private readonly askedComesWith = new SideMap<string, Set<string>>('replica.askedComesWith')
   /**
    * POD-7159 — a holder's own comes-with instances answered complete while
    * others of the same via are still to come (the loader sends a holder's
    * asks in more than one request): kept until the via is complete.
    */
-  private readonly comesWithAnswered = new Map<string, Set<string>>()
+  private readonly comesWithAnswered = new SideMap<string, Set<string>>('replica.comesWithAnswered')
   /**
    * POD-7160 — records a load after a gap kept whole for the stale instances
    * that hold them, because their stub came back the same: confirmed to
    * exist, so the load's sweep keeps them.
    */
-  private readonly keptWhole = new Set<string>()
+  private readonly keptWhole = new SideSet<string>('replica.keptWhole')
   /** POD-7160 — stale instances read while they could not reload yet (no connection, a load under way). */
-  private readonly staleWanted = new Map<string, InstanceRequest>()
+  private readonly staleWanted = new SideMap<string, InstanceRequest>('replica.staleWanted')
   /** What held records come with, gathered for one batched fetch. */
-  private readonly needs = new Map<string, InstanceRequest>()
+  private readonly needs = new SideMap<string, InstanceRequest>('replica.needs')
   private needsScheduled = false
   /** POD-7161 — when each warm instance (in memory, no view reading it) was released. */
-  private readonly releasedAt = new Map<string, number>()
+  private readonly releasedAt = new SideMap<string, number>('replica.releasedAt')
   private readonly memorySignals: MemorySignals | undefined
   private readonly warmInstances: number | undefined
   /** An idle moment memory asked for and has not had yet. */
@@ -2109,7 +2114,7 @@ export class Replica implements DeviceCollectionReads {
     // commit staged, and fetched answers install meanwhile. The last commit is
     // read after them and waits only for itself. An adapter whose writes are
     // durable when they return has no `durable`.
-    const named = new Set<string>()
+    const named = new SideSet<string>('replica.tail.named')
     const durable = this.unitOfWork?.durable
     if (durable !== undefined) {
       this.tail = { generation, named }
@@ -3443,7 +3448,7 @@ export class Replica implements DeviceCollectionReads {
     if (fresh.length === 0) return []
     for (const request of fresh) this.inFlight.set(instanceKey(request), request)
     this.inFlightVersion += 1
-    this.seen ??= new Map()
+    this.seen ??= new SideMap('replica.seen')
     this.fetchCount += 1
     const signal = this.fetchAbort.signal
     const startingTokens = this.store.readKindTokens()

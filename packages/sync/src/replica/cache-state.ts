@@ -325,6 +325,7 @@ export interface CacheMeta {
 
 export const EMPTY_CACHE_META: CacheMeta = Object.freeze({
   cursor: null,
+  // side-state: declaration: the frozen empty meta
   instances: new Map<string, InstanceRecord>(),
   policy: null,
   loadingSince: null,

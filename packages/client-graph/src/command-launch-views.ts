@@ -450,8 +450,10 @@ export class CommandPaletteView {
   @observable accessor initialRepoPath = ''
   @observableRef accessor recent: RecentCommand[] = []
   // Stored on open: membership and recency, never copied labels or references.
+  // side-state: snapshot: held in an observable reference and replaced whole
   @observableRef accessor issuePositions = new Map<string, number>()
   @observableRef accessor memberOrder: { issueId: string; sessionId: string }[] = []
+  // side-state: snapshot: held in an observable reference and replaced whole
   @observableRef accessor memberPositions = new Map<string, number>()
   @observable accessor defaultAgent = HarnessAgent.enum.codex as SessionView['agentKind']
   private stopLoading: (() => void) | undefined

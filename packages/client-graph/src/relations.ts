@@ -35,6 +35,7 @@ import { machinePathKey } from '@podium/model/browser'
  */
 
 import { createDemandAtoms, lazy } from '@podium/mobx-helpers'
+import { SideMap } from '@podium/sync/side-state'
 import { compareShallow, observable } from 'mobx'
 import { debugName } from './debug-name'
 import { relationRef } from './shared/links'
@@ -73,6 +74,7 @@ export interface PoolRelationsOptions {
   readonly onBucket?: (collection: string, target: string, member: string, added: boolean) => void
 }
 
+// side-state: declaration: the shared frozen empty answer
 const NONE: ReadonlySet<string> = Object.freeze(new Set<string>())
 const EMPTY_IDS: readonly string[] = Object.freeze([])
 
@@ -97,14 +99,18 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   private readonly present: (entity: EntityName, id: string) => boolean
   private readonly onBucket: (collection: string, target: string, member: string, added: boolean) => void
   /** List holders and atoms belong to the same demand-scoped slot index. */
+  // side-state: signal: list holders beside their demand atoms; a holder is dropped with its atom
   private readonly lists = new Map<string, RelationList>()
   private readonly atoms = createDemandAtoms<string>(
     (key) => debugName(() => `pool.relation.${key}`) ?? 'Atom',
     { onUnobserved: (key) => this.lists.delete(key) },
   )
   /** Collections by name, and which outgoing links are many-valued (`from.relation`). */
+  // side-state: declaration: filled once from the schema at construction
   private readonly collections = new Set<string>()
+  // side-state: declaration: filled once from the schema at construction
   private readonly singles = new Set<string>()
+  // side-state: declaration: filled once from the schema at construction
   private readonly multiples = new Set<string>()
 
   constructor(options: PoolRelationsOptions) {
@@ -302,7 +308,7 @@ export class RelationBuckets {
   constructor(private readonly options: { trackedForward?: boolean; sorted?: boolean } = {}) {
     this.forwards = options.trackedForward
       ? observable.map<string, readonly string[]>(undefined, { deep: false })
-      : new Map()
+      : new SideMap('relationBuckets.forwards')
   }
 
   move(address: string, member: string, targets: readonly string[], bucket: (target: string) => string): void {

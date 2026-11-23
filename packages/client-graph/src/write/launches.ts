@@ -78,6 +78,7 @@ import {
   type SessionMeta,
   type UserId,
 } from '@podium/model'
+import { SideMap, SideSet } from '@podium/sync/side-state'
 import {
   draftIssueRow,
   type LaunchIssueRow,
@@ -117,6 +118,7 @@ export type LaunchRecord = Readonly<
   readonly id: string
 }
 
+// side-state: declaration: a fixed table, never written after module initialization
 const ENDED = new Set(['failed', 'expired', 'cancelled', 'unknown'])
 
 const PROPOSED_NOTICE = 'Filed as a proposal; an admin starts it.'
@@ -274,9 +276,9 @@ const PROJECTION_KEYS = Object.keys(IssueProjection.shape)
 export class PoolLaunches {
   private disposed = false
   /** Launch placeholders this pool paints, by session id. */
-  private readonly painted = new Map<SessionId, Painted>()
+  private readonly painted = new SideMap<SessionId, Painted>('launches.painted')
   /** What this device knows of a start it made itself (its repo, its prompt). */
-  private readonly local = new Map<
+  private readonly local = new SideMap<
     SessionId,
     {
       target: SpawnTarget
@@ -286,24 +288,28 @@ export class PoolLaunches {
       description?: string
       brief?: string
     }
-  >()
-  private readonly settlers = new Map<SessionId, (started: boolean) => void>()
+  >('launches.local')
+  private readonly settlers = new SideMap<SessionId, (started: boolean) => void>(
+    'launches.settlers',
+  )
   /** Own named-task starts waiting to learn whether they became a proposal. */
-  private readonly proposals = new Map<SessionId, (proposed: boolean) => void>()
-  private readonly waiters = new Map<SessionId, Set<() => void>>()
+  private readonly proposals = new SideMap<SessionId, (proposed: boolean) => void>(
+    'launches.proposals',
+  )
+  private readonly waiters = new SideMap<SessionId, Set<() => void>>('launches.waiters')
   /** Failures already told, so a reload or a repaint never tells one twice. */
-  private readonly told = new Set<string>()
+  private readonly told = new SideSet<string>('launches.told')
   /** Starts whose create this device is still writing: live, though the queue
    *  may not list them yet. */
-  private readonly writing = new Set<SessionId>()
+  private readonly writing = new SideSet<SessionId>('launches.writing')
   /** Own starts whose record this pool has seen: from then on, the record's
    *  absence means it was dismissed. Before, it is on its way (the replica's
    *  commit that retires the entry is the one that brings the record). */
-  private readonly recorded = new Set<SessionId>()
+  private readonly recorded = new SideSet<SessionId>('launches.recorded')
   /** Starts whose create the server refused (POD-6622): no record will come.
    *  Painted ended with the refusal until dismissed here, or until a retry of
    *  the same create is queued again. */
-  private readonly refusedCreates = new Map<SessionId, Launch>()
+  private readonly refusedCreates = new SideMap<SessionId, Launch>('launches.refusedCreates')
 
   constructor(private readonly ports: PoolLaunchPorts) {}
 

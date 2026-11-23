@@ -3,6 +3,7 @@ import { observable, runInAction } from 'mobx'
 import type { EntityName } from './shared/schema'
 import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
+import { SideMap, sideStateUpkeep } from '@podium/sync/side-state'
 
 /** Screen modules extend this interface with their declared row types. The
  * pool reader and lifecycle stay fixed as new sources are registered. */
@@ -68,43 +69,48 @@ export function defineSource<Args extends [unknown?, unknown?], Row>(definition:
 export class PoolSources {
   constructor(private readonly pool?: MobxPool) {}
   private readonly byEntity = observable.map<SourceEntity, PoolSource<SourceEntity>>(undefined, { deep: false })
+  // side-state: identity: one stable view object per key; values read their own tracked fields
   private readonly views = new Map<string, object>()
-  private readonly owners = new Map<SourceEntity, string>()
-  private readonly ensured = new Map<string, { entities: readonly SourceEntity[]; promise: Promise<PoolSource<SourceEntity>> }>()
+  private readonly owners = new SideMap<SourceEntity, string>('poolSources.owners')
+  private readonly ensured = new SideMap<string, { entities: readonly SourceEntity[]; promise: Promise<PoolSource<SourceEntity>> }>('poolSources.ensured')
   private disposed = false
 
   register<E extends SourceEntity>(entities: readonly E[], source: PoolSource<E>): void {
-    this.install(entities, source)
+    // untracked-read: pool-sources-register
+    sideStateUpkeep(() => this.install(entities, source))
   }
 
   /** A source's fixed key owns its entity set, including while its lazy factory
    * is pending. All screens share the same promise and the same source. */
   ensure<E extends SourceEntity>(key: string, entities: readonly E[], create: () => PoolSource<E> | Promise<PoolSource<E>>): Promise<PoolSource<E>> {
-    if (this.disposed || new Set(entities).size !== entities.length) throw new Error('Pool source registration conflicts with its owner')
-    const existing = this.ensured.get(key)
-    if (existing) {
-      if (entities.length !== existing.entities.length || entities.some(entity => !existing.entities.includes(entity))) {
-        throw new Error('Pool source key has a different entity declaration')
+    // untracked-read: pool-sources-ensure
+    return sideStateUpkeep(() => {
+      if (this.disposed || new Set(entities).size !== entities.length) throw new Error('Pool source registration conflicts with its owner')
+      const existing = this.ensured.get(key)
+      if (existing) {
+        if (entities.length !== existing.entities.length || entities.some(entity => !existing.entities.includes(entity))) {
+          throw new Error('Pool source key has a different entity declaration')
+        }
+        return existing.promise as Promise<PoolSource<E>>
       }
-      return existing.promise as Promise<PoolSource<E>>
-    }
-    if (entities.some(entity => this.byEntity.has(entity) || this.owners.has(entity))) {
-      throw new Error('Pool source registration conflicts with its owner')
-    }
-    for (const entity of entities) this.owners.set(entity, key)
-    const promise = Promise.resolve().then(() => {
-      if (this.disposed) throw new Error('Pool source registry disposed before creation')
-      return create()
-    }).then(source => {
-      this.install(entities, source, key)
-      return source
-    }).catch(cause => {
-      this.ensured.delete(key)
-      for (const entity of entities) if (this.owners.get(entity) === key) this.owners.delete(entity)
-      throw cause
+      if (entities.some(entity => this.byEntity.has(entity) || this.owners.has(entity))) {
+        throw new Error('Pool source registration conflicts with its owner')
+      }
+      for (const entity of entities) this.owners.set(entity, key)
+      const promise = Promise.resolve().then(() => {
+        if (this.disposed) throw new Error('Pool source registry disposed before creation')
+        return create()
+      }).then(source => {
+        this.install(entities, source, key)
+        return source
+      }).catch(cause => {
+        this.ensured.delete(key)
+        for (const entity of entities) if (this.owners.get(entity) === key) this.owners.delete(entity)
+        throw cause
+      })
+      this.ensured.set(key, { entities: [...entities], promise: promise as Promise<PoolSource<SourceEntity>> })
+      return promise
     })
-    this.ensured.set(key, { entities: [...entities], promise: promise as Promise<PoolSource<SourceEntity>> })
-    return promise
   }
 
   private install<E extends SourceEntity>(entities: readonly E[], source: PoolSource<E>, key?: string): void {

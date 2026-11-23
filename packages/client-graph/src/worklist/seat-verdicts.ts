@@ -1,4 +1,4 @@
-import { isFinished } from '../shared/predicates'
+import { SideMap, SideSet, sideStateUpkeep } from '@podium/sync/side-state'
 /**
  * POD-5423 (review finding 8): each issue's explicit seats (`issue.sessions`)
  * judged ONCE PER SEAT CHANGE, not once per issue re-run.
@@ -26,6 +26,7 @@ import { isFinished } from '../shared/predicates'
  */
 import { observableRef, runInAction } from 'mobx'
 import { nextUp } from '../clock'
+import { isFinished } from '../shared/predicates'
 import type { SliceIssue, SliceSession } from '../shared/slice-types'
 import { activityMsOf, retains, retentionOf } from './visible'
 
@@ -114,14 +115,15 @@ class SeatSummaryEntry {
 
 export class SeatVerdicts {
   /** Per summarised issue: its summary (observable) and each seat's verdict (plain). */
+  // side-state: identity: one stable entry per issue; its summary is observable
   private readonly issues = new Map<string, SeatSummaryEntry>()
   /** Summarised seat → its issue (a seat belongs to one issue's bucket). */
-  private readonly owner = new Map<string, string>()
-  private readonly dirtySeats = new Set<string>()
-  private readonly dirtyIssues = new Set<string>()
+  private readonly owner = new SideMap<string, string>('seatVerdicts.owner')
+  private readonly dirtySeats = new SideSet<string>('seatVerdicts.dirtySeats')
+  private readonly dirtyIssues = new SideSet<string>('seatVerdicts.dirtyIssues')
   private readonly moves: [issueId: string, seat: string, added: boolean][] = []
-  private readonly expiries = new Map<string, number>()
-  private readonly due = new Map<number, Set<string>>()
+  private readonly expiries = new SideMap<string, number>('seatVerdicts.expiries')
+  private readonly due = new SideMap<number, Set<string>>('seatVerdicts.due')
   private readonly deadlines: number[] = []
   private stopDeadline: (() => void) | undefined
   private scheduledAt: number | undefined
@@ -139,17 +141,21 @@ export class SeatVerdicts {
   summary(id: string): SeatSummary {
     let entry = this.issues.get(id)
     if (entry === undefined) {
-      const verdicts = new Map<string, Verdict>()
-      const issue = this.host.issue(id)
-      let summary = NO_SEATS
-      for (const seat of this.host.seats(id)) {
-        const verdict = this.judge(seat, id, issue)
-        verdicts.set(seat, verdict)
-        this.owner.set(seat, id)
-        summary = this.withVerdict(summary, seat, OUT, verdict, verdicts)
-      }
-      entry = new SeatSummaryEntry(summary, verdicts, finishOf(issue))
-      this.issues.set(id, entry)
+      // untracked-read: seat-verdicts-first-read
+      entry = sideStateUpkeep(() => {
+        const verdicts = new SideMap<string, Verdict>('seatVerdicts.verdicts')
+        const issue = this.host.issue(id)
+        let summary = NO_SEATS
+        for (const seat of this.host.seats(id)) {
+          const verdict = this.judge(seat, id, issue)
+          verdicts.set(seat, verdict)
+          this.owner.set(seat, id)
+          summary = this.withVerdict(summary, seat, OUT, verdict, verdicts)
+        }
+        const made = new SeatSummaryEntry(summary, verdicts, finishOf(issue))
+        this.issues.set(id, made)
+        return made
+      })
     }
     return entry.summary
   }
@@ -361,7 +367,7 @@ export class SeatVerdicts {
     if (!Number.isFinite(at)) { this.armDeadline(); return }
     let seats = this.due.get(at)
     if (!seats) {
-      seats = new Set()
+      seats = new SideSet('seatVerdicts.dueSeats')
       this.due.set(at, seats)
       let lo = 0
       let hi = this.deadlines.length
