@@ -626,7 +626,14 @@ interface CorpusWrite {
   ) => Promise<unknown>
 }
 
-type Outcome = { readonly refused: string } | { readonly rows: readonly CapturedRow[] }
+type AskingRow = { readonly workspace_id: string; readonly id: string; readonly asks_user: number }
+const READ_ASKING_ROWS = sql`SELECT workspace_id, id, CAST(asks_user AS integer) AS asks_user FROM sessions ORDER BY workspace_id, id`
+type Outcome =
+  | { readonly refused: string }
+  | {
+      readonly rows: readonly CapturedRow[]
+      readonly asking: readonly AskingRow[]
+    }
 
 class Rollback extends Error {}
 
@@ -809,6 +816,7 @@ async function onSqlite(store: SessionStore, write: CorpusWrite): Promise<Outcom
       }
       outcome = {
         rows: capturedRows((await db.all(sql.raw(READ_CAPTURE_ROWS))) as StoredCaptureRow[]),
+        asking: (await db.all(READ_ASKING_ROWS)) as AskingRow[],
       }
       throw new Rollback()
     })
@@ -846,7 +854,7 @@ async function onPostgres(
         if (!(error instanceof CaptureOracleDifference)) throw error
         differences.push(`${write.label}: oracle\n    ${error.lines.join('\n    ')}`)
       }
-      outcome = { rows }
+      outcome = { rows, asking: (await db.all(READ_ASKING_ROWS)) as AskingRow[] }
       throw new Rollback()
     }, context)
   } catch (error) {
@@ -968,7 +976,7 @@ describe.runIf(ENGINE === 'pg')('the cross-engine corpus (Postgres leg)', () => 
     expect(short).toEqual([])
   })
 
-  it('captures on Postgres exactly what SQLite captures, and what the oracle sees', async () => {
+  it('matches SQLite capture and asks_user row for row after the same writes, including deletes and cascades', async () => {
     const writes = await corpusWrites(store, ROWS_PER_TABLE)
     const differences: string[] = []
     const accepted: string[] = []
@@ -997,6 +1005,11 @@ describe.runIf(ENGINE === 'pg')('the cross-engine corpus (Postgres leg)', () => 
         ]
       } else {
         lines = captureDifference(sqlite.rows, pg.rows, { expected: 'SQLite', actual: 'Postgres' })
+        if (JSON.stringify(sqlite.asking) !== JSON.stringify(pg.asking)) {
+          lines.push(
+            `asks_user: SQLite ${JSON.stringify(sqlite.asking)}, Postgres ${JSON.stringify(pg.asking)}`,
+          )
+        }
       }
       if (lines.length === 0) continue
       const line = `${write.label}: ${lines.join('; ')}`

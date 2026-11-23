@@ -30,11 +30,13 @@ import { pgSyncTables } from '@podium/sync/adapters/pg/schema'
 import { eq, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import * as pgSchema from '../migrations/pg/schema'
+import { askingNeeded } from '../migrations/session-asks-user'
 import type { SessionStore } from '../store'
 import type { bindingFor } from '../store/executor/binding'
 import type { QueryClient } from '../store/executor/driver'
 import { buildPgStoreDrizzle } from '../store/executor/pg-drizzle'
 import type { StoreDrizzle } from '../store/executor/sync-drizzle'
+import { WORKSPACE } from '../store/executor/sync-drizzle'
 import {
   FAMILY_SHAPES,
   isFragment,
@@ -47,7 +49,13 @@ import {
 } from '../test-support/definition-census'
 import { openTestStore } from '../test-support/open-test-store'
 import { queryDefinitionSites } from '../test-support/prepared-census'
-import { captureWrite, uncapturedWrites } from './capture-pg'
+import { unmaintainedAskingWrites } from './asking-pg'
+import {
+  captureWrite,
+  cascadesReachingSources,
+  renderedWrites,
+  uncapturedWrites,
+} from './capture-pg'
 
 const PG_TABLES = Object.freeze({ ...pgSchema, ...pgSyncTables })
 type Tables = ReturnType<typeof bindingFor>
@@ -94,6 +102,7 @@ const PENDING_CAPTURE: ReadonlyMap<string, { readonly task: string; readonly wri
 /** One definition's plain writes on source tables, as the census reports them. */
 function uncapturedOf(
   keyed: readonly Pick<KeyedDefinition, 'key' | 'definition'>[],
+  violations: typeof uncapturedWrites = uncapturedWrites,
 ): Map<string, string[]> {
   const db = pgRecordingDrizzle()
   const out = new Map<string, string[]>()
@@ -108,7 +117,7 @@ function uncapturedOf(
         continue // the dialect census reports a definition that does not build on Postgres
       }
       for (const text of sqlOf(built)) {
-        for (const write of uncapturedWrites(text)) {
+        for (const write of violations(text)) {
           const line = `${write.op === 'i' ? 'insert into' : write.op === 'u' ? 'update' : 'delete from'} ${write.table}`
           out.set(key, [...new Set([...(out.get(key) ?? []), line])])
         }
@@ -193,6 +202,62 @@ describe('the write census (design 2.5)', () => {
     expect(outside).toContain('apps/server/src/modules/operations/store.ts')
     const keyedFiles = new Set(keyed.map(({ key }) => fileOf(key)))
     expect(outside.filter((file) => !keyedFiles.has(file))).toEqual([])
+  })
+
+  it('maintains asks_user in every Postgres definition that writes a trigger input', () => {
+    expect([
+      ...uncapturedOf(keyed, (text) => unmaintainedAskingWrites(text, renderedWrites(text))),
+    ]).toEqual([])
+    // No current FK cascades into a watched input. Refuse a new one until its
+    // post-cascade image is included, instead of silently leaving a stale flag.
+    expect(
+      cascadesReachingSources().filter((edge) =>
+        askingNeeded(edge.child, edge.action === 'cascade' ? 'd' : 'u', edge.nulls),
+      ),
+    ).toEqual([])
+  })
+
+  it('rejects planted bypasses of every asking input, including a capture form without maintenance', () => {
+    const db = pgRecordingDrizzle()
+    const t = PG_TABLES as unknown as Tables
+    const writes = [
+      () =>
+        db
+          .update(t.sessions)
+          .set({ archived: true })
+          .where(eq(t.sessions.id, sql.placeholder('id') as never)),
+      () =>
+        db.insert(t.sessions).values({
+          workspaceId: WORKSPACE,
+          id: 's',
+          agentKind: 'codex',
+          cwd: '/repo',
+          title: 's',
+          originKind: 'spawn',
+          status: 'live',
+          durableLabel: 's',
+          createdAt: '2026-11-17T00:00:00.000Z',
+          lastActiveAt: '2026-11-17T00:00:00.000Z',
+        } as never),
+      () => db.delete(t.offers).where(eq(t.offers.sessionId, sql.placeholder('id') as never)),
+      () =>
+        db
+          .update(t.runtimeEventCheckpoints)
+          .set({ turnStateJson: null })
+          .where(eq(t.runtimeEventCheckpoints.sessionId, sql.placeholder('id') as never)),
+      () =>
+        db
+          .delete(t.sessionObservationCheckpoints)
+          .where(eq(t.sessionObservationCheckpoints.sessionId, sql.placeholder('id') as never)),
+    ]
+    for (const write of writes) {
+      const plain = write().toSQL().sql
+      expect(unmaintainedAskingWrites(plain, renderedWrites(plain))).toHaveLength(1)
+      const wrapped = captureWrite(write()).toSQL().sql
+      expect(unmaintainedAskingWrites(wrapped, renderedWrites(wrapped))).toEqual([])
+      const bypass = wrapped.replaceAll('__asks_', '__bypass_')
+      expect(unmaintainedAskingWrites(bypass, renderedWrites(bypass))).toHaveLength(1)
+    }
   })
 
   it('fails on a planted plain UPDATE of a source table, and passes it wrapped', () => {

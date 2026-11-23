@@ -62,6 +62,13 @@
  * an in-statement refusal. Because every write on a source table must be a capture form,
  * a write that bypassed the guard would already fail the write census.
  *
+ * THE ASKING FLAG RIDES ON THE SAME CALL (POD-7123). The input/derivation
+ * declaration beside the SQLite triggers (`migrations/session-asks-user.ts`)
+ * also drives `asking-pg.ts`: session writes include their proposed asks_user
+ * in VALUES/SET, and satellite writes refresh the affected sessions in a CTE
+ * over the post-write image. Neither adds a statement or a round trip. The
+ * same census refuses a write that omits that maintenance.
+ *
  * The fail-closed guard is unchanged: `sync_capture.undrained` references the always
  * empty `sync_capture_guard` through a DEFERRABLE INITIALLY DEFERRED foreign key in the
  * Postgres baseline (POD-6981), so a transaction that leaves capture rows undrained cannot
@@ -89,8 +96,10 @@ import {
 import { getTableConfig, SQLiteBoolean, SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { textColumnClass } from '../migrations/pg/schema-classes'
 import { CLEARED_ON_DELETE } from '../migrations/schema'
+import { askingNeeded } from '../migrations/session-asks-user'
 import { type WriteGuardForm, writeGuard } from '../store/append-only'
 import { bindingFor } from '../store/executor/binding'
+import { askingSatelliteCtes, askingSessionView } from './asking-pg'
 import {
   RECORD_SOURCES,
   type RecordSource,
@@ -523,7 +532,7 @@ function cascadeParts(
 // ---------------------------------------------------------------------------
 
 /** The part of a drizzle Postgres write builder the forms read. */
-interface PgWriteBuilder {
+export interface PgWriteBuilder {
   readonly config: {
     readonly table: Table
     readonly where?: SQL
@@ -620,6 +629,7 @@ function assemble(
   head: SQL,
   ctes: readonly string[],
   selects: readonly string[],
+  asking: SQL = sql``,
 ): SQL {
   const tail = [
     ...ctes,
@@ -629,7 +639,7 @@ function assemble(
           `${CAPTURE_CTE} as (insert into "sync_capture" ("kind", "source", "op", "old_key", "new_key") ${selects.join(' union all ')})`,
         ]),
   ]
-  return sql`${head}${sql.raw(tail.map((cte) => `, ${cte}`).join(''))} select ${callerSelection(builder)} from ${sql.raw(WRITE_CTE)}`
+  return sql`${head}${sql.raw(tail.map((cte) => `, ${cte}`).join(''))}${asking} select ${callerSelection(builder)} from ${sql.raw(WRITE_CTE)}`
 }
 
 function updateForm(builder: PgWriteBuilder, sources: RecordSources): SQL {
@@ -656,7 +666,13 @@ function updateForm(builder: PgWriteBuilder, sources: RecordSources): SQL {
     old: refIn(WRITE_CTE, OLD_COLUMN),
     now: refIn(WRITE_CTE),
   })
-  return assemble(builder, head, [], selects)
+  return assemble(
+    builder,
+    head,
+    [],
+    selects,
+    askingSatelliteCtes(table.name, 'u', setColumnsOf(builder)),
+  )
 }
 
 /** Whether an insert is an upsert: ON CONFLICT … DO UPDATE, which may update the row it meets. */
@@ -697,7 +713,13 @@ function insertForm(builder: PgWriteBuilder, sources: RecordSources): SQL {
   const head = sql`with ${sql.raw(WRITE_CTE)} as (${write} returning ${sql.raw(returning)})`
   const now = refIn(WRITE_CTE)
   if (!upsert)
-    return assemble(builder, head, [], branchSelects(table, own, { op: 'i', from: WRITE_CTE, now }))
+    return assemble(
+      builder,
+      head,
+      [],
+      branchSelects(table, own, { op: 'i', from: WRITE_CTE, now }),
+      askingSatelliteCtes(table.name, 'i'),
+    )
   // A sibling of a data-modifying CTE reads the table as it was before the statement:
   // the returned row's old version, when it had one.
   const joined = `${WRITE_CTE} left join ${name} as ${OLD_ROW} on ${table.primaryKey
@@ -719,6 +741,7 @@ function insertForm(builder: PgWriteBuilder, sources: RecordSources): SQL {
         also: present,
       }),
     ],
+    askingSatelliteCtes(table.name, 'i'),
   )
 }
 
@@ -731,10 +754,16 @@ function deleteForm(builder: PgWriteBuilder, sources: RecordSources): SQL {
   const returning = table.columns.map((column) => `${name}.${quote(column)}`).join(', ')
   const head = sql`with ${sql.raw(WRITE_CTE)} as (${write} returning ${sql.raw(returning)})`
   const cascades = cascadeParts(table, sources)
-  return assemble(builder, head, cascades.ctes, [
-    ...branchSelects(table, own, { op: 'd', from: WRITE_CTE, old: refIn(WRITE_CTE) }),
-    ...cascades.selects,
-  ])
+  return assemble(
+    builder,
+    head,
+    cascades.ctes,
+    [
+      ...branchSelects(table, own, { op: 'd', from: WRITE_CTE, old: refIn(WRITE_CTE) }),
+      ...cascades.selects,
+    ],
+    askingSatelliteCtes(table.name, 'd'),
+  )
 }
 
 /** The capture form of `builder`'s write, or undefined when the write captures nothing. */
@@ -746,6 +775,7 @@ function captureForm(
   const name = getTableName(builder.config.table)
   const needed =
     captureNeeded(name, op, op === 'u' ? setColumnsOf(builder) : undefined, sources) ||
+    askingNeeded(name, op, op === 'u' ? setColumnsOf(builder) : undefined) ||
     // An upsert's DO UPDATE is an update: a source that watches only updates needs it.
     (op === 'i' && isUpsert(builder) && captureNeeded(name, 'u', undefined, sources))
   if (!needed) return undefined
@@ -781,7 +811,7 @@ export function captureWrite<B>(builder: B, sources: RecordSources = RECORD_SOUR
   Object.defineProperty(write, 'getSQL', {
     configurable: true,
     value: () => {
-      const guarded = guardedView(write, kind.op)
+      const guarded = askingSessionView(guardedView(write, kind.op), kind.op)
       return captureForm(guarded, kind.op, sources) ?? plain.call(guarded)
     },
   })

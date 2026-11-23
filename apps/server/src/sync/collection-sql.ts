@@ -49,8 +49,8 @@
  * value a request names; a correlated read joins on the row's workspace. The
  * statement is built for the engine it runs on (`RuleSqlDialect`): the shape
  * names the rule, not the engine, so one shape list serves both.
- * `asks_user` is kept by SQLite triggers only, so on Postgres the "asking"
- * clauses read the offer and the checkpoints themselves.
+ * `asks_user` is kept by SQLite triggers and the Postgres write statement
+ * from the shared declaration in `migrations/session-asks-user.ts` (POD-7123).
  */
 
 import {
@@ -232,8 +232,8 @@ interface CollectionTable {
   readonly parent?: { name: string }
   /** What every record of the type satisfies, whatever the rule. */
   readonly base?: string
-  /** A saved column that answers a set of clauses, on the engines that keep it. */
-  readonly derived?: DerivedColumn & { readonly engines: readonly RuleSqlDialect['name'][] }
+  /** A saved column that answers a set of clauses, in the engine's literal syntax. */
+  readonly derived?: (d: RuleSqlDialect) => DerivedColumn
 }
 
 const str = (value: unknown): string | null =>
@@ -281,13 +281,11 @@ const SESSION_USER_STATE_FROM: RuleSql = {
 const TABLES = {
   session: table(sessions, [sessions.id], SESSION_FIELDS, {
     base: `${col(sessions.deletedAt)} IS NULL`,
-    // `idx_sessions_asking` is partial on `asks_user = 1`. Only SQLite's
-    // triggers keep the column (migration 20261117220206_session-asks-user).
-    derived: {
+    // A literal proves idx_sessions_asking's predicate on either engine.
+    derived: (d) => ({
       clauses: ASKS_USER_CLAUSES,
-      sql: `${col(sessions.asksUser)} = 1`,
-      engines: ['sqlite'],
-    },
+      sql: `${col(sessions.asksUser)} = ${d.bool(true)}`,
+    }),
   }),
   issueProjection: table(issues, [issues.id], ISSUE_FIELDS, { parent: issues.parentId }),
   issueDep: table(
@@ -484,11 +482,8 @@ function kindRuleSql(
   d: RuleSqlDialect,
 ): RuleSql {
   const target = collectionTarget(kind, d)
-  const derived = (TABLES[kind] as CollectionTable).derived
-  const arms = armsOf(
-    clausesOf(where),
-    derived?.engines.includes(d.name) === true ? derived : undefined,
-  )
+  const derived = (TABLES[kind] as CollectionTable).derived?.(d)
+  const arms = armsOf(clausesOf(where), derived)
   if (arms.every((arm) => 'clause' in arm)) return ruleSql(where, target, args, now)
   const params: SqlValue[] = []
   const parts = arms.map((arm) => {

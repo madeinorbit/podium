@@ -26,14 +26,20 @@ import {
 import { openDatabase } from '@podium/runtime/sqlite'
 import { collectRecords } from '@podium/sync/record-builders'
 import { fixtureWriteScope } from '@podium/sync/testing'
+import { sql } from 'drizzle-orm'
+import { SQLiteDialect } from 'drizzle-orm/sqlite-core'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runDrizzleMigrations } from '../migrations'
 import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
+import { sqliteAskingSchema } from '../migrations/session-asks-user'
 import type { SessionStore } from '../store'
 import { ASKS_USER_CLAUSES } from '../sync/collection-sql'
 import { type RecordReads, serverRecordBuilders } from '../sync/record-builders'
 import { issueRowFixture } from '../test-support/issue-row'
 import { openTestStore } from '../test-support/open-test-store'
+import { testStoreEngine } from '../test-support/pg-test-database'
+import { countRoundTrips } from '../test-support/round-trip-count'
+import { storeSql } from '../test-support/store-sql'
 import type { SessionRow } from './types'
 
 const NOW = Date.parse('2026-11-17T12:00:00.000Z')
@@ -48,8 +54,6 @@ const state = (
   nativeSubagentCount: 0,
   ...(idle ? { idle: { kind: idle } } : {}),
 })
-
-type RawDb = { prepare(sql: string): { get(...params: unknown[]): unknown } }
 
 describe('sessions.asks_user follows every writer of its inputs', () => {
   let store: SessionStore
@@ -125,14 +129,23 @@ describe('sessions.asks_user follows every writer of its inputs', () => {
   async function upsert(id: string, over: Partial<SessionRow> = {}): Promise<void> {
     const next = { ...(rows.get(id) ?? row(id)), ...over }
     rows.set(id, next)
-    await store.sessions.upsertSession(fixtureWriteScope(), next)
+    await pinned('session upsert', () => store.sessions.upsertSession(fixtureWriteScope(), next))
   }
 
-  const column = (id: string): number | undefined =>
+  /** Maintenance stays in the source statement: one statement, one round trip on both engines. */
+  async function pinned(name: string, write: () => Promise<void>): Promise<void> {
+    const { statements, roundTrips, byCall } = await countRoundTrips(store, write)
+    expect({ statements, roundTrips }, `${name}: ${JSON.stringify([...byCall])}`).toEqual({
+      statements: 1,
+      roundTrips: 1,
+    })
+  }
+
+  const column = async (id: string): Promise<number | undefined> =>
     (
-      (store as unknown as { db: RawDb }).db
-        .prepare('SELECT asks_user FROM sessions WHERE id = ?')
-        .get(id) as { asks_user: number } | undefined
+      await storeSql(store).get<{ asks_user: number }>(
+        sql`SELECT CAST(asks_user AS INTEGER) AS asks_user FROM sessions WHERE workspace_id = ${store.workspaceId} AND id = ${id}`,
+      )
     )?.asks_user
 
   /** The rule over the session's record as the builder makes it; no record, no ask. */
@@ -152,7 +165,7 @@ describe('sessions.asks_user follows every writer of its inputs', () => {
   /** The column holds what the rule says, and the rule says `asks`. */
   async function follows(id: string, asks: boolean): Promise<void> {
     expect(await rule(id), `the rule for ${id}`).toBe(asks)
-    expect(column(id), `asks_user of ${id}`).toBe(asks ? 1 : 0)
+    expect(await column(id), `asks_user of ${id}`).toBe(asks ? 1 : 0)
   }
 
   async function checkpoint(id: string, turnState: AgentRuntimeState): Promise<void> {
@@ -162,38 +175,42 @@ describe('sessions.asks_user follows every writer of its inputs', () => {
       await store.observationCheckpoints.advanceGeneration(sessionId, 'codex', `thread-${id}`)
       checkpointGeneration = 1
     }
-    await store.observationCheckpoints.save({
-      schemaVersion: 1,
-      podiumSessionId: sessionId,
-      provider: 'codex',
-      providerSessionId: `thread-${id}`,
-      bindingVersion: 1,
-      lifecycleObservationGeneration: checkpointGeneration,
-      providerCursor: { segmentId: 'rollout-1', components: { file: 42 } },
-      bootstrapCursor: { segmentId: 'rollout-1', components: { file: 42 } },
-      lastAcceptedLiveCursor: null,
-      turnEpoch: 0,
-      providerTurnId: null,
-      providerPromptId: null,
-      turnState,
-      terminalFence: null,
-      providerAt: at(-1),
-      acceptedAt: at(-1),
-      lastLiveReceiptAt: null,
-      lastTransitionId: `snapshot-${id}`,
-    })
+    await pinned('observation checkpoint save', () =>
+      store.observationCheckpoints.save({
+        schemaVersion: 1,
+        podiumSessionId: sessionId,
+        provider: 'codex',
+        providerSessionId: `thread-${id}`,
+        bindingVersion: 1,
+        lifecycleObservationGeneration: checkpointGeneration,
+        providerCursor: { segmentId: 'rollout-1', components: { file: 42 } },
+        bootstrapCursor: { segmentId: 'rollout-1', components: { file: 42 } },
+        lastAcceptedLiveCursor: null,
+        turnEpoch: 0,
+        providerTurnId: null,
+        providerPromptId: null,
+        turnState,
+        terminalFence: null,
+        providerAt: at(-1),
+        acceptedAt: at(-1),
+        lastLiveReceiptAt: null,
+        lastTransitionId: `snapshot-${id}`,
+      }),
+    )
   }
 
   async function runtime(id: string, turnState: AgentRuntimeState | undefined): Promise<void> {
-    await store.events.saveRuntimeEventCheckpoint({
-      sessionId: asSessionId(id),
-      observerGeneration: 1,
-      cursor: { segmentId: 'rollout-1', components: { file: 42 } },
-      turnEpoch: 1,
-      closedTurnEpoch: null,
-      updatedAt: at(-1),
-      ...(turnState ? { turnState } : {}),
-    })
+    await pinned('runtime checkpoint upsert', () =>
+      store.events.saveRuntimeEventCheckpoint({
+        sessionId: asSessionId(id),
+        observerGeneration: 1,
+        cursor: { segmentId: 'rollout-1', components: { file: 42 } },
+        turnEpoch: 1,
+        closedTurnEpoch: null,
+        updatedAt: at(-1),
+        ...(turnState ? { turnState } : {}),
+      }),
+    )
   }
 
   it('is frozen to the declared rule', () => {
@@ -321,7 +338,7 @@ describe('sessions.asks_user follows every writer of its inputs', () => {
     await store.sessions.softDeleteSessions(fixtureWriteScope(), [id], at(1), 'standalone')
     await follows(id, false)
     await store.sessions.purgeSession(fixtureWriteScope(), asSessionId(id))
-    expect(column(id)).toBeUndefined()
+    expect(await column(id)).toBeUndefined()
   })
 
   it('follows the many-row upsert', async () => {
@@ -340,75 +357,149 @@ describe('sessions.asks_user follows every writer of its inputs', () => {
     await follows('s-many-b', true)
     await follows('s-many-c', true)
   })
+
+  it('pins offers, checkpoint deletes and 5/200-row session batches at one statement and one round trip', async () => {
+    const id = asSessionId('s-pinned')
+    await upsert(id, { agentState: state('working') })
+    await pinned('offer insert', () =>
+      store.sessions.setOffer(fixtureWriteScope(), id, {
+        message: 'Ready',
+        actions: [],
+        createdAt: at(-1),
+      }),
+    )
+    await follows(id, true)
+    await pinned('offer replacement', () =>
+      store.sessions.setOffer(fixtureWriteScope(), id, {
+        message: 'Ready again',
+        actions: [],
+        createdAt: at(0),
+      }),
+    )
+    await pinned('offer delete', () => store.sessions.clearOffer(fixtureWriteScope(), id))
+    await follows(id, false)
+    await checkpoint(id, state('needs_user'))
+    await follows(id, true)
+    await pinned('observation checkpoint delete', () => store.observationCheckpoints.purge(id))
+    await follows(id, false)
+    for (const size of [5, 200]) {
+      const batch = Array.from({ length: size }, (_, index) =>
+        row(`pin-${size}-${index}`, { agentState: state('needs_user') }),
+      )
+      await pinned(`${size}-row insert`, () =>
+        store.sessions.upsertSessions(fixtureWriteScope(), batch),
+      )
+      expect(await column(batch[0]!.id)).toBe(1)
+      const updated = batch.map((row) => ({ ...row, agentState: state('working') }))
+      await pinned(`${size}-row upsert`, () =>
+        store.sessions.upsertSessions(fixtureWriteScope(), updated),
+      )
+      expect(await column(batch[0]!.id)).toBe(0)
+    }
+  })
+
+  it('updates flags inside the transaction and rolls them back with the source writes', async () => {
+    const id = 's-rollback'
+    await upsert(id, { agentState: state('working') })
+    await expect(
+      store.transact(async () => {
+        await upsert(id, { agentState: state('needs_user') })
+        expect(await column(id)).toBe(1)
+        await runtime(id, state('working'))
+        expect(await column(id)).toBe(0)
+        throw new Error('roll back asking inputs')
+      }),
+    ).rejects.toThrow('roll back asking inputs')
+    await follows(id, false)
+  })
+
+  it.runIf(testStoreEngine() === 'sqlite')(
+    'renders the exact installed SQLite view and every trigger from the shared declaration',
+    async () => {
+      const dialect = new SQLiteDialect()
+      const declared = sqliteAskingSchema((query) => dialect.sqlToQuery(query).sql)
+      const installed = await storeSql(store).all<{ name: string; sql: string }>(
+        sql`SELECT name, sql FROM sqlite_schema WHERE name = 'session_asks_user' OR name LIKE 'asks_user__%' ORDER BY name`,
+      )
+      const normalize = (text: string) => text.replaceAll(/["`;\s]/g, '').toLowerCase()
+      expect(installed.map(({ name }) => name).sort()).toEqual([...declared.keys()].sort())
+      for (const { name, sql: statement } of installed) {
+        expect(normalize(statement), name).toBe(normalize(declared.get(name)!))
+      }
+    },
+  )
 })
 
-describe('the migration backfills asks_user from the rule', () => {
-  it('sets it on the sessions that ask, and only those', () => {
-    const cut = DRIZZLE_MIGRATIONS.findIndex((m) => m.name.endsWith('_session-asks-user'))
-    expect(cut).toBeGreaterThan(0)
-    const db = openDatabase(':memory:')
-    try {
-      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut))
-      const ownerId = 'u-owner'
-      db.prepare(
-        "INSERT INTO users (id, display_name, role, created_at) VALUES (?, 'Owner', 'admin', '2026-10-01')",
-      ).run(ownerId)
-      const session = db.prepare(
-        `INSERT INTO sessions (id, agent_kind, cwd, title, origin_kind, status, durable_label,
+describe.runIf(testStoreEngine() === 'sqlite')(
+  'the migration backfills asks_user from the rule',
+  () => {
+    it('sets it on the sessions that ask, and only those', () => {
+      const cut = DRIZZLE_MIGRATIONS.findIndex((m) => m.name.endsWith('_session-asks-user'))
+      expect(cut).toBeGreaterThan(0)
+      const db = openDatabase(':memory:')
+      try {
+        runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut))
+        const ownerId = 'u-owner'
+        db.prepare(
+          "INSERT INTO users (id, display_name, role, created_at) VALUES (?, 'Owner', 'admin', '2026-10-01')",
+        ).run(ownerId)
+        const session = db.prepare(
+          `INSERT INTO sessions (id, agent_kind, cwd, title, origin_kind, status, durable_label,
            created_at, last_active_at, machine_id, owner_user_id, agent_state_json, archived,
            deleted_at, last_input_at)
          VALUES (?, 'codex', '/p', ?, 'spawn', 'live', ?, '2026-11-01', '2026-11-01', 'local', ?,
            ?, ?, ?, ?)`,
-      )
-      const plant = (
-        id: string,
-        agentState: AgentRuntimeState | null,
-        more: { archived?: boolean; deletedAt?: string; lastInputAt?: string } = {},
-      ) =>
-        session.run(
-          id,
-          id,
-          `l-${id}`,
-          ownerId,
-          agentState === null ? null : JSON.stringify(agentState),
-          more.archived ? 1 : 0,
-          more.deletedAt ?? null,
-          more.lastInputAt ?? null,
         )
-      plant('b-needs', state('needs_user'))
-      plant('b-working', state('working'))
-      plant('b-question', state('idle', 'question'))
-      plant('b-archived', state('errored'), { archived: true })
-      plant('b-deleted', state('errored'), { deletedAt: '2026-11-02' })
-      plant('b-offer', null)
-      plant('b-stale-offer', null, { lastInputAt: '2026-11-03' })
-      plant('b-checkpoint', state('needs_user'))
-      plant('b-runtime', state('working'))
-      const offer = db.prepare(
-        "INSERT INTO offers (session_id, message, actions, created_at) VALUES (?, 'Ready', '[]', ?)",
-      )
-      offer.run('b-offer', '2026-11-02')
-      offer.run('b-stale-offer', '2026-11-02')
-      db.prepare(
-        `INSERT INTO session_observation_checkpoints (session_id, provider, checkpoint_json, updated_at)
+        const plant = (
+          id: string,
+          agentState: AgentRuntimeState | null,
+          more: { archived?: boolean; deletedAt?: string; lastInputAt?: string } = {},
+        ) =>
+          session.run(
+            id,
+            id,
+            `l-${id}`,
+            ownerId,
+            agentState === null ? null : JSON.stringify(agentState),
+            more.archived ? 1 : 0,
+            more.deletedAt ?? null,
+            more.lastInputAt ?? null,
+          )
+        plant('b-needs', state('needs_user'))
+        plant('b-working', state('working'))
+        plant('b-question', state('idle', 'question'))
+        plant('b-archived', state('errored'), { archived: true })
+        plant('b-deleted', state('errored'), { deletedAt: '2026-11-02' })
+        plant('b-offer', null)
+        plant('b-stale-offer', null, { lastInputAt: '2026-11-03' })
+        plant('b-checkpoint', state('needs_user'))
+        plant('b-runtime', state('working'))
+        const offer = db.prepare(
+          "INSERT INTO offers (session_id, message, actions, created_at) VALUES (?, 'Ready', '[]', ?)",
+        )
+        offer.run('b-offer', '2026-11-02')
+        offer.run('b-stale-offer', '2026-11-02')
+        db.prepare(
+          `INSERT INTO session_observation_checkpoints (session_id, provider, checkpoint_json, updated_at)
          VALUES ('b-checkpoint', 'codex', ?, '2026-11-02')`,
-      ).run(JSON.stringify({ turnState: state('working') }))
-      db.prepare(
-        `INSERT INTO runtime_event_checkpoints (session_id, observer_generation, cursor_json,
+        ).run(JSON.stringify({ turnState: state('working') }))
+        db.prepare(
+          `INSERT INTO runtime_event_checkpoints (session_id, observer_generation, cursor_json,
            turn_epoch, updated_at, turn_state_json)
          VALUES ('b-runtime', 1, '{}', 1, '2026-11-02', ?)`,
-      ).run(JSON.stringify(state('errored')))
+        ).run(JSON.stringify(state('errored')))
 
-      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut + 1))
+        runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut + 1))
 
-      const asking = (
-        db.prepare('SELECT id FROM sessions WHERE asks_user = 1 ORDER BY id').all() as {
-          id: SessionId
-        }[]
-      ).map((r) => r.id)
-      expect(asking).toEqual(['b-needs', 'b-offer', 'b-question', 'b-runtime'])
-    } finally {
-      db.close()
-    }
-  })
-})
+        const asking = (
+          db.prepare('SELECT id FROM sessions WHERE asks_user = 1 ORDER BY id').all() as {
+            id: SessionId
+          }[]
+        ).map((r) => r.id)
+        expect(asking).toEqual(['b-needs', 'b-offer', 'b-question', 'b-runtime'])
+      } finally {
+        db.close()
+      }
+    })
+  },
+)

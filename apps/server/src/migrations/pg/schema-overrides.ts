@@ -82,20 +82,6 @@ export const PG_INDEX_WHERE_OVERRIDES: Readonly<Record<string, PgOverride>> = {
   },
 }
 
-/**
- * COLUMNS THE TWIN CARRIES THAT NOTHING WRITES ON POSTGRES, keyed `table.column`, each with
- * why. The column keeps the two schemas one shape (and its default holds on every row),
- * but no reader on Postgres may take its value for the truth.
- */
-export const PG_UNMAINTAINED_COLUMNS: Readonly<Record<string, string>> = {
-  'sessions.asks_user':
-    "SQLite's triggers write it (migration 20261117220206_session-asks-user, POD-7104); the " +
-    'Postgres chain has no triggers, so it stays false there. The collection fetch reads the ' +
-    'asking clauses from the offer and the checkpoints on Postgres instead (`derived.engines` in ' +
-    'sync/collection-sql.ts). Writing it in the write path on Postgres is POD-7123 ' +
-    '(POD-7118).',
-}
-
 /** One key expression of an index written another way on Postgres, and why. */
 export interface PgIndexExpression {
   /** The expression as the SQLite schema renders it. */

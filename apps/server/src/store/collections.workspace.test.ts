@@ -8,7 +8,13 @@
  * a tree) never step into the other workspace, though every id they meet exists there.
  */
 
-import { asIssueId, asWorkspaceId, type IssueId } from '@podium/model'
+import {
+  type AgentRuntimeState,
+  asIssueId,
+  asSessionId,
+  asWorkspaceId,
+  type IssueId,
+} from '@podium/model'
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
@@ -22,6 +28,7 @@ import {
   owner,
   scope,
   seed,
+  session,
   type Tag,
   WS,
 } from '../test-support/workspace-seeds/sessions'
@@ -119,12 +126,74 @@ describe('the collection fetch reads one workspace (POD-7118)', () => {
     }
   })
 
-  // The asking rule reads the offer and the checkpoints on Postgres and the derived
-  // column on SQLite (POD-7104); either way, only the workspace's own.
+  // Both engines read the maintained column, held to the workspace.
   it("answers who is asking from the workspace's own offers", async () => {
     const asking = resolveRule('session.asking')
     expect(ids(await repos.a.select(asking, {}, NOW))).toEqual(['s1', only('a')].sort())
     expect(ids(await repos.b.select(asking, {}, NOW))).toEqual(['s1'])
+  })
+
+  it('keeps asking and its noIssue shape isolated while same-id inputs change in either workspace', async () => {
+    const id = asSessionId('asking-shared')
+    const state = (phase: AgentRuntimeState['phase']): AgentRuntimeState => ({
+      phase,
+      since: '2026-01-01T00:00:00.000Z',
+      nativeSubagentCount: 0,
+    })
+    const row = (tag: Tag, phase: AgentRuntimeState['phase']) =>
+      session(tag, 9, {
+        id,
+        durableLabel: id,
+        status: 'exited',
+        lastActiveAt: '2026-01-01T00:00:00.000Z',
+        agentState: state(phase),
+      })
+    const check = async (expected: Record<Tag, boolean>) => {
+      for (const [index, tag] of (['a', 'b'] as const).entries()) {
+        const store = stores[index]!
+        const flag = await storeSql(store).get<{ asks: number }>(
+          sql`SELECT CAST(asks_user AS integer) AS asks FROM sessions WHERE workspace_id = ${WS[tag]} AND id = ${id}`,
+        )
+        expect(flag?.asks, `${tag} flag`).toBe(expected[tag] ? 1 : 0)
+        for (const rule of ['session.asking', 'session.noIssue']) {
+          expect(
+            ids(await repos[tag].select(resolveRule(rule), {}, NOW)).includes(id),
+            `${tag} ${rule}`,
+          ).toBe(expected[tag])
+        }
+      }
+    }
+    for (const [index, tag] of (['a', 'b'] as const).entries()) {
+      await stores[index]!.sessions.upsertSession(scope, row(tag, 'working'))
+    }
+    try {
+      for (const [index, tag] of (['a', 'b'] as const).entries()) {
+        const store = stores[index]!
+        const expected = { a: false, b: false, [tag]: true }
+        await store.sessions.upsertSession(scope, row(tag, 'needs_user'))
+        await check(expected)
+        await store.events.saveRuntimeEventCheckpoint({
+          sessionId: id,
+          observerGeneration: 1,
+          cursor: { segmentId: 's', components: { file: 1 } },
+          turnEpoch: 1,
+          closedTurnEpoch: null,
+          updatedAt: '2026-11-17T10:00:00.000Z',
+          turnState: state('working'),
+        })
+        await check({ a: false, b: false })
+        await store.sessions.setOffer(scope, id, {
+          message: 'Ready',
+          actions: [],
+          createdAt: '2026-11-17T10:00:00.000Z',
+        })
+        await check(expected)
+        await store.sessions.clearOffer(scope, id)
+        await check({ a: false, b: false })
+      }
+    } finally {
+      for (const store of stores) await store.sessions.purgeSession(scope, id)
+    }
   })
 
   it("reads the per-person session state's union in the workspace only", async () => {

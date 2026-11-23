@@ -635,10 +635,6 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
  * defers it (the SQLite audit's `SHAPE_DEBT`). The list may only shrink.
  */
 const SHAPE_DEBT: ReadonlyMap<string, string> = new Map([
-  [
-    'apps/server/src/store/collections.ts:collectionRows [|session.asking#ids#]',
-    "Who waits for the user, read from each live session's offer and checkpoints: on SQLite the derived column sessions.asks_user answers it through idx_sessions_asking, but on Postgres nothing writes that column yet (PG_UNMAINTAINED_COLUMNS), so the rule reads the workspace's live sessions and probes their satellites. Bounded by the live sessions; POD-7123 keeps the column on Postgres and returns this to the index.",
-  ],
   // Mirrored from the SQLite audit: the same statement, the same reason.
   [
     'apps/server/src/store/conversations/index.ts:searchConversations [like|any]',
@@ -1864,6 +1860,21 @@ describe.runIf(ENGINE === 'pg')('every Postgres query is served by an index (POD
           name,
         ).toEqual([])
       }
+    }
+  })
+
+  it('reads every asking collection shape through idx_sessions_asking', () => {
+    const asking = audited.filter(
+      (entry) =>
+        entry.key === 'apps/server/src/store/collections.ts:collectionRows' &&
+        entry.sql.includes('r.asks_user = true'),
+    )
+    expect(asking.length).toBeGreaterThan(0)
+    for (const entry of asking) {
+      expect(indexesInPlan(entry.plan), String(entry.shape)).toContain('idx_sessions_asking')
+      expect(entry.sql).not.toMatch(
+        /\b(offers|runtime_event_checkpoints|session_observation_checkpoints)\b/,
+      )
     }
   })
 
