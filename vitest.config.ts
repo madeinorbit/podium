@@ -72,8 +72,7 @@ export const sharedVitestConfig = {
       // ANCHORED for the same reason harness is, and for the same live hazard:
       // `@podium/harness` exposes open subpath entrypoints (`./driver`,
       // `./driver/host`, `./store`, …), so a bare string alias would rewrite
-      // them to '<index.ts>/…'. Each entry below is anchored; the deep family
-      // path the daemon's composer-sync reaches is anchored too.
+      // them to '<index.ts>/…'. Each entry below is anchored.
       {
         find: /^@podium\/harness\/browser$/,
         replacement: fileURLToPath(new URL('./packages/harness/src/browser.ts', import.meta.url)),
@@ -92,15 +91,6 @@ export const sharedVitestConfig = {
         find: /^@podium\/harness\/driver\/testing$/,
         replacement: fileURLToPath(
           new URL('./packages/harness/src/driver/testing/index.ts', import.meta.url),
-        ),
-      },
-      {
-        find: /^@podium\/harness\/driver\/families\/terminal\/composer-sync$/,
-        replacement: fileURLToPath(
-          new URL(
-            './packages/harness/src/driver/families/terminal/composer-sync.ts',
-            import.meta.url,
-          ),
         ),
       },
       // Hook instrumentation sections (POD-4472): the family mechanism and the

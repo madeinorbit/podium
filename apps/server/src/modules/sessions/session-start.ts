@@ -822,7 +822,6 @@ export class SessionStart {
             },
           }
         : {}),
-      ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
       ...(requestedDriverId !== undefined ? { requestedDriverId } : {}),
     })
     this.ports.broadcastSessions()

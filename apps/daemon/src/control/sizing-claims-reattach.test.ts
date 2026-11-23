@@ -174,7 +174,6 @@ function ctxFor(sent: Array<{ type: string; resizesBefore: number }>): DaemonCon
     settingsDir: join(tmpdir(), 'podium-sizing-claims-reattach'),
     sessions: testSessions(),
     durableLabelFor: (id: SessionId) => `podium-${id}`,
-    composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
     outputScheduler: { enqueue: () => {}, remove: () => {}, priorityOf: () => 1 },
     observers: {
       trackedState: () => undefined,
@@ -194,7 +193,11 @@ function ctxFor(sent: Array<{ type: string; resizesBefore: number }>): DaemonCon
     access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   const send = ctx.send
-  const terminal = createTerminalRuntime(daemonRuntimeHost(ctx, send), undefined, driverSlotsOver(ctx.sessions))
+  const terminal = createTerminalRuntime(
+    daemonRuntimeHost(ctx, send),
+    undefined,
+    driverSlotsOver(ctx.sessions),
+  )
   ctx.send = (msg) => {
     terminal.observe(msg)
     send(msg)
@@ -202,7 +205,9 @@ function ctxFor(sent: Array<{ type: string; resizesBefore: number }>): DaemonCon
   ctx.agentRuntime = {
     // `runtime.adopt` routes a terminal binding to its driver's adopt.
     adopt: (binding: SessionBinding) =>
-      terminal.driverFor(binding.harness as AgentKind, terminalProfileFor(binding.harness as AgentKind)!).adopt(binding),
+      terminal
+        .driverFor(binding.harness as AgentKind, terminalProfileFor(binding.harness as AgentKind)!)
+        .adopt(binding),
     handleFor: terminal.handleFor,
     has: terminal.has,
     adoptJournalled: async () => ({ found: false }),

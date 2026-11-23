@@ -67,15 +67,6 @@ export const FEATURES = [
     visibility: 'edge',
   },
   {
-    // Draft Sync v2 (POD-859). Edge-visibility: listed in Settings → Labs on
-    // edge-channel installs; enablement flows through resolveFeatureState like any
-    // other flag. Ships dark (default off) — off = today's client-scraped behavior.
-    id: 'draft-sync',
-    name: 'Draft sync',
-    description: 'Unsent prompts follow you between devices.',
-    visibility: 'edge',
-  },
-  {
     // POD-7211. A session marked as a Concertmaster shows a curated chat (only
     // what its agent sends with `podium concertmaster say`, the person's own
     // messages and the agent's open asks) instead of the transcript and the

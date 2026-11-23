@@ -532,12 +532,6 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
         sessions: testSessions(),
         durableLabelFor: (id: string) => `podium-${id}`,
         sessionBinding: { transition: async () => ({ status: 'applied' }) },
-        composerEngine: {
-          attach: () => false,
-          onData: () => {},
-          detach: () => {},
-          has: () => false,
-        },
         outputScheduler: { enqueue: () => {}, remove: () => {}, priorityOf: () => 1 },
         observers: {
           initSessionObservers: () => {},
@@ -581,12 +575,6 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
         sessions: testSessions(),
         durableLabelFor: (id: string) => `podium-${id}`,
         sessionBinding: { transition: async () => ({ status: 'applied' }) },
-        composerEngine: {
-          attach: () => false,
-          onData: () => {},
-          detach: () => {},
-          has: () => false,
-        },
         outputScheduler: { enqueue: () => {}, remove: () => {}, priorityOf: () => 1 },
         observers: {
           initSessionObservers: () => {},

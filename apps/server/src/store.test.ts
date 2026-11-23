@@ -232,8 +232,7 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     // Provenance lets restore recover cwd-derived sessions that had no explicit issueId.
     deletedByIssueId: null,
     // Stored session facts the record projects (POD-6764): always read back,
-    // defaulted when the daemon reported nothing.
-    draftSyncEngine: false,
+    // defaulted when nothing was reported.
     agentState: null,
     agentColor: null,
     observedModel: null,

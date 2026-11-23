@@ -36,7 +36,6 @@ export const cursorManifest: AgentManifest = {
     newSessionIdFlag: false,
     quota: false,
     cloud: false,
-    composerScrape: false,
     oscTitle: true,
     subagentModelEnv: false,
     promptModeHints: false,
@@ -229,7 +228,7 @@ export const cursorManifest: AgentManifest = {
 
   transcript: cursorTranscript,
 
-  composer: unsupported('Cursor has no composer scrape rules yet'),
+  composer: unsupported('Cursor needs no composer readiness heuristic'),
 
   handoffTranscript: unsupported('cross-machine handoff is not supported for cursor sessions'),
   conversationFile: unsupported('cursor declares no conversation file to move between its homes'),

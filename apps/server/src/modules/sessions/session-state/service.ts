@@ -34,7 +34,6 @@ import {
   applyDraftEdit,
   type Capability,
   computePriorities,
-  DEFAULT_LEASE_MS,
   type DraftDoc,
   emptyDraftDoc,
   type IssueId,
@@ -45,11 +44,7 @@ import {
   type WorkState,
 } from '@podium/model'
 import type { DraftEditMessage, LiveServerMessage } from '@podium/protocol'
-import type {
-  ControlMessage,
-  RuntimeDraftResultMessage,
-  RuntimeSnapshotResultMessage,
-} from '@podium/protocol/daemon'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import type { ClientConn } from '../../../gateway/client-registry'
 import { mayReachPrivate } from '../../../issue-authz'
 import type { SessionStore, SnoozeMap } from '../../../store'
@@ -188,14 +183,6 @@ export interface SessionStatePorts {
   ) => void
   readonly deliverToClient: (clientId: string, message: LiveServerMessage) => void
   readonly toMachine: (machineId: MachineId, message: ControlMessage) => void
-  readonly runtimeDraft?: (
-    input: { sessionId: SessionId; operation: { verb: 'get' } | { verb: 'set'; text: string } },
-    machineId: MachineId,
-  ) => Promise<{ result: RuntimeDraftResultMessage['result'] }>
-  readonly runtimeSnapshot?: (
-    sessionId: SessionId,
-    machineId: MachineId,
-  ) => Promise<{ result: RuntimeSnapshotResultMessage['result'] }>
   /** Re-arm durable inbox delivery after native terminal control is released. */
   readonly onNativeViewReleased?: (sessionId: SessionId) => Promise<void>
 
@@ -209,7 +196,6 @@ export type SessionStateReadResult<T> =
   | { readonly kind: 'absent' }
 
 const DRAFT_WRITE_DEBOUNCE_MS = 750
-const DRAFT_SEND_SUPPRESS_MS = 1_000
 
 export class SessionStateService {
   /**
@@ -223,9 +209,6 @@ export class SessionStateService {
    *  {@link installSession} (POD-6160: one batched read, not every draft). */
   private readonly stagedDraftTimes = new Map<SessionId, string>()
   private readonly draftDocWriteTimers = new Map<SessionId, ReturnType<typeof setTimeout>>()
-  private readonly draftInjectTimers = new Map<SessionId, ReturnType<typeof setTimeout>>()
-  private readonly draftSendSuppressUntil = new Map<SessionId, number>()
-  private draftSyncEnabled_ = false
 
   private readonly lastPriority = new Map<SessionId, string>()
   /**
@@ -252,14 +235,6 @@ export class SessionStateService {
   private readonly lastHeldAt = new Map<SessionId, number>()
 
   constructor(private readonly ports: SessionStatePorts) {}
-
-  setDraftSyncEnabled(enabled: boolean): void {
-    this.draftSyncEnabled_ = enabled
-  }
-
-  draftSyncEnabled(): boolean {
-    return this.draftSyncEnabled_
-  }
 
   /**
    * Forget what this process holds about drafts. Nothing is loaded: a draft
@@ -329,15 +304,11 @@ export class SessionStateService {
 
   /**
    * Unfinished draft work for this session lives in this process only: an edit
-   * queued or running, a document write or an inject waiting on its timer
+   * queued or running, or a document write waiting on its timer
    * (POD-6160 D2f: such a session stays resident until it settles).
    */
   holdsWork(sessionId: SessionId): boolean {
-    return (
-      this.draftEdits.has(sessionId) ||
-      this.draftDocWriteTimers.has(sessionId) ||
-      this.draftInjectTimers.has(sessionId)
-    )
+    return this.draftEdits.has(sessionId) || this.draftDocWriteTimers.has(sessionId)
   }
 
   /**
@@ -359,11 +330,9 @@ export class SessionStateService {
     this.lastPriority.delete(sessionId)
     this.lastHeldAt.delete(sessionId)
     this.lastUnwatchedAt.delete(sessionId)
-    this.draftSendSuppressUntil.delete(sessionId)
     const versioned = this.draftDocWriteTimers.get(sessionId)
     if (versioned) clearTimeout(versioned)
     this.draftDocWriteTimers.delete(sessionId)
-    this.cancelDraftInject(sessionId)
   }
 
   // -------------------------------------------------------------------------
@@ -817,27 +786,6 @@ export class SessionStateService {
     )
   }
 
-  async handleNativeDraft(sessionId: SessionId, text: string): Promise<void> {
-    if (!this.draftSyncEnabled_) return
-    if (Date.now() < (this.draftSendSuppressUntil.get(sessionId) ?? 0)) return
-    await this.applyVersionedEdit(sessionId, { text, origin: 'native' }, undefined)
-  }
-
-  suppressNativeDraft(sessionId: SessionId): void {
-    if (this.draftSyncEnabled_) {
-      this.draftSendSuppressUntil.set(sessionId, Date.now() + DRAFT_SEND_SUPPRESS_MS)
-    }
-  }
-
-  async maybeCatchupInject(sessionId: SessionId, machineId: MachineId): Promise<void> {
-    if (!this.draftSyncEnabled_) return
-    const doc = await this.docOf(sessionId)
-    if (!doc?.text) return
-    const lastLive = this.ports.getSession(sessionId)?.lastActiveAt
-    if (lastLive && doc.editedAt <= lastLive) return
-    this.sendDraftTarget(sessionId, machineId, doc.text)
-  }
-
   /**
    * Serve every draft this principal may see to a freshly connected client.
    *
@@ -973,12 +921,6 @@ export class SessionStateService {
     this.ports.broadcastToClients(this.draftWire(doc))
     await this.persistDraftDoc(sessionId, doc)
     if (draftNonemptyChanged) this.ports.broadcastSessions()
-    // THE NATIVE COMPOSER STAYS BEHIND THE EXPERIMENT. Sequencing a document is
-    // bookkeeping; typing into somebody's terminal is not, and `draft-sync` is
-    // the switch for the second one only.
-    if (!this.draftSyncEnabled_) return
-    if (doc.origin === 'native') this.cancelDraftInject(sessionId)
-    else this.scheduleDraftInject(sessionId)
   }
 
   private draftWire(doc: DraftDoc): LiveServerMessage {
@@ -1043,77 +985,5 @@ export class SessionStateService {
     } catch (error) {
       log.warn('failed to persist the versioned draft', { err: error, sessionId: doc.sessionId })
     }
-  }
-
-  /** Seed a rebound driver-bound session once; subsequent changes arrive as events. */
-  async initializeRuntimeDraft(sessionId: SessionId, machineId: MachineId): Promise<void> {
-    if (!this.draftSyncEnabled_) return
-    const session = this.ports.getSession(sessionId)
-    if (!session?.hasBoundDriver) {
-      await this.maybeCatchupInject(sessionId, machineId)
-      return
-    }
-    const before = await this.docOf(sessionId)
-    const revision = before?.rev
-    if (
-      before &&
-      before.rev > 0 &&
-      (!session.lastActiveAt || before.editedAt > session.lastActiveAt)
-    ) {
-      this.sendDraftTarget(sessionId, machineId, before.text)
-      return
-    }
-    const snapshot = await this.ports.runtimeSnapshot?.(sessionId, machineId)
-    let text =
-      snapshot && 'snapshot' in snapshot.result ? snapshot.result.snapshot.draft : undefined
-    if (text === undefined) {
-      const answer = await this.ports.runtimeDraft?.(
-        { sessionId, operation: { verb: 'get' } },
-        machineId,
-      )
-      if (answer && 'text' in answer.result) text = answer.result.text
-    }
-    // A delayed bootstrap must never replace a draft edited while it was in flight.
-    if (
-      text !== undefined &&
-      this.ports.getSession(sessionId) === session &&
-      this.draftDocs.get(sessionId)?.rev === revision
-    ) {
-      await this.handleNativeDraft(sessionId, text)
-    }
-  }
-
-  private sendDraftTarget(sessionId: SessionId, machineId: MachineId, text: string): void {
-    if (!this.ports.getSession(sessionId)?.hasBoundDriver) {
-      this.ports.toMachine(machineId, { type: 'draftTarget', sessionId, text })
-      return
-    }
-    void this.ports
-      .runtimeDraft?.({ sessionId, operation: { verb: 'set', text } }, machineId)
-      .then(({ result }) => {
-        if ('reason' in result)
-          log.warn('runtime draft write refused', { sessionId, reason: result.reason })
-      })
-      .catch((error: unknown) => log.warn('runtime draft write failed', { sessionId, err: error }))
-  }
-
-  private scheduleDraftInject(sessionId: SessionId): void {
-    const existing = this.draftInjectTimers.get(sessionId)
-    if (existing) clearTimeout(existing)
-    const timer = setTimeout(() => {
-      this.draftInjectTimers.delete(sessionId)
-      const doc = this.draftDocs.get(sessionId)
-      const session = this.ports.getSession(sessionId)
-      if (!doc || !session || doc.origin === 'native') return
-      this.sendDraftTarget(sessionId, session.machineId, doc.text)
-    }, DEFAULT_LEASE_MS)
-    timer.unref?.()
-    this.draftInjectTimers.set(sessionId, timer)
-  }
-
-  private cancelDraftInject(sessionId: SessionId): void {
-    const timer = this.draftInjectTimers.get(sessionId)
-    if (timer) clearTimeout(timer)
-    this.draftInjectTimers.delete(sessionId)
   }
 }

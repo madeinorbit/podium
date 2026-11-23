@@ -113,7 +113,6 @@ function daemonContext(sent: DaemonMessage[]): DaemonContext {
         ? agentLaunchCommand('shell', opts)
         : { cmd: '/bin/bash', args: ['--norc', '--noprofile', '-i'], cwd: opts.cwd },
     settingsDir: join(root, 'daemon-state', 'settings'),
-    composerEngine: { attach: () => false, onData: () => {}, detach: () => {}, has: () => false },
     outputScheduler: { enqueue: () => {}, remove: () => {} },
     observers: { initSessionObservers: () => {}, clearSession: () => {} },
     sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },

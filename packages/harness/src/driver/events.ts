@@ -1,10 +1,10 @@
 // Part of the Agent Runtime contract (POD-1761 W1). See ./host.js for the
 // surface's five governing rules and the core-vs-extended tier boundary.
 
-import type { AgentStateEvent } from '../agent-state/types.js'
 import type { HarnessRef, ResumeRef, TranscriptItem, TranscriptItemRef } from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type { DeliveryFailureCause } from '@podium/protocol/daemon'
+import type { AgentStateEvent } from '../agent-state/types.js'
 import type { ProcessEvent, TurnEvent } from './errors.js'
 import type { InteractionAnswered, InteractionAsked, InteractionExpired } from './interactions.js'
 
@@ -78,8 +78,14 @@ export type RuntimeEventBody =
   | { t: 'metadata'; change: SessionMetadataChange }
   /** Native discovery, distinct from snapshot bootstrap. Exact receipts retain
    * their host acknowledgement protocol until the server projection commits. */
-  | { t: 'binding'; resume: ResumeRef; confidence: 'exact' | 'heuristic'; bindingVersion: number; ackRequested?: boolean; receipt?: import('@podium/protocol/daemon').NativeBindingReceipt }
-  | { t: 'draft'; text: string }
+  | {
+      t: 'binding'
+      resume: ResumeRef
+      confidence: 'exact' | 'heuristic'
+      bindingVersion: number
+      ackRequested?: boolean
+      receipt?: import('@podium/protocol/daemon').NativeBindingReceipt
+    }
   | {
       t: 'delivery'
       rowId: string

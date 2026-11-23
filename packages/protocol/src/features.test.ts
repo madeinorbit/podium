@@ -99,12 +99,6 @@ describe('FEATURES registry', () => {
     expect(FEATURES).toEqual(
       expect.arrayContaining([
         {
-          id: 'draft-sync',
-          name: 'Draft sync',
-          description: 'Unsent prompts follow you between devices.',
-          visibility: 'edge',
-        },
-        {
           id: 'runtime-drivers',
           name: 'Headless agents',
           description: 'Run some agents without a terminal.',

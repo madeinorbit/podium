@@ -4,13 +4,12 @@
  * The daemon map holds the screen; attachments (bridges) come and go. A
  * detach removes the bridge but never the screen, so the reattach that
  * follows resumes feeding the SAME object — model, mode and applied size
- * intact. Readers (composer, observer) hold the shared model without owning
+ * intact. Readers (the observer) hold the shared model without owning
  * it: detaching a reader never kills the session's screen.
  */
 
 import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import { ComposerSyncEngine } from './composer-sync'
 import { memoryMarkers, SessionAccessStore } from './control/access'
 import type { DaemonContext } from './control/context'
 import { testSessions } from './session/testing.js'
@@ -37,7 +36,6 @@ function ctxWith(): DaemonContext {
       setPriority: vi.fn(),
     },
     observers: {},
-    composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
     access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
 }
@@ -77,36 +75,6 @@ describe('session screens survive detach and reattach', () => {
     expect(sessionScreenFor(ctx, SESSION)).toBeUndefined()
     // A later session id starts fresh, not on the dead screen.
     expect(terminalScreenFor(ctx, SESSION)).not.toBe(screen)
-  })
-
-  it('a composer sharing the model scrapes it and detaches without killing it', async () => {
-    const ctx = ctxWith()
-    trackSessionSize(ctx, SESSION, 40, 6)
-    const screen = terminalScreenFor(ctx, SESSION)
-    trackSessionOutput(
-      ctx,
-      SESSION,
-      Buffer.from('╭────────────╮\r\n│ > hi there │\r\n╰────────────╯\r\n'),
-    )
-    await screen.flush()
-
-    const published: string[] = []
-    const engine = new ComposerSyncEngine((_id, text) => published.push(text))
-    expect(engine.attach(SESSION, 'claude-code', 40, 6, screen.model)).toBe(true)
-    // The engine reads the shared model: drive one scrape synchronously and
-    // the composer text painted by the session feed is what publishes.
-    const sync = (
-      engine as unknown as { sessions: Map<string, { scrape(): void }> }
-    ).sessions.get(SESSION)!
-    sync.scrape()
-    expect(published).toEqual(['hi there'])
-    engine.detach(SESSION)
-    // Detaching the reader leaves the session's screen alive and readable.
-    expect(screen.alive).toBe(true)
-    expect(screen.lines(false).join('\n')).toContain('hi there')
-    engine.disposeAll()
-    expect(screen.alive).toBe(true)
-    screen.dispose()
   })
 
   it('an observer sharing the model classifies without owning it', async () => {

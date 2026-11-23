@@ -82,7 +82,6 @@ export const grokManifest: AgentManifest = {
     newSessionIdFlag: true,
     quota: false,
     cloud: false,
-    composerScrape: false,
     oscTitle: true,
     subagentModelEnv: false,
     promptModeHints: false,
@@ -570,7 +569,7 @@ export const grokManifest: AgentManifest = {
 
   transcript: grokTranscript,
 
-  composer: unsupported('grok has no composer scrape rules yet'),
+  composer: unsupported('grok needs no composer readiness heuristic'),
 
   handoffTranscript: unsupported('cross-machine handoff is not supported for grok sessions'),
   conversationFile: unsupported('grok declares no conversation file to move between its homes'),

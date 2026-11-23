@@ -28,7 +28,7 @@ import { respondToMailBoundary } from './mail-boundary.js'
  * Nineteen thousand lines of survived edge cases sit under this file: the spawn
  * path's launch-file materialization and instrumentation env, the observers'
  * causal fencing, binding-store's transition machine, the transcript tail's
- * segment rotation, composer-sync's screen scrape. NONE of it moves. What this
+ * segment rotation. NONE of it moves. What this
  * file does is give that machinery ONE DOORWAY, so that a feature asking "send
  * this text and tell me whether it landed" gets an answer with the same shape it
  * will get from `opencode-server` — and so switching a session between them is a
@@ -48,8 +48,8 @@ import { respondToMailBoundary } from './mail-boundary.js'
  * `agentObservation` carries the whole causal envelope (cursor, observer
  * generation, turn epoch, provenance, event time) plus the phase transition;
  * `transcriptDelta` carries items; `agentExit` carries process death;
- * `sessionCwd` and `sessionGitActivity` carry workspace moves; `nativeDraft`
- * carries the composer; `agentContext` carries usage.
+ * `sessionCwd` and `sessionGitActivity` carry workspace moves; `agentContext`
+ * carries usage.
  *
  * So the driver TAPS that stream (see {@link TerminalRuntime.observe}) and
  * translates. Three consequences worth stating, because they are the reasons
@@ -78,7 +78,11 @@ import type {
 } from '@podium/model'
 import { asSessionId, isProofOnlyItem, transcriptItemRefOf } from '@podium/model'
 import type { AgentObservation, ObservationProvenance, ProviderCursor } from '@podium/protocol'
-import { type DaemonMessage, isRuntimeFineEvent, type RuntimeHistoryPage } from '@podium/protocol/daemon'
+import {
+  type DaemonMessage,
+  isRuntimeFineEvent,
+  type RuntimeHistoryPage,
+} from '@podium/protocol/daemon'
 import type {
   AgentStateEvent,
   TerminalAcceptCorrelation,
@@ -87,7 +91,13 @@ import type {
   TranscriptTimestampFidelity,
 } from '../../../index.js'
 import { podiumFrameId } from '../../../index.js'
-import { harnessCapabilitiesFor, isCommandWrapperText, isGenericClaudeTitle, isTransientTitle, stripSpinnerFrame } from '../../../metadata.js'
+import {
+  harnessCapabilitiesFor,
+  isCommandWrapperText,
+  isGenericClaudeTitle,
+  isTransientTitle,
+  stripSpinnerFrame,
+} from '../../../metadata.js'
 import { decodeCursor } from '../../../store/cursor-codec.js'
 import type {
   AcceptPort,
@@ -325,17 +335,19 @@ interface DriverSession {
   log: LoggedEvent[]
   wakers: Set<() => void>
   interactions: Map<string, PendingInteraction>
-  interactionOwners: Map<string, {
-    terminal: TerminalTransport | undefined
-    generation: number
-    bindingVersion: number
-  }>
+  interactionOwners: Map<
+    string,
+    {
+      terminal: TerminalTransport | undefined
+      generation: number
+      bindingVersion: number
+    }
+  >
   answerScript?: { cancel(detail: string): void }
   answered: Set<string>
   /** The open ask a screen-classified wait opened, if any (POD-4632). */
   screenAskId?: string
   lease: SessionLease | null
-  draft: string | undefined
   metadata: Map<SessionMetadataChange['kind'], SessionMetadataObservation>
   contextUsedPercent: number | undefined
   observedStatePhase: AgentRuntimeState['phase'] | undefined
@@ -447,7 +459,8 @@ export function stateEventForObservation(
   return {
     kind: 'state_snapshot',
     state: observation.state,
-    at: observation.providerAt ??
+    at:
+      observation.providerAt ??
       (observation.provenance === 'bootstrap' ? observation.state.since : observation.receivedAt),
   }
 }
@@ -495,7 +508,6 @@ export interface TerminalRuntime {
   /** Undefined means this session has no driver-owned context channel. */
   boundaryContextFor(sessionId: SessionId): BoundaryContextOperation | undefined
 
-  observeDraft(sessionId: SessionId, text: string): void
   /** Put a session behind the contract. Idempotent for the same binding version:
    *  a reconnect re-sends reattach, and re-registering must rebind rather than
    *  open a second record. */
@@ -516,7 +528,11 @@ export interface TerminalRuntime {
   observeState(observation: TerminalStateObservation): void
   /** The causal accept signal: a raw hook payload, before the observers fold it. */
   onHookPayload(sessionId: SessionId, payload: unknown): void
-  respondToHook(sessionId: SessionId, payload: unknown, signal?: AbortSignal): Promise<string | null>
+  respondToHook(
+    sessionId: SessionId,
+    payload: unknown,
+    signal?: AbortSignal,
+  ): Promise<string | null>
   /**
    * THE SUPERVISOR OBSERVED A KERNEL OOM KILL in this session's scope
    * (POD-2413).
@@ -576,9 +592,7 @@ export interface TerminalRuntimeControl {
  */
 export function createTerminalRuntime(
   host: TerminalHostPorts,
-  primeSource:
-    | ((sessionId: SessionId) => Promise<{ ok: boolean; result?: unknown }>)
-    | undefined,
+  primeSource: ((sessionId: SessionId) => Promise<{ ok: boolean; result?: unknown }>) | undefined,
   slots: SessionDriverSlots,
 ): TerminalRuntime {
   const contexts = new Map<SessionId, ReturnType<typeof createBoundaryContext>>()
@@ -788,28 +802,63 @@ export function createTerminalRuntime(
     if (session.interactions.has(interaction.id) || session.answered.has(interaction.id)) return
     closeOpenInteractions(session, interaction.askedAt, observation.provenance, null)
     openAsk(session, interaction, observation.provenance, observation.providerCursor)
-    if (interaction.kind === 'question' && interaction.payload.questions.every((q) => q.options.length === 0)) {
+    if (
+      interaction.kind === 'question' &&
+      interaction.payload.questions.every((q) => q.options.length === 0)
+    ) {
       const generation = session.observerGeneration
       const terminal = terminalFor(session)
-      void host.readHistory({ sessionId: session.sessionId, agentKind: session.agentKind,
-        cwd: session.cwd, ...(session.resume ? { resume: session.resume } : {}) }, { limit: 50 })
+      void host
+        .readHistory(
+          {
+            sessionId: session.sessionId,
+            agentKind: session.agentKind,
+            cwd: session.cwd,
+            ...(session.resume ? { resume: session.resume } : {}),
+          },
+          { limit: 50 },
+        )
         .then((page) => {
           const items = page.items
-          if (session.disposed || session.answerScript || session.observerGeneration !== generation ||
-              terminalFor(session) !== terminal || session.interactions.get(interaction.id) !== interaction) return
-          const item = [...items].reverse().find((i) => i.role === 'tool' && i.toolName === 'AskUserQuestion' && i.toolInputJson)
+          if (
+            session.disposed ||
+            session.answerScript ||
+            session.observerGeneration !== generation ||
+            terminalFor(session) !== terminal ||
+            session.interactions.get(interaction.id) !== interaction
+          )
+            return
+          const item = [...items]
+            .reverse()
+            .find((i) => i.role === 'tool' && i.toolName === 'AskUserQuestion' && i.toolInputJson)
           if (!item?.toolInputJson) return
-          const parsed = JSON.parse(item.toolInputJson) as { questions?: NonNullable<NonNullable<AgentRuntimeState['need']>['interview']>['questions'] }
+          const parsed = JSON.parse(item.toolInputJson) as {
+            questions?: NonNullable<
+              NonNullable<AgentRuntimeState['need']>['interview']
+            >['questions']
+          }
           if (!Array.isArray(parsed.questions) || parsed.questions.length === 0) return
           // A historical tool call cannot enrich a different on-screen prompt.
           const summary = interaction.payload.questions[0]?.question
           if (!summary || !parsed.questions.some((q) => q.question === summary)) return
-          const questions = interviewPrompts({ kind: 'question', summary, interview: { questions: parsed.questions } })
+          const questions = interviewPrompts({
+            kind: 'question',
+            summary,
+            interview: { questions: parsed.questions },
+          })
           if (!questions) return
           const enriched: PendingInteraction = { ...interaction, payload: { v: 1, questions } }
           session.interactions.set(interaction.id, enriched)
-          emit(session, { t: 'interaction', ev: { ev: 'asked', interaction: enriched } }, interaction.askedAt, observation.provenance)
-        }).catch(() => { /* The observed menu remains authoritative when enrichment fails. */ })
+          emit(
+            session,
+            { t: 'interaction', ev: { ev: 'asked', interaction: enriched } },
+            interaction.askedAt,
+            observation.provenance,
+          )
+        })
+        .catch(() => {
+          /* The observed menu remains authoritative when enrichment fails. */
+        })
     }
   }
 
@@ -960,7 +1009,13 @@ export function createTerminalRuntime(
       session.answered.add(id)
       emit(
         session,
-        { t: 'interaction', ev: answeredBy === null ? { ev: 'expired', id, at } : { ev: 'answered', id, answeredBy, at } },
+        {
+          t: 'interaction',
+          ev:
+            answeredBy === null
+              ? { ev: 'expired', id, at }
+              : { ev: 'answered', id, answeredBy, at },
+        },
         at,
         provenance,
       )
@@ -1031,27 +1086,31 @@ export function createTerminalRuntime(
     }
   }
 
-  function observeDraft(sessionId: SessionId, text: string): void {
-    const session = sessions.get(sessionId)
-    if (!session || session.disposed || session.draft === text) return
-    session.draft = text
-    emit(session, { t: 'draft', text }, observedAt(), 'live')
-  }
-
-  function observeMetadata(session: DriverSession, change: SessionMetadataChange, at?: string): void {
+  function observeMetadata(
+    session: DriverSession,
+    change: SessionMetadataChange,
+    at?: string,
+  ): void {
     const prior = session.metadata.get(change.kind)
     if (change.kind === 'title') {
       if (isCommandWrapperText(change.title)) return
       const title = stripSpinnerFrame(change.title)
       if (isTransientTitle(title)) return
-      if (isGenericClaudeTitle(title) && prior?.change.kind === 'title' &&
-          !isGenericClaudeTitle(prior.change.title)) return
+      if (
+        isGenericClaudeTitle(title) &&
+        prior?.change.kind === 'title' &&
+        !isGenericClaudeTitle(prior.change.title)
+      )
+        return
       change = { ...change, title }
     }
     // Omitted effort is not a reset. Keep the latest pair in the snapshot even
     // when the next assistant record names only its model.
     if (change.kind === 'model' && change.effort === undefined && prior?.change.kind === 'model') {
-      change = { ...change, ...(prior.change.effort !== undefined ? { effort: prior.change.effort } : {}) }
+      change = {
+        ...change,
+        ...(prior.change.effort !== undefined ? { effort: prior.change.effort } : {}),
+      }
     }
     if (JSON.stringify(prior?.change) === JSON.stringify(change)) return
     // Prefer the native record's time. OSC and native callbacks without a
@@ -1133,7 +1192,11 @@ export function createTerminalRuntime(
         // A re-read keeps the time floor and deduplicates entries; restarting
         // or rewriting the store does not itself exhaust a proof watch.
         session.transcriptPosition = advancePosition(
-          msg.reset ? (msg.items.length === 0 ? { kind: 'empty' } : { kind: 'unknown' }) : session.transcriptPosition,
+          msg.reset
+            ? msg.items.length === 0
+              ? { kind: 'empty' }
+              : { kind: 'unknown' }
+            : session.transcriptPosition,
           msg.items,
         )
         // The conversation only: proof-only queue records stay here (POD-4905).
@@ -1279,16 +1342,13 @@ export function createTerminalRuntime(
         )
         return
       }
-      case 'nativeDraft': {
-        observeDraft(session.sessionId, msg.text)
-        return
-      }
       case 'agentState':
         // Legacy transport is no longer a driver input.
         return
       case 'title': {
         const source = msg.source ?? 'native'
-        if (source === 'osc' && harnessCapabilitiesFor(session.agentKind)?.oscTitle === false) return
+        if (source === 'osc' && harnessCapabilitiesFor(session.agentKind)?.oscTitle === false)
+          return
         observeMetadata(session, { kind: 'title', source, title: msg.title })
         return
       }
@@ -1297,13 +1357,25 @@ export function createTerminalRuntime(
         return
       }
       case 'agentModel': {
-        observeMetadata(session, { kind: 'model', source: msg.source ?? 'transcript', model: msg.model,
-          ...(msg.effort !== undefined ? { effort: msg.effort } : {}) }, msg.at)
+        observeMetadata(
+          session,
+          {
+            kind: 'model',
+            source: msg.source ?? 'transcript',
+            model: msg.model,
+            ...(msg.effort !== undefined ? { effort: msg.effort } : {}),
+          },
+          msg.at,
+        )
         return
       }
       case 'agentContext': {
         session.contextUsedPercent = msg.percent
-        observeMetadata(session, { kind: 'context', source: 'transcript', percent: msg.percent }, msg.at)
+        observeMetadata(
+          session,
+          { kind: 'context', source: 'transcript', percent: msg.percent },
+          msg.at,
+        )
         return
       }
       case 'sessionResumeRef': {
@@ -1311,26 +1383,39 @@ export function createTerminalRuntime(
         // allows, per `resumeRefTiming` — this is that moment for every terminal
         // harness, and it is what unblocks `hibernate()` and `export()`.
         if (
-          (msg.observerGeneration !== undefined && msg.observerGeneration !== session.observerGeneration) ||
+          (msg.observerGeneration !== undefined &&
+            msg.observerGeneration !== session.observerGeneration) ||
           (msg.bindingVersion !== undefined && msg.bindingVersion !== session.bindingVersion)
-        ) return
+        )
+          return
         if (msg.confidence !== 'exact' && session.resumeConfidence === 'exact') return
-        if (!msg.receipt && session.resume?.kind === msg.resume.kind &&
-            session.resume.value === msg.resume.value &&
-            session.resumeConfidence === (msg.confidence ?? 'heuristic')) return
+        if (
+          !msg.receipt &&
+          session.resume?.kind === msg.resume.kind &&
+          session.resume.value === msg.resume.value &&
+          session.resumeConfidence === (msg.confidence ?? 'heuristic')
+        )
+          return
         session.resume = msg.resume
         session.resumeConfidence = msg.confidence ?? 'heuristic'
-        const identityBootstrap = session.observerGeneration > 1 &&
+        const identityBootstrap =
+          session.observerGeneration > 1 &&
           session.identityGeneration !== session.observerGeneration &&
           session.stateGeneration !== session.observerGeneration
         session.identityGeneration = session.observerGeneration
-        emit(session, {
-          t: 'binding', resume: msg.resume,
-          confidence: msg.confidence ?? 'heuristic',
-          bindingVersion: session.bindingVersion,
-          ...(msg.ackRequested ? { ackRequested: true } : {}),
-          ...(msg.receipt ? { receipt: msg.receipt } : {}),
-        }, observedAt(), identityBootstrap ? 'bootstrap' : 'live')
+        emit(
+          session,
+          {
+            t: 'binding',
+            resume: msg.resume,
+            confidence: msg.confidence ?? 'heuristic',
+            bindingVersion: session.bindingVersion,
+            ...(msg.ackRequested ? { ackRequested: true } : {}),
+            ...(msg.receipt ? { receipt: msg.receipt } : {}),
+          },
+          observedAt(),
+          identityBootstrap ? 'bootstrap' : 'live',
+        )
         return
       }
       case 'agentFrame':
@@ -1433,8 +1518,10 @@ export function createTerminalRuntime(
       (session.resume && observation.providerSessionId !== session.resume.value)
     )
       return
-    if (session.observerGeneration !== observation.observerGeneration ||
-        session.bindingVersion < observation.bindingVersion) {
+    if (
+      session.observerGeneration !== observation.observerGeneration ||
+      session.bindingVersion < observation.bindingVersion
+    ) {
       session.answerScript?.cancel('observer ownership changed')
     }
     session.observerGeneration = observation.observerGeneration
@@ -1479,7 +1566,8 @@ export function createTerminalRuntime(
     // The lone-close net below decides before the fenced return, so its own
     // absorbing guard (!alreadyFenced) is what keeps a closed epoch closed —
     // and what the ARM removes to prove it. Everything else still returns here.
-    const at = observation.providerAt ??
+    const at =
+      observation.providerAt ??
       (observation.provenance === 'bootstrap' ? observation.state.since : observation.receivedAt)
     // A LONE CLOSE OPENS FIRST (POD-4828), decided BEFORE the fenced return
     // so its own guard is what keeps a closed epoch closed (and what the ARM
@@ -1609,20 +1697,28 @@ export function createTerminalRuntime(
     // whether that id can be the send's is the injection machine's call.
     const harnessRef = correlation.harnessRef?.(payload)
     const waiter = creditAcceptWaiter(
-      session.hookWaiters, correlation, payload, harnessRef ? { harnessRef } : {},
-      (waiter) => waiter.submittedAtMs !== undefined && host.now() >= waiter.submittedAtMs &&
+      session.hookWaiters,
+      correlation,
+      payload,
+      harnessRef ? { harnessRef } : {},
+      (waiter) =>
+        waiter.submittedAtMs !== undefined &&
+        host.now() >= waiter.submittedAtMs &&
         host.now() - waiter.submittedAtMs <= SUBMIT_HOOK_LINK_WINDOW_MS,
     )
     if (!waiter || !harnessRef) return
-    const echoes = [...session.echoWaiters].filter((echo) =>
-      echo.turnId === waiter.turnId && echo.text === waiter.text,
+    const echoes = [...session.echoWaiters].filter(
+      (echo) => echo.turnId === waiter.turnId && echo.text === waiter.text,
     )
     if (echoes.length !== 1) return
     const echo = echoes[0]!
     echo.hookRefs = harnessRef
     if (host.now() >= echo.start.atMs + PROOF_WATCH_MS) return
     const recorded = [...echo.seenPrompts.values()].find((item) =>
-      item.harnessRef?.some((ref) => harnessRef.some((hook) => ref.kind === hook.kind && ref.id === hook.id)))
+      item.harnessRef?.some((ref) =>
+        harnessRef.some((hook) => ref.kind === hook.kind && ref.id === hook.id),
+      ),
+    )
     if (recorded) confirmRecorded(session, echo, recorded)
   }
 
@@ -1645,10 +1741,13 @@ export function createTerminalRuntime(
     // including one whose own fingerprint is null. The keystrokes still went
     // out; `unverified` is true and a mis-credit would be worse.
     if (fingerprint === null) return undefined
-    const candidates = [...waiters].filter((waiter) => eligible(waiter) &&
-      (correlation.textMatches
-        ? correlation.textMatches(waiter.text, observation)
-        : correlation.fingerprintText(waiter.text) === fingerprint))
+    const candidates = [...waiters].filter(
+      (waiter) =>
+        eligible(waiter) &&
+        (correlation.textMatches
+          ? correlation.textMatches(waiter.text, observation)
+          : correlation.fingerprintText(waiter.text) === fingerprint),
+    )
     if (candidates.length !== 1) return undefined
     const waiter = candidates[0]!
     waiters.delete(waiter)
@@ -1684,17 +1783,23 @@ export function createTerminalRuntime(
       }
       const queued = item.queued === true
       if (!queued && !correlation.accepts(item)) continue
-      const after = [...session.echoWaiters].filter((waiter) =>
-        host.now() < waiter.start.atMs + PROOF_WATCH_MS && echoIsAfterStart(item, waiter.start, timestamps) &&
-        !waiter.beforeTypingIds.has(item.id || item.cursor || '') &&
-        !waiter.seenPrompts.has(item.id),
+      const after = [...session.echoWaiters].filter(
+        (waiter) =>
+          host.now() < waiter.start.atMs + PROOF_WATCH_MS &&
+          echoIsAfterStart(item, waiter.start, timestamps) &&
+          !waiter.beforeTypingIds.has(item.id || item.cursor || '') &&
+          !waiter.seenPrompts.has(item.id),
       )
       if (after.length === 0) continue
       const typed = queued ? item.text : correlation.typedText(item)
-      const linked = !queued && item.harnessRef?.length
-        ? after.filter((waiter) => waiter.hookRefs?.some((hook) =>
-          item.harnessRef!.some((ref) => ref.kind === hook.kind && ref.id === hook.id)))
-        : []
+      const linked =
+        !queued && item.harnessRef?.length
+          ? after.filter((waiter) =>
+              waiter.hookRefs?.some((hook) =>
+                item.harnessRef!.some((ref) => ref.kind === hook.kind && ref.id === hook.id),
+              ),
+            )
+          : []
       // This entry spends every unwrapped watch's first-entry order, including
       // when its native id supplies the proof for a different watch.
       const ordered = creditOne(session, correlation, item, typed, after, queued)
@@ -1731,11 +1836,17 @@ export function createTerminalRuntime(
     }
   }
 
-  function confirmRecorded(session: DriverSession, waiter: AcceptWaiter, item: TranscriptItem): void {
+  function confirmRecorded(
+    session: DriverSession,
+    waiter: AcceptWaiter,
+    item: TranscriptItem,
+  ): void {
     waiter.cancel()
     const transcriptItem = transcriptItemRefOf(item)
-    waiter.resolve({ ...(transcriptItem ? { transcriptItem } : {}),
-      ...(item.harnessRef?.length ? { harnessRef: item.harnessRef } : {}) })
+    waiter.resolve({
+      ...(transcriptItem ? { transcriptItem } : {}),
+      ...(item.harnessRef?.length ? { harnessRef: item.harnessRef } : {}),
+    })
     if (waiter.turnId) removeProofWatch(session, waiter.turnId)
   }
 
@@ -1754,16 +1865,19 @@ export function createTerminalRuntime(
     item: TranscriptItem,
     timestamps: TranscriptTimestampFidelity,
   ): void {
-    const after = [...session.echoWaiters].filter((waiter) =>
-      host.now() < waiter.start.atMs + PROOF_WATCH_MS && echoIsAfterStart(item, waiter.start, timestamps) &&
-      !waiter.beforeTypingIds.has(item.id || item.cursor || ''),
+    const after = [...session.echoWaiters].filter(
+      (waiter) =>
+        host.now() < waiter.start.atMs + PROOF_WATCH_MS &&
+        echoIsAfterStart(item, waiter.start, timestamps) &&
+        !waiter.beforeTypingIds.has(item.id || item.cursor || ''),
     )
     if (after.length === 0) return
     const frameId = podiumFrameId(item.text)
     const matches = entryMatcher(correlation, item, item.text)
-    const heldTwins = frameId || !matches
-      ? []
-      : after.filter((waiter) => waiter.held && !waiter.frameId && matches(waiter.text))
+    const heldTwins =
+      frameId || !matches
+        ? []
+        : after.filter((waiter) => waiter.held && !waiter.frameId && matches(waiter.text))
     const dropped = frameId
       ? after.find((waiter) => waiter.frameId === frameId)
       : heldTwins.length > 0
@@ -1778,7 +1892,10 @@ export function createTerminalRuntime(
     }
     if (!dropped) return
     dropped.cancel()
-    dropped.disprove({ proof: 'dropped-by-agent', reason: 'the agent program dropped it (a hook blocked it)' })
+    dropped.disprove({
+      proof: 'dropped-by-agent',
+      reason: 'the agent program dropped it (a hook blocked it)',
+    })
     if (dropped.turnId) removeProofWatch(session, dropped.turnId)
   }
 
@@ -1823,7 +1940,8 @@ export function createTerminalRuntime(
     for (const waiter of open) {
       if (!session.echoWaiters.has(waiter)) continue
       const reachesStart =
-        !page.hasMore || (oldest !== undefined && !echoIsAfterStart(oldest, waiter.start, timestamps))
+        !page.hasMore ||
+        (oldest !== undefined && !echoIsAfterStart(oldest, waiter.start, timestamps))
       if (!reachesStart) continue
       waiter.cancel()
       waiter.disprove({
@@ -1920,19 +2038,29 @@ export function createTerminalRuntime(
       })
       return undefined
     }
-    if (!unchanged(candidate)) log.debug('order credit with foreign-write diagnostics', {
-      sessionId, typingMark: candidate.typingMark(), count: host.foreignWrites?.count(sessionId),
-      orderTrustworthy: host.foreignWrites?.orderTrustworthy(sessionId),
-    })
+    if (!unchanged(candidate))
+      log.debug('order credit with foreign-write diagnostics', {
+        sessionId,
+        typingMark: candidate.typingMark(),
+        count: host.foreignWrites?.count(sessionId),
+        orderTrustworthy: host.foreignWrites?.orderTrustworthy(sessionId),
+      })
     return candidate
   }
 
   function removeProofWatch(session: DriverSession, turnId: string): void {
-    void host.proofWatches?.remove(session.sessionId, turnId).catch((err) =>
-      log.warn('receipt watch removal failed', { sessionId: session.sessionId, turnId, err }))
+    void host.proofWatches
+      ?.remove(session.sessionId, turnId)
+      .catch((err) =>
+        log.warn('receipt watch removal failed', { sessionId: session.sessionId, turnId, err }),
+      )
   }
 
-  const acceptFor = (session: DriverSession, waiters: DriverSession['hookWaiters'], atMs?: number): AcceptPort => ({
+  const acceptFor = (
+    session: DriverSession,
+    waiters: DriverSession['hookWaiters'],
+    atMs?: number,
+  ): AcceptPort => ({
     watch(text: string, turnId?: string) {
       let settle: ((seen: AcceptSeen) => void) | undefined
       const accepted = new Promise<AcceptSeen>((resolve) => {
@@ -1958,8 +2086,10 @@ export function createTerminalRuntime(
         text,
         resolve: (seen) => settle?.(seen),
         // Recovery starts at a saved time, not the observer's current tail.
-        start: { atMs: atMs ?? host.now(), position: atMs === undefined
-          ? session.transcriptPosition : { kind: 'unknown' } },
+        start: {
+          atMs: atMs ?? host.now(),
+          position: atMs === undefined ? session.transcriptPosition : { kind: 'unknown' },
+        },
         pass: () => pass?.(),
         hold: () => {
           waiter.held = true
@@ -1975,8 +2105,10 @@ export function createTerminalRuntime(
         queueSpent: false,
         held: false,
         turnId,
-        beforeTypingIds: atMs === undefined && waiters === session.echoWaiters
-          ? new Set(session.transcriptIds) : new Set(),
+        beforeTypingIds:
+          atMs === undefined && waiters === session.echoWaiters
+            ? new Set(session.transcriptIds)
+            : new Set(),
         seenPrompts: new Map(),
         unexplainedSeen: 0,
         cancel: () => {
@@ -1992,19 +2124,32 @@ export function createTerminalRuntime(
         held,
         disproved,
         cancel: () => waiter.cancel(),
-        submitted() { waiter.submittedAtMs = host.now() },
-        ...(waiters === session.echoWaiters && turnId !== undefined && host.proofWatches && atMs === undefined ? {
-          async typingStarts() {
-            await host.proofWatches!.save(session.sessionId, {
-              turnId, text, typingStartedAt: new Date(waiter.start.atMs).toISOString(),
-            })
-            if (!session.disposed) deadline = host.setTimer(() => {
-              waiter.pass()
-              waiter.cancel()
-              removeProofWatch(session, turnId)
-            }, Math.max(0, waiter.start.atMs + PROOF_WATCH_MS - host.now()))
-          },
-        } : {}),
+        submitted() {
+          waiter.submittedAtMs = host.now()
+        },
+        ...(waiters === session.echoWaiters &&
+        turnId !== undefined &&
+        host.proofWatches &&
+        atMs === undefined
+          ? {
+              async typingStarts() {
+                await host.proofWatches!.save(session.sessionId, {
+                  turnId,
+                  text,
+                  typingStartedAt: new Date(waiter.start.atMs).toISOString(),
+                })
+                if (!session.disposed)
+                  deadline = host.setTimer(
+                    () => {
+                      waiter.pass()
+                      waiter.cancel()
+                      removeProofWatch(session, turnId)
+                    },
+                    Math.max(0, waiter.start.atMs + PROOF_WATCH_MS - host.now()),
+                  )
+              },
+            }
+          : {}),
       }
     },
   })
@@ -2032,16 +2177,28 @@ export function createTerminalRuntime(
       let from: RuntimeHistoryPage['head']
       const heads = new Set<string>()
       for (;;) {
-        const page = await host.readHistory({ sessionId: session.sessionId, agentKind: session.agentKind,
-          cwd: session.cwd, ...(session.resume ? { resume: session.resume } : {}) },
-          { limit: EXIT_HISTORY_READ_LIMIT, ...(from ? { from } : {}) })
+        const page = await host.readHistory(
+          {
+            sessionId: session.sessionId,
+            agentKind: session.agentKind,
+            cwd: session.cwd,
+            ...(session.resume ? { resume: session.resume } : {}),
+          },
+          { limit: EXIT_HISTORY_READ_LIMIT, ...(from ? { from } : {}) },
+        )
         if (session.disposed) return
         items.unshift(...page.items)
         const oldestTime = page.items[0]?.ts ? Date.parse(page.items[0]!.ts!) : Number.NaN
-        if (!page.hasMore || (timestamps !== 'absent' && Number.isFinite(oldestTime) &&
-          oldestTime < Math.floor(floor / timestamps.resolutionMs) * timestamps.resolutionMs)) break
+        if (
+          !page.hasMore ||
+          (timestamps !== 'absent' &&
+            Number.isFinite(oldestTime) &&
+            oldestTime < Math.floor(floor / timestamps.resolutionMs) * timestamps.resolutionMs)
+        )
+          break
         const key = JSON.stringify(page.head)
-        if (!page.head || heads.has(key)) throw new Error('history read did not reach receipt time floor')
+        if (!page.head || heads.has(key))
+          throw new Error('history read did not reach receipt time floor')
         heads.add(key)
         from = page.head
       }
@@ -2054,25 +2211,42 @@ export function createTerminalRuntime(
         if ([...session.echoWaiters].some((waiter) => waiter.turnId === watch.turnId)) continue
         const echo = acceptFor(session, session.echoWaiters, atMs).watch(watch.text, watch.turnId)
         const waiter = [...session.echoWaiters].find((waiter) => waiter.turnId === watch.turnId)!
-        const timer = host.setTimer(() => {
+        const timer = host.setTimer(
+          () => {
+            echo.cancel()
+            removeProofWatch(session, watch.turnId)
+          },
+          Math.max(0, atMs + PROOF_WATCH_MS - host.now()),
+        )
+        const close = () => {
+          host.clearTimer(timer)
           echo.cancel()
-          removeProofWatch(session, watch.turnId)
-        }, Math.max(0, atMs + PROOF_WATCH_MS - host.now()))
-        const close = () => { host.clearTimer(timer); echo.cancel() }
+        }
         const cancel = waiter.cancel
-        waiter.cancel = () => { host.clearTimer(timer); cancel() }
+        waiter.cancel = () => {
+          host.clearTimer(timer)
+          cancel()
+        }
         void echo.accepted.then((seen) => {
           close()
           if (session.disposed) return
-          emit(session, { t: 'delivery', rowId: watch.turnId, outcome: 'delivered', ...seen },
-            new Date(host.now()).toISOString(), 'live')
+          emit(
+            session,
+            { t: 'delivery', rowId: watch.turnId, outcome: 'delivered', ...seen },
+            new Date(host.now()).toISOString(),
+            'live',
+          )
         })
         void echo.passed?.then(close)
         void echo.disproved?.then(({ proof, reason }) => {
           close()
           if (session.disposed) return
-          emit(session, { t: 'delivery', rowId: watch.turnId, outcome: 'failed', cause: proof, reason },
-            new Date(host.now()).toISOString(), 'live')
+          emit(
+            session,
+            { t: 'delivery', rowId: watch.turnId, outcome: 'failed', cause: proof, reason },
+            new Date(host.now()).toISOString(),
+            'live',
+          )
         })
       }
       creditEchoWaiters(session, [...items, ...(session.restoringProofItems ?? [])])
@@ -2111,13 +2285,17 @@ export function createTerminalRuntime(
         live: () => session.live && session.alive && terminalFor(session) !== undefined,
         phase: () => host.trackedState(session.sessionId)?.phase,
         ...(host.readInput ? { readInput: () => host.readInput!(session.sessionId) } : {}),
-        foreignWriteCount: () => host.foreignWrites?.orderTrustworthy(session.sessionId)
-          ? host.foreignWrites.count(session.sessionId) : undefined,
+        foreignWriteCount: () =>
+          host.foreignWrites?.orderTrustworthy(session.sessionId)
+            ? host.foreignWrites.count(session.sessionId)
+            : undefined,
         lastOutputAtMs: () => session.lastOutputAtMs,
         now: host.now,
         setTimer: host.setTimer,
         clearTimer: host.clearTimer,
-        ...(profile?.acceptCorrelation?.hook ? { hookAccept: acceptFor(session, session.hookWaiters) } : {}),
+        ...(profile?.acceptCorrelation?.hook
+          ? { hookAccept: acceptFor(session, session.hookWaiters) }
+          : {}),
         ...(profile?.acceptCorrelation?.['transcript-echo']
           ? { echoAccept: acceptFor(session, session.echoWaiters) }
           : {}),
@@ -2254,7 +2432,6 @@ export function createTerminalRuntime(
       interactionOwners: new Map(),
       answered: new Set(),
       lease: null,
-      draft: undefined,
       contextUsedPercent: undefined,
       metadata: new Map(),
       observedStatePhase: undefined,
@@ -2361,7 +2538,7 @@ export function createTerminalRuntime(
         // process under the same session is a different conversation, and carrying
         // a position across would fence its first events out as already-seen.
         streamPositions.delete(session.sessionId)
-        if (!await host.stopSession({ sessionId: session.sessionId }))
+        if (!(await host.stopSession({ sessionId: session.sessionId })))
           throw new Error('terminal process retirement was not confirmed')
       },
 
@@ -2373,7 +2550,7 @@ export function createTerminalRuntime(
         session.answerScript?.cancel('the process ended')
         session.alive = false
         session.terminatedByDriver = true
-        if (!await host.stopSession({ sessionId: session.sessionId }))
+        if (!(await host.stopSession({ sessionId: session.sessionId })))
           throw new Error('terminal process retirement was not confirmed')
         return { ok: true as const }
       },
@@ -2383,7 +2560,7 @@ export function createTerminalRuntime(
         session.alive = false
         session.terminatedByDriver = true
         streamPositions.delete(session.sessionId)
-        if (!await host.stopSession({ sessionId: session.sessionId }))
+        if (!(await host.stopSession({ sessionId: session.sessionId })))
           throw new Error('terminal process retirement was not confirmed')
       },
 
@@ -2411,7 +2588,6 @@ export function createTerminalRuntime(
           turnEpoch: session.turnEpoch,
           interactions: [...session.interactions.values()],
           metadata: [...session.metadata.values()],
-          ...(session.draft !== undefined ? { draft: session.draft } : {}),
           at: new Date(host.now()).toISOString(),
         }
       },
@@ -2472,12 +2648,15 @@ export function createTerminalRuntime(
         }
       },
 
-      ...(primeSource && profiles.get(session.sessionId)?.instrumentationRequired ? {
-        boundaryContext: (request: BoundaryContextRequest) => {
-          if (session.disposed || sessions.get(session.sessionId) !== session) return Promise.resolve(null)
-          return boundaryContextFor(session.sessionId)?.(request) ?? Promise.resolve(null)
-        },
-      } : {}),
+      ...(primeSource && profiles.get(session.sessionId)?.instrumentationRequired
+        ? {
+            boundaryContext: (request: BoundaryContextRequest) => {
+              if (session.disposed || sessions.get(session.sessionId) !== session)
+                return Promise.resolve(null)
+              return boundaryContextFor(session.sessionId)?.(request) ?? Promise.resolve(null)
+            },
+          }
+        : {}),
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
         if (options.delivery === 'at-boundary') {
@@ -2672,9 +2851,14 @@ export function createTerminalRuntime(
         const interaction = session.interactions.get(interactionId)
         if (!interaction) return { ok: false, reason: 'unknown-interaction' }
         const owner = session.interactionOwners.get(interactionId)
-        if (session.disposed || !session.alive || !owner?.terminal ||
-            terminalFor(session) !== owner.terminal ||
-            owner.generation !== session.observerGeneration || owner.bindingVersion !== session.bindingVersion) {
+        if (
+          session.disposed ||
+          !session.alive ||
+          !owner?.terminal ||
+          terminalFor(session) !== owner.terminal ||
+          owner.generation !== session.observerGeneration ||
+          owner.bindingVersion !== session.bindingVersion
+        ) {
           return { ok: false, reason: 'expired' }
         }
         const script = menuScriptFor(answer, interaction)
@@ -2715,24 +2899,37 @@ export function createTerminalRuntime(
                 session.interactionOwners.delete(interactionId)
                 session.answered.add(interactionId)
               }
-              finish({ ok: false, reason: writes > 0 ? 'partial-delivery' : 'expired',
-                detail: `${detail}; ${writes}/${script.script.keys.length} writes completed` })
+              finish({
+                ok: false,
+                reason: writes > 0 ? 'partial-delivery' : 'expired',
+                detail: `${detail}; ${writes}/${script.script.keys.length} writes completed`,
+              })
             },
           }
           session.answerScript = running
           const send = (key: string, index: number): void => {
             if (settled) return
-            if (session.disposed || !session.alive || sessions.get(session.sessionId) !== session ||
-                terminalFor(session) !== terminal ||
-                session.observerGeneration !== generation || session.bindingVersion !== bindingVersion ||
-                session.interactions.get(interactionId) !== interaction || session.answerScript !== running) {
+            if (
+              session.disposed ||
+              !session.alive ||
+              sessions.get(session.sessionId) !== session ||
+              terminalFor(session) !== terminal ||
+              session.observerGeneration !== generation ||
+              session.bindingVersion !== bindingVersion ||
+              session.interactions.get(interactionId) !== interaction ||
+              session.answerScript !== running
+            ) {
               running.cancel('answer ownership changed')
               return
             }
             // Count an attempted write conservatively: a throwing terminal may have written bytes.
             writes += 1
-            try { terminal.writeBase64(Buffer.from(key, 'utf8').toString('base64')) }
-            catch { running.cancel('terminal write failed'); return }
+            try {
+              terminal.writeBase64(Buffer.from(key, 'utf8').toString('base64'))
+            } catch {
+              running.cancel('terminal write failed')
+              return
+            }
             if (index === script.script.keys.length - 1) finish({ ok: true })
           }
           for (const [index, key] of script.script.keys.entries()) {
@@ -2863,25 +3060,6 @@ export function createTerminalRuntime(
       },
 
       // ---- extended ----
-      draft: {
-        async get() {
-          if (!host.draftSyncing(session.sessionId)) {
-            return refuse('unsupported', 'composer sync is not running for this session')
-          }
-          return session.draft ?? ''
-        },
-        async set(text) {
-          if (session.disposed) return refuse('not_running')
-          if (
-            !host.draftSyncing(session.sessionId) ||
-            !host.setDraftTarget(session.sessionId, text)
-          ) {
-            return refuse('unsupported', 'composer injection is unavailable for this session')
-          }
-          observeDraft(session.sessionId, text)
-          return { ok: true as const }
-        },
-      },
 
       /**
        * REFUSES, and the capability says the same thing for the same reason —
@@ -3001,8 +3179,11 @@ export function createTerminalRuntime(
       const session = sessions.get(sessionId)
       if (!session) return
       session.interactions.set(interaction.id, interaction)
-      session.interactionOwners.set(interaction.id, { terminal: terminalFor(session),
-        generation: session.observerGeneration, bindingVersion: session.bindingVersion })
+      session.interactionOwners.set(interaction.id, {
+        terminal: terminalFor(session),
+        generation: session.observerGeneration,
+        bindingVersion: session.bindingVersion,
+      })
       emit(
         session,
         { t: 'interaction', ev: { ev: 'asked', interaction } },
@@ -3153,7 +3334,6 @@ export function createTerminalRuntime(
     },
     observe,
     observeState: (observation) => observe({ type: 'terminalState', ...observation }),
-    observeDraft,
     onHookPayload,
     async respondToHook(sessionId, payload, signal) {
       const session = sessions.get(sessionId)
@@ -3234,7 +3414,9 @@ function leaseFields(lease: TerminalObservationLease | undefined): {
   bindingVersion?: number
 } {
   return {
-    ...(lease?.observerGeneration !== undefined ? { observerGeneration: lease.observerGeneration } : {}),
+    ...(lease?.observerGeneration !== undefined
+      ? { observerGeneration: lease.observerGeneration }
+      : {}),
     ...(lease?.bindingVersion !== undefined ? { bindingVersion: lease.bindingVersion } : {}),
   }
 }
@@ -3260,8 +3442,13 @@ function advancePosition(
       if (position.kind === 'empty') position = { kind: 'unknown' }
       continue
     }
-    if (position.kind === 'at' && position.fileId === parts.fileId &&
-      (parts.offset < position.offset || parts.offset === position.offset && parts.sub <= position.sub)) continue
+    if (
+      position.kind === 'at' &&
+      position.fileId === parts.fileId &&
+      (parts.offset < position.offset ||
+        (parts.offset === position.offset && parts.sub <= position.sub))
+    )
+      continue
     position = { kind: 'at', fileId: parts.fileId, offset: parts.offset, sub: parts.sub }
   }
   return position
@@ -3300,9 +3487,15 @@ function echoIsAfterStart(
   const writtenAtMs = timestamps !== 'absent' && item.ts ? Date.parse(item.ts) : Number.NaN
   const dated = Number.isFinite(writtenAtMs)
   const parts = item.cursor ? decodeCursor(item.cursor) : null
-  const comparable = parts !== null && start.position.kind === 'at' && parts.fileId === start.position.fileId
-  if (comparable && start.position.kind === 'at' &&
-    (parts.offset < start.position.offset || parts.offset === start.position.offset && parts.sub <= start.position.sub)) return false
+  const comparable =
+    parts !== null && start.position.kind === 'at' && parts.fileId === start.position.fileId
+  if (
+    comparable &&
+    start.position.kind === 'at' &&
+    (parts.offset < start.position.offset ||
+      (parts.offset === start.position.offset && parts.sub <= start.position.sub))
+  )
+    return false
   if (dated && timestamps !== 'absent') {
     return writtenAtMs >= Math.floor(start.atMs / timestamps.resolutionMs) * timestamps.resolutionMs
   }
@@ -3336,11 +3529,6 @@ function capabilitiesFor(profile: TerminalHarnessProfile | undefined): DriverCap
     composerReadiness: resolved.composerReadiness,
     interactionsFromHooks: resolved.interactionsFromHooks === true,
     usesRawFirstTurn: resolved.usesRawFirstTurn,
-    // Composer sync is a per-session flag, and the capability is a per-DRIVER
-    // declaration, so the driver declares what it can do when the engine runs and
-    // `draft.get()` refuses per session when it does not. Declaring it false here
-    // would hide a working read behind a capability nobody would consult.
-    draftReadable: true,
     reportsContextPercent: resolved.reportsContextPercent,
     archivable: resolved.archivable,
     queuesBusyInput: resolved.queuesBusyInput === true,
@@ -3559,7 +3747,8 @@ function questionScriptFor(
     const prompt = prompts[at]
     const selection = selections[at]
     if (!prompt || !selection) return { ok: false, detail: `prompt ${at + 1}: missing` }
-    if (prompt.options.length === 0) return { ok: false, detail: `prompt ${at + 1}: options are unreadable` }
+    if (prompt.options.length === 0)
+      return { ok: false, detail: `prompt ${at + 1}: options are unreadable` }
     if (!prompt.multiSelect && selection.optionIndices.length > 1) {
       return { ok: false, detail: `prompt ${at + 1}: this question takes one option` }
     }
@@ -3646,4 +3835,3 @@ function questionScriptFor(
   if (!isLoneSingleChoice(choices)) key('\r', MENU_CONFIRM_DELAY_MS)
   return { ok: true, script: { keys, at } }
 }
-

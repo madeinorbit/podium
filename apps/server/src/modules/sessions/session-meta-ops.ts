@@ -67,7 +67,6 @@ export interface SessionMetaOpsPorts {
     | 'setConcertmaster'
     | 'setArchived'
     | 'clearAllSnoozes'
-    | 'suppressNativeDraft'
     | 'prepareStoredDrafts'
   >
   store: SessionStore
@@ -539,10 +538,7 @@ export class SessionMetaOps {
   ): Promise<void> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return
-    const state: Pick<SessionStateService, 'clearAllSnoozes' | 'suppressNativeDraft'> =
-      this.ports.state
-    await state.clearAllSnoozes(writer, sessionId)
-    state.suppressNativeDraft(sessionId)
+    await this.ports.state.clearAllSnoozes(writer, sessionId)
     // A PERSON sending into the session moves the conversation past the offer.
     // Mail delivery, a cron/automation wake or an auto-continue is not a person
     // — it must leave a standing offer for the human who has not seen it yet

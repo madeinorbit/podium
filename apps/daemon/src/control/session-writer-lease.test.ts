@@ -87,7 +87,6 @@ function world(): World {
     durableLabelFor: () => LABEL,
     sessions: testSessions(),
     settingsDir: join(tmpdir(), 'podium-writer-lease'),
-    composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
     outputScheduler: { enqueue: () => {}, remove: () => {}, flushNow: () => {} },
     observers: {
       initSessionObservers: vi.fn(),

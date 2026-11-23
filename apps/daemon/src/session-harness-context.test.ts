@@ -139,13 +139,6 @@ async function world(
     sessions: testSessions(),
     durableLabelFor: (id: string) => `podium-${id}`,
     sessionBinding: { transition: async () => ({ status: 'applied' }) },
-    composerEngine: {
-      attach: () => false,
-      onData: () => {},
-      onResize: () => {},
-      detach: () => {},
-      has: () => false,
-    },
     outputScheduler: { enqueue: () => {}, remove: () => {}, priorityOf: () => 0 },
     observers: {
       initSessionObservers: (

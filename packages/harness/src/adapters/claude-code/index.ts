@@ -23,7 +23,6 @@ import { claudeTranscriptClassifierRules } from '../../manifests/claude-code-cla
 import { classifyClaudeLoginStatus } from '../../manifests/claude-login-status.js'
 import { createTranscriptClassifier } from '../../observer.js'
 import { claudeCodeCatalog } from './catalog.js'
-import { claudeComposer } from './composer.js'
 import { claudeConversationFile } from './conversation-file.js'
 import { claudeCredentials } from './credentials.js'
 import { claudeCodeDescriptor } from './descriptor.js'
@@ -65,7 +64,6 @@ export const claudeCodeManifest: AgentManifest = {
     newSessionIdFlag: false,
     quota: true,
     cloud: true,
-    composerScrape: true,
     oscTitle: true,
     subagentModelEnv: true,
     promptModeHints: true,
@@ -417,7 +415,7 @@ export const claudeCodeManifest: AgentManifest = {
 
   transcript: claudeCodeTranscript,
 
-  composer: supported(claudeComposer),
+  composer: unsupported('claude-code needs no composer readiness heuristic'),
 
   handoffTranscript: supported({
     transcriptPlacement: ({ cwd, homeDir, resumeValue }) =>

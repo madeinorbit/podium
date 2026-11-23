@@ -235,7 +235,6 @@ export const codexManifest: AgentManifest = {
     newSessionIdFlag: false,
     quota: true,
     cloud: true,
-    composerScrape: true,
     oscTitle: false,
     subagentModelEnv: false,
     promptModeHints: false,

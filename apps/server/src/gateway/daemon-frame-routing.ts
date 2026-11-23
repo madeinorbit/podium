@@ -66,7 +66,6 @@ export const DAEMON_FRAME_PORTS = {
   agentObservation: ['sessions'],
   agentObservationRebind: ['sessions'],
   agentObserverLiveConfirmation: ['sessions'],
-  nativeDraft: ['sessions'],
   sessionResumeRef: ['sessions'],
   sessionCwd: ['sessions'],
   sessionGitActivity: ['sessions'],
@@ -173,7 +172,6 @@ export const DAEMON_FRAME_PORTS = {
   runtimeStageAttachmentResult: ['rpc'],
   runtimeSendResult: ['rpc'],
   runtimeLifecycleResult: ['rpc'],
-  runtimeDraftResult: ['rpc'],
   runtimeConfigureResult: ['rpc'],
   runtimeAnswerResult: ['rpc'],
   /** The correlated reply to a snapshot request — the observation bootstrap a

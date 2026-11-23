@@ -32,25 +32,24 @@
  * go through object identity or host-resolved ports).
  */
 
-import type { AgentKind, ResumeRef, SessionId } from '@podium/model'
-import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
-import type { DaemonMessage } from '@podium/protocol/daemon'
-import type { ScopeResources } from '../../capabilities.js'
+import type { AgentKind, AgentRuntimeState, ResumeRef, SessionId } from '@podium/model'
 import type {
-  InstalledTerminalInstrumentation,
-} from './instrumentation.js'
+  DaemonMessage,
+  RuntimeHistoryPage,
+  RuntimeHistoryRange,
+} from '@podium/protocol/daemon'
+import type { SessionBinding } from '../../binding.js'
+import type { ScopeResources } from '../../capabilities.js'
+import type { RuntimeEvent } from '../../events.js'
+import type { SessionSpec } from '../../session-spec.js'
 import type { AttachmentStager } from '../../turns.js'
 import type {
-  QueuedTurn,
   QueueDrainAbandonedReason,
+  QueuedTurn,
   TerminalWriteRole,
   TimerHandle,
 } from './injection.js'
-import type { SessionSpec } from '../../session-spec.js'
-import type { AgentRuntimeState } from '@podium/model'
-import type { SessionBinding } from '../../binding.js'
-import type { RuntimeEvent } from '../../events.js'
-
+import type { InstalledTerminalInstrumentation } from './instrumentation.js'
 
 /**
  * THE FRAMES THIS DRIVER MAY EMIT.
@@ -174,9 +173,6 @@ export interface TerminalHostPorts {
   trackedState(sessionId: SessionId): AgentRuntimeState | undefined
   /** Flush and read the current harness input box, without changing tracked state. */
   readInput?(sessionId: SessionId): Promise<string | undefined>
-  /** Whether composer sync is running (Draft Sync v2) for this session. */
-  draftSyncing(sessionId: SessionId): boolean
-  setDraftTarget(sessionId: SessionId, text: string): boolean
   /**
    * The observation lease the server issued with the spawn or reattach this
    * host is carrying out for a session — the generation and binding version

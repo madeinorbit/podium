@@ -140,7 +140,6 @@ export interface SessionInit {
   boundDriverCapabilities?: SessionDriverCapabilities
   /** Restored from the row (POD-6764): what a daemon last reported and the
    *  transcript tail last showed, and a move still in flight. */
-  draftSyncEngine?: boolean
   agentState?: AgentRuntimeState
   agentColor?: string
   observedModel?: string
@@ -255,9 +254,6 @@ export interface SessionDurableState {
   credentialMismatch: CredentialMismatch | undefined
   /** The credential the session runs on; a switch changes it (credential management §9). */
   credentialId: CredentialId | undefined
-  /** Whether the daemon runs the composer engine for this session, as its last
-   *  bind reported (POD-859). Stored with the binding (POD-6764). */
-  draftSyncEngine: boolean
   handoffTargetMachineId: MachineId | undefined
   conversationPodiumId: ConversationId | undefined
   draftUpdatedAt: string | undefined
@@ -467,11 +463,6 @@ export class Session {
    *  at load and on every setSessionDraft. Surfaced so the client can show DRAFT
    *  and lift the session in NEEDS YOUR ATTENTION by when its prompt was edited. */
   draftUpdatedAt: string | undefined = undefined
-  /** Draft Sync v2 (POD-859): true when this session's daemon runs the composer
-   *  scrape/inject engine (reported on bind). Stored with the binding
-   *  (POD-6764) and re-stated by every (re)bind. Surfaced in toMeta so a client
-   *  retires its own sampler/flush. */
-  draftSyncEngine = false
   /**
    * HAS A BOUND DRIVER (POD-1761 W4, renamed POD-4440): true when this
    * session's daemon built a driver handle for it, reported on bind.
@@ -479,7 +470,7 @@ export class Session {
    * because the daemon binds a driver for every profiled agent
    * unconditionally (POD-4426) and shells carry no driver.
    *
-   * TRANSIENT ON PURPOSE, exactly like `draftSyncEngine` above. The fact belongs
+   * TRANSIENT ON PURPOSE. The fact belongs
    * to a LIVE DRIVER, not to a session's history: a receipt can only be obtained
    * from a daemon that is currently driving this session, so a value that
    * survived the process that made it true would send W4's migrated callers down
@@ -646,7 +637,6 @@ export class Session {
     this.observedEffort = d.observedEffort
     this.observedMode = d.observedMode
     this.launchPosture = d.launchPosture
-    this.draftSyncEngine = d.draftSyncEngine
     this.handoffTargetMachineId = d.handoffTargetMachineId
     this.effectiveAuth = d.effectiveAuth
     this.credentialMismatch = d.credentialMismatch
@@ -1035,7 +1025,6 @@ export class Session {
       launchPosture: this.launchPosture ? structuredClone(this.launchPosture) : undefined,
       requestedModel: this.requestedModel,
       requestedEffort: this.requestedEffort,
-      draftSyncEngine: this.draftSyncEngine,
       effectiveAuth: this.effectiveAuth ? structuredClone(this.effectiveAuth) : undefined,
       credentialMismatch: this.credentialMismatch
         ? structuredClone(this.credentialMismatch)
@@ -1119,7 +1108,6 @@ export class Session {
     this.launchPosture = state.launchPosture ? structuredClone(state.launchPosture) : undefined
     this.requestedModel = state.requestedModel
     this.requestedEffort = state.requestedEffort
-    this.draftSyncEngine = state.draftSyncEngine
     this.effectiveAuth = state.effectiveAuth ? structuredClone(state.effectiveAuth) : undefined
     this.credentialMismatch = state.credentialMismatch
       ? structuredClone(state.credentialMismatch)
@@ -1176,7 +1164,6 @@ export class Session {
       // Stored so the record builds from the row alone (POD-6764): the daemon's
       // last bind report, what the transcript tail last showed, and a move in
       // flight. A bind and the tail's seed window restate them after a restart.
-      draftSyncEngine: d.draftSyncEngine,
       agentState: d.agentState ?? null,
       agentColor: d.agentColor ?? null,
       observedModel: d.observedModel ?? null,

@@ -37,13 +37,12 @@ export function grokAcpCapabilities(): DriverCapabilities {
     // stdio production host currently declines it, like the Codex host.
     attach: supported({ kinds: ['client'] }),
     lease: supported({ humanTakeover: true }),
-    snapshot: supported({ includesDraft: true }),
+    snapshot: supported({}),
     archive: supported({ formatVersion: 1, byteFaithful: true }),
     resumeRefTiming: 'spawn',
     placement: 'dedicated',
     instrumentation: 'none',
 
-    draft: supported({ read: true, write: true }),
     /** Model and effort are journalled and sent through session/set_model
      *  before each prompt. Permission mode uses session/set_mode. */
     configure: supported({ fields: ['model', 'effort', 'permissionMode'], effective: 'next-turn' }),

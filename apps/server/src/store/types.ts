@@ -215,7 +215,6 @@ export interface SessionRow {
   boundDriverCapabilities?: SessionDriverCapabilities | null
   /** Stored session facts the record projects (POD-6764): the daemon's last
    *  bind report, the transcript tail's last sightings, a move in flight. */
-  draftSyncEngine?: boolean
   agentState?: AgentRuntimeState | null
   agentColor?: string | null
   observedModel?: string | null

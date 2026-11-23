@@ -621,7 +621,6 @@ interface DriverSession {
   answered: Set<string>
   queue: QueuedTurn[]
   lease: SessionLease | null
-  draft: string
   /** Viewers, by level. `fine` is the ONLY gate on fragment emission: the
    *  connection carries them either way (POD-2745), so this count is what makes
    *  the level a per-viewer fact rather than a per-connection one. */
@@ -2021,7 +2020,6 @@ export function createCodexRuntime(
           // so the declared `title` capability has a verb behind it, and it
           // survives the journal round-trip an adopt reads back.
           ...(session.title ? { title: session.title } : {}),
-          draft: session.draft,
           at: iso(),
         }
       },
@@ -2542,19 +2540,6 @@ export function createCodexRuntime(
       },
 
       // ---- extended ----
-      draft: {
-        async get() {
-          return session.draft
-        },
-        async set(text: string) {
-          if (session.disposed) return { reason: 'not_running' as const }
-          if (session.draft !== text) {
-            session.draft = text
-            emit(session, { t: 'draft', text }, iso())
-          }
-          return { ok: true as const }
-        },
-      },
 
       /**
        * STICKY MODEL AND EFFORT, and the mechanism is the one `deliver()`
@@ -2829,7 +2814,6 @@ export function createCodexRuntime(
       answered: new Set(),
       queue: [],
       lease: null,
-      draft: '',
       watchers: { coarse: 0, fine: 0 },
       log: [],
       wakers: new Set(),

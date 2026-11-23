@@ -79,7 +79,6 @@ describe('the attach CLIENT exiting is NOT the AGENT exiting', () => {
       // Upload removal is fenced; a fence that runs nothing keeps this test
       // off the real state dir. What is asserted is the agentExit frame.
       portableStateFence: { runSync: () => {} },
-      composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
       outputScheduler: { enqueue: () => {}, remove: () => {}, flushNow: () => {} },
       observers: { clearSession: () => {} },
       sessionCwdTracker: { clear: () => {} },
@@ -186,7 +185,11 @@ describe('forgetting the driver slot cannot strand a teardown already under way'
     finishStop()
     await expect(retired).resolves.toBe(true)
     expect(sentOf(sent, 'sessionKillResult')).toEqual([
-      expect.objectContaining({ sessionId: SESSION, killed: true, durableLabel: 'podium-x-s-layer-claims' }),
+      expect.objectContaining({
+        sessionId: SESSION,
+        killed: true,
+        durableLabel: 'podium-x-s-layer-claims',
+      }),
     ])
     expect(stopCalls).toEqual(['stop'])
   })
@@ -205,7 +208,13 @@ describe('custody of a turn lives in exactly one place: an unbound send is refus
       binding: { sessionId: SESSION, driver: 'stub', harness: 'codex' },
       send: vi.fn(async (input: { id?: string }) => {
         delivered.push(input.id ?? '')
-        return { outcome: 'accepted', turnEpoch: 1, deliveredAs: 'when-ready', provenBy: 'protocol-ack', at: '' }
+        return {
+          outcome: 'accepted',
+          turnEpoch: 1,
+          deliveredAs: 'when-ready',
+          provenBy: 'protocol-ack',
+          at: '',
+        }
       }),
     } as unknown as AgentSessionHandle
     const ctx = {
@@ -228,7 +237,10 @@ describe('custody of a turn lives in exactly one place: an unbound send is refus
     expect(sentOf(sent, 'runtimeSendResult')).toEqual([
       expect.objectContaining({
         requestId: 'req-before-bind',
-        receipt: { outcome: 'refused', refusal: expect.objectContaining({ reason: 'not_running' }) },
+        receipt: {
+          outcome: 'refused',
+          refusal: expect.objectContaining({ reason: 'not_running' }),
+        },
       }),
     ])
 
@@ -266,7 +278,13 @@ describe('a recovery forward of an unverified row is confirmed on the daemon, ne
       state: async () => ({ phase: 'idle' }),
       send: async (input: { text: string }) => {
         typed.push(input.text)
-        return { outcome: 'accepted', turnEpoch: 1, deliveredAs: 'when-ready', provenBy: 'protocol-ack', at: '' }
+        return {
+          outcome: 'accepted',
+          turnEpoch: 1,
+          deliveredAs: 'when-ready',
+          provenBy: 'protocol-ack',
+          at: '',
+        }
       },
     } as unknown as AgentSessionHandle
     const handle = withDeliveryQueue(inner, (event) => void outcomes.push(event))
@@ -334,7 +352,13 @@ describe('a recovery forward of an unverified row is confirmed on the daemon, ne
     })
     const newSend = vi.fn(async (input: { text: string }) => {
       newTyped.push(input.text)
-      return { outcome: 'accepted', turnEpoch: 1, deliveredAs: 'when-ready', provenBy: 'protocol-ack', at: '' }
+      return {
+        outcome: 'accepted',
+        turnEpoch: 1,
+        deliveredAs: 'when-ready',
+        provenBy: 'protocol-ack',
+        at: '',
+      }
     })
     const oldInner = {
       binding: { sessionId: SESSION, driver: 'stub', harness: 'codex' },

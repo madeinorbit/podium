@@ -35,7 +35,6 @@ export const opencodeManifest: AgentManifest = {
     newSessionIdFlag: false,
     quota: false,
     cloud: false,
-    composerScrape: false,
     oscTitle: true,
     subagentModelEnv: false,
     promptModeHints: false,
@@ -418,7 +417,7 @@ export const opencodeManifest: AgentManifest = {
   transcript: opencodeTranscript,
 
   composer: unsupported(
-    'opencode has no composer scrape rules; sessions drive through its server protocol',
+    'opencode needs no composer readiness heuristic; sessions drive through its server protocol',
   ),
 
   handoffTranscript: unsupported('cross-machine handoff is not supported for opencode sessions'),

@@ -33,7 +33,12 @@ import { testSessions } from '../session/testing.js'
 import { sessionModelSize, trackSessionSize } from '../session-screens'
 import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
-import { onSessionSize, reconcileNativeClientTerminal, sessionHandlers, sessionSize } from './session'
+import {
+  onSessionSize,
+  reconcileNativeClientTerminal,
+  sessionHandlers,
+  sessionSize,
+} from './session'
 
 /** The session's pinned harness context (POD-6546): a client terminal runs the
  *  session's executable, never the harness's bare name. */
@@ -114,7 +119,6 @@ function harness(over: { reportGeometry?: boolean; refuse?: boolean } = {}): Har
     backend: 'none',
     settingsDir: join(tmpdir(), 'podium-headed-client-geometry'),
     sessions: testSessions(),
-    composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
     outputScheduler: { enqueue: () => {}, remove: () => {}, flushNow: () => {} },
     observers: { clearSession: () => {}, onResize: () => {} },
     sessionCwdTracker: { clear: () => {} },

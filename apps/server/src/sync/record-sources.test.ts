@@ -574,6 +574,8 @@ describe('record sources (POD-6920)', () => {
         : recordBytes
     const CREDENTIAL_COLUMNS_WATCHED =
       ' OR OLD."credential_id" IS NOT NEW."credential_id" OR OLD."effective_auth" IS NOT NEW."effective_auth" OR OLD."credential_mismatch" IS NOT NEW."credential_mismatch"'
+    // The column the oracle watched and POD-7417 dropped with chat/CLI draft sync.
+    const DRAFT_SYNC_ENGINE_WATCHED = ' OR OLD."draft_sync_engine" IS NOT NEW."draft_sync_engine"'
     const SHAPES_CHANGED_SINCE_THE_ORACLE: Record<string, string> = {
       effect: 'a schema its wire value nests gained credential management fields',
       instancePreferences: "the daemon link's trusted networks",
@@ -746,7 +748,7 @@ describe('record sources (POD-6920)', () => {
                 "= 'machines.fleet-channel.v1'",
               ),
           ),
-      ).toEqual(frozen.triggers)
+      ).toEqual(frozen.triggers.map((text) => text.replace(DRAFT_SYNC_ENGINE_WATCHED, '')))
       // `meta` is an install table: its fleet keys capture no workspace.
       for (const trigger of triggers.filter((text) => !text.includes(' ON "meta" '))) {
         expect(trigger, trigger.slice(0, 80)).toMatch(/json_array\((OLD|NEW)\."workspace_id", /)

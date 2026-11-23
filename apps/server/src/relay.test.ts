@@ -6181,21 +6181,14 @@ describe('reconnect identity (hello reclaim)', () => {
   })
 })
 
-describe('session draft sync — versioned (POD-859, flag on)', () => {
-  async function flaggedReg(store?: SessionStore) {
+describe('session drafts — versioned (POD-859)', () => {
+  async function draftReg(store?: SessionStore) {
     store ??= await openTestStore(':memory:', TEST_MACHINE)
-    // Enable draft sync through the canonical experiments store.
-    // Tests run with PODIUM_APP_VERSION unset → devMode → the flag is listed, so a
-    // user toggle enables it (matches getFeatureStates resolution).
-    await store.settings.setSettings({
-      ...(await store.settings.getSettings()),
-      experimental: { 'draft-sync': true },
-    })
     return { reg: await SessionRegistry.create(store, undefined, { instanceId: 'default' }), store }
   }
 
   it('draftEdit broadcasts a versioned sessionDraftChanged to every client', async () => {
-    const { reg } = await flaggedReg()
+    const { reg } = await draftReg()
     const a: ServerMessage[] = []
     const b: ServerMessage[] = []
     const idA = attachTestClient(reg.clientGateway, (m) => a.push(m))
@@ -6214,7 +6207,7 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
   })
 
   it('assigns monotonically increasing revs', async () => {
-    const { reg } = await flaggedReg()
+    const { reg } = await draftReg()
     const b: ServerMessage[] = []
     const idA = attachTestClient(reg.clientGateway, () => {})
     attachTestClient(reg.clientGateway, (m) => b.push(m))
@@ -6237,7 +6230,7 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
   })
 
   it('rejects a stale edit and replies to the sender with the current doc', async () => {
-    const { reg } = await flaggedReg()
+    const { reg } = await draftReg()
     const a: ServerMessage[] = []
     const b: ServerMessage[] = []
     const idA = attachTestClient(reg.clientGateway, (m) => a.push(m))
@@ -6263,102 +6256,18 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
       )
     expect(a.filter((m) => m.type === 'sessionDraftChanged')).toEqual([])
   })
-
-  it('a daemon nativeDraft is sequenced as an origin=native versioned broadcast', async () => {
-    const { reg } = await flaggedReg()
-    await attachHostDaemon(reg, () => {})
-    const c: ServerMessage[] = []
-    attachTestClient(reg.clientGateway, (m) => c.push(m))
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
-      type: 'nativeDraft',
-      sessionId: asSessionId('sess'),
-      text: 'typed in native',
-    })
-    await expect
-      .poll(() => c.find((m) => m.type === 'sessionDraftChanged'))
-      .toMatchObject({
-        text: 'typed in native',
-        origin: 'native',
-        rev: 1,
-      })
-  })
-
-  it('schedules a draftTarget to the daemon a lease window after a chat edit settles', async () => {
-    vi.useFakeTimers()
-    try {
-      const { reg } = await flaggedReg()
-      const daemonMsgs: ControlMessage[] = []
-      await attachHostDaemon(reg, (m) => daemonMsgs.push(m))
-      const { sessionId } = await reg.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: '/p',
-      })
-      const idA = attachTestClient(reg.clientGateway, () => {})
-      daemonMsgs.length = 0
-      await reg.clientGateway.routeClientFrame(idA, {
-        type: 'draftEdit',
-        sessionId,
-        baseRev: 0,
-        text: 'from chat',
-      })
-      expect(daemonMsgs.filter((m) => m.type === 'draftTarget')).toEqual([])
-      await vi.advanceTimersByTimeAsync(2000)
-      expect(daemonMsgs).toContainEqual({ type: 'draftTarget', sessionId, text: 'from chat' })
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('catchup on bind seeds native with a chat draft edited while the session was down', async () => {
-    vi.useFakeTimers()
-    try {
-      vi.setSystemTime(new Date('2026-07-17T12:00:00.000Z'))
-      const { reg } = await flaggedReg()
-      const daemonMsgs: ControlMessage[] = []
-      await attachHostDaemon(reg, (m) => daemonMsgs.push(m))
-      const { sessionId } = await reg.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: '/p',
-      })
-      vi.setSystemTime(new Date('2026-07-17T12:05:00.000Z'))
-      const idA = attachTestClient(reg.clientGateway, () => {})
-      await reg.clientGateway.routeClientFrame(idA, {
-        type: 'draftEdit',
-        sessionId,
-        baseRev: 0,
-        text: 'typed while down',
-      })
-      daemonMsgs.length = 0
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, {
-        ...bind(sessionId),
-        draftSyncEngine: true,
-      })
-      expect(daemonMsgs).toContainEqual({
-        type: 'draftTarget',
-        sessionId,
-        text: 'typed while down',
-      })
-    } finally {
-      vi.useRealTimers()
-    }
-  })
 })
 
 /**
- * VERSIONED DRAFTS ARE NOT AN EXPERIMENT ANY MORE (POD-2045).
+ * VERSIONED DRAFTS ARE NOT AN EXPERIMENT (POD-2045).
  *
- * `draft-sync` used to gate two unrelated things behind one switch: the
- * versioned draft DOCUMENT (revs, arbitration, history) and the native-PTY
- * machinery that scrapes and injects the agent's own composer box. Only the
- * second is an experiment. The first is the conflict model, and a client cannot
- * be offline-first without it — a browser holding unsent text needs a rev to
- * rebase onto, or the two sides have no way to agree on whose sentence survives.
- *
- * So the document is now unconditional and the INJECTION stays flagged. These
- * tests run with the flag OFF, which is the shipped default and the state every
- * user is in.
+ * The versioned draft DOCUMENT (revs, arbitration, history) is the conflict
+ * model, and a client cannot be offline-first without it — a browser holding
+ * unsent text needs a rev to rebase onto, or the two sides have no way to agree
+ * on whose sentence survives. It is unconditional. Nothing copies the document
+ * into the agent's own composer box or back (POD-7417).
  */
-describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
+describe('versioned drafts (POD-2045)', () => {
   const plainReg = async (store?: SessionStore, attachDaemon = true) => {
     store ??= await openTestStore(':memory:', TEST_MACHINE)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
@@ -6478,35 +6387,6 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
         text: 'wip',
         rev: 1,
       })
-  })
-
-  // THE LINE THIS TASK DRAWS. Versioning the document must not switch on the
-  // half of draft-sync that types into somebody's terminal.
-  it('never drives the native composer while the experiment is off', async () => {
-    vi.useFakeTimers()
-    try {
-      const { reg } = await plainReg(undefined, false)
-      const daemonMsgs: ControlMessage[] = []
-      await attachHostDaemon(reg, (m) => daemonMsgs.push(m))
-      const { sessionId } = await reg.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: '/p',
-      })
-      const idA = attachTestClient(reg.clientGateway, () => {})
-      daemonMsgs.length = 0
-
-      await reg.clientGateway.routeClientFrame(idA, {
-        type: 'draftEdit',
-        sessionId,
-        baseRev: 0,
-        text: 'from chat',
-      })
-      await vi.advanceTimersByTimeAsync(5000)
-
-      expect(daemonMsgs.filter((m) => m.type === 'draftTarget')).toEqual([])
-    } finally {
-      vi.useRealTimers()
-    }
   })
 
   // `session_drafts` is ONE row per session: the versioning columns sit beside

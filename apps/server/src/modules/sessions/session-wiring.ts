@@ -22,7 +22,6 @@ import { RuntimeAttachmentRef, type RuntimeEvent } from '@podium/protocol/daemon
 import { MutationLedger, type SyncRepository } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
 import { systemPrincipal, userCommandPrincipal } from '../../command-principal'
-import { isFeatureEnabled } from '../../features'
 import { BrowserOpenGateway } from '../../gateway/browser-open'
 import { ClientRegistry } from '../../gateway/client-registry'
 import { harnessDisplayName, harnessInterrupt } from '../../harness-manifest'
@@ -331,8 +330,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       if (client) bag.clients.deliver(client, message)
     },
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
-    runtimeDraft: (input, machineId) => bag.rpc.runtimeDraft(input, machineId),
-    runtimeSnapshot: (sessionId, machineId) => bag.rpc.runtimeSnapshot(sessionId, machineId),
     onNativeViewReleased: (sessionId) => bag.inbox?.drain(sessionId),
     onArchived: async (writer, sessionId) => {
       bag.bus.emit('issue.sessionDerived', { kind: 'removedOrArchived', sessionId })
@@ -1159,13 +1156,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   // A parallel legacy transcriptDelta remains safe: SessionTerminal upserts it.
   bag.runtimeGateway.onEvent(async (sessionId: SessionId, event: RuntimeEvent) => {
     const delta = runtimeTranscriptDeltaFromEvent(event)
-    if (event.t !== 'draft' && !delta) return
+    if (!delta) return
     await bag.residency.withSession(sessionId, 'runtime.transcript', async () => {
-      if (event.t === 'draft') {
-        await bag.state.handleNativeDraft(sessionId, event.text)
-        return
-      }
-      if (!delta) return
       const session = bag.sessions.get(sessionId)
       if (!session) return
       if (session.terminal.applyRuntimeDelta(delta.items, delta)) {
@@ -1466,9 +1458,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.bus.on(
     'settings.changed',
     ({ previous, next, member }: { previous: any; next: any; member?: string }) => {
-      // Keep the cached draftSync flag current (POD-859). Resolved through the
-      // canonical experiments system (channel/config/user).
-      bag.state.setDraftSyncEnabled(isFeatureEnabled('draft-sync', next))
       const wasEnabled = previous.autoContinue.enabled
       const nowEnabled = next.autoContinue.enabled
       if (nowEnabled === wasEnabled) return

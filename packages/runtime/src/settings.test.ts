@@ -447,38 +447,6 @@ describe('normalizeSettings — autoContinue', () => {
   })
 })
 
-describe('normalizeSettings — draftSync → experimental migration (POD-859)', () => {
-  // Draft Sync moved from the bespoke settings.draftSync.enabled key onto the
-  // canonical experiments store (settings.experimental['draft-sync']). One source
-  // of truth: the bespoke key is migrated forward then dropped.
-  it('migrates a legacy draftSync.enabled=true onto experimental["draft-sync"]', () => {
-    const s = normalizeSettings({ draftSync: { enabled: true } })
-    expect(s.experimental['draft-sync']).toBe(true)
-  })
-
-  it('drops the bespoke draftSync key (no second source of truth)', () => {
-    const s = normalizeSettings({ draftSync: { enabled: true } }) as Record<string, unknown>
-    expect(s.draftSync).toBeUndefined()
-  })
-
-  it('a legacy draftSync.enabled=false does not seed the experimental key', () => {
-    const s = normalizeSettings({ draftSync: { enabled: false } })
-    expect(s.experimental['draft-sync']).toBeUndefined()
-  })
-
-  it('a fresh blob leaves draft-sync unset (default off)', () => {
-    expect(normalizeSettings({}).experimental['draft-sync']).toBeUndefined()
-  })
-
-  it('an explicit experimental["draft-sync"] wins over the legacy key', () => {
-    const s = normalizeSettings({
-      draftSync: { enabled: true },
-      experimental: { 'draft-sync': false },
-    })
-    expect(s.experimental['draft-sync']).toBe(false)
-  })
-})
-
 describe('auto-continue backoff constants', () => {
   it('escalates from 10s and caps at 5 minutes', () => {
     expect(AUTO_CONTINUE_BASE_DELAY_MS).toBe(10_000)

@@ -148,14 +148,6 @@ function makeHarness(
     settingsDir,
     // Draft sync is outside this env-propagation lane; keep the real spawn,
     // frame, and exit path explicit while disabling its optional driver.
-    composerEngine: {
-      attach: () => false,
-      onData: () => {},
-      // The real host reports its size; the double never does.
-      onResize: () => {},
-      detach: () => {},
-      has: () => false,
-    },
     // wireBridge pipes every PTY frame here — this is the daemon's real relay seam,
     // so we assert on exactly the bytes the daemon would have shipped to the server.
     outputScheduler: {

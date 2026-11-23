@@ -91,9 +91,6 @@ export interface UseTerminalSessionOptions {
    */
   initialGeometry?: { cols: number; rows: number }
   readyTimeoutMs?: number
-  /** Per-frame callback (mountSession's onFrame) — e.g. sampling the rendered
-   *  prompt. Latest identity is used; changing it never remounts. */
-  onFrame?: () => void
   onState?: (state: ConnectionState) => void
   /**
    * Fires synchronously right after this mount's `mountSession()` call resolves
@@ -158,8 +155,6 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
 
   // Latest callbacks via refs so identity churn on every render never tears
   // down and re-attaches the terminal (only [hub, sessionId, enabled] do that).
-  const onFrameRef = useRef(opts.onFrame)
-  onFrameRef.current = opts.onFrame
   const onStateRef = useRef(opts.onState)
   onStateRef.current = opts.onState
   const onMountedRef = useRef(opts.onMounted)
@@ -258,7 +253,6 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
                 ? { readyTimeoutMs: readyTimeoutMsRef.current }
                 : {}),
               onReady: () => setReady(true),
-              onFrame: () => onFrameRef.current?.(),
               onState: (state) => {
                 setOutputSeen(state.outputSeen)
                 onStateRef.current?.(state)

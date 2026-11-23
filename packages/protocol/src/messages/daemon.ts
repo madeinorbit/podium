@@ -71,7 +71,6 @@ import { OauthLoopbackCallbackMessage, OauthLoopbackResultMessage } from './oaut
 import {
   RuntimeAnswerResultMessage,
   RuntimeConfigureResultMessage,
-  RuntimeDraftResultMessage,
   RuntimeEventMessage,
   RuntimeFineEventMessage,
   RuntimeHistoryResultMessage,
@@ -190,17 +189,6 @@ export const SessionGitActivityMessage = z.object({
 })
 export type SessionGitActivityMessage = z.infer<typeof SessionGitActivityMessage>
 
-// daemon -> server: the native composer draft the daemon scraped from a flagged
-// session's PTY (Draft Sync v2, POD-859). The server sequences it as an
-// origin='native' versioned edit and broadcasts, so drafts reach every view/device
-// with zero browsers attached.
-export const NativeDraftMessage = z.object({
-  type: z.literal('nativeDraft'),
-  sessionId: SessionIdField,
-  text: z.string(),
-})
-export type NativeDraftMessage = z.infer<typeof NativeDraftMessage>
-
 // ---- Daemon -> server ----
 export const DaemonMessage = z.discriminatedUnion('type', [
   RepoOpResultMessage,
@@ -230,7 +218,6 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   SessionResumeRefMessage,
   SessionCwdMessage,
   SessionGitActivityMessage,
-  NativeDraftMessage,
   InventoryReportMessage,
   DevArtifactProbeResultMessage,
   UpdateStatusMessage,
@@ -299,7 +286,6 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   /** The outcome of a sticky configure (POD-3081), appended at the END so the
    *  golden corpus's index-sampled arms stay byte-identical. */
   RuntimeConfigureResultMessage,
-  RuntimeDraftResultMessage,
   DaemonLogBatchMessage,
   /** The outcome of a server-side LLM turn on this machine's Codex login
    *  (POD-4750), appended at the END so the golden corpus's index-sampled

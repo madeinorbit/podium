@@ -30,7 +30,7 @@ import type { DaemonMachineRuntime } from './runtime/machine-runtime'
  *
  * OWNERSHIP RULE: everything in this module is non-live. Management services take
  * `HarnessManagementContext` — a `Pick` that EXCLUDES live-session state (`bridges`,
- * `observers`, `composerEngine`, `outputScheduler`, `clientTerminals`,
+ * `observers`, `outputScheduler`, `clientTerminals`,
  * `nativeClient*`, `sessionScreens`, handle registries).
  * Adding a live field to this Pick is a boundary violation: legacy turn-path removal
  * (POD-4279) must never delete these services because they sit outside the live

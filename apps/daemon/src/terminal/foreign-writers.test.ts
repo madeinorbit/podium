@@ -5,8 +5,8 @@
  * frame), an automation input frame for a session with no driver, and the
  * redraw button's Ctrl-L. The driver-owned writers (menu answers, the
  * interrupt key, a message's own paste/Enter/retries) are pinned in
- * `runtime/terminal-driver.test.ts`, Draft Sync in `composer-sync.test.ts` and
- * the Ctrl-U clear in `session-observers.test.ts`.
+ * `runtime/terminal-driver.test.ts` and the Ctrl-U clear in
+ * `session-observers.test.ts`.
  */
 
 import { asSessionId } from '@podium/model'
@@ -40,7 +40,6 @@ function world() {
   const ctx = {
     sessions,
     observers: { recordInputOrigin: () => {} },
-    composerEngine: { onInputByte: () => {} },
     outputScheduler: { flushNow: () => {}, enqueue: () => {} },
     access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext

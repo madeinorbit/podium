@@ -195,10 +195,7 @@ export function codexAppServerCapabilities(): DriverCapabilities {
      */
     attach: supported({ kinds: ['client'] }),
     lease: supported({ humanTakeover: true }),
-    /** The draft is Podium-owned state for this family: an app-server child has
-     *  no composer to scrape, so what a snapshot carries is what was set through
-     *  the contract — which is exactly why it can be carried faithfully. */
-    snapshot: supported({ includesDraft: true }),
+    snapshot: supported({}),
     archive: supported({
       formatVersion: 1,
       /**
@@ -224,7 +221,6 @@ export function codexAppServerCapabilities(): DriverCapabilities {
     // ---- EXTENDED ----
     /** Read AND write: it is our own state, held beside the binding journal, so
      *  there is no scrape to be honest about. */
-    draft: supported({ read: true, write: true }),
     /**
      * MODEL AND EFFORT, STICKY, FROM THE NEXT TURN (POD-3081).
      *

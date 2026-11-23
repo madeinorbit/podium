@@ -4,7 +4,12 @@ import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { boundaryHookResponse, installTerminalInstrumentation, pageHistory, startHookIngest } from '@podium/harness/driver/host'
+import {
+  boundaryHookResponse,
+  installTerminalInstrumentation,
+  pageHistory,
+  startHookIngest,
+} from '@podium/harness/driver/host'
 import { testHarnessContext, testSessionTerms } from '../../testing/harness-context.js'
 
 /**
@@ -50,7 +55,14 @@ import {
 } from '@podium/harness/driver/host'
 import { decodeCursor, encodeCursor, fileByteSource, readFileItems } from '@podium/harness/store'
 import { addSink, type LogRecord } from '@podium/logger'
-import { type AgentKind, type AgentRuntimeState, asSessionId, type ResumeRef, type SessionId, type TranscriptItem } from '@podium/model'
+import {
+  type AgentKind,
+  type AgentRuntimeState,
+  asSessionId,
+  type ResumeRef,
+  type SessionId,
+  type TranscriptItem,
+} from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -486,7 +498,8 @@ function makeWorld(
       transport = {
         live: true,
         writeBase64: (dataBase64: string, role?: TerminalWriteRole) => {
-          if (role !== 'message') foreignCounts.set(sessionId, (foreignCounts.get(sessionId) ?? 0) + 1)
+          if (role !== 'message')
+            foreignCounts.set(sessionId, (foreignCounts.get(sessionId) ?? 0) + 1)
           const text = Buffer.from(dataBase64, 'base64').toString('utf8')
           written.push(text)
           const paste = pastedText(text)
@@ -534,8 +547,6 @@ function makeWorld(
       for (const listener of frameListeners) listener(msg)
     },
     trackedState: (sessionId) => phases.get(sessionId),
-    draftSyncing: () => false,
-    setDraftTarget: () => false,
     observationLease: () => undefined,
     // The attach is the proof the process lives: no survivor, no recovery.
     recover: async ({ sessionId, workdir, agentKind }) => {
@@ -870,7 +881,11 @@ describe('instrumented terminal creation', () => {
     const launch = vi.spyOn(world.host, 'launch')
     await world.runtime.createWithId(sessionId, SPEC, CLAUDE)
     expect(install).toHaveBeenLastCalledWith(sessionId, SPEC)
-    expect(launch).toHaveBeenLastCalledWith({ sessionId, spec: SPEC, instrumentation: { args: [] } })
+    expect(launch).toHaveBeenLastCalledWith({
+      sessionId,
+      spec: SPEC,
+      instrumentation: { args: [] },
+    })
     expect(install).toHaveBeenCalledTimes(2)
     world.runtime.dispose()
   })
@@ -982,7 +997,10 @@ describe('send receipts', () => {
     world = makeWorld()
   })
 
-  it.each([true, false])('wires fresh input and writer ownership into retained-paste recovery (lease: %s)', async (writerLease) => {
+  it.each([
+    true,
+    false,
+  ])('wires fresh input and writer ownership into retained-paste recovery (lease: %s)', async (writerLease) => {
     const world = makeWorld({ macrotaskTimers: true, writerLease })
     let draft = ''
     world.host.readInput = async () => draft
@@ -991,20 +1009,27 @@ describe('send receipts', () => {
     world.ready(sessionId)
     world.setPhase(sessionId, 'working')
     const writes: string[] = []
-    world.setTerminal(sessionId, fakeTransport((data) => {
-      const bytes = Buffer.from(data, 'base64').toString('utf8')
-      writes.push(bytes)
-      const pasted = pastedText(bytes)
-      if (pasted !== undefined) draft = pasted
-      else if (writes.filter((write) => write === '\r').length === 1) {
-        draft += '\n'
-        if (!writerLease) world.host.setTimer(() => controller.abort(), 3_000)
-      }
-      else { draft = ''; world.echo(sessionId, 'retained while busy') }
-    }))
+    world.setTerminal(
+      sessionId,
+      fakeTransport((data) => {
+        const bytes = Buffer.from(data, 'base64').toString('utf8')
+        writes.push(bytes)
+        const pasted = pastedText(bytes)
+        if (pasted !== undefined) draft = pasted
+        else if (writes.filter((write) => write === '\r').length === 1) {
+          draft += '\n'
+          if (!writerLease) world.host.setTimer(() => controller.abort(), 3_000)
+        } else {
+          draft = ''
+          world.echo(sessionId, 'retained while busy')
+        }
+      }),
+    )
     const controller = new AbortController()
-    const receipt = await handle.send({ text: 'retained while busy' },
-      { origin: 'human', delivery: 'when-ready', signal: controller.signal })
+    const receipt = await handle.send(
+      { text: 'retained while busy' },
+      { origin: 'human', delivery: 'when-ready', signal: controller.signal },
+    )
     expect(writes.filter((write) => pastedText(write) !== undefined)).toHaveLength(1)
     expect(writes.filter((write) => write === '\r')).toHaveLength(writerLease ? 2 : 1)
     expect(receipt.outcome).toBe(writerLease ? 'accepted' : 'unverified')
@@ -1384,7 +1409,10 @@ describe('send receipts', () => {
     const session = await driver.create(SPEC)
     world.bind(session.binding.sessionId)
     world.recordOnSubmit(session.binding.sessionId)
-    const receipt = await session.send({ text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+    const receipt = await session.send(
+      { text: 'hello' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
     expect(receipt.outcome).toBe('accepted')
     if (receipt.outcome !== 'accepted') return
     expect(receipt.turnEpoch).toBeGreaterThan(0)
@@ -1680,7 +1708,14 @@ describe('the echo floor', () => {
       reset: true,
       at: { fileId: FILE, offset: 0 },
       writtenAgoMs: 3_600_000,
-      followedBy: [{ text: 'done', role: 'assistant', at: { fileId: FILE, offset: 40 }, writtenAgoMs: 3_590_000 }],
+      followedBy: [
+        {
+          text: 'done',
+          role: 'assistant',
+          at: { fileId: FILE, offset: 40 },
+          writtenAgoMs: 3_590_000,
+        },
+      ],
     })
     expect((await receipt).outcome).toBe('unverified')
   })
@@ -1696,7 +1731,12 @@ describe('the echo floor', () => {
       at: { fileId: FILE, offset: 0 },
       writtenAgoMs: 3_600_000,
       followedBy: [
-        { text: 'done', role: 'assistant', at: { fileId: FILE, offset: 40 }, writtenAgoMs: 3_590_000 },
+        {
+          text: 'done',
+          role: 'assistant',
+          at: { fileId: FILE, offset: 40 },
+          writtenAgoMs: 3_590_000,
+        },
         { text: 'yes', at: { fileId: FILE, offset: 80 } },
       ],
     })
@@ -1758,7 +1798,11 @@ describe('the echo floor', () => {
     await Promise.resolve()
     // Nothing places this record relative to the send: it may be the old turn,
     // copied into the new file. `unverified` is the honest answer.
-    world.echo(sessionId, 'yes', { reset: true, at: { fileId: 'segment-two', offset: 0 }, writtenAgoMs: null })
+    world.echo(sessionId, 'yes', {
+      reset: true,
+      at: { fileId: 'segment-two', offset: 0 },
+      writtenAgoMs: null,
+    })
     expect((await receipt).outcome).toBe('unverified')
   })
 
@@ -1771,7 +1815,11 @@ describe('the echo floor', () => {
     world.ready(sessionId)
     const receipt = session.send({ text: 'yes' }, { origin: 'human', delivery: 'when-ready' })
     await Promise.resolve()
-    world.echo(sessionId, 'yes', { reset: true, at: { fileId: FILE, offset: 0 }, writtenAgoMs: null })
+    world.echo(sessionId, 'yes', {
+      reset: true,
+      at: { fileId: FILE, offset: 0 },
+      writtenAgoMs: null,
+    })
     expect(await receipt).toMatchObject({ outcome: 'accepted', transcriptItem: { id: 'item-1' } })
   })
 
@@ -1786,7 +1834,11 @@ describe('the echo floor', () => {
     world.ready(sessionId)
     const receipt = session.send({ text: 'yes' }, { origin: 'human', delivery: 'when-ready' })
     await Promise.resolve()
-    world.echo(sessionId, 'yes', { reset: true, at: { fileId: FILE, offset: 0 }, writtenAgoMs: null })
+    world.echo(sessionId, 'yes', {
+      reset: true,
+      at: { fileId: FILE, offset: 0 },
+      writtenAgoMs: null,
+    })
     expect((await receipt).outcome).toBe('unverified')
   })
 
@@ -2189,7 +2241,10 @@ describe('the echo baseline', () => {
     const session = await driver.create(SPEC)
     world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
-    world.echo(sessionId, 'turn one', { at: { fileId: 'transcript', offset: 0 }, writtenAgoMs: 6000 })
+    world.echo(sessionId, 'turn one', {
+      at: { fileId: 'transcript', offset: 0 },
+      writtenAgoMs: 6000,
+    })
 
     const receipt = session.send(
       { text: 'a real turn' },
@@ -2199,7 +2254,11 @@ describe('the echo baseline', () => {
     // The reset re-delivers the history — the same record at the same place —
     // and THEN the harness records this turn. The re-read keeps the old record's
     // timestamp; only the new prompt is at or after typing started.
-    world.echo(sessionId, 'turn one', { reset: true, at: { fileId: 'transcript', offset: 0 }, writtenAgoMs: 6000 })
+    world.echo(sessionId, 'turn one', {
+      reset: true,
+      at: { fileId: 'transcript', offset: 0 },
+      writtenAgoMs: 6000,
+    })
     world.echo(sessionId, 'a real turn')
 
     const resolved = await receipt
@@ -2613,21 +2672,24 @@ describe("a person's chat into a busy TUI (POD-5855)", () => {
     // ECHO-ON-WRITE, as in the POD-4700 world below and for the same reason.
     const pendingEchoes = new Set(['first turn', 'from the person', 'mail for the boundary'])
     const real = world.transportFor(sessionId)
-    world.setTerminal(sessionId, new Proxy(real, {
-      get(target, prop) {
-        if (prop === 'writeBase64') {
-          return (dataBase64: string) => {
-            const pasted = pastedText(Buffer.from(dataBase64, 'base64').toString('utf8'))
-            if (pasted !== undefined && pendingEchoes.has(pasted)) {
-              pendingEchoes.delete(pasted)
-              world.echo(sessionId, pasted)
+    world.setTerminal(
+      sessionId,
+      new Proxy(real, {
+        get(target, prop) {
+          if (prop === 'writeBase64') {
+            return (dataBase64: string) => {
+              const pasted = pastedText(Buffer.from(dataBase64, 'base64').toString('utf8'))
+              if (pasted !== undefined && pendingEchoes.has(pasted)) {
+                pendingEchoes.delete(pasted)
+                world.echo(sessionId, pasted)
+              }
+              return target.writeBase64(dataBase64)
             }
-            return target.writeBase64(dataBase64)
           }
-        }
-        return Reflect.get(target, prop, target)
-      },
-    }))
+          return Reflect.get(target, prop, target)
+        },
+      }),
+    )
     const outcomes = (): string[] =>
       world.frames.flatMap((frame) =>
         frame.type === 'runtimeEvent' && frame.event.t === 'delivery'
@@ -2655,14 +2717,22 @@ describe("a person's chat into a busy TUI (POD-5855)", () => {
       world.observe(sessionId, {
         priorPhase: 'working',
         nextPhase: 'idle',
-        state: { phase: 'idle', since: new Date(world.now()).toISOString(), nativeSubagentCount: 0 },
+        state: {
+          phase: 'idle',
+          since: new Date(world.now()).toISOString(),
+          nativeSubagentCount: 0,
+        },
       })
     }
     return { world, session, outcomes, pastes, settle, idle }
   }
 
   it.each([
-    [true, ['first turn', 'from the person'], ['first turn', 'from the person', 'mail for the boundary']],
+    [
+      true,
+      ['first turn', 'from the person'],
+      ['first turn', 'from the person', 'mail for the boundary'],
+    ],
     [false, ['first turn'], ['first turn', 'from the person', 'mail for the boundary']],
   ] as const)('queuesBusyInput %s: typed during the turn %j, after it %j', async (queues, during, after) => {
     const w = await busyWorld({ ...OPENCODE, queuesBusyInput: queues })
@@ -2686,9 +2756,12 @@ describe("a person's chat into a busy TUI (POD-5855)", () => {
     await w.settle(() => w.outcomes().includes('row-mail delivered'))
     await w.settle(() => w.outcomes().includes('row-chat delivered'))
     expect(w.pastes()).toEqual(after)
-    expect(w.outcomes().filter((outcome) => outcome.endsWith('delivered')).sort()).toEqual(
-      ['row-chat delivered', 'row-first delivered', 'row-mail delivered'],
-    )
+    expect(
+      w
+        .outcomes()
+        .filter((outcome) => outcome.endsWith('delivered'))
+        .sort(),
+    ).toEqual(['row-chat delivered', 'row-first delivered', 'row-mail delivered'])
     expect(w.world.abandoned).toEqual([])
     w.world.runtime.dispose()
   })
@@ -2723,22 +2796,25 @@ describe('busy OpenCode delivery (POD-4700, POD-4795)', () => {
     // before any yield — is deterministic either way.
     const pendingEchoes = new Set(['first turn', 'second turn', 'cut in line'])
     const real = world.transportFor(sessionId)
-    world.setTerminal(sessionId, new Proxy(real, {
-      get(target, prop, receiver) {
-        if (prop === 'writeBase64') {
-          return (dataBase64: string) => {
-            const text = Buffer.from(dataBase64, 'base64').toString('utf8')
-            const pasted = pastedText(text)
-            if (pasted !== undefined && pendingEchoes.has(pasted)) {
-              pendingEchoes.delete(pasted)
-              world.echo(sessionId, pasted)
+    world.setTerminal(
+      sessionId,
+      new Proxy(real, {
+        get(target, prop, receiver) {
+          if (prop === 'writeBase64') {
+            return (dataBase64: string) => {
+              const text = Buffer.from(dataBase64, 'base64').toString('utf8')
+              const pasted = pastedText(text)
+              if (pasted !== undefined && pendingEchoes.has(pasted)) {
+                pendingEchoes.delete(pasted)
+                world.echo(sessionId, pasted)
+              }
+              return target.writeBase64(dataBase64)
             }
-            return target.writeBase64(dataBase64)
           }
-        }
-        return Reflect.get(target, prop, target)
-      },
-    }))
+          return Reflect.get(target, prop, target)
+        },
+      }),
+    )
 
     const deliveryOutcomes = (): Array<{ rowId: string; outcome: string }> =>
       world.frames.flatMap((frame) =>
@@ -2747,9 +2823,7 @@ describe('busy OpenCode delivery (POD-4700, POD-4795)', () => {
           : [],
       )
     const pastes = (): string[] =>
-      world.written
-        .map(pastedText)
-        .filter((text): text is string => text !== undefined)
+      world.written.map(pastedText).filter((text): text is string => text !== undefined)
     const waitForPaste = async (text: string): Promise<void> => {
       for (let i = 0; i < 40 && !pastes().includes(text); i++) {
         await Promise.resolve()
@@ -2883,28 +2957,29 @@ describe('busy OpenCode delivery (POD-4700, POD-4795)', () => {
     // identity — crediting on write either way is the deterministic stand-in.
     const armEchoProxy = (): void => {
       const current = world.transportFor(sessionId)
-      world.setTerminal(sessionId, new Proxy(current, {
-        get(target, prop, receiver) {
-          if (prop === 'writeBase64') {
-            return (dataBase64: string) => {
-              const text = Buffer.from(dataBase64, 'base64').toString('utf8')
-              const pasted = pastedText(text)
-              if (pasted !== undefined && pendingEchoes.has(pasted)) {
-                pendingEchoes.delete(pasted)
-                world.echo(sessionId, pasted)
+      world.setTerminal(
+        sessionId,
+        new Proxy(current, {
+          get(target, prop, receiver) {
+            if (prop === 'writeBase64') {
+              return (dataBase64: string) => {
+                const text = Buffer.from(dataBase64, 'base64').toString('utf8')
+                const pasted = pastedText(text)
+                if (pasted !== undefined && pendingEchoes.has(pasted)) {
+                  pendingEchoes.delete(pasted)
+                  world.echo(sessionId, pasted)
+                }
+                return target.writeBase64(dataBase64)
               }
-              return target.writeBase64(dataBase64)
             }
-          }
-          return Reflect.get(target, prop, target)
-        },
-      }))
+            return Reflect.get(target, prop, target)
+          },
+        }),
+      )
     }
     armEchoProxy()
     const pastes = (): string[] =>
-      world.written
-        .map(pastedText)
-        .filter((text): text is string => text !== undefined)
+      world.written.map(pastedText).filter((text): text is string => text !== undefined)
     const waitForPaste = async (text: string): Promise<void> => {
       for (let i = 0; i < 40 && !pastes().includes(text); i++) {
         await Promise.resolve()
@@ -3021,7 +3096,9 @@ describe('the foreign-write counter at the driver seam (POD-4888)', () => {
     expect(receipt.outcome).toBe('unverified')
     expect(pastedText(world.written[0] ?? '')).toBe('ship it')
     // The paste, its Enter, and at least one retry went out…
-    expect(world.written.slice(1).filter((bytes) => bytes === '\r').length).toBeGreaterThanOrEqual(2)
+    expect(world.written.slice(1).filter((bytes) => bytes === '\r').length).toBeGreaterThanOrEqual(
+      2,
+    )
     // …and none of them moved the counter.
     expect(count()).toBe(start)
     expect(world.host.foreignWrites!.typingMark(sessionId, 'msg-own')).toBe(start)
@@ -3049,7 +3126,10 @@ describe('the foreign-write counter at the driver seam (POD-4888)', () => {
     const world = makeWorld()
     const { handle, sessionId, count } = await claudeSession(world)
     world.recordOnSubmit(sessionId)
-    await handle.send({ id: 'msg-typed', text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+    await handle.send(
+      { id: 'msg-typed', text: 'hello' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
     const mark = world.host.foreignWrites!.typingMark(sessionId, 'msg-typed')
     expect(count()).toBe(mark)
     world.transportFor(sessionId).writeBase64(Buffer.from('x', 'utf8').toString('base64'))
@@ -3118,7 +3198,11 @@ describe('adopt', () => {
     // restarted daemon looks like from the session's point of view. A fresh
     // registry goes with it — a restarted daemon has no entries, so no handle
     // survives except through a rebind.
-    const restarted = createTerminalRuntime({ ...world.host, now: () => world.host.now() + 10_000 }, undefined, createMemoryDriverSlots())
+    const restarted = createTerminalRuntime(
+      { ...world.host, now: () => world.host.now() + 10_000 },
+      undefined,
+      createMemoryDriverSlots(),
+    )
     const framesBefore = world.frames.length
     // The boot-time path: the daemon re-registers the surviving pty as a rebind.
     restarted.register(
@@ -3136,7 +3220,12 @@ describe('adopt', () => {
 
     const adopted = world.frames
       .slice(framesBefore)
-      .find((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'process' && frame.event.ev.ev === 'adopted')
+      .find(
+        (frame) =>
+          frame.type === 'runtimeEvent' &&
+          frame.event.t === 'process' &&
+          frame.event.ev.ev === 'adopted',
+      )
     expect(adopted).toBeDefined()
     if (!adopted || adopted.type !== 'runtimeEvent') throw new Error('unreachable')
     expect(adopted.event.provenance).toBe('live')
@@ -3360,68 +3449,101 @@ describe('observation translation', () => {
     expect(world.written).toEqual([])
   })
 
-  it.each(['generation', 'binding', 'provider'] as const)(
-    'rejects an observation with stale or foreign %s independently', async (guard) => {
-      const world = makeWorld()
-      const session = await world.runtime.driverFor('claude-code', CLAUDE).resume(
-        { kind: 'claude-session', value: 'native-owned' }, SPEC,
-      )
-      const sessionId = session.binding.sessionId
-      const initial = await session.snapshot()
-      const observerGeneration = initial.observerGeneration
-      const bindingVersion = session.binding.bindingVersion
-      world.observe(sessionId, { providerSessionId: 'native-owned', observerGeneration, bindingVersion })
-      expect((await session.state()).phase).toBe('working')
-      const before = await session.snapshot()
-      const frameCount = world.frames.length
-      world.observe(sessionId, {
-        providerSessionId: guard === 'provider' ? 'native-foreign' : 'native-owned',
-        observerGeneration: guard === 'generation' ? observerGeneration - 1 : observerGeneration,
-        bindingVersion: guard === 'binding' ? bindingVersion - 1 : bindingVersion,
-        state: { phase: 'idle', since: '2026-01-02T00:00:00.000Z', nativeSubagentCount: 7 },
-      })
-      expect(world.frames).toHaveLength(frameCount)
-      expect(await session.snapshot()).toEqual(before)
-      world.runtime.dispose()
-    },
-  )
+  it.each([
+    'generation',
+    'binding',
+    'provider',
+  ] as const)('rejects an observation with stale or foreign %s independently', async (guard) => {
+    const world = makeWorld()
+    const session = await world.runtime
+      .driverFor('claude-code', CLAUDE)
+      .resume({ kind: 'claude-session', value: 'native-owned' }, SPEC)
+    const sessionId = session.binding.sessionId
+    const initial = await session.snapshot()
+    const observerGeneration = initial.observerGeneration
+    const bindingVersion = session.binding.bindingVersion
+    world.observe(sessionId, {
+      providerSessionId: 'native-owned',
+      observerGeneration,
+      bindingVersion,
+    })
+    expect((await session.state()).phase).toBe('working')
+    const before = await session.snapshot()
+    const frameCount = world.frames.length
+    world.observe(sessionId, {
+      providerSessionId: guard === 'provider' ? 'native-foreign' : 'native-owned',
+      observerGeneration: guard === 'generation' ? observerGeneration - 1 : observerGeneration,
+      bindingVersion: guard === 'binding' ? bindingVersion - 1 : bindingVersion,
+      state: { phase: 'idle', since: '2026-01-02T00:00:00.000Z', nativeSubagentCount: 7 },
+    })
+    expect(world.frames).toHaveLength(frameCount)
+    expect(await session.snapshot()).toEqual(before)
+    world.runtime.dispose()
+  })
 
-  it.each(['working', 'compacting', 'needs_user'] as const)(
-    'bootstraps the first %s poll after rebind without inventing a turn', async (phase) => {
-      const world = makeWorld()
-      const profile = shippedProfile('opencode')
-      const session = await world.runtime.driverFor('opencode', profile).create({ ...SPEC, harness: 'opencode' })
-      const sessionId = session.binding.sessionId
-      const initial = await session.snapshot()
+  it.each([
+    'working',
+    'compacting',
+    'needs_user',
+  ] as const)('bootstraps the first %s poll after rebind without inventing a turn', async (phase) => {
+    const world = makeWorld()
+    const profile = shippedProfile('opencode')
+    const session = await world.runtime
+      .driverFor('opencode', profile)
+      .create({ ...SPEC, harness: 'opencode' })
+    const sessionId = session.binding.sessionId
+    const initial = await session.snapshot()
+    world.runtime.observeState({
+      sessionId,
+      observerGeneration: initial.observerGeneration,
+      bindingVersion: session.binding.bindingVersion,
+      state: {
+        phase: 'idle',
+        since: '2026-01-01T00:00:00.000Z',
+        nativeSubagentCount: 0,
+        stateSource: 'poll',
+      },
+    })
+    world.runtime.register(
+      { sessionId, agentKind: 'opencode', cwd: SPEC.workdir, resume: null },
+      profile,
+    )
+    const rebound = await session.snapshot()
+    expect(rebound.observerGeneration).toBeGreaterThan(initial.observerGeneration)
+    const start = world.frames.length
+    const state: AgentRuntimeState = {
+      phase,
+      since: '2026-01-01T00:00:01.000Z',
+      nativeSubagentCount: 0,
+      stateSource: 'poll',
+    }
+    const poll = (state: AgentRuntimeState) =>
       world.runtime.observeState({
-        sessionId, observerGeneration: initial.observerGeneration,
-        bindingVersion: session.binding.bindingVersion,
-        state: { phase: 'idle', since: '2026-01-01T00:00:00.000Z', nativeSubagentCount: 0, stateSource: 'poll' },
-      })
-      world.runtime.register({ sessionId, agentKind: 'opencode', cwd: SPEC.workdir, resume: null }, profile)
-      const rebound = await session.snapshot()
-      expect(rebound.observerGeneration).toBeGreaterThan(initial.observerGeneration)
-      const start = world.frames.length
-      const state: AgentRuntimeState = {
-        phase, since: '2026-01-01T00:00:01.000Z', nativeSubagentCount: 0, stateSource: 'poll',
-      }
-      const poll = (state: AgentRuntimeState) => world.runtime.observeState({
-        sessionId, state, observerGeneration: rebound.observerGeneration,
+        sessionId,
+        state,
+        observerGeneration: rebound.observerGeneration,
         bindingVersion: session.binding.bindingVersion,
       })
-      poll(state)
-      expect(world.frames.slice(start)).toEqual([
-        expect.objectContaining({ type: 'runtimeEvent', event: expect.objectContaining({
-          t: 'state', provenance: 'bootstrap', change: { kind: 'state_snapshot', state, at: state.since },
-        }) }),
-      ])
-      expect((await session.snapshot()).turnEpoch).toBe(initial.turnEpoch)
-      poll({ ...state, since: '2026-01-01T00:00:02.000Z' })
-      expect(world.frames.slice(start)).toHaveLength(2)
-      expect(world.frames.at(-1)).toMatchObject({ type: 'runtimeEvent', event: { t: 'state', provenance: 'live' } })
-      world.runtime.dispose()
-    },
-  )
+    poll(state)
+    expect(world.frames.slice(start)).toEqual([
+      expect.objectContaining({
+        type: 'runtimeEvent',
+        event: expect.objectContaining({
+          t: 'state',
+          provenance: 'bootstrap',
+          change: { kind: 'state_snapshot', state, at: state.since },
+        }),
+      }),
+    ])
+    expect((await session.snapshot()).turnEpoch).toBe(initial.turnEpoch)
+    poll({ ...state, since: '2026-01-01T00:00:02.000Z' })
+    expect(world.frames.slice(start)).toHaveLength(2)
+    expect(world.frames.at(-1)).toMatchObject({
+      type: 'runtimeEvent',
+      event: { t: 'state', provenance: 'live' },
+    })
+    world.runtime.dispose()
+  })
 
   // Regression from POD-4056: the selected poll source owns this boundary once.
 
@@ -4244,62 +4366,15 @@ describe('capabilities', () => {
     expect(caps.send.native).not.toContain('steer')
     // Steer is the manifest's per-harness claim (POD-5855): Claude's TUI takes
     // a prompt entered mid-turn into its own queue.
-    expect(world.runtime.driverFor('claude-code', CLAUDE).capabilities().send.native).toContain('steer')
+    expect(world.runtime.driverFor('claude-code', CLAUDE).capabilities().send.native).toContain(
+      'steer',
+    )
     expect(caps.interrupt.fenceOnProviderConfirmation).toBe(true)
     expect(caps.placement).toBe('dedicated')
     // `no-attach` is the EMBEDDED family's exemption. A terminal session's engine
     // terminal is exactly the thing it has.
     expect(caps.attach.supported).toBe(true)
     expect(caps.observation.watchLevels).toEqual(['coarse'])
-    expect(caps.draft.supported && caps.draft.value.write).toBe(true)
-  })
-})
-
-describe('contract draft synchronization', () => {
-  it('pushes native changes and routes writes through the composer target', async () => {
-    const world = makeWorld()
-    world.host.draftSyncing = () => true
-    const target = vi.fn(() => true)
-    Object.assign(world.host, { setDraftTarget: target })
-    const driver = world.runtime.driverFor('claude-code', CLAUDE)
-    const session = await driver.create(SPEC)
-    world.runtime.observe({
-      type: 'nativeDraft',
-      sessionId: session.binding.sessionId,
-      text: 'half typed',
-    })
-    expect(world.frames).toContainEqual(
-      expect.objectContaining({
-        type: 'runtimeEvent',
-        event: expect.objectContaining({ t: 'draft', text: 'half typed' }),
-      }),
-    )
-    expect(await session.draft.get()).toBe('half typed')
-    expect(await session.draft.set('replacement')).toEqual({ ok: true })
-    expect(target).toHaveBeenCalledWith(session.binding.sessionId, 'replacement')
-  })
-})
-
-describe('draft write availability', () => {
-  it('refuses when the composer is disabled or demoted', async () => {
-    const world = makeWorld()
-    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
-    expect(await session.draft.set('blocked')).toMatchObject({ reason: 'unsupported' })
-    world.host.draftSyncing = () => true
-    expect(await session.draft.set('still blocked')).toMatchObject({ reason: 'unsupported' })
-  })
-
-  it('publishes a cleared draft once and includes it in snapshots', async () => {
-    const world = makeWorld()
-    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
-    world.runtime.observeDraft(session.binding.sessionId, 'draft')
-    world.runtime.observeDraft(session.binding.sessionId, '')
-    world.runtime.observeDraft(session.binding.sessionId, '')
-    const drafts = world.frames.filter(
-      (frame) => frame.type === 'runtimeEvent' && frame.event.t === 'draft',
-    )
-    expect(drafts).toHaveLength(2)
-    expect((await session.snapshot()).draft).toBe('')
   })
 })
 
@@ -4310,54 +4385,93 @@ describe('answer script ownership', () => {
     world.observe(handle.binding.sessionId, { nextPhase: 'needs_user' })
     const id = (await handle.interactions())[0]!.id
     const replacementWrites: string[] = []
-    world.setTerminal(handle.binding.sessionId, fakeTransport((data) => void replacementWrites.push(data)))
+    world.setTerminal(
+      handle.binding.sessionId,
+      fakeTransport((data) => void replacementWrites.push(data)),
+    )
     expect(await handle.answer(id, { index: 0 })).toEqual({ ok: false, reason: 'expired' })
     expect(world.written).toEqual([])
     expect(replacementWrites).toEqual([])
     world.runtime.dispose()
   })
 
-  it.each(['replacement', 'human', 'bridge', 'bridge-disposal', 'dispose', 'clear', 'rebind', 'exit'] as const)(
-    'cancels the remaining multikey script after %s', async (cause) => {
-      const world = makeWorld()
-      const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
-      const sessionId = handle.binding.sessionId
-      vi.useFakeTimers()
-      world.host.setTimer = (fn, delay) => setTimeout(fn, delay)
-      world.host.clearTimer = (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>)
-      const ask = (transitionId: string) => world.observe(sessionId, {
-        transitionId, nextPhase: 'needs_user', priorPhase: 'working',
-        state: { phase: 'needs_user', since: new Date(world.now()).toISOString(), nativeSubagentCount: 0,
-          need: { kind: 'question', summary: 'Pick', interview: { questions: [
-            { question: 'Pick', multiSelect: true, options: [{ label: 'One' }, { label: 'Two' }] },
-          ] } } },
+  it.each([
+    'replacement',
+    'human',
+    'bridge',
+    'bridge-disposal',
+    'dispose',
+    'clear',
+    'rebind',
+    'exit',
+  ] as const)('cancels the remaining multikey script after %s', async (cause) => {
+    const world = makeWorld()
+    const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const sessionId = handle.binding.sessionId
+    vi.useFakeTimers()
+    world.host.setTimer = (fn, delay) => setTimeout(fn, delay)
+    world.host.clearTimer = (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>)
+    const ask = (transitionId: string) =>
+      world.observe(sessionId, {
+        transitionId,
+        nextPhase: 'needs_user',
+        priorPhase: 'working',
+        state: {
+          phase: 'needs_user',
+          since: new Date(world.now()).toISOString(),
+          nativeSubagentCount: 0,
+          need: {
+            kind: 'question',
+            summary: 'Pick',
+            interview: {
+              questions: [
+                {
+                  question: 'Pick',
+                  multiSelect: true,
+                  options: [{ label: 'One' }, { label: 'Two' }],
+                },
+              ],
+            },
+          },
+        },
       })
-      try {
-        ask('first')
-        const id = (await handle.interactions())[0]!.id
-        const pending = handle.answer(id, { kind: 'question', selections: [{ optionIndices: [1, 2] }] })
-        expect(world.written).toEqual(['1'])
-        expect(answeredEvents(world)).toEqual([])
-        if (cause === 'replacement') ask('second')
-        if (cause === 'human') world.observe(sessionId, { priorPhase: 'needs_user', nextPhase: 'working' })
-        const replacementWrites: string[] = []
-        if (cause === 'bridge') world.setTerminal(sessionId, fakeTransport((data) => void replacementWrites.push(data)))
-        if (cause === 'bridge-disposal') world.setTerminal(sessionId, undefined)
-        if (cause === 'dispose') world.runtime.dispose()
-        if (cause === 'clear') world.runtime.clear(sessionId)
-        if (cause === 'rebind') world.runtime.register({ sessionId, agentKind: 'claude-code', cwd: SPEC.workdir, resume: null }, CLAUDE)
-        if (cause === 'exit') world.runtime.observe({ type: 'agentExit', sessionId, code: 0 })
-        await vi.advanceTimersByTimeAsync(2000)
-        expect(await pending).toMatchObject({ ok: false, reason: 'partial-delivery' })
-        expect(world.written).toEqual(['1'])
-        expect(replacementWrites).toEqual([])
-        expect(await handle.answer(id, { index: 0 })).toMatchObject({ ok: false })
-      } finally {
-        world.runtime.dispose()
-        vi.useRealTimers()
-      }
-    },
-  )
+    try {
+      ask('first')
+      const id = (await handle.interactions())[0]!.id
+      const pending = handle.answer(id, {
+        kind: 'question',
+        selections: [{ optionIndices: [1, 2] }],
+      })
+      expect(world.written).toEqual(['1'])
+      expect(answeredEvents(world)).toEqual([])
+      if (cause === 'replacement') ask('second')
+      if (cause === 'human')
+        world.observe(sessionId, { priorPhase: 'needs_user', nextPhase: 'working' })
+      const replacementWrites: string[] = []
+      if (cause === 'bridge')
+        world.setTerminal(
+          sessionId,
+          fakeTransport((data) => void replacementWrites.push(data)),
+        )
+      if (cause === 'bridge-disposal') world.setTerminal(sessionId, undefined)
+      if (cause === 'dispose') world.runtime.dispose()
+      if (cause === 'clear') world.runtime.clear(sessionId)
+      if (cause === 'rebind')
+        world.runtime.register(
+          { sessionId, agentKind: 'claude-code', cwd: SPEC.workdir, resume: null },
+          CLAUDE,
+        )
+      if (cause === 'exit') world.runtime.observe({ type: 'agentExit', sessionId, code: 0 })
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(await pending).toMatchObject({ ok: false, reason: 'partial-delivery' })
+      expect(world.written).toEqual(['1'])
+      expect(replacementWrites).toEqual([])
+      expect(await handle.answer(id, { index: 0 })).toMatchObject({ ok: false })
+    } finally {
+      world.runtime.dispose()
+      vi.useRealTimers()
+    }
+  })
 
   it('reports completion only after the final write and keeps replay idempotent', async () => {
     const world = makeWorld()
@@ -4366,43 +4480,79 @@ describe('answer script ownership', () => {
     world.host.setTimer = (fn, delay) => setTimeout(fn, delay)
     world.host.clearTimer = (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>)
     try {
-      world.observe(handle.binding.sessionId, { transitionId: 'preview', nextPhase: 'needs_user',
-        state: { phase: 'needs_user', since: new Date(world.now()).toISOString(), nativeSubagentCount: 0,
-          need: { kind: 'question', summary: 'Pick', interview: { questions: [
-            { question: 'Pick', options: [{ label: 'One', preview: 'Preview' }] },
-          ] } } },
+      world.observe(handle.binding.sessionId, {
+        transitionId: 'preview',
+        nextPhase: 'needs_user',
+        state: {
+          phase: 'needs_user',
+          since: new Date(world.now()).toISOString(),
+          nativeSubagentCount: 0,
+          need: {
+            kind: 'question',
+            summary: 'Pick',
+            interview: {
+              questions: [{ question: 'Pick', options: [{ label: 'One', preview: 'Preview' }] }],
+            },
+          },
+        },
       })
       const id = (await handle.interactions())[0]!.id
       const pending = handle.answer(id, { kind: 'question', selections: [{ optionIndices: [1] }] })
       expect(world.written).toEqual(['1'])
       expect(answeredEvents(world)).toEqual([])
-      expect(await handle.answer(id, { index: 0 })).toEqual({ ok: false, reason: 'already-answered' })
+      expect(await handle.answer(id, { index: 0 })).toEqual({
+        ok: false,
+        reason: 'already-answered',
+      })
       await vi.advanceTimersByTimeAsync(120)
       expect(await pending).toEqual({ ok: true })
       expect(world.written).toEqual(['1', '\r'])
       expect(answeredEvents(world)).toHaveLength(1)
-    } finally { world.runtime.dispose(); vi.useRealTimers() }
+    } finally {
+      world.runtime.dispose()
+      vi.useRealTimers()
+    }
   })
 })
 
 describe('driver-private mail hook intervention', () => {
-  it.each(['stop', 'tool'] as const)('returns the %s veto through the real hook endpoint and preserves the active turn', async (kind) => {
+  it.each([
+    'stop',
+    'tool',
+  ] as const)('returns the %s veto through the real hook endpoint and preserves the active turn', async (kind) => {
     const world = makeWorld()
     const unread = vi.fn(async () => ({ ok: true, result: { unread: 1, senders: ['parent'] } }))
     const ack = vi.fn(async () => ({ ok: true, result: [{ id: 'reply-1', from: 'parent' }] }))
-    world.host.boundaryContext = composeMailContext(createMailInjector(unread), createAckReminderInjector(ack)).pendingContext
-    const session = await world.runtime.driverFor(kind === 'stop' ? 'claude-code' : 'grok', kind === 'stop' ? CLAUDE : GROK).create({
-      ...SPEC, harness: kind === 'stop' ? 'claude-code' : 'grok',
-    })
+    world.host.boundaryContext = composeMailContext(
+      createMailInjector(unread),
+      createAckReminderInjector(ack),
+    ).pendingContext
+    const session = await world.runtime
+      .driverFor(kind === 'stop' ? 'claude-code' : 'grok', kind === 'stop' ? CLAUDE : GROK)
+      .create({
+        ...SPEC,
+        harness: kind === 'stop' ? 'claude-code' : 'grok',
+      })
     const id = session.binding.sessionId
     world.setPhase(id, 'working')
     const before = await session.snapshot()
-    const ing = await startHookIngest({ port: 0, onPayload: world.runtime.onHookPayload, respondTo: world.runtime.respondToHook })
-    const post = async (payload: unknown) => (await fetch(ing.endpointFor(id), {
-      method: 'POST', body: JSON.stringify(payload),
-    })).json() as Promise<{ decision?: string; reason?: string }>
+    const ing = await startHookIngest({
+      port: 0,
+      onPayload: world.runtime.onHookPayload,
+      respondTo: world.runtime.respondToHook,
+    })
+    const post = async (payload: unknown) =>
+      (
+        await fetch(ing.endpointFor(id), {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        })
+      ).json() as Promise<{ decision?: string; reason?: string }>
     try {
-      const payload = kind === 'stop' ? { hook_event_name: 'Stop' } : { hookEventName: 'PreToolUse', toolName: 'Bash' }
+      const payload =
+        kind === 'stop'
+          ? { hook_event_name: 'Stop' }
+          : { hookEventName: 'PreToolUse', toolName: 'Bash' }
       const response = await post(payload)
       expect(response.decision).toBe(kind === 'stop' ? 'block' : 'deny')
       expect(response.reason).toContain('from parent')
@@ -4429,49 +4579,71 @@ describe('driver-private mail hook intervention', () => {
     const world = makeWorld()
     const source = vi.fn(async () => 'mail')
     world.host.boundaryContext = source
-    expect(await world.runtime.respondToHook('foreign-session' as SessionId, { hook_event_name: 'Stop' })).toBeNull()
+    expect(
+      await world.runtime.respondToHook('foreign-session' as SessionId, {
+        hook_event_name: 'Stop',
+      }),
+    ).toBeNull()
     expect(source).not.toHaveBeenCalled()
     world.runtime.dispose()
   })
 })
 
 describe('driver-owned prime boundary', () => {
-  it.each(['claude-code', 'codex', 'grok'] as const)(
-    '%s preserves startup, duplicate, compaction, failed fetch, scope and resume behavior', async (harness) => {
-      const source = vi.fn(async (sessionId: SessionId) => ({ ok: true, result: `prime:${sessionId}` }))
-      const world = makeWorld({ primeSource: source })
-      const profile = testProfileFor(harness)!
-      const spec = { ...SPEC, harness }
-      const driver = world.runtime.driverFor(harness, profile)
-      try {
-        const handle = await driver.create(spec)
-        const sessionId = handle.binding.sessionId
-        const event = (name: string) => harness === 'grok'
-          ? { hookEventName: name } : { hook_event_name: name }
-        const respond = (name: string) => boundaryHookResponse(handle.boundaryContext!, event(name))
-        expect(JSON.parse((await respond('SessionStart'))!)).toEqual({
-          hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: `prime:${sessionId}` },
-        })
-        expect(await respond('SessionStart')).toBeNull()
-        expect(await respond('UserPromptSubmit')).toBeNull()
-        expect(source).toHaveBeenCalledTimes(1)
-        expect(await respond('PreCompact')).toBeNull()
-        source.mockResolvedValueOnce({ ok: false, result: '' })
-        expect(await respond('UserPromptSubmit')).toBeNull()
-        expect(JSON.parse((await respond('UserPromptSubmit'))!).hookSpecificOutput.additionalContext)
-          .toBe(`prime:${sessionId}`)
-        expect(source.mock.calls.every(([id]) => id === sessionId)).toBe(true)
-        expect(world.written).toEqual([])
-        expect(world.frames.some((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'turn')).toBe(false)
-        const kind = harness === 'codex' ? 'codex-thread' : harness === 'grok' ? 'grok-session' : 'claude-session'
-        const resumed = await driver.resume({ kind, value: 'native' }, spec)
-        expect(await resumed.boundaryContext!({ event: 'start' })).toBe(`prime:${resumed.binding.sessionId}`)
-        expect(await resumed.boundaryContext!({ event: 'prompt' })).toBeNull()
-      } finally {
-        world.runtime.dispose()
-      }
-    },
-  )
+  it.each([
+    'claude-code',
+    'codex',
+    'grok',
+  ] as const)('%s preserves startup, duplicate, compaction, failed fetch, scope and resume behavior', async (harness) => {
+    const source = vi.fn(async (sessionId: SessionId) => ({
+      ok: true,
+      result: `prime:${sessionId}`,
+    }))
+    const world = makeWorld({ primeSource: source })
+    const profile = testProfileFor(harness)!
+    const spec = { ...SPEC, harness }
+    const driver = world.runtime.driverFor(harness, profile)
+    try {
+      const handle = await driver.create(spec)
+      const sessionId = handle.binding.sessionId
+      const event = (name: string) =>
+        harness === 'grok' ? { hookEventName: name } : { hook_event_name: name }
+      const respond = (name: string) => boundaryHookResponse(handle.boundaryContext!, event(name))
+      expect(JSON.parse((await respond('SessionStart'))!)).toEqual({
+        hookSpecificOutput: {
+          hookEventName: 'SessionStart',
+          additionalContext: `prime:${sessionId}`,
+        },
+      })
+      expect(await respond('SessionStart')).toBeNull()
+      expect(await respond('UserPromptSubmit')).toBeNull()
+      expect(source).toHaveBeenCalledTimes(1)
+      expect(await respond('PreCompact')).toBeNull()
+      source.mockResolvedValueOnce({ ok: false, result: '' })
+      expect(await respond('UserPromptSubmit')).toBeNull()
+      expect(
+        JSON.parse((await respond('UserPromptSubmit'))!).hookSpecificOutput.additionalContext,
+      ).toBe(`prime:${sessionId}`)
+      expect(source.mock.calls.every(([id]) => id === sessionId)).toBe(true)
+      expect(world.written).toEqual([])
+      expect(
+        world.frames.some((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'turn'),
+      ).toBe(false)
+      const kind =
+        harness === 'codex'
+          ? 'codex-thread'
+          : harness === 'grok'
+            ? 'grok-session'
+            : 'claude-session'
+      const resumed = await driver.resume({ kind, value: 'native' }, spec)
+      expect(await resumed.boundaryContext!({ event: 'start' })).toBe(
+        `prime:${resumed.binding.sessionId}`,
+      )
+      expect(await resumed.boundaryContext!({ event: 'prompt' })).toBeNull()
+    } finally {
+      world.runtime.dispose()
+    }
+  })
 
   // Full-stack parity: the same driver operation, reached through the real
   // hook transport each harness posts to (Codex over the instance Unix
@@ -4479,16 +4651,18 @@ describe('driver-owned prime boundary', () => {
   // Hidden context travels in the hook response — never typed into the PTY,
   // never opened as a turn — on every wire.
   const deliversOverWire = async (harness: 'claude-code' | 'codex' | 'grok'): Promise<void> => {
-    const source = vi.fn(async (sessionId: SessionId) => ({ ok: true, result: `prime:${sessionId}` }))
+    const source = vi.fn(async (sessionId: SessionId) => ({
+      ok: true,
+      result: `prime:${sessionId}`,
+    }))
     const world = makeWorld({ primeSource: source })
     const profile = testProfileFor(harness)!
-    const handle = await world.runtime
-      .driverFor(harness, profile)
-      .create({ ...SPEC, harness })
+    const handle = await world.runtime.driverFor(harness, profile).create({ ...SPEC, harness })
     const sessionId = handle.binding.sessionId
     const wire = (name: string): Record<string, string> =>
       harness === 'grok' ? { hookEventName: name } : { hook_event_name: name }
-    const root = harness === 'codex' ? await mkdtemp(join(tmpdir(), 'podium-prime-codex-')) : undefined
+    const root =
+      harness === 'codex' ? await mkdtemp(join(tmpdir(), 'podium-prime-codex-')) : undefined
     const ing = await startHookIngest({
       port: 0,
       ...(root ? { socketPath: join(root, 'ingest.sock') } : {}),
@@ -4529,12 +4703,17 @@ describe('driver-owned prime boundary', () => {
     }
     try {
       expect(JSON.parse(await postWire(wire('SessionStart')))).toEqual({
-        hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: `prime:${sessionId}` },
+        hookSpecificOutput: {
+          hookEventName: 'SessionStart',
+          additionalContext: `prime:${sessionId}`,
+        },
       })
       expect(await postWire(wire('UserPromptSubmit'))).toBe('{}')
       expect(source).toHaveBeenCalledTimes(1)
       expect(world.written).toEqual([])
-      expect(world.frames.some((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'turn')).toBe(false)
+      expect(
+        world.frames.some((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'turn'),
+      ).toBe(false)
       expect(await postWire(wire('PreCompact'))).toBe('{}')
       expect(
         JSON.parse(await postWire(wire('UserPromptSubmit'))).hookSpecificOutput.additionalContext,
@@ -4561,7 +4740,9 @@ describe('driver-owned prime boundary', () => {
     const sessionId = 'early-prime' as SessionId
     try {
       vi.spyOn(world.host, 'launch').mockImplementationOnce(async () => {
-        expect(await world.runtime.boundaryContextFor(sessionId)?.({ event: 'start' })).toBe('early')
+        expect(await world.runtime.boundaryContextFor(sessionId)?.({ event: 'start' })).toBe(
+          'early',
+        )
         return { announce: () => {} }
       })
       const handle = await world.runtime.createWithId(sessionId, SPEC, CLAUDE)
@@ -4573,8 +4754,14 @@ describe('driver-owned prime boundary', () => {
 
   it('fences retained callbacks and late prime fetches from a replacement session with the same id', async () => {
     let resolve!: (result: { ok: boolean; result: string }) => void
-    const source = vi.fn()
-      .mockImplementationOnce(() => new Promise<{ ok: boolean; result: string }>((done) => { resolve = done }))
+    const source = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<{ ok: boolean; result: string }>((done) => {
+            resolve = done
+          }),
+      )
       .mockResolvedValue({ ok: true, result: 'replacement prime' })
     const world = makeWorld({ primeSource: source })
     const sessionId = 'reused-prime' as SessionId
@@ -4600,7 +4787,8 @@ describe('driver-owned prime boundary', () => {
     const source = vi.fn(async () => ({ ok: true, result: 'prime' }))
     const world = makeWorld({ primeSource: source })
     try {
-      const handle = await world.runtime.driverFor('opencode', shippedProfile('opencode'))
+      const handle = await world.runtime
+        .driverFor('opencode', shippedProfile('opencode'))
         .create({ ...SPEC, harness: 'opencode' })
       expect(handle.boundaryContext).toBeUndefined()
       expect(world.runtime.boundaryContextFor(handle.binding.sessionId)).toBeUndefined()
@@ -4619,12 +4807,25 @@ describe('terminal transcript replacement events', () => {
     const item: TranscriptItem = { id: 'stable', cursor: 'native', role: 'assistant', text: 'same' }
     const before = world.frames.length
     world.runtime.observe({ type: 'transcriptDelta', sessionId, items: [item] })
-    world.runtime.observe({ type: 'transcriptDelta', sessionId, items: [item], reset: true, tail: 'native' })
+    world.runtime.observe({
+      type: 'transcriptDelta',
+      sessionId,
+      items: [item],
+      reset: true,
+      tail: 'native',
+    })
     world.runtime.observe({ type: 'transcriptDelta', sessionId, items: [item] })
     world.runtime.observe({ type: 'transcriptDelta', sessionId, items: [], reset: true })
     world.runtime.observe({ type: 'transcriptDelta', sessionId, items: [item] })
-    const events = world.frames.slice(before).flatMap((frame) => frame.type === 'runtimeEvent' ? [frame.event] : [])
-    expect(events.map((event) => event.t)).toEqual(['item', 'transcript-reset', 'transcript-reset', 'item'])
+    const events = world.frames
+      .slice(before)
+      .flatMap((frame) => (frame.type === 'runtimeEvent' ? [frame.event] : []))
+    expect(events.map((event) => event.t)).toEqual([
+      'item',
+      'transcript-reset',
+      'transcript-reset',
+      'item',
+    ])
     expect(events[1]).toMatchObject({ t: 'transcript-reset', items: [item], tail: 'native' })
     expect(events[2]).toMatchObject({ t: 'transcript-reset', items: [] })
     expect(events[3]).toMatchObject({ t: 'item', item: { kind: 'complete', item } })
@@ -4637,14 +4838,32 @@ describe('native identity publication', () => {
     const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
     const sessionId = handle.binding.sessionId
     for (const value of ['first-native', 'repinned-native']) {
-      world.runtime.observe({ type: 'sessionResumeRef', sessionId,
-        resume: { kind: 'claude-session', value }, confidence: 'exact',
-        observerGeneration: 1, bindingVersion: handle.binding.bindingVersion })
+      world.runtime.observe({
+        type: 'sessionResumeRef',
+        sessionId,
+        resume: { kind: 'claude-session', value },
+        confidence: 'exact',
+        observerGeneration: 1,
+        bindingVersion: handle.binding.bindingVersion,
+      })
     }
-    expect(world.frames.filter((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'binding')
-      .map((frame) => frame.type === 'runtimeEvent' && frame.event)).toMatchObject([
-      { t: 'binding', resume: { value: 'first-native' }, confidence: 'exact', observerGeneration: 1 },
-      { t: 'binding', resume: { value: 'repinned-native' }, confidence: 'exact', observerGeneration: 1 },
+    expect(
+      world.frames
+        .filter((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'binding')
+        .map((frame) => frame.type === 'runtimeEvent' && frame.event),
+    ).toMatchObject([
+      {
+        t: 'binding',
+        resume: { value: 'first-native' },
+        confidence: 'exact',
+        observerGeneration: 1,
+      },
+      {
+        t: 'binding',
+        resume: { value: 'repinned-native' },
+        confidence: 'exact',
+        observerGeneration: 1,
+      },
     ])
     expect(handle.binding.resume?.value).toBe('repinned-native')
     world.runtime.dispose()
@@ -4653,18 +4872,30 @@ describe('native identity publication', () => {
   it('holds discovery before registration and retains receipt metadata', async () => {
     const world = makeWorld()
     const sessionId = 'early-native' as SessionId
-    const receipt = { id: 'receipt', ownerId: 'owner' as import('@podium/model').UserId,
-      attemptId: 'attempt', observerGeneration: 1 }
+    const receipt = {
+      id: 'receipt',
+      ownerId: 'owner' as import('@podium/model').UserId,
+      attemptId: 'attempt',
+      observerGeneration: 1,
+    }
     vi.spyOn(world.host, 'launch').mockImplementationOnce(async () => {
-      world.runtime.observe({ type: 'sessionResumeRef', sessionId,
-        resume: { kind: 'claude-session', value: 'early' }, confidence: 'exact',
-        ackRequested: true, receipt, observerGeneration: 1, bindingVersion: 1 })
+      world.runtime.observe({
+        type: 'sessionResumeRef',
+        sessionId,
+        resume: { kind: 'claude-session', value: 'early' },
+        confidence: 'exact',
+        ackRequested: true,
+        receipt,
+        observerGeneration: 1,
+        bindingVersion: 1,
+      })
       return { announce: () => {} }
     })
     const handle = await world.runtime.createWithId(sessionId, SPEC, CLAUDE)
     expect(handle.binding.resume?.value).toBe('early')
-    expect(world.frames.find((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'binding'))
-      .toMatchObject({ event: { t: 'binding', receipt, ackRequested: true } })
+    expect(
+      world.frames.find((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'binding'),
+    ).toMatchObject({ event: { t: 'binding', receipt, ackRequested: true } })
     world.runtime.dispose()
   })
 
@@ -4672,28 +4903,47 @@ describe('native identity publication', () => {
     const world = makeWorld()
     const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
     const sessionId = handle.binding.sessionId
-    const discover = (value: string, observerGeneration: number, confidence: 'exact' | 'heuristic') =>
-      world.runtime.observe({ type: 'sessionResumeRef', sessionId,
-        resume: { kind: 'claude-session', value }, confidence, observerGeneration,
-        bindingVersion: handle.binding.bindingVersion })
+    const discover = (
+      value: string,
+      observerGeneration: number,
+      confidence: 'exact' | 'heuristic',
+    ) =>
+      world.runtime.observe({
+        type: 'sessionResumeRef',
+        sessionId,
+        resume: { kind: 'claude-session', value },
+        confidence,
+        observerGeneration,
+        bindingVersion: handle.binding.bindingVersion,
+      })
     discover('current', 1, 'exact')
     discover('stale', 0, 'exact')
     discover('future', 2, 'exact')
     discover('guess', 1, 'heuristic')
     expect(handle.binding.resume?.value).toBe('current')
-    expect(world.frames.filter((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'binding')).toHaveLength(1)
+    expect(
+      world.frames.filter((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'binding'),
+    ).toHaveLength(1)
     world.runtime.dispose()
   })
 })
 
 describe('terminal retirement completion', () => {
-  it.each(['stop', 'kill'] as const)('%s waits for host measurement and propagates failure', async (verb) => {
+  it.each([
+    'stop',
+    'kill',
+  ] as const)('%s waits for host measurement and propagates failure', async (verb) => {
     const world = makeWorld()
     const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
     let finish!: (retired: boolean) => void
-    world.host.stopSession = () => new Promise<boolean>(resolve => { finish = resolve })
+    world.host.stopSession = () =>
+      new Promise<boolean>((resolve) => {
+        finish = resolve
+      })
     let settled = false
-    const pending = handle[verb]().finally(() => { settled = true })
+    const pending = handle[verb]().finally(() => {
+      settled = true
+    })
     await Promise.resolve()
     expect(settled).toBe(false)
     finish(false)
@@ -4714,11 +4964,18 @@ describe('terminal retirement completion', () => {
     const world = makeWorld()
     const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
     const sessionId = handle.binding.sessionId
-    world.runtime.observe({ type: 'sessionResumeRef', sessionId,
-      resume: { kind: 'claude-session', value: 'native' }, confidence: 'exact',
-      observerGeneration: 1, bindingVersion: handle.binding.bindingVersion })
+    world.runtime.observe({
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'claude-session', value: 'native' },
+      confidence: 'exact',
+      observerGeneration: 1,
+      bindingVersion: handle.binding.bindingVersion,
+    })
     world.host.stopSession = async () => false
-    await expect(handle.hibernate()).rejects.toThrow('terminal process retirement was not confirmed')
+    await expect(handle.hibernate()).rejects.toThrow(
+      'terminal process retirement was not confirmed',
+    )
     world.runtime.dispose()
   })
 })
@@ -4878,7 +5135,7 @@ describe('the history entry a delivered send became', () => {
    * image block, two attachment records, then the path in an isMeta record of
    * the same prompt. The text has a trailing space on a line. Never confirmed.
    */
-  it("pairs a Claude send whose image path became an image and a separate record", async () => {
+  it('pairs a Claude send whose image path became an image and a separate record', async () => {
     const world = makeWorld()
     const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
     const sessionId = session.binding.sessionId
@@ -4910,8 +5167,18 @@ describe('the history entry a delivered send became', () => {
           ],
         },
       },
-      { type: 'attachment', uuid: 'skills', timestamp: at, attachment: { type: 'skill_listing', content: '' } },
-      { type: 'attachment', uuid: 'tokens', timestamp: at, attachment: { type: 'total_tokens_reminder' } },
+      {
+        type: 'attachment',
+        uuid: 'skills',
+        timestamp: at,
+        attachment: { type: 'skill_listing', content: '' },
+      },
+      {
+        type: 'attachment',
+        uuid: 'tokens',
+        timestamp: at,
+        attachment: { type: 'total_tokens_reminder' },
+      },
       {
         type: 'user',
         uuid: 'image-source',
@@ -4929,10 +5196,12 @@ describe('the history entry a delivered send became', () => {
         world.runtime.observe({
           type: 'transcriptDelta',
           sessionId: id,
-          items: records.flatMap((record) => claudeRecordToItems(record)).map((item) => ({
-            ...item,
-            cursor: `cursor-${item.id}`,
-          })),
+          items: records
+            .flatMap((record) => claudeRecordToItems(record))
+            .map((item) => ({
+              ...item,
+              cursor: `cursor-${item.id}`,
+            })),
         })
       }, 1_000)
     }
@@ -5060,9 +5329,7 @@ describe('headed Grok follow-ups are never held without end [POD-4804]', () => {
     expect((await session.state()).phase).toBe('idle')
 
     const pastes = (): string[] =>
-      world.written
-        .map(pastedText)
-        .filter((text): text is string => text !== undefined)
+      world.written.map(pastedText).filter((text): text is string => text !== undefined)
     const deliveries = (): Array<{ rowId: string; outcome: string }> =>
       world.frames.flatMap((frame) =>
         frame.type === 'runtimeEvent' && frame.event.t === 'delivery'
@@ -5124,12 +5391,14 @@ describe('headed Grok follow-ups are never held without end [POD-4804]', () => {
     })
 
     expect((await session.state()).phase).toBe('idle')
-    const workingStates = world.frames.slice(framesBefore).filter(
-      (frame) =>
-        frame.type === 'runtimeEvent' &&
-        frame.event.t === 'state' &&
-        (frame.event.change as { state?: { phase?: string } }).state?.phase === 'working',
-    )
+    const workingStates = world.frames
+      .slice(framesBefore)
+      .filter(
+        (frame) =>
+          frame.type === 'runtimeEvent' &&
+          frame.event.t === 'state' &&
+          (frame.event.change as { state?: { phase?: string } }).state?.phase === 'working',
+      )
     expect(workingStates).toEqual([])
 
     // And the next follow-up still drains — the stale fold did not re-arm
@@ -5164,9 +5433,7 @@ describe('headed Grok follow-ups are never held without end [POD-4804]', () => {
     expect((await session.state()).phase).toBe('idle')
 
     const pastes = (): string[] =>
-      world.written
-        .map(pastedText)
-        .filter((text): text is string => text !== undefined)
+      world.written.map(pastedText).filter((text): text is string => text !== undefined)
     const deliveries = (): Array<{ rowId: string; outcome: string }> =>
       world.frames.flatMap((frame) =>
         frame.type === 'runtimeEvent' && frame.event.t === 'delivery'
@@ -5206,12 +5473,14 @@ describe('headed Grok follow-ups are never held without end [POD-4804]', () => {
     })
 
     expect((await session.state()).phase).toBe('idle')
-    const workingStates = world.frames.slice(framesBefore).filter(
-      (frame) =>
-        frame.type === 'runtimeEvent' &&
-        frame.event.t === 'state' &&
-        (frame.event.change as { state?: { phase?: string } }).state?.phase === 'working',
-    )
+    const workingStates = world.frames
+      .slice(framesBefore)
+      .filter(
+        (frame) =>
+          frame.type === 'runtimeEvent' &&
+          frame.event.t === 'state' &&
+          (frame.event.change as { state?: { phase?: string } }).state?.phase === 'working',
+      )
     expect(workingStates).toEqual([])
 
     // The follow-up still drains — the poll fold did not re-arm the hold.
@@ -5234,10 +5503,10 @@ describe('a lone turn_completed without turn_started never holds the queue [POD-
   const GROK_SPEC = { ...SPEC, harness: 'grok' as const }
 
   const pastesOf = (world: ReturnType<typeof makeWorld>): string[] =>
-    world.written
-      .map(pastedText)
-      .filter((text): text is string => text !== undefined)
-  const deliveriesOf = (world: ReturnType<typeof makeWorld>): Array<{ rowId: string; outcome: string }> =>
+    world.written.map(pastedText).filter((text): text is string => text !== undefined)
+  const deliveriesOf = (
+    world: ReturnType<typeof makeWorld>,
+  ): Array<{ rowId: string; outcome: string }> =>
     world.frames.flatMap((frame) =>
       frame.type === 'runtimeEvent' && frame.event.t === 'delivery'
         ? [{ rowId: frame.event.rowId, outcome: frame.event.outcome }]
@@ -5250,7 +5519,10 @@ describe('a lone turn_completed without turn_started never holds the queue [POD-
     }
     expect(pastesOf(world)).toContain(text)
   }
-  const waitForDelivery = async (world: ReturnType<typeof makeWorld>, rowId: string): Promise<void> => {
+  const waitForDelivery = async (
+    world: ReturnType<typeof makeWorld>,
+    rowId: string,
+  ): Promise<void> => {
     for (
       let i = 0;
       i < 80 &&
@@ -5262,7 +5534,9 @@ describe('a lone turn_completed without turn_started never holds the queue [POD-
     }
     expect(deliveriesOf(world)).toContainEqual({ rowId, outcome: 'delivered' })
   }
-  const turnEvents = (world: ReturnType<typeof makeWorld>): Array<{ ev: string; turnEpoch: number }> =>
+  const turnEvents = (
+    world: ReturnType<typeof makeWorld>,
+  ): Array<{ ev: string; turnEpoch: number }> =>
     world.frames.flatMap((frame) =>
       frame.type === 'runtimeEvent' && frame.event.t === 'turn'
         ? [{ ev: frame.event.ev.ev, turnEpoch: frame.event.ev.turnEpoch }]
@@ -5413,10 +5687,10 @@ describe('a stale busy tracker with no open turn never holds Grok follow-ups [PO
   const GROK_SPEC = { ...SPEC, harness: 'grok' as const }
 
   const pastesOf = (world: ReturnType<typeof makeWorld>): string[] =>
-    world.written
-      .map(pastedText)
-      .filter((text): text is string => text !== undefined)
-  const deliveriesOf = (world: ReturnType<typeof makeWorld>): Array<{ rowId: string; outcome: string }> =>
+    world.written.map(pastedText).filter((text): text is string => text !== undefined)
+  const deliveriesOf = (
+    world: ReturnType<typeof makeWorld>,
+  ): Array<{ rowId: string; outcome: string }> =>
     world.frames.flatMap((frame) =>
       frame.type === 'runtimeEvent' && frame.event.t === 'delivery'
         ? [{ rowId: frame.event.rowId, outcome: frame.event.outcome }]
@@ -5429,7 +5703,10 @@ describe('a stale busy tracker with no open turn never holds Grok follow-ups [PO
     }
     expect(pastesOf(world)).toContain(text)
   }
-  const waitForDelivery = async (world: ReturnType<typeof makeWorld>, rowId: string): Promise<void> => {
+  const waitForDelivery = async (
+    world: ReturnType<typeof makeWorld>,
+    rowId: string,
+  ): Promise<void> => {
     for (
       let i = 0;
       i < 80 &&
@@ -5498,12 +5775,8 @@ describe('a stale busy tracker with no open turn never holds Grok follow-ups [PO
       ['fourth prompt', 'row-fourth'],
     ] as const) {
       expect(
-        (
-          await session.send(
-            { text, rowId },
-            { origin: 'controller', delivery: 'when-ready' },
-          )
-        ).outcome,
+        (await session.send({ text, rowId }, { origin: 'controller', delivery: 'when-ready' }))
+          .outcome,
       ).toBe('queued')
       await waitForPaste(world, text)
       world.echo(sessionId, text)
@@ -5671,11 +5944,17 @@ describe('terminal receipts from the history (POD-4905)', () => {
       const rows = readFileSync(
         join(LANES, `../pod-4982-claude-pasted-content/claude-${version}-gate-on${suffix}.jsonl`),
         'utf8',
-      ).trim().split('\n').map((line) => JSON.parse(line) as {
-        case: string
-        input: string
-        record: { uuid: string; message: { content: string } }
-      })
+      )
+        .trim()
+        .split('\n')
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              case: string
+              input: string
+              record: { uuid: string; message: { content: string } }
+            },
+        )
       const row = rows.find((row) => row.case === name)
       if (!row) throw new Error(`missing measured prompt ${version}/${name}`)
       expect(row.record.message.content).toContain('<pasted_content id=')
@@ -5690,7 +5969,9 @@ describe('terminal receipts from the history (POD-4905)', () => {
 
     async function pastedSession(world: World) {
       const seed: TranscriptItem = {
-        id: 'before-paste', role: 'user', text: 'previous prompt',
+        id: 'before-paste',
+        role: 'user',
+        text: 'previous prompt',
         cursor: encodeCursor({ fileId: `paste-${version}`, offset: 0, uuid: null, sub: 0 }),
       }
       return laneSession(world, 'claude-code', [seed], 1)
@@ -5712,43 +5993,48 @@ describe('terminal receipts from the history (POD-4905)', () => {
         post(world, sessionId, row.items)
       })
       const receipt = await handle.send(
-        { id, text: row.input }, { origin: 'mail', delivery: 'when-ready' },
+        { id, text: row.input },
+        { origin: 'mail', delivery: 'when-ready' },
       )
       expect(submitted).toBe(1)
       expect(world.written[1]).toBe('\r')
       expect(receipt).toMatchObject({
-        outcome: 'accepted', provenBy: 'transcript-echo',
+        outcome: 'accepted',
+        provenBy: 'transcript-echo',
         transcriptItem: { id: row.record.uuid, cursor: row.items[0]?.cursor },
       })
       world.runtime.dispose()
     })
 
-    it.each(['multiline-323', 'mixed-inline', 'mixed-two-pastes'])(
-      'credits measured pasted content %s by order with its original item id',
-      async (name) => {
-        const world = makeWorld()
-        const row = measured(name)
-        const { handle, sessionId } = await pastedSession(world)
-        const id = 'msg-human-paste'
-        let submitted = 0
-        world.onSubmit(sessionId, (text) => {
-          submitted += 1
-          expect(text).toBe(row.input)
-          expect(world.host.foreignWrites?.typingMark(sessionId, id)).toBe(0)
-          post(world, sessionId, row.items)
-        })
-        const receipt = await handle.send(
-          { id, text: row.input }, { origin: 'human', delivery: 'when-ready' },
-        )
-        expect(submitted).toBe(1)
-        expect(world.written[1]).toBe('\r')
-        expect(receipt).toMatchObject({
-          outcome: 'accepted', provenBy: 'transcript-echo',
-          transcriptItem: { id: row.record.uuid },
-        })
-        world.runtime.dispose()
-      },
-    )
+    it.each([
+      'multiline-323',
+      'mixed-inline',
+      'mixed-two-pastes',
+    ])('credits measured pasted content %s by order with its original item id', async (name) => {
+      const world = makeWorld()
+      const row = measured(name)
+      const { handle, sessionId } = await pastedSession(world)
+      const id = 'msg-human-paste'
+      let submitted = 0
+      world.onSubmit(sessionId, (text) => {
+        submitted += 1
+        expect(text).toBe(row.input)
+        expect(world.host.foreignWrites?.typingMark(sessionId, id)).toBe(0)
+        post(world, sessionId, row.items)
+      })
+      const receipt = await handle.send(
+        { id, text: row.input },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      expect(submitted).toBe(1)
+      expect(world.written[1]).toBe('\r')
+      expect(receipt).toMatchObject({
+        outcome: 'accepted',
+        provenBy: 'transcript-echo',
+        transcriptItem: { id: row.record.uuid },
+      })
+      world.runtime.dispose()
+    })
 
     it('credits measured pasted content after a foreign write', async () => {
       const world = makeWorld()
@@ -5762,7 +6048,8 @@ describe('terminal receipts from the history (POD-4905)', () => {
         post(world, sessionId, row.items)
       })
       const receipt = await handle.send(
-        { id: 'msg-foreign-paste', text: row.input }, { origin: 'human', delivery: 'when-ready' },
+        { id: 'msg-foreign-paste', text: row.input },
+        { origin: 'human', delivery: 'when-ready' },
       )
       expect(submitted).toBe(1)
       expect(receipt.outcome).toBe('accepted')
@@ -6173,7 +6460,10 @@ describe('terminal receipts from the history (POD-4905)', () => {
   })
 
   /** A lane file other than `history(lane)`'s, read through the lane's readers. */
-  async function laneFile(lane: Exclude<Lane, 'opencode'>, file: string): Promise<TranscriptItem[]> {
+  async function laneFile(
+    lane: Exclude<Lane, 'opencode'>,
+    file: string,
+  ): Promise<TranscriptItem[]> {
     const toItems = transcriptRecordMapperFor(lane)
     if (!toItems) throw new Error(`no reader for ${lane}`)
     const receipts = transcriptReceiptMapperFor(lane)
@@ -6221,8 +6511,11 @@ describe('terminal receipts from the history (POD-4905)', () => {
     // The measured records must share the daemon's clock. Position used to hide
     // the fixture's August clock against September recordings; a time floor
     // must exclude the prompts already recorded before this send.
-    const before = input.items.slice(0, input.upTo)
-      .flatMap((item) => item.ts && Number.isFinite(Date.parse(item.ts)) ? [Date.parse(item.ts)] : [])
+    const before = input.items
+      .slice(0, input.upTo)
+      .flatMap((item) =>
+        item.ts && Number.isFinite(Date.parse(item.ts)) ? [Date.parse(item.ts)] : [],
+      )
     if (before.length && profile.transcriptTimestamps !== 'absent') {
       const typingAt = Math.max(...before) + profile.transcriptTimestamps.resolutionMs
       const base = world.now()
@@ -6329,9 +6622,7 @@ describe('terminal receipts from the history (POD-4905)', () => {
         .filter(Boolean)
         .map((line) => JSON.parse(line) as { kind?: string; table?: string; row?: Row })
         .filter((entry) => entry.kind === 'db' && entry.row)
-      const halfRecord = db.find(
-        (entry) => entry.table === 'message' && entry.row?.r === 50,
-      )?.row
+      const halfRecord = db.find((entry) => entry.table === 'message' && entry.row?.r === 50)?.row
       expect(halfRecord?.data?.role).toBe('user')
       expect(db.some((entry) => entry.table === 'part' && entry.row?.m === halfRecord?.id)).toBe(
         false,
@@ -6500,7 +6791,9 @@ describe('terminal receipts from the history (POD-4905)', () => {
       ])
       // Proof-only: the drop record never leaves the machine.
       const shown = world.frames.flatMap((frame) =>
-        frame.type === 'runtimeEvent' && frame.event.t === 'item' && frame.event.item.kind === 'complete'
+        frame.type === 'runtimeEvent' &&
+        frame.event.t === 'item' &&
+        frame.event.item.kind === 'complete'
           ? [frame.event.item.item]
           : [],
       )
@@ -6510,10 +6803,15 @@ describe('terminal receipts from the history (POD-4905)', () => {
   })
 })
 
-it.each(['/tmp/session.jsonl', 'C:\\tmp\\session.jsonl'])('machine paths: terminal export from %s uses a portable filename', async path => {
+it.each([
+  '/tmp/session.jsonl',
+  'C:\\tmp\\session.jsonl',
+])('machine paths: terminal export from %s uses a portable filename', async (path) => {
   const world = makeWorld()
   world.host.archiveTranscript = async () => ({ path, relativeDir: 'sessions' })
-  const session = await world.runtime.driverFor('claude-code', CLAUDE).resume({ kind: 'claude-session', value: 'native-session' }, SPEC)
+  const session = await world.runtime
+    .driverFor('claude-code', CLAUDE)
+    .resume({ kind: 'claude-session', value: 'native-session' }, SPEC)
   const archive = await session.export()
   expect(archive.files[0]?.path).toBe('sessions/session.jsonl')
 })

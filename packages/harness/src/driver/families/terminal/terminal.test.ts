@@ -12,12 +12,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { PERMITTED_FAILURES } from '../../permitted-failures.js'
 import type { InputOrigin } from '../../turns.js'
 import {
+  type AcceptSeen,
   closesPasteEnvelope,
   createTerminalInjection,
   cursorSeq,
   driverLocalCursor,
   ESC,
-  type AcceptSeen,
   type HookAcceptPort,
   injectionPayload,
   isDriverLocalCursor,
@@ -41,7 +41,6 @@ const PROFILE = {
   driverId: 'generic-pty',
   sendProof: ['hook', 'transcript-echo'],
   interactionsFromHooks: true,
-  draftReadable: true,
   usesRawFirstTurn: false,
   reportsContextPercent: true,
   archivable: true,
@@ -90,7 +89,11 @@ describe('the capability declaration', () => {
     expect([...caps.send.native]).toEqual(['when-ready', 'queue', 'interrupt'])
     // Unless its manifest says the TUI queues a prompt entered mid-turn
     // (POD-5855): then typing it now IS the steer.
-    const queues = terminalCapabilities({ ...PROFILE, sendProof: [...PROFILE.sendProof], queuesBusyInput: true })
+    const queues = terminalCapabilities({
+      ...PROFILE,
+      sendProof: [...PROFILE.sendProof],
+      queuesBusyInput: true,
+    })
     expect([...queues.send.native]).toEqual(['when-ready', 'queue', 'interrupt', 'steer'])
     // No token deltas: a PTY produces bytes, and a `fine` watch built out of
     // frame boundaries would be a fabricated stream.
@@ -139,13 +142,11 @@ describe('the capability declaration', () => {
       ...PROFILE,
       sendProof: [...PROFILE.sendProof],
       archivable: false,
-      draftReadable: false,
       reportsContextPercent: false,
     })
     // A consumer degrades against a STATED gap rather than an undefined field —
     // and the reason is what a later item has to argue with.
     expect(caps.archive.supported).toBe(false)
-    expect(caps.draft.supported).toBe(false)
     expect(caps.usage.supported).toBe(false)
     expect(caps.configure.supported).toBe(false)
     expect(caps.attach.supported).toBe(true)
@@ -264,7 +265,10 @@ describe('whose write it is (POD-4888)', () => {
     const { ports, written } = terminal()
     const onTypingStarted = vi.fn(() => expect(written).toEqual([]))
     await createTerminalInjection(ports).deliver('held mail', {
-      origin: 'mail', delivery: 'when-ready', turnId: 'row-1', onTypingStarted,
+      origin: 'mail',
+      delivery: 'when-ready',
+      turnId: 'row-1',
+      onTypingStarted,
     })
     expect(onTypingStarted).toHaveBeenCalledTimes(1)
     expect(pasted(written[0]!)).toBe('held mail')
@@ -273,10 +277,15 @@ describe('whose write it is (POD-4888)', () => {
   it('writes no bytes if the delivery journal cannot persist the fence', async () => {
     const { ports, written } = terminal()
     const error = new Error('journal fsync failed')
-    await expect(createTerminalInjection(ports).deliver('held mail', {
-      origin: 'mail', delivery: 'when-ready',
-      onTypingStarted: () => { throw error },
-    })).rejects.toBe(error)
+    await expect(
+      createTerminalInjection(ports).deliver('held mail', {
+        origin: 'mail',
+        delivery: 'when-ready',
+        onTypingStarted: () => {
+          throw error
+        },
+      }),
+    ).rejects.toBe(error)
     expect(written).toEqual([])
   })
 
@@ -351,7 +360,10 @@ describe('whose write it is (POD-4888)', () => {
   it('marks nothing for a turn with no id', async () => {
     const typing: string[] = []
     const { ports } = terminal({ typingStarts: (turnId) => void typing.push(turnId) })
-    await createTerminalInjection(ports).deliver('no id', { origin: 'human', delivery: 'when-ready' })
+    await createTerminalInjection(ports).deliver('no id', {
+      origin: 'human',
+      delivery: 'when-ready',
+    })
     expect(typing).toEqual([])
   })
 })
@@ -546,17 +558,17 @@ describe('the manifest-driven interrupt (POD-3981)', () => {
   const CTRL_C = '\x03'
   const NON_ESC_QUITS_WHEN_IDLE = { bytes: CTRL_C, quitsWhenIdle: true }
 
-  it.each(['working', 'compacting'] as const)(
-    'writes the manifest key, not ESC, while the agent is %s',
-    (phase) => {
-      // `working` AND `compacting`: the legacy guard is `isAgentComputing`,
-      // which counts both, so an interrupt withheld during compaction would be
-      // a stop refused exactly when there is a turn to stop.
-      const { ports, written } = terminal({ phase: () => phase })
-      createTerminalInjection(ports, NON_ESC_QUITS_WHEN_IDLE).interrupt()
-      expect(written).toEqual([CTRL_C])
-    },
-  )
+  it.each([
+    'working',
+    'compacting',
+  ] as const)('writes the manifest key, not ESC, while the agent is %s', (phase) => {
+    // `working` AND `compacting`: the legacy guard is `isAgentComputing`,
+    // which counts both, so an interrupt withheld during compaction would be
+    // a stop refused exactly when there is a turn to stop.
+    const { ports, written } = terminal({ phase: () => phase })
+    createTerminalInjection(ports, NON_ESC_QUITS_WHEN_IDLE).interrupt()
+    expect(written).toEqual([CTRL_C])
+  })
 
   it('withholds a quits-when-idle key while the agent is idle', () => {
     // The legacy path returns NO bytes here rather than refusing: pressing
@@ -579,7 +591,9 @@ describe('row cancellation at the terminal submit boundary', () => {
       },
     })
     const delivery = createTerminalInjection(ports).deliver('cancelled row', {
-      origin: 'human', delivery: 'when-ready', signal: abort.signal,
+      origin: 'human',
+      delivery: 'when-ready',
+      signal: abort.signal,
     })
     expect(written).toHaveLength(1)
     abort.abort()
@@ -602,7 +616,6 @@ describe('row cancellation at the terminal submit boundary', () => {
     expect(written).toEqual([])
   })
 })
-
 
 describe('the receipt epoch (POD-4655)', () => {
   it('names the epoch observed when the proof lands, even if the turn it opens is newer', async () => {
@@ -653,14 +666,18 @@ describe('the window while the harness is busy (POD-4905)', () => {
       await vi.advanceTimersByTimeAsync(100)
       phase = 'working'
       let settled = false
-      void delivery.then(() => { settled = true })
+      void delivery.then(() => {
+        settled = true
+      })
       await vi.advanceTimersByTimeAsync(60_000)
       expect(settled).toBe(false)
       expect(written.filter((bytes) => pasted(bytes) !== undefined)).toHaveLength(1)
       expect(written.filter((bytes) => bytes === '\r')).toHaveLength(1)
       confirm({})
       expect(await delivery).toMatchObject({ outcome: 'accepted', provenBy: 'transcript-echo' })
-    } finally { vi.useRealTimers() }
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('a message typed into a running tool call is still in its window when the tool ends', async () => {

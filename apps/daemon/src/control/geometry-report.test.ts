@@ -85,7 +85,6 @@ function harness(over: Partial<DaemonContext> = {}): {
     backend: 'host',
     settingsDir: join(tmpdir(), 'podium-geometry-report'),
     sessions: testSessions(),
-    composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
     outputScheduler,
     observers: { clearSession: () => {} },
     sessionCwdTracker: { clear: () => {} },

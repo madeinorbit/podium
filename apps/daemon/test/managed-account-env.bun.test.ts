@@ -154,12 +154,6 @@ async function dumpEnvOfSpawnedProcess(
     // `session-binding.test.ts` owns.
     machineId: 'bun-spawn-test-machine',
     sessionBinding: { transition: async () => ({ status: 'applied' }) },
-    composerEngine: {
-      attach: () => false,
-      onData: () => {},
-      detach: () => {},
-      has: () => false,
-    },
     outputScheduler: {
       enqueue: () => {
         // PTY output is irrelevant: the child reports its environment to a file.

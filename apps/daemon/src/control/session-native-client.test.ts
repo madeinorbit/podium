@@ -60,7 +60,6 @@ function world(driver: 'opencode-server' | 'codex-app-server' = 'opencode-server
     },
     sessions,
     observers: { recordInputOrigin: vi.fn() },
-    composerEngine: { onInputByte: vi.fn(), onResize: vi.fn() },
     access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   return { ctx, attach, release, clientTerminals, sent }

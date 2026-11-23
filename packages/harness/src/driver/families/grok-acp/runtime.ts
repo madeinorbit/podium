@@ -339,7 +339,6 @@ interface DriverSession {
   answered: Set<string>
   queue: QueuedTurn[]
   lease: SessionLease | null
-  draft: string
   watchers: { coarse: number; fine: number }
   log: { seq: number; event: RuntimeEvent }[]
   wakers: Set<() => void>
@@ -1284,7 +1283,6 @@ export function createGrokAcpRuntime(
       answered: new Set(),
       queue: [],
       lease: null,
-      draft: '',
       watchers: { coarse: 0, fine: 0 },
       log: [],
       wakers: new Set(),
@@ -2057,7 +2055,6 @@ export function createGrokAcpRuntime(
           observerGeneration: session.observerGeneration,
           turnEpoch: session.turnEpoch,
           interactions: [...session.interactions.values()].map((ask) => ask.interaction),
-          draft: session.draft,
           at: iso(),
         }
       },
@@ -2414,20 +2411,6 @@ export function createGrokAcpRuntime(
         },
         async state() {
           return session.lease
-        },
-      },
-
-      draft: {
-        async get() {
-          return session.draft
-        },
-        async set(text) {
-          if (session.disposed) return { reason: 'not_running' as const }
-          if (session.draft !== text) {
-            session.draft = text
-            emit(session, { t: 'draft', text }, iso())
-          }
-          return { ok: true as const }
         },
       },
 

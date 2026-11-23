@@ -582,34 +582,20 @@ export function refuseUnsupportedOperation(
 }
 
 // ---------------------------------------------------------------------------
-// Bundled composer rules (POD-4477): the CODE half of the harness contract.
+// Bundled composer readiness rules (POD-4477): the CODE half of the contract.
 // ---------------------------------------------------------------------------
 //
 // The wire descriptor above is DATA and is SERVED; composer rules are pure
-// functions and are BUNDLED — they stay in this entry for the harnesses the
-// client build knows, and are never sent over the wire (spec §5 rule 6).
-// Composer interpretation is authoritative on the daemon, which serves the
-// resulting state; these bundled rules are the client fallback (the web
-// fallback's scrape, the terminal client's input-ready heuristic).
-//
-// The per-harness rule sets live ONCE in `adapters/<harness>/composer.ts`.
-// This entry bundles the ones this build knows; the daemon reads the same
-// objects through the manifest. A harness this build has never heard of — or
-// one whose section is declined — has no rules here: the client falls back
-// to "no input-ready heuristic", never to a fetched rule and never to
-// another harness's.
+// functions and are BUNDLED for the harnesses the client build knows, never
+// sent over the wire (spec §5 rule 6). Their one job is the terminal client's
+// input-ready heuristic. A harness this build has never heard of — or one
+// whose section is declined — has no rules here: the client runs no
+// heuristic, never a fetched rule and never another harness's.
 
-import { claudeComposer } from './adapters/claude-code/composer'
 import { codexComposer } from './adapters/codex/composer'
 import type { HarnessComposer } from './manifest.js'
 
 const BUNDLED_COMPOSER_RULES: Record<string, HarnessComposer> = {
-  // 'claude-code' is quoted (a bare identifier cannot carry a dash); codex is
-  // a bare key. The vendor-boundary lint counts only quoted literals, and the
-  // one quoted key here is covered by the browser.ts policy entry — a second
-  // statement of a manifest fact, tested against the manifests below, the
-  // same shape as HARNESS_NO_TOOLS above.
-  'claude-code': claudeComposer,
   codex: codexComposer,
 }
 

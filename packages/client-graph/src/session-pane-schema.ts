@@ -70,7 +70,6 @@ export const SESSION_PANE_SCHEMA = {
       'archived',
       'readAt',
       'unread',
-      'draftSyncEngine',
     ],
   },
   machine: { source: 'header:machine', relation: 'session.machine' },

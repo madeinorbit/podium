@@ -36,9 +36,6 @@ export interface TerminalCapabilityInput {
    *  interactions. This declares provenance, not stable ask identity; both
    *  sources currently use observation transitions and can duplicate asks. */
   interactionsFromHooks: boolean
-  /** Whether composer-sync runs for this session (Draft Sync v2, POD-859). The
-   *  scrape is the ONLY reason `draft.get()` can answer at all. */
-  draftReadable: boolean
   /** Whether a fresh harness requires its first prompt as raw keystrokes.
    *  Attachment path prompts contain a newline between the ref and text, so
    *  they are not one atomic prompt on that path and staging must be declined. */
@@ -146,7 +143,7 @@ export function terminalCapabilities(input: TerminalCapabilityInput): DriverCapa
     // described rather than replaced.
     attach: supported({ kinds: ['engine'] }),
     lease: supported({ humanTakeover: true }),
-    snapshot: supported({ includesDraft: input.draftReadable }),
+    snapshot: supported({}),
     archive: input.archivable
       ? supported({
           // The handoff transcript this wraps is byte-faithful to the harness's
@@ -164,9 +161,6 @@ export function terminalCapabilities(input: TerminalCapabilityInput): DriverCapa
     placement: 'dedicated',
 
     // ---- EXTENDED ----
-    draft: input.draftReadable
-      ? supported({ read: true, write: true })
-      : unsupported('composer sync is not running for this session'),
     /**
      * UNSUPPORTED, AND STILL THE RIGHT ANSWER AFTER POD-3081 MADE THE THREE
      * HEADLESS DRIVERS SUPPORT IT.

@@ -3,9 +3,9 @@
  *
  * A picture travels in order with DATA from the host connection to the output
  * scheduler, and skips every per-frame side effect (N5): frame counting, the
- * first-output marker, observers, the session screen and the composer. The
+ * first-output marker, observers and the session screen. The
  * only exception is the SEED: the first reset picture after attaching at the
- * tail rebuilds the session screen and the composer. After every bind it sends,
+ * tail rebuilds the session screen. After every bind it sends,
  * the daemon asks a screen host for a picture, and the bind says `pictures`
  * when the server accepted terminal.picture.v1. A redraw on such a session is
  * a picture request (plus Ctrl-L when hard); an old server keeps today's
@@ -76,7 +76,6 @@ function world(opts: { accepted: boolean }) {
   const sent: DaemonMessage[] = []
   const scheduled: string[] = []
   const observed: string[] = []
-  const composed: string[] = []
   const ctx = {
     sessions: testSessions(),
     picturesAccepted: () => opts.accepted,
@@ -100,17 +99,10 @@ function world(opts: { accepted: boolean }) {
       onResize: () => {},
       clearSession: () => {},
     },
-    composerEngine: {
-      has: () => true,
-      onData: (_id: unknown, data: Uint8Array) =>
-        composed.push(Buffer.from(data).toString('latin1')),
-      onResize: () => {},
-      detach: () => {},
-    },
     sessionCwdTracker: { clear: () => {} },
     access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
-  return { ctx, sent, order, scheduled, observed, composed }
+  return { ctx, sent, order, scheduled, observed }
 }
 
 async function screenText(ctx: DaemonContext): Promise<string> {
@@ -128,13 +120,12 @@ describe('the item path', () => {
     host.picture('cut', 'CUTPICTURE')
     host.data('two')
     expect(w.scheduled).toEqual(['data:one ', 'picture:cut:CUTPICTURE', 'data:two'])
-    // Observers and the composer saw the bytes only.
+    // Observers saw the bytes only.
     expect(w.observed).toEqual(['one ', 'two'])
-    expect(w.composed).toEqual(['one ', 'two'])
     expect(await screenText(w.ctx)).not.toContain('CUTPICTURE')
   })
 
-  it('the first reset picture after attaching at the tail seeds the screen and composer; later ones do not', async () => {
+  it('the first reset picture after attaching at the tail seeds the screen; later ones do not', async () => {
     const w = world({ accepted: true })
     const host = hostAttachment({ screen: true, atTail: true })
     wireBridge(w.ctx, SESSION, host.attachment, 'claude-code', 'label')
@@ -146,7 +137,6 @@ describe('the item path', () => {
     host.picture('reset', '\x1bc\x1b[HSECOND RESET')
     expect(await screenText(w.ctx)).toContain('SEEDED SCREEN then live')
     expect(await screenText(w.ctx)).not.toContain('SECOND RESET')
-    expect(w.composed).toEqual(['gap', '\x1bc\x1b[HSEEDED SCREEN', ' then live'])
     expect(w.observed).toEqual(['gap', ' then live'])
   })
 

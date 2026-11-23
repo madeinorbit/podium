@@ -440,7 +440,7 @@ export class RuntimeEventGate {
           stoppedBeforeWrite =
             event.t === 'state' && (draft.status === 'hibernated' || draft.status === 'exited')
           if (stoppedBeforeWrite) return
-          if (event.t !== 'draft' && event.t !== 'metadata' && event.t !== 'transcript-reset')
+          if (event.t !== 'metadata' && event.t !== 'transcript-reset')
             session.recordRuntimeActivity(event.at, draft)
           /**
            * THE ONE RUNTIME EVENT THAT CHANGES THE ROW'S STOP REASON (POD-2413).
@@ -747,7 +747,6 @@ export class RuntimeEventGate {
       if (
         event.t !== 'process' &&
         event.t !== 'binding' &&
-        event.t !== 'draft' &&
         event.t !== 'metadata' &&
         !(event.t === 'state' && event.change.kind === 'state_snapshot') &&
         event.t !== 'transcript-reset' &&

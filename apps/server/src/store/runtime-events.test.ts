@@ -2130,7 +2130,6 @@ describe('a delivery report is a fact about one message (POD-4796)', () => {
     const commands: ControlMessage[] = []
     try {
       const sessionId = await bindContract(registry, store, (message) => commands.push(message))
-      registry.modules.sessions.state.setDraftSyncEnabled(true)
       const route = (deliveryId: string, event: RuntimeEvent): Promise<void> =>
         registry.gateway.routeDaemonFrame(store.hostMachine!.id, {
           type: 'runtimeEvent',
@@ -2224,47 +2223,6 @@ describe('a delivery report is a fact about one message (POD-4796)', () => {
       await store.close()
     }
   })
-})
-
-it('projects draft changes after a completed turn without recording agent activity', async () => {
-  const store = await openTestStore(':memory:')
-  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-  try {
-    const sessionId = await bindContract(registry, store)
-    registry.modules.sessions.state.setDraftSyncEnabled(true)
-    const at = '2026-09-15T00:00:00.000Z'
-    await registry.modules.sessions.runtimeGateway.record(store.hostMachine!.id, {
-      sessionId,
-      event: turnEvent({ at, seq: 1, turnEpoch: 1, ev: 'started', provenance: 'bootstrap' }),
-    })
-    await registry.modules.sessions.runtimeGateway.record(store.hostMachine!.id, {
-      sessionId,
-      event: turnEvent({ at, seq: 2, turnEpoch: 1, ev: 'completed' }),
-    })
-    const before = (await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt
-    const event = {
-      ...turnEvent({ at: '2026-09-16T00:00:00.000Z', seq: 3, turnEpoch: 1, ev: 'completed' }),
-      t: 'draft' as const,
-      text: 'next prompt',
-    }
-    expect(
-      await registry.modules.sessions.runtimeGateway.record(store.hostMachine!.id, {
-        sessionId,
-        event,
-      }),
-    ).toMatchObject({ kind: 'accepted' })
-    expect(await registry.modules.sessions.state.draftText(sessionId)).toBe('next prompt')
-    expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(before)
-    expect(
-      await registry.modules.sessions.runtimeGateway.record(store.hostMachine!.id, {
-        sessionId,
-        event,
-      }),
-    ).toMatchObject({ kind: 'duplicate' })
-  } finally {
-    await registry.dispose()
-    await store.close()
-  }
 })
 
 it('projects metadata after a closed turn, preserves recency, and deduplicates durable replay', async () => {
@@ -2418,7 +2376,6 @@ it('restores metadata through the actual bind snapshot RPC on reconnect without 
               turnEpoch: 0,
               interactions: [],
               metadata: [event],
-              draft: '',
               at,
             },
           },

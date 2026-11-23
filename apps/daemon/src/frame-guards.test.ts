@@ -173,7 +173,6 @@ it('isolates a quarantined session from unrelated control frames and binary inpu
     resize: () => {},
     dispose: () => {},
   } as never)
-  ctx.composerEngine = { onInputByte: vi.fn() } as never
   const guard = createFrameGuard(ctx)
   // A kill for the unconfirmed binding must never reach the process handler.
   guard.receive(Buffer.from(JSON.stringify({ type: 'kill', sessionId: 'quarantined' })))

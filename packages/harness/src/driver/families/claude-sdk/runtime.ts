@@ -1446,14 +1446,6 @@ export function createClaudeSdkRuntime(
           return core.lease
         },
       },
-      draft: {
-        async get() {
-          return refuse('unsupported', 'the Claude stream engine has no composer')
-        },
-        async set() {
-          return refuse('unsupported', 'the Claude stream engine has no composer')
-        },
-      },
       /**
        * STICKY MODEL AND EFFORT, read fresh on every `startTurn` (POD-3081).
        *

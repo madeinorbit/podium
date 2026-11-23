@@ -41,7 +41,6 @@ describe('production terminal answer identity', () => {
       send,
       now: () => Date.now(),
       trackedState: () => undefined,
-      draftSyncing: () => false,
       readHistory: async () => ({ items: [], hasMore: false }),
       setTimer: (fn: () => void, delay: number) => setTimeout(fn, delay),
       clearTimer: (timer: ReturnType<typeof setTimeout>) => clearTimeout(timer),

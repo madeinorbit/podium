@@ -16,12 +16,8 @@ const BROWSER_HOSTILE_EXCEPTIONS = [
   'packages/harness/src/store/stream-identity.ts',
   // cursor-codec re-exports the pure codec from this grammar leaf (POD-2320).
   'packages/harness/src/transcript-types.ts',
-  // The composer-sync browser entrypoint is the harness-free shared port.
-  'packages/harness/src/driver/families/terminal/composer-sync.ts',
-  // Pure composer rules and descriptors reached through src/browser.ts.
+  // Pure composer readiness rules and descriptors reached through src/browser.ts.
   'packages/harness/src/adapters/bundled-descriptors.generated.ts',
-  'packages/harness/src/adapters/shared/composer.ts',
-  'packages/harness/src/adapters/claude-code/composer.ts',
   'packages/harness/src/adapters/codex/composer.ts',
   // Interview cards use only pure JSON/string helpers.
   'packages/harness/src/adapters/codex/interview.ts',

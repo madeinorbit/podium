@@ -508,7 +508,6 @@ export const RuntimeEventBody = z.discriminatedUnion('t', [
       expiresAt: z.number().int().positive().optional(),
     }),
   }),
-  z.object({ t: z.literal('draft'), text: z.string() }),
   z.object({ t: z.literal('metadata'), change: SessionMetadataChange }),
 ])
 export type RuntimeEventBody = z.infer<typeof RuntimeEventBody>
@@ -518,7 +517,7 @@ export type RuntimeEvent = z.infer<typeof RuntimeEvent>
 
 /**
  * Daemon retention, independent of the server's coarse-event projection path.
- * State, cwd-changed workspace and draft observations are superseded by later
+ * State and cwd-changed workspace observations are superseded by later
  * observations: send them live, without a delivery id, fsync, retry or
  * acknowledgement. They can be lost across a link drop. Fine item fragments
  * remain live-only too.
@@ -546,7 +545,6 @@ export function isDurableRuntimeEvent(event: RuntimeEvent): boolean {
   if (event.provenance === 'bootstrap') return true
   switch (event.t) {
     case 'state':
-    case 'draft':
       return false
     case 'workspace':
       // Git-activity is additive (one lost event is one lost commit ledger);
@@ -895,7 +893,6 @@ export const SessionSnapshot = z.object({
   observerGeneration: z.number().int().nonnegative(),
   turnEpoch: z.number().int().nonnegative(),
   interactions: z.array(PendingInteraction).readonly(),
-  draft: z.string().optional(),
   title: z.string().optional(),
   metadata: z.array(SessionMetadataObservation).readonly().optional(),
   at: z.string().datetime(),
@@ -1020,26 +1017,6 @@ export const RuntimeWatchMessage = z.object({
 })
 export type RuntimeWatchMessage = z.infer<typeof RuntimeWatchMessage>
 
-/** Read or replace the runtime-owned composer draft. */
-export const RuntimeDraftRequestMessage = z.object({
-  type: z.literal('runtimeDraftRequest'),
-  requestId: z.string(),
-  sessionId: z.string().min(1).pipe(SessionIdField),
-  operation: z.discriminatedUnion('verb', [
-    z.object({ verb: z.literal('get') }),
-    z.object({ verb: z.literal('set'), text: z.string() }),
-  ]),
-})
-export type RuntimeDraftRequestMessage = z.infer<typeof RuntimeDraftRequestMessage>
-
-export const RuntimeDraftResultMessage = z.object({
-  type: z.literal('runtimeDraftResult'),
-  requestId: z.string(),
-  sessionId: z.string().min(1).pipe(SessionIdField),
-  result: z.union([z.object({ text: z.string() }), z.object({ ok: z.literal(true) }), Refusal]),
-})
-export type RuntimeDraftResultMessage = z.infer<typeof RuntimeDraftResultMessage>
-
 export const RuntimeCommandMessage = z.discriminatedUnion('type', [
   RuntimeStageAttachmentRequestMessage,
   RuntimeSendRequestMessage,
@@ -1055,7 +1032,6 @@ export const RuntimeCommandMessage = z.discriminatedUnion('type', [
   // index, so a new arm at the END leaves every existing sample byte-identical
   // while one inserted mid-list re-indexes the ones after it.
   RuntimeConfigureRequestMessage,
-  RuntimeDraftRequestMessage,
   RuntimeDurableSendRequestMessage,
 ])
 export type RuntimeCommandMessage = z.infer<typeof RuntimeCommandMessage>
@@ -1279,7 +1255,6 @@ export const RuntimeDaemonMessage = z.discriminatedUnion('type', [
   // APPENDED for the same reason as the command union's last arm: the golden
   // corpus samples by index, so the end is the one position that costs nothing.
   RuntimeConfigureResultMessage,
-  RuntimeDraftResultMessage,
 ])
 export type RuntimeDaemonMessage = z.infer<typeof RuntimeDaemonMessage>
 
@@ -1306,7 +1281,6 @@ export const RUNTIME_FRAME_TYPES = [
   'runtimeAnswerRequest',
   'runtimeLifecycleRequest',
   'runtimeConfigureRequest',
-  'runtimeDraftRequest',
   'runtimeSnapshotRequest',
   'runtimeHistoryRequest',
   'runtimeQueueDrainAbandonedAck',
@@ -1317,7 +1291,6 @@ export const RUNTIME_FRAME_TYPES = [
   'runtimeQueueDrainAbandoned',
   'runtimeLifecycleResult',
   'runtimeConfigureResult',
-  'runtimeDraftResult',
   'runtimeAnswerResult',
   'runtimeInteractionAsked',
   'runtimeSnapshotResult',

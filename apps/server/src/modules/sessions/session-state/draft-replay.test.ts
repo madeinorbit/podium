@@ -84,14 +84,21 @@ describe('draft replay authorization (POD-7036)', () => {
     const admin = firstAdminMemberId()
     const ids = ['a', 'b', 'c', 'd', 'e'].map((id) => asSessionId(`parked-${id}`))
     const stored = Object.fromEntries(
-      ids.map((id) => [id, { text: `draft of ${id}`, updatedAt: 't1', rev: 1, origin: 'seed', history: [] }]),
+      ids.map((id) => [
+        id,
+        { text: `draft of ${id}`, updatedAt: 't1', rev: 1, origin: 'seed', history: [] },
+      ]),
     )
     const primed: SessionId[][] = []
     const durableReads: SessionId[] = []
     const received: LiveServerMessage[] = []
     const state = new SessionStateService({
       store: {
-        sessions: { setDraftDoc: vi.fn(), draftDocOf: async () => undefined, loadDraftDocs: async () => stored },
+        sessions: {
+          setDraftDoc: vi.fn(),
+          draftDocOf: async () => undefined,
+          loadDraftDocs: async () => stored,
+        },
       } as unknown as SessionStatePorts['store'],
       now: Date.now,
       getSession: () => undefined,
@@ -118,8 +125,9 @@ describe('draft replay authorization (POD-7036)', () => {
       onArchived: vi.fn(),
     })
 
-    await state.replayDrafts({ userId: admin, capability: OPERATOR, humanDirect: true }, (message) =>
-      received.push(message),
+    await state.replayDrafts(
+      { userId: admin, capability: OPERATOR, humanDirect: true },
+      (message) => received.push(message),
     )
 
     expect(received.map((message) => (message as { sessionId?: string }).sessionId).sort()).toEqual(
@@ -130,16 +138,14 @@ describe('draft replay authorization (POD-7036)', () => {
   })
 })
 
-function runtimeDraftWorld() {
-  const sessionId = asSessionId('runtime-draft')
+function draftWorld() {
+  const sessionId = asSessionId('draft-ack')
   const session = {
     sessionId,
     machineId: 'machine',
     lastActiveAt: '9999-01-01T00:00:00.000Z',
     hasBoundDriver: true,
   }
-  const runtimeDraft = vi.fn(async () => ({ result: { text: 'from get' } }))
-  const runtimeSnapshot = vi.fn(async () => ({ result: { snapshot: { draft: 'from snapshot' } } }))
   const toMachine = vi.fn()
   const broadcastToClients = vi.fn(),
     deliverToClient = vi.fn(),
@@ -161,17 +167,12 @@ function runtimeDraftWorld() {
     broadcastToClients,
     deliverToClient,
     toMachine,
-    runtimeDraft,
-    runtimeSnapshot,
     onArchived: vi.fn(),
   } as unknown as SessionStatePorts)
-  state.setDraftSyncEnabled(true)
   return {
     state,
     sessionId,
     session,
-    runtimeDraft,
-    runtimeSnapshot,
     toMachine,
     broadcastToClients,
     deliverToClient,
@@ -184,8 +185,7 @@ describe('draft acknowledgements', () => {
     'already confirmed',
     '',
   ])('acknowledges an unchanged %j offer only to its sender', async (text) => {
-    const w = runtimeDraftWorld()
-    w.state.setDraftSyncEnabled(false)
+    const w = draftWorld()
     try {
       await w.state.setDraft({ sessionId: w.sessionId, text })
       const rev = (await w.state.draftRevision(w.sessionId)) ?? 0
@@ -208,74 +208,6 @@ describe('draft acknowledgements', () => {
       expect(w.broadcastToClients).not.toHaveBeenCalled()
       expect(w.setDraftDoc).not.toHaveBeenCalled()
       expect((await w.state.draftRevision(w.sessionId)) ?? 0).toBe(rev)
-    } finally {
-      w.state.removeSession(w.sessionId)
-    }
-  })
-})
-
-describe('runtime draft bootstrap', () => {
-  it('consumes snapshots, including an empty draft, without polling', async () => {
-    const w = runtimeDraftWorld()
-    try {
-      await w.state.initializeRuntimeDraft(w.sessionId, w.session.machineId as never)
-      expect(await w.state.draftText(w.sessionId)).toBe('from snapshot')
-      w.runtimeSnapshot.mockResolvedValue({ result: { snapshot: { draft: '' } } })
-      await w.state.initializeRuntimeDraft(w.sessionId, w.session.machineId as never)
-      expect(await w.state.draftText(w.sessionId)).toBe('')
-      expect(w.runtimeDraft).not.toHaveBeenCalled()
-    } finally {
-      w.state.removeSession(w.sessionId)
-    }
-  })
-
-  it('uses draft.get when a snapshot has no composer value', async () => {
-    const w = runtimeDraftWorld()
-    w.runtimeSnapshot.mockResolvedValue({ result: { snapshot: {} } } as never)
-    try {
-      await w.state.initializeRuntimeDraft(w.sessionId, w.session.machineId as never)
-      expect(await w.state.draftText(w.sessionId)).toBe('from get')
-      expect(w.runtimeDraft).toHaveBeenCalledWith(
-        { sessionId: w.sessionId, operation: { verb: 'get' } },
-        w.session.machineId,
-      )
-    } finally {
-      w.state.removeSession(w.sessionId)
-    }
-  })
-
-  it('does not overwrite an edit made while the snapshot is in flight', async () => {
-    const w = runtimeDraftWorld()
-    let resolve!: (value: { result: { snapshot: { draft: string } } }) => void
-    w.runtimeSnapshot.mockImplementation(
-      () =>
-        new Promise((done) => {
-          resolve = done
-        }),
-    )
-    try {
-      const pending = w.state.initializeRuntimeDraft(w.sessionId, w.session.machineId as never)
-      await w.state.setDraft({ sessionId: w.sessionId, text: 'new local edit' })
-      resolve({ result: { snapshot: { draft: 'old remote text' } } })
-      await pending
-      expect(await w.state.draftText(w.sessionId)).toBe('new local edit')
-    } finally {
-      w.state.removeSession(w.sessionId)
-    }
-  })
-
-  it('catches up an offline chat edit through draft.set', async () => {
-    const w = runtimeDraftWorld()
-    w.session.lastActiveAt = '2000-01-01T00:00:00.000Z'
-    try {
-      await w.state.setDraft({ sessionId: w.sessionId, text: 'offline edit' })
-      await w.state.initializeRuntimeDraft(w.sessionId, w.session.machineId as never)
-      expect(w.runtimeDraft).toHaveBeenCalledWith(
-        { sessionId: w.sessionId, operation: { verb: 'set', text: 'offline edit' } },
-        w.session.machineId,
-      )
-      expect(w.toMachine).not.toHaveBeenCalled()
-      expect(w.runtimeSnapshot).not.toHaveBeenCalled()
     } finally {
       w.state.removeSession(w.sessionId)
     }

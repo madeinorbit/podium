@@ -54,11 +54,6 @@
       "import": "./dist/adapters/shared/hook-fields.js",
       "types": "./dist/adapters/shared/hook-fields.d.ts"
     },
-    "./adapters/shared/composer": {
-      "@podium/source": "./src/adapters/shared/composer.ts",
-      "import": "./dist/adapters/shared/composer.js",
-      "types": "./dist/adapters/shared/composer.d.ts"
-    },
     "./adapters/claude-code/instrumentation": {
       "@podium/source": "./src/adapters/claude-code/instrumentation.ts",
       "import": "./dist/adapters/claude-code/instrumentation.js",

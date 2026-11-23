@@ -294,10 +294,9 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   },
   {
     file: 'packages/harness/src/browser.ts',
-    count: 2,
+    count: 1,
     category: 'policy',
-    reason:
-      'browser-safe no-tools table + bundled composer rules stay in browser entry; tested against manifests',
+    reason: 'browser-safe no-tools table stays in browser entry; tested against manifests',
     policy: 'packages/harness/src/browser.ts',
   },
   {

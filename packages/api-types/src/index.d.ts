@@ -472,12 +472,7 @@ declare const PodiumSettings: z.ZodObject<{
         enabled?: boolean | undefined;
         promptDismissed?: boolean | undefined;
     }>>;
-    /**
-     * User toggles for experimental features.
-     *
-     * Draft Sync v2 (POD-859) lives here under `'draft-sync'`; the legacy bespoke
-     * `draftSync.enabled` key is migrated onto it by `normalizeSettings` and dropped.
-     */
+    /** User toggles for experimental features. */
     experimental: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodBoolean>>;
     /** How long a closed issue keeps its checkout, and whether the janitor sweep
      *  only proposes the release or applies it (POD-564). Appended rather than
@@ -2751,7 +2746,6 @@ type Output_credentials_login = Pick<{
         revision: number;
     };
     desired?: "hibernated" | "running" | "stopped" | undefined;
-    draftSyncEngine?: boolean | undefined;
     draftUpdatedAt?: string | undefined;
     driverFamily?: "server" | "terminal" | undefined;
     driverId?: string | undefined;
@@ -2982,7 +2976,6 @@ type Output_credentials_login = Pick<{
         revision: number;
     };
     desired?: "hibernated" | "running" | "stopped" | undefined;
-    draftSyncEngine?: boolean | undefined;
     draftUpdatedAt?: string | undefined;
     driverFamily?: "server" | "terminal" | undefined;
     driverId?: string | undefined;
@@ -5128,7 +5121,6 @@ type Output_issues_get = (null) | ({
             revision: number;
         };
         desired?: "hibernated" | "running" | "stopped" | undefined;
-        draftSyncEngine?: boolean | undefined;
         draftUpdatedAt?: string | undefined;
         driverFamily?: "server" | "terminal" | undefined;
         driverId?: string | undefined;

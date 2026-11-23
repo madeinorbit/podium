@@ -35,12 +35,11 @@ export function claudeSdkCapabilities(): DriverCapabilities {
     }),
     attach: unsupported('the Claude stream engine has no terminal or native client to attach'),
     lease: supported({ humanTakeover: true }),
-    snapshot: supported({ includesDraft: false }),
+    snapshot: supported({}),
     archive: supported({ formatVersion: 1, byteFaithful: true }),
     resumeRefTiming: 'spawn',
     placement: 'dedicated',
     instrumentation: 'none',
-    draft: unsupported('the Claude stream engine has no harness-owned composer'),
     /**
      * MODEL AND EFFORT, STICKY, FROM THE NEXT TURN (POD-3081). Each turn opens
      * its own `query()` built from `spec.model`, so a write to the session's

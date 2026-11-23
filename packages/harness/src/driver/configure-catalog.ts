@@ -51,7 +51,7 @@ const CONFIGURE_BY_DRIVER = {
    * derive-it rule above, so it is worth saying why it is not a cheat.
    *
    * That factory takes a `TerminalCapabilityInput` describing the live session
-   * (its send proof, whether composer-sync is running, whether the harness
+   * (its send proof, whether the harness
    * reports a context percentage). Its `configure` axis reads NONE of them: a
    * TUI takes its model from argv at launch on every harness, so the answer is
    * constant across every input the factory accepts. Manufacturing a plausible

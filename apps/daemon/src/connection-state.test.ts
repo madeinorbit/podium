@@ -1625,11 +1625,6 @@ it('forwards superseded observations live and replays only retained events after
       sessionId: asSessionId('s'),
       event: { ...envelope, t: 'workspace', ev: { ev: 'cwd-changed', cwd: '/repo' } },
     },
-    {
-      type: 'runtimeEvent',
-      sessionId: asSessionId('s'),
-      event: { ...envelope, t: 'draft', text: 'draft' },
-    },
   ]
   const bootstrap = {
     ...live[0]!,

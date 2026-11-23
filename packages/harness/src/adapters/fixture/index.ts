@@ -63,7 +63,6 @@ export const fixtureManifest: AgentManifest = {
     newSessionIdFlag: false,
     quota: false,
     cloud: false,
-    composerScrape: false,
     oscTitle: true,
     subagentModelEnv: false,
     promptModeHints: false,
@@ -222,7 +221,7 @@ export const fixtureManifest: AgentManifest = {
 
   transcript: fixtureTranscript,
 
-  composer: unsupported('the fixture CLI double has no composer to scrape'),
+  composer: unsupported('the fixture CLI double has no composer'),
 
   handoffTranscript: supported(fixtureHandoffTranscript),
   conversationFile: supported(fixtureConversationFile),

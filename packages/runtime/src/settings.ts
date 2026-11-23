@@ -307,12 +307,7 @@ export const PodiumSettings = z.object({
    *  retryable error, on an escalating backoff up to 5 min. `promptDismissed`
    *  suppresses the one-time opt-in popup once the user has answered it. */
   autoContinue: AutoContinuePreferences.default({}),
-  /**
-   * User toggles for experimental features.
-   *
-   * Draft Sync v2 (POD-859) lives here under `'draft-sync'`; the legacy bespoke
-   * `draftSync.enabled` key is migrated onto it by `normalizeSettings` and dropped.
-   */
+  /** User toggles for experimental features. */
   experimental: ExperimentalFlags.default({}),
   /** How long a closed issue keeps its checkout, and whether the janitor sweep
    *  only proposes the release or applies it (POD-564). Appended rather than
@@ -411,24 +406,6 @@ function migrateRoles(raw: Record<string, unknown>): Roles | undefined {
   })
 }
 
-/** Legacy `draftSync.enabled` → the canonical experiments store.
- *  Draft Sync v2 (POD-859) moved onto `experimental['draft-sync']`; carry a
- *  persisted opt-in forward so an upgrade doesn't silently disable it, then let
- *  `PodiumSettings.parse` drop the now-unknown `draftSync` key (one source of
- *  truth). Returns the merged experimental record, or undefined when there is
- *  nothing to migrate (no legacy opt-in, or the standard key is already present). */
-function migrateDraftSyncFlag(raw: Record<string, unknown>): Record<string, boolean> | undefined {
-  const ds = raw.draftSync
-  if (!ds || typeof ds !== 'object') return undefined
-  if ((ds as Record<string, unknown>).enabled !== true) return undefined
-  const exp =
-    raw.experimental && typeof raw.experimental === 'object'
-      ? (raw.experimental as Record<string, boolean>)
-      : {}
-  if (exp['draft-sync'] !== undefined) return undefined // an explicit toggle wins
-  return { ...exp, 'draft-sync': true }
-}
-
 /** Preserve an explicit legacy hour value while changing the public field to minutes. */
 function migrateIdleShellMinutes(
   raw: Record<string, unknown>,
@@ -468,12 +445,10 @@ function normalizeRoleHarnessAbsence(
 export function normalizeSettings(raw: unknown): PodiumSettings {
   const obj = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   const roles = migrateRoles(obj) ?? normalizeRoleHarnessAbsence(obj)
-  const experimental = migrateDraftSyncFlag(obj)
   const hibernation = migrateIdleShellMinutes(obj)
   return PodiumSettings.parse({
     ...obj,
     ...(roles ? { roles } : {}),
-    ...(experimental ? { experimental } : {}),
     ...(hibernation ? { hibernation } : {}),
   })
 }

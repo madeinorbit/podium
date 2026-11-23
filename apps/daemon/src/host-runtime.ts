@@ -128,7 +128,6 @@ import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
 import { BindingStore } from './binding-store'
 import { createBrowserOpenManager } from './browser-open'
 import { deliveryCaps } from './build-report'
-import { ComposerSyncEngine } from './composer-sync'
 import { type AccessMarker, SessionAccessStore } from './control/access'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { readMemoryBreakdown } from './control/discovery'
@@ -579,16 +578,6 @@ export async function createDaemonHostRuntime(args: {
   /** Keystrokes into a headed session's terminal, as a person at it would type. */
   const writeHeadedPty = (sessionId: SessionId, bytes: string): void =>
     writeHeadedInput(sessions, sessionId, bytes)
-  const composerEngine = new ComposerSyncEngine(
-    (sessionId, text) => {
-      if (terminalRuntime?.has(sessionId)) terminalRuntime.observeDraft(sessionId, text)
-      else send({ type: 'nativeDraft', sessionId, text })
-    },
-    {
-      writePty: writeHeadedPty,
-      onDemote: (sessionId) => log.warn('draft-sync self-demoted to read-only', { sessionId }),
-    },
-  )
 
   const workerClient = opts.workerClient ?? new DiscoveryWorkerClient()
   // What this process measures about its own loop, at the level the parent
@@ -825,7 +814,6 @@ export async function createDaemonHostRuntime(args: {
     transcriptRoot: join(identityStateDir, 'transcripts'),
     onTranscriptDirty: (path) => discoveryLoop.markConversationDirty(path),
     cwdTracker: sessionCwdTracker,
-    onIdleState: (sessionId, idle) => composerEngine.setIdle(sessionId, idle),
     onState: (observation) => terminalRuntime?.observeState(observation),
     onAuthSignal: (sessionId) => requestAuthRefresh(sessionId),
     sharedScreenFor: (sessionId) =>
@@ -1235,7 +1223,6 @@ export async function createDaemonHostRuntime(args: {
     // server cache.
     ...daemonHarnessLoginContext(homeDir, credentialHome),
     instanceUuid: instance.instanceUuid,
-    composerEngine,
     outputScheduler,
     observers,
     sessionCwdTracker,
@@ -2271,7 +2258,6 @@ export async function createDaemonHostRuntime(args: {
       log.warn('could not reap server sessions before host disposal', { err })
     }
     observers.disposeObservers()
-    composerEngine.disposeAll()
     await Promise.all(durableReaps)
   }
 

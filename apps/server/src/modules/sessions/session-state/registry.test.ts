@@ -480,18 +480,13 @@ describe('the envelope refuses before it reads anything', () => {
 
 describe('the composer draft rejects a stale revision instead of overwriting', () => {
   /**
-   * Draft Sync v2 (POD-859) is what gives a draft a REVISION, so the flag is turned
-   * on here through the canonical experiments store. Without it there is no
-   * revision, the guard has nothing to compare, and a test written against the
-   * flag-off path would assert nothing while looking like it passed — the
-   * "prove the instrument can say YES first" rule.
+   * Every accepted draft edit gets a REVISION (POD-2045), so the guard has
+   * something to compare. The first test checks that a revision exists before
+   * the stale test relies on it — the "prove the instrument can say YES first"
+   * rule.
    */
-  async function flaggedFixture() {
+  async function draftFixture() {
     const store = await openTestStore(':memory:')
-    await store.settings.setSettings({
-      ...(await store.settings.getSettings()),
-      experimental: { 'draft-sync': true },
-    })
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reg)
     await attachHostDaemon(reg, () => {})
@@ -517,7 +512,7 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
   const edit = (text: string) => ({ kind: 'replace' as const, text })
 
   it('an unconditional edit (no baseRevision) applies — today’s behaviour, unchanged', async () => {
-    const { sessionState, sessionId, owner, svc } = await flaggedFixture()
+    const { sessionState, sessionId, owner, svc } = await draftFixture()
 
     expect(
       (
@@ -535,7 +530,7 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
   })
 
   it('an edit at the CURRENT revision applies, and one at a STALE revision is rejected', async () => {
-    const { sessionState, sessionId, owner, svc } = await flaggedFixture()
+    const { sessionState, sessionId, owner, svc } = await draftFixture()
     await sessionState.execute(
       'sessions.setDraft',
       { sessionId, edit: edit('first writer') },

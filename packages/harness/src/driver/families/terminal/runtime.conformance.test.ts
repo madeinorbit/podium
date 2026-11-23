@@ -1,5 +1,5 @@
-import { pageHistory } from '@podium/harness/driver/host'
 import { AGENT_MANIFESTS, promptEchoCorrelation } from '@podium/harness'
+import { pageHistory } from '@podium/harness/driver/host'
 import { testHarnessContext, testSessionTerms } from '../../testing/harness-context.js'
 /**
  * THE TERMINAL DRIVER UNDER THE DRIVER CONFORMANCE CORPUS (POD-1761 W3).
@@ -49,7 +49,13 @@ import {
   describeTerminalEvidenceConformance,
   runConformance,
 } from '@podium/harness/driver/testing'
-import type { AgentKind, AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
+import type {
+  AgentKind,
+  AgentRuntimeState,
+  ResumeRef,
+  SessionId,
+  TranscriptItem,
+} from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
@@ -59,16 +65,16 @@ import {
   harnessUsesRawFirstTurn,
   manifestFor,
 } from '../../../registry.js'
+import { encodeCursor } from '../../../store/cursor-codec.js'
 import { declaredValue } from '../../../transcript-types.js'
+import { createMemoryDriverSlots } from '../../testing/driver-slots.js'
+import type { TerminalHostPorts, TerminalTransport } from './host-ports.js'
+import type { TerminalWriteRole } from './injection.js'
 import {
   createTerminalRuntime,
   type TerminalHarnessProfile,
   type TerminalRuntime,
 } from './runtime.js'
-import type { TerminalHostPorts, TerminalTransport } from './host-ports.js'
-import type { TerminalWriteRole } from './injection.js'
-import { createMemoryDriverSlots } from '../../testing/driver-slots.js'
-import { encodeCursor } from '../../../store/cursor-codec.js'
 
 /**
  * Local mirror of the daemon's `terminalProfileFor`
@@ -294,7 +300,12 @@ function makeWorld(options: WorldOptions): {
       // A REAL CURSOR, as the tailer stamps it: the segment and an offset
       // that grows as the file does. The echo proof places each record by it
       // (POD-4838), so an opaque token here would prove nothing about position.
-      cursor: encodeCursor({ fileId: `transcript-${sessionId}`, offset: nextId, uuid: null, sub: 0 }),
+      cursor: encodeCursor({
+        fileId: `transcript-${sessionId}`,
+        offset: nextId,
+        uuid: null,
+        sub: 0,
+      }),
       role: 'user',
       ts: iso(),
       text,
@@ -310,7 +321,12 @@ function makeWorld(options: WorldOptions): {
     }
     runtime?.observe({ type: 'transcriptDelta', sessionId, items: [item] })
     if (profile.lifecycleFromState) {
-      const working: AgentRuntimeState = { phase: 'working', since: iso(), nativeSubagentCount: 0, stateSource: 'poll' }
+      const working: AgentRuntimeState = {
+        phase: 'working',
+        since: iso(),
+        nativeSubagentCount: 0,
+        stateSource: 'poll',
+      }
       phases.set(sessionId, working)
       // POLL-STATE TRANSPORT (POD-4294): `agentState` is legacy and the driver
       // ignores it; poll lifecycles arrive via `observeState` (`terminalState`).
@@ -381,8 +397,6 @@ function makeWorld(options: WorldOptions): {
       // reason one corpus can run against every family.
     },
     trackedState: (sessionId) => phases.get(sessionId),
-    draftSyncing: () => false,
-    setDraftTarget: () => false,
     observationLease: () => undefined,
     // The attach is the proof the process lives: no survivor, no recovery.
     recover: async ({ sessionId, workdir, agentKind }) => {
@@ -412,51 +426,51 @@ function makeWorld(options: WorldOptions): {
       phases.set(msg.sessionId, { phase: 'idle', since: iso(), nativeSubagentCount: 0 })
       turnEpochs.set(msg.sessionId, 0)
       const write = (dataBase64: string, role?: TerminalWriteRole) => {
-          if (role !== 'message') {
-            foreignCounts.set(msg.sessionId, (foreignCounts.get(msg.sessionId) ?? 0) + 1)
-          }
-          const text = Buffer.from(dataBase64, 'base64').toString('utf8')
-          const paste = pastedText(text)
-          if (paste !== undefined) {
-            pendingPaste.set(msg.sessionId, paste)
+        if (role !== 'message') {
+          foreignCounts.set(msg.sessionId, (foreignCounts.get(msg.sessionId) ?? 0) + 1)
+        }
+        const text = Buffer.from(dataBase64, 'base64').toString('utf8')
+        const paste = pastedText(text)
+        if (paste !== undefined) {
+          pendingPaste.set(msg.sessionId, paste)
+          deliveries.set(msg.sessionId, (deliveries.get(msg.sessionId) ?? 0) + 1)
+          return
+        }
+        if (text !== '\r') {
+          // Grok's first prompt is raw text followed by CR. Model that path
+          // without mistaking ESC (interrupt) for user text; later turns use
+          // bracketed paste once the transcript records the first user turn.
+          if ((turnEpochs.get(msg.sessionId) ?? 0) === 0 && text !== '\u001b') {
+            pendingPaste.set(msg.sessionId, text)
             deliveries.set(msg.sessionId, (deliveries.get(msg.sessionId) ?? 0) + 1)
-            return
           }
-          if (text !== '\r') {
-            // Grok's first prompt is raw text followed by CR. Model that path
-            // without mistaking ESC (interrupt) for user text; later turns use
-            // bracketed paste once the transcript records the first user turn.
-            if ((turnEpochs.get(msg.sessionId) ?? 0) === 0 && text !== '\u001b') {
-              pendingPaste.set(msg.sessionId, text)
-              deliveries.set(msg.sessionId, (deliveries.get(msg.sessionId) ?? 0) + 1)
-            }
-            return
-          }
-          const pasted = pendingPaste.get(msg.sessionId)
-          if (pasted === undefined) return
-          pendingPaste.delete(msg.sessionId)
-          const turns = submitted.get(msg.sessionId) ?? []
-          turns.push(pasted)
-          submitted.set(msg.sessionId, turns)
-          for (const notify of [...submissionWaiters]) notify()
-          if (heldEcho.has(msg.sessionId)) return
-          // A CLI that is NOT going to accept this turn simply records nothing —
-          // which is exactly what an unprovable send looks like from outside.
-          if (suppressEcho.delete(msg.sessionId)) return
-          // A PROMPT SUBMITTED INTO A RUNNING TURN JOINS IT (POD-5855): the CLI
-          // records it and opens no turn of its own. One submitted to an idle
-          // CLI opens a turn, as a real CLI does — so the corpus's steer
-          // properties find the turn their first send opened.
-          const running = phases.get(msg.sessionId)?.phase === 'working'
-          if (!running) turnEpochs.set(msg.sessionId, (turnEpochs.get(msg.sessionId) ?? 0) + 1)
-          echoUserTurn(msg.sessionId, pasted)
-          if (!running && !profile.lifecycleFromState) {
-            runtime?.observe({
-              type: 'agentObservation',
-              observation: observation(msg.sessionId, 'turn_opened', 'working'),
-            } as DaemonMessage)
-            phases.set(msg.sessionId, { phase: 'working', since: iso(), nativeSubagentCount: 0 })
-          }
+          return
+        }
+        const pasted = pendingPaste.get(msg.sessionId)
+        if (pasted === undefined) return
+        pendingPaste.delete(msg.sessionId)
+        const turns = submitted.get(msg.sessionId) ?? []
+        turns.push(pasted)
+        submitted.set(msg.sessionId, turns)
+        for (const notify of [...submissionWaiters]) notify()
+        if (heldEcho.has(msg.sessionId)) return
+        // A CLI that is NOT going to accept this turn simply records nothing —
+        // which is exactly what an unprovable send looks like from outside.
+        if (suppressEcho.delete(msg.sessionId)) return
+        // A PROMPT SUBMITTED INTO A RUNNING TURN JOINS IT (POD-5855): the CLI
+        // records it and opens no turn of its own. One submitted to an idle
+        // CLI opens a turn, as a real CLI does — so the corpus's steer
+        // properties find the turn their first send opened.
+        const running = phases.get(msg.sessionId)?.phase === 'working'
+        if (!running) turnEpochs.set(msg.sessionId, (turnEpochs.get(msg.sessionId) ?? 0) + 1)
+        echoUserTurn(msg.sessionId, pasted)
+        if (!running && !profile.lifecycleFromState) {
+          runtime?.observe({
+            type: 'agentObservation',
+            observation: observation(msg.sessionId, 'turn_opened', 'working'),
+          } as DaemonMessage)
+          phases.set(msg.sessionId, { phase: 'working', since: iso(), nativeSubagentCount: 0 })
+        }
       }
       // The fake surface the host hands at bind (POD-4785): the write logic
       // above is verbatim the old `attachment.write`, now as `writeBase64`.
@@ -484,7 +498,8 @@ function makeWorld(options: WorldOptions): {
         },
       }
     },
-    readHistory: async (session, range) => pageHistory(transcriptFor(session.sessionId), session.sessionId, range),
+    readHistory: async (session, range) =>
+      pageHistory(transcriptFor(session.sessionId), session.sessionId, range),
     archiveTranscript: async ({ resumeValue }) => {
       // A HARNESS WITH NO LOCATOR CANNOT BE ASKED, and the driver is required to
       // stop at its own capability check before it gets here — this throw is the
@@ -553,7 +568,13 @@ function makeWorld(options: WorldOptions): {
         const epoch = turnEpochs.get(sessionId) ?? 0
         if (completedEpochs.get(sessionId) === epoch) return
         completedEpochs.set(sessionId, epoch)
-        const idle: AgentRuntimeState = { phase: 'idle', since: iso(), nativeSubagentCount: 0, idle: { kind: 'done' }, stateSource: 'poll' }
+        const idle: AgentRuntimeState = {
+          phase: 'idle',
+          since: iso(),
+          nativeSubagentCount: 0,
+          idle: { kind: 'done' },
+          stateSource: 'poll',
+        }
         phases.set(sessionId, idle)
         // See `echoUserTurn`: poll lifecycle owns opencode turns via `terminalState`.
         runtime?.observeState({ sessionId, state: idle, observerGeneration: 1, bindingVersion: 1 })
@@ -598,34 +619,52 @@ function makeWorld(options: WorldOptions): {
     hold: (sessionId) => {
       heldEcho.add(sessionId)
     },
-    submitted: (sessionId, count) => new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        submissionWaiters.delete(check)
-        reject(new Error(`expected ${count} submitted turns, saw ${submitted.get(sessionId)?.length ?? 0}`))
-      }, 2000)
-      const check = () => {
-        const turns = submitted.get(sessionId) ?? []
-        if (turns.length < count) return
-        clearTimeout(timeout)
-        submissionWaiters.delete(check)
-        resolve([...turns])
-      }
-      submissionWaiters.add(check)
-      check()
-    }),
+    submitted: (sessionId, count) =>
+      new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          submissionWaiters.delete(check)
+          reject(
+            new Error(
+              `expected ${count} submitted turns, saw ${submitted.get(sessionId)?.length ?? 0}`,
+            ),
+          )
+        }, 2000)
+        const check = () => {
+          const turns = submitted.get(sessionId) ?? []
+          if (turns.length < count) return
+          clearTimeout(timeout)
+          submissionWaiters.delete(check)
+          resolve([...turns])
+        }
+        submissionWaiters.add(check)
+        check()
+      }),
     userTurn: echoUserTurn,
     foreignWrite: (sessionId) => {
       bridgeOf.get(sessionId)?.writeBase64(Buffer.from('x', 'utf8').toString('base64'))
     },
-    hook: (sessionId, text) => runtime?.onHookPayload(sessionId, {
-      hook_event_name: 'UserPromptSubmit', prompt: text,
-    }),
+    hook: (sessionId, text) =>
+      runtime?.onHookPayload(sessionId, {
+        hook_event_name: 'UserPromptSubmit',
+        prompt: text,
+      }),
     boundary: (sessionId, phase, order) => {
       if (phase === 'working') turnEpochs.set(sessionId, (turnEpochs.get(sessionId) ?? 0) + 1)
-      const event = observation(sessionId, phase === 'working' ? 'turn_opened' : 'turn_terminal', phase)
-      const state: AgentRuntimeState = { phase, since: iso(), nativeSubagentCount: 0, stateSource: 'poll' }
-      const postState = () => runtime?.observeState({ sessionId, state, observerGeneration: 1, bindingVersion: 1 })
-      const postObservation = () => runtime?.observe({ type: 'agentObservation', observation: event })
+      const event = observation(
+        sessionId,
+        phase === 'working' ? 'turn_opened' : 'turn_terminal',
+        phase,
+      )
+      const state: AgentRuntimeState = {
+        phase,
+        since: iso(),
+        nativeSubagentCount: 0,
+        stateSource: 'poll',
+      }
+      const postState = () =>
+        runtime?.observeState({ sessionId, state, observerGeneration: 1, bindingVersion: 1 })
+      const postObservation = () =>
+        runtime?.observe({ type: 'agentObservation', observation: event })
       if (order === 'state-first') {
         postState()
         postObservation()
@@ -746,7 +785,9 @@ describe('shipped terminal profile coverage', () => {
     expect(Object.keys(AGENT_MANIFESTS).sort()).toEqual([...SHIPPED_ARMS, 'pi'].sort())
     // Pi writes a timestamp on every entry and Cursor writes none; the echo
     // floor's timestamped path runs in the claude, codex and opencode arms.
-    expect({ ...shippedProfile('pi'), transcriptTimestamps: 'absent' }).toEqual(shippedProfile('cursor'))
+    expect({ ...shippedProfile('pi'), transcriptTimestamps: 'absent' }).toEqual(
+      shippedProfile('cursor'),
+    )
     expect(testProfileFor('shell')).toBeUndefined()
   })
   it('keeps the adversarial shape distinct from every shipped profile', () => {
@@ -804,15 +845,22 @@ describe('adversarial-pty with a synthetic archive locator', () => {
 })
 
 describe('terminal conformance interaction sources', () => {
-  it.each(['grok', 'codex', 'claude-code'] as const)('injects the %s interaction source independently of its submit hook', async (harness) => {
+  it.each([
+    'grok',
+    'codex',
+    'claude-code',
+  ] as const)('injects the %s interaction source independently of its submit hook', async (harness) => {
     const world = makeWorld({ harness, profile: shippedProfile(harness) })
     try {
       const { driver, control } = world.target.createDriver()
       const session = await driver.create(world.target.spec())
       const id = control.askInteraction(session.binding.sessionId, 'permission')
-      expect(await session.interactions()).toEqual([expect.objectContaining({
-        id, source: harness === 'claude-code' ? 'hook' : 'screen-classifier',
-      })])
+      expect(await session.interactions()).toEqual([
+        expect.objectContaining({
+          id,
+          source: harness === 'claude-code' ? 'hook' : 'screen-classifier',
+        }),
+      ])
     } finally {
       world.target.reset()
     }

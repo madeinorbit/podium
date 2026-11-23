@@ -90,7 +90,6 @@ async function fixture() {
       setConcertmaster: vi.fn(),
       setArchived: vi.fn(),
       clearAllSnoozes: vi.fn(),
-      suppressNativeDraft: vi.fn(),
     },
     toPtyInput: vi.fn(),
     sendContinue: vi.fn(async () => ({ ok: true as const })),

@@ -228,9 +228,6 @@ export const CONTROL_PLANE_CLASS = {
   // the daemon does, and it carries no records.
   stealWriter: 'control.command',
   sessionBindingRetire: 'control.command',
-  // Draft Sync v2 (POD-859): server→daemon "inject this chat draft into native".
-  draftTarget: 'control.command',
-  // Host channel, NOT the agent relay (, ADR 7 D2).
   sessionResumeRefAck: 'control.command',
   sessionResumeRefConflict: 'control.command',
   transcriptMirrorRead: 'bulk.bulk',
@@ -290,7 +287,6 @@ export const CONTROL_PLANE_CLASS = {
    *  request/reply like every other session verb: a lost one is a failed RPC the
    *  caller already handles, and it is safe to repeat — configuring a session to
    *  the model it is already on is a no-op. */
-  runtimeDraftRequest: 'control.command',
   runtimeConfigureRequest: 'control.command',
   // Receipt for a durable-synced daemon report. It is safe to repeat and only
   // retires the daemon outbox record whose reportId it names.
@@ -375,9 +371,6 @@ export const DAEMON_PLANE_CLASS = {
   sessionResumeRef: 'control.command',
   sessionCwd: 'control.command',
   sessionGitActivity: 'control.command',
-  // Draft Sync v2 (POD-859): the daemon's scraped native composer — a live
-  // runtime stream the server sequences into a durable draft edit.
-  nativeDraft: 'stream.live',
   devArtifactProbeResult: 'control.command',
   updateStatus: 'control.command',
   inventoryReport: 'control.command',
@@ -444,7 +437,6 @@ export const DAEMON_PLANE_CLASS = {
   // so this correction is entity truth rather than a lossy live-stream hint.
   runtimeQueueDrainAbandoned: 'control.entity',
   runtimeLifecycleResult: 'control.command',
-  runtimeDraftResult: 'control.command',
   runtimeConfigureResult: 'control.command',
   runtimeAnswerResult: 'control.command',
   /**

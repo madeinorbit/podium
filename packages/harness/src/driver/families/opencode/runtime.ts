@@ -544,7 +544,6 @@ interface DriverSession {
    */
   serverGone: boolean
   lease: SessionLease | null
-  draft: string
   watchers: { coarse: number; fine: number }
   log: { seq: number; event: RuntimeEvent }[]
   wakers: Set<() => void>
@@ -2088,7 +2087,6 @@ export function createOpencodeRuntime(
           observerGeneration: session.observerGeneration,
           turnEpoch: session.turnEpoch,
           interactions: [...session.interactions.values()],
-          draft: session.draft,
           at: iso(),
         }
       },
@@ -2554,19 +2552,6 @@ export function createOpencodeRuntime(
       },
 
       // ---- extended ----
-      draft: {
-        async get() {
-          return session.draft
-        },
-        async set(text: string) {
-          if (session.disposed) return { reason: 'not_running' as const }
-          if (session.draft !== text) {
-            session.draft = text
-            emit(session, { t: 'draft', text }, iso())
-          }
-          return { ok: true as const }
-        },
-      },
 
       /**
        * STICKY MODEL AND EFFORT, out of the same field every prompt already
@@ -2754,7 +2739,6 @@ export function createOpencodeRuntime(
       queue: [],
       serverGone: false,
       lease: null,
-      draft: '',
       watchers: { coarse: 0, fine: 0 },
       log: [],
       wakers: new Set(),

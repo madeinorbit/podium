@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "cbea1000-a8fc-4cc6-821f-886c9521044e",
+  "id": "d3f5ec07-23bd-4a2c-887a-21652188a8d0",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
@@ -12171,19 +12171,6 @@
       "generated": null,
       "identity": null,
       "name": "bound_driver_capabilities",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "sessions"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "false",
-      "generated": null,
-      "identity": null,
-      "name": "draft_sync_engine",
       "entityType": "columns",
       "schema": "public",
       "table": "sessions"

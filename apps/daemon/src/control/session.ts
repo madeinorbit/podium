@@ -110,7 +110,6 @@ import {
 import {
   forgetSessionScreen,
   sessionScreenFor,
-  terminalScreenFor,
   trackSessionOutput,
   trackSessionSize,
 } from '../session-screens'
@@ -570,14 +569,13 @@ export function forwardPicture(
   ctx.outputScheduler.enqueuePicture(sessionId, picture)
   if (!seed) return
   trackSessionOutput(ctx, sessionId, picture.bytes)
-  if (ctx.composerEngine.has(sessionId)) ctx.composerEngine.onData(sessionId, picture.bytes)
 }
 
 /**
  * THE SIZE EVENT (POD-4723, design rev 3 rule 1): the ONE callback that runs
  * when the host states a session's size — its WELCOME, or a RESIZED. In
  * order: flush held output and report the size (`reportSize`), then move the
- * headless model, the observers and the composer to it. The ask itself moves
+ * headless model and the observers to it. The ask itself moves
  * none of these, so a refused or lost ask leaves every one of them at the size
  * the program really has.
  *
@@ -596,7 +594,6 @@ export function onSessionSize(
   reportSize(ctx, sessionId, size, birth, birth && keepsScreen && picturesAccepted(ctx))
   trackSessionSize(ctx, sessionId, size.cols, size.rows)
   ctx.observers.onResize?.(sessionId, size.cols, size.rows)
-  ctx.composerEngine.onResize(sessionId, size.cols, size.rows)
 }
 
 /**
@@ -642,11 +639,6 @@ export function wireBridge(
           // P1b (POD-3918): the headless model and the 1049 mode see every live
           // byte, so a reopen reconstitutes from what the program drew.
           trackSessionOutput(ctx, sessionId, data)
-          // Draft Sync v2 (POD-859): feed the composer engine the raw PTY bytes when it's
-          // running for this (flagged) session.
-          if (ctx.composerEngine.has(sessionId)) {
-            ctx.composerEngine.onData(sessionId, data)
-          }
         })
       },
       // Codex sets its OSC title to the cwd basename (+ a spinner glyph that churns at
@@ -665,7 +657,6 @@ export function wireBridge(
         // must not clear its successor (the epoch on the session says the same).
         owned.dropTerminal(terminal)
         forgetSessionScreen(ctx, sessionId)
-        ctx.composerEngine.detach(sessionId)
         ctx.outputScheduler.remove(sessionId)
         ctx.sessionCwdTracker.clear(sessionId)
         // The agent's gone (as far as this bridge knows) — stop its observers and
@@ -995,18 +986,6 @@ export async function launchTerminalProcess(
     })
     // The size event above ran before these observers existed: tell them now.
     ctx.observers.onResize?.(sessionId, geometry.cols, geometry.rows)
-    // Draft Sync v2 (POD-859): begin composer sync for a flagged, composer-capable
-    // session. attach() is a no-op for harnesses without a driver. Reads the
-    // session's one TerminalScreen model (P2c) instead of a second emulator.
-    if (orderFrame.draftSync) {
-      ctx.composerEngine.attach(
-        sessionId,
-        agentKind,
-        geometry.cols,
-        geometry.rows,
-        terminalScreenFor(ctx, sessionId).model,
-      )
-    }
     // An adopted spawn started nothing: the durable master for this label was still
     // running and we reattached to it (POD-1945 — a Resume used to die on
     // "address already in use" instead). Report it as the attach it is, so the row
@@ -1052,7 +1031,6 @@ export async function launchTerminalProcess(
           cmd: boundCmd,
           cwd: cmd.cwd,
           agentKind,
-          ...(ctx.composerEngine.has(sessionId) ? { draftSyncEngine: true } : {}),
           // The driver handle actually exists for this session (POD-1761 W4,
           // unconditional since POD-4426). The server records `driverId` on the
           // row and keys its senders on its presence — see BindMessage.
@@ -2760,21 +2738,6 @@ export async function recoverTerminalProcess(
       )
     }
     const cmd = durableProcessFor(ctx)?.primary.attachCommand(msg.durableLabel) ?? msg.durableLabel
-    // Draft Sync v2 (POD-859): ensure the engine is running if flagged (idempotent —
-    // covers a runtime flag flip since the original spawn).
-    if (msg.draftSync) {
-      // The session's one TerminalScreen model (P2c) is shared here instead
-      // of building a second emulator; the cols/rows hint only sizes a
-      // fallback owned screen, and the next size event moves it.
-      const hint = sessionSize(ctx, msg.sessionId) ?? msg.lastKnownGeometry
-      ctx.composerEngine.attach(
-        msg.sessionId,
-        msg.agentKind,
-        hint.cols,
-        hint.rows,
-        terminalScreenFor(ctx, msg.sessionId).model,
-      )
-    }
     return {
       terminal: adaptTerminal(existing),
       announce: () => {
@@ -2789,7 +2752,6 @@ export async function recoverTerminalProcess(
           // host's last statement is still the truth, and this bind is the full
           // statement the server re-drives a lost ask from. Never
           // `msg.lastKnownGeometry`: that is the server's own belief handed back.
-          ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
           // The driver handle actually exists for this session (POD-1761 W4,
           // unconditional since POD-4426). The server records `driverId` on the
           // row and keys its senders on its presence — see BindMessage.
@@ -2930,16 +2892,6 @@ export async function recoverTerminalProcess(
     // the pty; the next size event moves them.
     const screens = terminal.size() ?? msg.lastKnownGeometry
     ctx.observers.onResize?.(msg.sessionId, screens.cols, screens.rows)
-    if (msg.draftSync) {
-      // The session's one TerminalScreen model (P2c), not a second emulator.
-      ctx.composerEngine.attach(
-        msg.sessionId,
-        msg.agentKind,
-        screens.cols,
-        screens.rows,
-        terminalScreenFor(ctx, msg.sessionId).model,
-      )
-    }
     // Only an old server needs a ring repaint. A picture-capable link gets
     // the reset requested after bind; a C host on that link gets live bytes
     // only (SPEC v4 H6).
@@ -2956,7 +2908,6 @@ export async function recoverTerminalProcess(
           agentKind: msg.agentKind,
           // THE CONNECTION'S SIZE (POD-4723): the host's WELCOME, so a daemon
           // restart binds the size the program really has.
-          ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
           // The driver handle actually exists for this session (POD-1761 W4,
           // unconditional since POD-4426). The server records `driverId` on the
           // row and keys its senders on its presence — see BindMessage.
@@ -3261,7 +3212,6 @@ export const sessionHandlers: Pick<
   | 'input'
   | 'resize'
   | 'redraw'
-  | 'draftTarget'
   | 'agentObservationAck'
   | 'agentObservationRebindAck'
   | 'sessionResumeRefAck'
@@ -3390,10 +3340,6 @@ export const sessionHandlers: Pick<
         err: err instanceof Error ? err.message : String(err),
       }),
     )
-  },
-  draftTarget: (ctx, msg) => {
-    // A chat-originated draft to mirror into the native composer (POD-859 phase 4).
-    ctx.composerEngine.setTarget(msg.sessionId, msg.text)
   },
   redraw: (ctx, msg) => {
     // POSIX hard redraw reaches the program as Ctrl-L. ConPTY would clear its

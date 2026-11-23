@@ -647,10 +647,6 @@ export const SessionMetaEntity = z.object({
   /** Stored composer document. Clients join Draft Sync v2's versioned channel;
    * the meta feed does not repeat its text on every activity frame. */
   messageDraft: z.string().optional(),
-  /** Draft Sync v2 (POD-859): true when the session's daemon runs the composer
-   *  scrape/inject engine. A client uses it to retire its own native sampler +
-   *  chat→native flush (the daemon owns that now). Absent/false = legacy path. */
-  draftSyncEngine: z.boolean().optional(),
   /** Runtime driver the daemon actually bound. Transient live fact; absent for
    * older daemons and legacy sessions that have no agent-runtime handle. Never
    * infer this from the requested runtime contract. */

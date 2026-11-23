@@ -709,10 +709,10 @@ describe('headless dispatch', () => {
       expect(await handle.configure({ model: 'test/model', effort: 'deep-thinking' })).toEqual({
         ok: true,
       })
-      await handle.send(
-        makeTurn(sessionId, { accountId: 'native:opencode:fp-1' }),
-        { origin: 'system', delivery: 'when-ready' },
-      )
+      await handle.send(makeTurn(sessionId, { accountId: 'native:opencode:fp-1' }), {
+        origin: 'system',
+        delivery: 'when-ready',
+      })
       expect(runners.turns[0]?.spec).toMatchObject({ model: 'test/model', effort: 'deep-thinking' })
     } finally {
       runtime.dispose()
@@ -1389,7 +1389,6 @@ describe('headless history and rebind', () => {
       expect(await handle.attach({ mode: 'peek', holder: 'test' })).toMatchObject({
         reason: 'unsupported',
       })
-      expect(await handle.draft.get()).toMatchObject({ reason: 'unsupported' })
       expect(await handle.usage()).toMatchObject({ reason: 'unsupported' })
     } finally {
       runtime.dispose()

@@ -4,13 +4,13 @@ import {
   STATE_CHANNEL_STALENESS_MS,
   withStateChannelEvent,
 } from '@podium/harness'
+import type { ScreenReader } from '@podium/process/screen'
 import { describe, expect, it, vi } from 'vitest'
 import {
   createTerminalScreenObserver,
   TERMINAL_SCREEN_COALESCE_MS,
   TERMINAL_SCREEN_RESTATE_MARGIN_MS,
 } from './terminal-screen-observer'
-import type { ScreenReader } from './composer-sync'
 
 function fakeScreen(): ScreenReader & { setLines(lines: string[]): void } {
   let current: string[] = []

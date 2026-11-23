@@ -117,7 +117,6 @@ function daemonContext(): Harness {
     backend: 'host',
     settingsDir: join(root, 'settings'),
     sessions: testSessions(),
-    composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
     outputScheduler: {
       enqueue: (_id: SessionId, data: Uint8Array) => {
         out += Buffer.from(data).toString('latin1')

@@ -2674,10 +2674,6 @@ export const sessions = pgTable(
     boundDriverCapabilities: textC('bound_driver_capabilities').$type<
       SqliteRow<'sessions'>['boundDriverCapabilities']
     >(),
-    draftSyncEngine: boolean('draft_sync_engine')
-      .notNull()
-      .default(false)
-      .$type<SqliteRow<'sessions'>['draftSyncEngine']>(),
     agentColor: textC('agent_color').$type<SqliteRow<'sessions'>['agentColor']>(),
     agentStateJson: jsonText('agent_state_json').$type<SqliteRow<'sessions'>['agentStateJson']>(),
     observedModel: textC('observed_model').$type<SqliteRow<'sessions'>['observedModel']>(),
