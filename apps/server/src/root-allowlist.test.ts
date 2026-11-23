@@ -56,3 +56,15 @@ it('does not authorize a Unicode folder whose JS lowercase aliases a registered 
   expect(isAllowedRoot([String.raw`C:\work`], String.raw`c:\WORK\secret`)).toBe(true)
   expect(isAllowedRoot(['/work'], '/worK/secret')).toBe(false)
 })
+
+// POD-7311 review F1: the daemon sandboxes file reads and writes to the root this admits.
+it.each([
+  ['/home/u/repo', '/home/u/repo/../..'],
+  ['/home/u/repo', '/home/u/repo/../.ssh'],
+  ['/home/u/repo', '/home/u/repo/./sub/../../..'],
+  [String.raw`C:\repo`, String.raw`C:\repo\..\Users`],
+  [String.raw`C:\repo`, 'c:/repo/../Windows'],
+  [String.raw`\\nas\share\repo`, String.raw`\\nas\share\repo\..\other`],
+])('machine paths: refuses a file root under %s that climbs out with dot segments: %s', (repo, root) => {
+  expect(isAllowedRoot([repo], root)).toBe(false)
+})

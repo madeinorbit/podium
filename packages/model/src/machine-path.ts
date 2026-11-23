@@ -28,6 +28,14 @@ export function isValidMachinePath(path: string, root: string = path): boolean {
   )
 }
 
+/** A `.` or `..` segment, in the root's syntax. Containment answers only for paths spelled
+ *  without them: a literal POSIX prefix test counts `/repo/../etc` as inside `/repo`, and a
+ *  lexically resolved `..` can name another folder than the filesystem does across a symlink.
+ *  A caller holding a relative token resolves it first (resolveMachinePath). */
+export function machinePathHasDotSegment(path: string, root: string = path): boolean {
+  return machinePathSegments(path, root).some(part => part === '.' || part === '..')
+}
+
 function pathParts(path: string, separator: '/' | '\\'): { root: string; parts: string[] } {
   const value = separator === '\\' ? path.replace(/\//g, '\\') : path
   if (separator === '\\') {
@@ -93,9 +101,14 @@ export function machinePathDirname(path: string, root: string = path): string {
   return parsed.root + parts.join(separator) || '.'
 }
 
-/** Relative path when contained; null when outside (including a different drive/share). */
+/** Relative path when contained; null when outside (including a different drive/share).
+ *  Refuses a root with a dot segment, an absolute path with one, and any `..`: only a
+ *  relative token may carry `.` (`./shot.png`), which cannot climb out. */
 export function machinePathRelativeToRoot(root: string, path: string): string | null {
   if (!isValidMachinePath(root) || !isValidMachinePath(path, root)) return null
+  if (machinePathHasDotSegment(root)) return null
+  if (machinePathSegments(path, root).includes('..')) return null
+  if (isAbsoluteMachinePath(path, root) && machinePathHasDotSegment(path, root)) return null
   const base = normalizeMachinePath(root)
   // A relative root and cwd are already in the same namespace (repo + repo/sub).
   const target = isAbsoluteMachinePath(base)
@@ -119,8 +132,11 @@ export function machinePathRelativeToRoot(root: string, path: string): string | 
   return target.startsWith(prefix) ? target.slice(prefix.length) : null
 }
 
+/** Whether the folder `path` is `root` or lies under it. Refuses a dot segment in either
+ *  (machinePathHasDotSegment), on POSIX, Windows and UNC alike. */
 export function isMachinePathWithinRoot(root: string, path: string): boolean {
   if (!isValidMachinePath(root) || !isValidMachinePath(path, root)) return false
+  if (machinePathHasDotSegment(root) || machinePathHasDotSegment(path, root)) return false
   // Keep POSIX cwd membership literal (including relative roots and trailing slashes).
   // Unlike resolving a file token, membership must never put a relative cwd under an absolute root.
   if (machinePathSeparator(root) === '/')
@@ -163,9 +179,10 @@ export function machinePathsEqual(a: string, b: string): boolean {
   return machinePathKey(a) === machinePathKey(b)
 }
 
-/** Directory ancestors, nearest first, without normalizing literal POSIX spelling. */
+/** Directory ancestors, nearest first, without normalizing literal POSIX spelling.
+ *  The indexed form of isMachinePathWithinRoot, so a path with a dot segment has none. */
 export function machinePathAncestors(path: string): string[] {
-  if (!isValidMachinePath(path)) return []
+  if (!isValidMachinePath(path) || machinePathHasDotSegment(path)) return []
   if (machinePathSeparator(path) === '\\') {
     const ancestors: string[] = []
     let current = normalizeMachinePath(path)

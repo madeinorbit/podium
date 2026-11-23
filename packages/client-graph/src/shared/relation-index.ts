@@ -1,4 +1,4 @@
-import { machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
+import { machinePathAncestors, machinePathHasDotSegment, machinePathKey, machinePathSeparator } from '@podium/model/browser'
 /**
  * POD-5407 — THE RELATION INDEX: every declared relation, over the rows the
  * pool holds, held once, in plain maps.
@@ -84,6 +84,7 @@ export function linkInputs(spec: LinkSpec): readonly string[] {
  * matches P when P === R or P starts with `R/`).
  */
 export function* ancestorPaths(normalized: string): Generator<string> {
+  if (machinePathHasDotSegment(normalized)) return
   if (machinePathSeparator(normalized) === '\\') {
     yield* machinePathAncestors(normalized)
     return

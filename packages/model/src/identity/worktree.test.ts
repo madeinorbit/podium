@@ -64,6 +64,22 @@ describe('worktreeForCwdIndexed', () => {
     { name: 'the filesystem root as a root', cwd: '/x/y', roots: ['/'], expected: '/' },
     { name: 'empty root list', cwd: '/r/a', roots: [], expected: null },
     { name: 'relative paths', cwd: 'r/a/src', roots: ['r/a'], expected: 'r/a' },
+    // POD-7311 review F1: a dot segment is never inside a root, nor a root itself.
+    { name: 'a cwd climbing out with ..', cwd: '/r/a/../b', roots: ['/r/a', '/r'], expected: null },
+    { name: 'a cwd with a . segment', cwd: '/r/a/./src', roots: ['/r/a'], expected: null },
+    { name: 'a root with a dot segment', cwd: '/r/a/../x', roots: ['/r/a/..'], expected: null },
+    {
+      name: 'a Windows cwd climbing out',
+      cwd: 'C:\\r\\a\\..\\b',
+      roots: ['C:\\r\\a'],
+      expected: null,
+    },
+    {
+      name: 'a UNC cwd climbing out',
+      cwd: '\\\\nas\\share\\a\\..\\b',
+      roots: ['\\\\nas\\share\\a'],
+      expected: null,
+    },
   ]
 
   for (const { name, cwd, roots, expected } of cases) {

@@ -244,8 +244,11 @@ export const ToolBatchView = observer(function ToolBatchView({
     // form, and the rail's dir/name split is meaningless on a full absolute
     // path, so everything inside the cwd is shown relative to it. A file outside
     // it keeps its absolute name, which is the only honest thing to call it.
-    const normalise = (raw: string): string =>
-      machinePathRelativeToRoot(cwd, raw) ?? resolveMachinePath(cwd, raw)
+    // Resolve first: containment refuses dot segments, and `../repo/x` is still inside.
+    const normalise = (raw: string): string => {
+      const resolved = resolveMachinePath(cwd, raw)
+      return machinePathRelativeToRoot(cwd, resolved) ?? resolved
+    }
     for (const b of blocks) {
       if (b.item.role !== 'tool' || b.mail) continue
       // ONLY a recorded edit. `toolPaths` is every path the call reported —

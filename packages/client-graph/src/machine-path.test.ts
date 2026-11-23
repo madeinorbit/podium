@@ -194,3 +194,14 @@ it('does not crash graph indexes or labels on malformed Windows paths', () => {
   expect(questions.hasWithin(String.raw`C:\repo`)).toBe(false)
   expect(longestPrefixPath(cwd, [String.raw`C:\repo`])).toBeNull()
 })
+
+// POD-7311 review F1: grouping agrees with containment, which refuses dot segments.
+it.each([
+  ['/repo/../etc', ['/repo', '/']],
+  ['/repo/./src', ['/repo']],
+  [String.raw`C:\repo\..\etc`, [String.raw`C:\repo`, 'C:\\']],
+  [String.raw`\\nas\share\repo\..\x`, [String.raw`\\nas\share\repo`]],
+])('machine paths: a cwd with a dot segment belongs to no root (%s)', (cwd, roots) => {
+  expect(longestPrefixPath(cwd, roots)).toBeNull()
+  expect([...prefixCandidates(cwd)]).toEqual([])
+})

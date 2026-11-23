@@ -7,6 +7,7 @@ import {
   machinePathAncestors,
   machinePathBasename,
   machinePathDirname,
+  machinePathHasDotSegment,
   machinePathHasSuffix,
   machinePathKey,
   machinePathRelativeToRoot,
@@ -215,4 +216,112 @@ describe('machine paths: conservative Windows case comparisons', () => {
 // A cwd is an absolute machine path, not a root-relative file token.
 it('does not place an absolute POSIX cwd under a Windows checkout', () => {
   expect(isMachinePathWithinRoot(String.raw`C:\src\podium`, '/src/podium/src/app')).toBe(false)
+})
+
+// POD-7311 review F1: a literal POSIX prefix test counted `/repo/../.ssh` as inside `/repo`.
+describe('machine path containment refuses dot segments', () => {
+  it.each([
+    [
+      'POSIX',
+      '/home/alice/repo',
+      [
+        '/home/alice/repo/../.ssh/id_ed25519',
+        '/home/alice/repo/..',
+        '/home/alice/repo/./src',
+        '/home/alice/repo/src/../../x',
+        '/home/alice/repo/.',
+      ],
+    ],
+    [
+      'POSIX root with a trailing slash',
+      '/home/alice/repo/',
+      ['/home/alice/repo/../.ssh', '/home/alice/repo//..//x'],
+    ],
+    [
+      'Windows',
+      String.raw`C:\Users\alice\repo`,
+      [
+        String.raw`C:\Users\alice\repo\..\.ssh\id_ed25519`,
+        'c:/Users/alice/repo/../secret',
+        String.raw`C:\Users\alice\repo\.\src`,
+        String.raw`C:\Users\alice\repo\src\..\x`,
+        String.raw`C:\Users\alice\repo/./x`,
+      ],
+    ],
+    [
+      'UNC',
+      String.raw`\\nas\share\repo`,
+      [
+        String.raw`\\nas\share\repo\..\other`,
+        '//nas/share/repo/../other'.replace(/\//g, '\\'),
+        String.raw`\\nas\share\repo\.\x`,
+        String.raw`\\nas\share\repo\x\..\..\..\y`,
+      ],
+    ],
+  ])('%s: refuses a path under %s that has a dot segment', (_name, root, paths) => {
+    for (const path of paths) {
+      expect(machinePathHasDotSegment(path, root)).toBe(true)
+      expect(isMachinePathWithinRoot(root, path)).toBe(false)
+      expect(machinePathRelativeToRoot(root, path)).toBeNull()
+      expect(machinePathAncestors(path)).toEqual([])
+    }
+  })
+
+  it.each([
+    ['/home/alice/repo/..', '/home/alice/repo/../x'],
+    ['/home/alice/./repo', '/home/alice/./repo/x'],
+    [String.raw`C:\Users\alice\repo\..`, String.raw`C:\Users\alice\repo\..\x`],
+    [String.raw`\\nas\share\repo\.`, String.raw`\\nas\share\repo\.\x`],
+  ])('refuses a root with a dot segment: %s', (root, path) => {
+    expect(isMachinePathWithinRoot(root, path)).toBe(false)
+    expect(isMachinePathWithinRoot(root, root)).toBe(false)
+    expect(machinePathRelativeToRoot(root, path)).toBeNull()
+  })
+
+  it.each([
+    ['/home/alice/repo', '/home/alice/repo/src/x.ts', 'src/x.ts'],
+    ['/home/alice/repo', '/home/alice/repo/.config/..rc/...', '.config/..rc/...'],
+    [String.raw`C:\Users\alice\repo`, 'c:/users/ALICE/repo/.git/x', String.raw`.git\x`],
+    [String.raw`\\nas\share\repo`, String.raw`\\NAS\share\repo\.hidden`, '.hidden'],
+  ])('still admits names that only start with a dot under %s', (root, path, relative) => {
+    expect(machinePathHasDotSegment(path, root)).toBe(false)
+    expect(isMachinePathWithinRoot(root, path)).toBe(true)
+    expect(machinePathRelativeToRoot(root, path)).toBe(relative)
+  })
+
+  it('keeps POSIX backslashes literal: `a\\..\\b` is one name, not a parent', () => {
+    expect(machinePathHasDotSegment(String.raw`/repo/a\..\b`)).toBe(false)
+    expect(isMachinePathWithinRoot('/repo', String.raw`/repo/a\..\b`)).toBe(true)
+    expect(machinePathHasDotSegment(String.raw`a\..\b`, String.raw`C:\repo`)).toBe(true)
+  })
+
+  it('admits a relative `./` token but never one that climbs, even back inside', () => {
+    expect(machinePathRelativeToRoot('/repo', './shot.png')).toBe('shot.png')
+    expect(machinePathRelativeToRoot(String.raw`C:\repo`, String.raw`.\shots\a.png`)).toBe(
+      String.raw`shots\a.png`,
+    )
+    expect(machinePathRelativeToRoot('/repo', '../repo/x.ts')).toBeNull()
+    expect(machinePathRelativeToRoot('/repo', 'src/../x.ts')).toBeNull()
+    expect(machinePathRelativeToRoot(String.raw`C:\repo`, String.raw`src\..\x.ts`)).toBeNull()
+    // A caller that holds a token resolves it first, then asks.
+    expect(machinePathRelativeToRoot('/repo', resolveMachinePath('/repo', 'src/../x.ts'))).toBe(
+      'x.ts',
+    )
+  })
+
+  it('agrees between the literal membership test and the ancestor index', () => {
+    for (const path of [
+      '/repo/../etc',
+      '/repo/./src',
+      String.raw`C:\repo\..\etc`,
+      String.raw`\\nas\share\..\x`,
+    ]) {
+      const ancestors = machinePathAncestors(path)
+      expect(ancestors.some((root) => isMachinePathWithinRoot(root, path))).toBe(false)
+      expect(
+        isMachinePathWithinRoot('/repo', path) ||
+          isMachinePathWithinRoot(String.raw`C:\repo`, path),
+      ).toBe(false)
+    }
+  })
 })

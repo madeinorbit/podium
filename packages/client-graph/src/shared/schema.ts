@@ -1,6 +1,7 @@
 import {
   isMachinePathWithinRoot,
   machinePathAncestors,
+  machinePathHasDotSegment,
   machinePathKey,
   machinePathSeparator,
 } from '@podium/model/browser'
@@ -1408,9 +1409,12 @@ export function normalizeRootPath(path: string): string {
 }
 
 export function longestPrefixPath(probePath: string, roots: Iterable<string>): string | null {
+  // Containment refuses dot segments (`/repo/../etc` is not inside `/repo`).
+  if (machinePathHasDotSegment(probePath)) return null
   const probe = normalizeRootPath(probePath)
   let best: string | null = null
   for (const raw of roots) {
+    if (machinePathHasDotSegment(raw)) continue
     const root = normalizeRootPath(raw)
     if (machinePathSeparator(root) === '\\') {
       if (!isMachinePathWithinRoot(root, probe)) continue
@@ -1428,6 +1432,7 @@ export function longestPrefixPath(probePath: string, roots: Iterable<string>): s
  * contains (POD-4579; the same walk as the MobX engine's `ancestorPaths`).
  */
 export function* prefixAncestors(normalized: string): Generator<string> {
+  if (machinePathHasDotSegment(normalized)) return
   if (machinePathSeparator(normalized) === '\\') {
     yield* machinePathAncestors(normalized)
     return
