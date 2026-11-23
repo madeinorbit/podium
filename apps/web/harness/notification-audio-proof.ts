@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { relative, resolve } from 'node:path'
 import { type BrowserType, chromium, webkit } from '@playwright/test'
+import type { AudioSnapshot } from './notification-audio-entry'
 
 const before = process.argv.find((arg) => arg.startsWith('--before='))?.slice(9)
 if (!before) throw new Error('Pass --before=<base SHA> for the matched comparison')
@@ -54,11 +55,25 @@ for (const mode of ['before', 'after']) {
   if (!build.success) throw new AggregateError(build.logs, `Build failed: ${mode}`)
   bundles[mode] = await build.outputs[0].text()
 }
+const telemetry = new Map<string, Record<string, AudioSnapshot>>()
+const commands = new Set<string>()
 const server = Bun.serve({
   hostname: '127.0.0.1',
   port: 0,
-  fetch(request) {
+  async fetch(request) {
     const url = new URL(request.url)
+    const probe = url.searchParams.get('probe') ?? ''
+    if (url.pathname === '/telemetry') {
+      const { stage, snapshot } = (await request.json()) as {
+        stage: string
+        snapshot: AudioSnapshot
+      }
+      const records = telemetry.get(probe) ?? {}
+      records[stage] = snapshot
+      telemetry.set(probe, records)
+      return new Response('ok')
+    }
+    if (url.pathname === '/command') return new Response(commands.has(probe) ? 'notify' : 'wait')
     if (url.pathname === '/empty')
       return new Response('<!doctype html><title>Foreground tab</title>', {
         headers: { 'Content-Type': 'text/html' },
@@ -72,12 +87,22 @@ const server = Bun.serve({
     )
   },
 })
+async function snapshot(probe: string, stage: string): Promise<AudioSnapshot> {
+  const deadline = Date.now() + 10_000
+  while (Date.now() < deadline) {
+    const value = telemetry.get(probe)?.[stage]
+    if (value) return value
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  throw new Error(`Missing ${stage} telemetry for ${probe}`)
+}
 const browserEnv = { ...process.env }
 const userLib = `${process.env.HOME}/.cache/podium-chromium-deps/root/usr/lib/x86_64-linux-gnu`
 if (existsSync(userLib)) browserEnv.LD_LIBRARY_PATH = userLib
 else delete browserEnv.LD_LIBRARY_PATH
 const samples: unknown[] = []
 async function measure(engine: BrowserType, mode: string, input: string, round: number) {
+  const probe = `${engine.name()}-${mode}-${input}-${round}`
   const browser = await engine.launch({
     headless: true,
     env: browserEnv,
@@ -91,14 +116,8 @@ async function measure(engine: BrowserType, mode: string, input: string, round: 
     const page = await context.newPage()
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
-    await page.goto(`http://127.0.0.1:${server.port}/?mode=${mode}`)
-    await page.waitForFunction(() => Reflect.get(window, '__audioProbe')?.started)
-    await page.waitForTimeout(400)
-    const before = await page.evaluate(() => ({
-      data: Reflect.get(window, '__audioProbe'),
-      states: Reflect.get(window, '__audioStates')(),
-      activation: navigator.userActivation?.hasBeenActive,
-    }))
+    await page.goto(`http://127.0.0.1:${server.port}/?mode=${mode}&probe=${probe}`)
+    const before = await snapshot(probe, 'before')
     const trace: Array<{ name: string; dur?: number; args?: { data?: { type?: string } } }> = []
     const cdp = engine === chromium && round === 0 ? await context.newCDPSession(page) : null
     if (cdp) {
@@ -108,24 +127,10 @@ async function measure(engine: BrowserType, mode: string, input: string, round: 
         transferMode: 'ReportEvents',
       })
     }
-    if (input === 'pointer') await page.locator('button').click()
-    else {
-      await page.locator('button').focus()
-      await page.keyboard.press('Enter')
-    }
-    await page.waitForFunction(() => Reflect.get(window, '__audioProbe').paints.length > 0)
-    await page.waitForFunction(
-      () =>
-        Reflect.get(window, '__audioStates')().some(
-          (state: { state: string }) => state.state === 'running',
-        ),
-      undefined,
-      { timeout: 5000 },
-    )
-    const first = await page.evaluate(() => ({
-      data: Reflect.get(window, '__audioProbe'),
-      states: Reflect.get(window, '__audioStates')(),
-    }))
+    // Fixed geometry avoids locator/evaluate calls that can manufacture activation.
+    if (input === 'pointer') await page.mouse.click(150, 90)
+    else await page.keyboard.press('Enter')
+    const first = await snapshot(probe, 'first')
     if (cdp) {
       const finished = new Promise<void>((resolve) =>
         cdp.once('Tracing.tracingComplete', () => resolve()),
@@ -141,18 +146,12 @@ async function measure(engine: BrowserType, mode: string, input: string, round: 
     const front = await context.newPage()
     await front.goto(`http://127.0.0.1:${server.port}/empty`)
     await front.bringToFront()
-    await page.evaluate(() => Reflect.get(window, '__emitNotification')())
-    await page.waitForFunction(() => Reflect.get(window, '__audioProbe').oscillatorStarts > 0)
-    await page.waitForTimeout(100)
-    const later = await page.evaluate(() => ({
-      data: Reflect.get(window, '__audioProbe'),
-      states: Reflect.get(window, '__audioStates')(),
-      visibility: document.visibilityState,
-    }))
+    commands.add(probe)
+    const later = await snapshot(probe, 'later')
     const dispatch = trace
       .filter((event) => event.name === 'EventDispatch')
       .map((event) => ({ event: event.args?.data?.type, durationMs: (event.dur ?? 0) / 1000 }))
-      .filter((event) => ['pointerdown', 'keydown', 'click'].includes(event.event))
+      .filter((event) => event.event && ['pointerdown', 'keydown', 'click'].includes(event.event))
     const sample = {
       engine: engine.name(),
       version: browser.version(),
@@ -175,6 +174,7 @@ async function measure(engine: BrowserType, mode: string, input: string, round: 
       assert.equal(first.data.constructors[0].event, null, 'Constructor ran outside input dispatch')
     }
     assert.ok(later.data.oscillatorStarts > 0, 'A later notification starts native sources')
+    assert.equal(later.states[0]?.state, 'running', 'The later cue has a running context')
     assert.ok(later.states[0].time > first.states[0].time, 'Audio clock advances after the gesture')
     console.log(
       JSON.stringify({
@@ -206,6 +206,12 @@ try {
     try {
       await measure(webkit, 'after', input, 0)
     } catch (error) {
+      if (
+        !/Executable doesn't exist|Host system is missing dependencies|error while loading shared libraries/.test(
+          String(error),
+        )
+      )
+        throw error
       samples.push({ engine: 'webkit', input, error: String(error) })
       console.log(`WebKit ${input}: ${String(error).slice(0, 1200)}`)
     }

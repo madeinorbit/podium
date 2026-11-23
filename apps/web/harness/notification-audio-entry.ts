@@ -16,6 +16,27 @@ const data = {
 }
 let activeEvent: string | null = null
 const contexts: AudioContext[] = []
+const probeId = new URL(location.href).searchParams.get('probe') ?? ''
+export interface AudioSnapshot {
+  data: typeof data
+  states: Array<{ state: string; time: number }>
+  activation?: boolean
+  visibility: string
+}
+// Driver evaluate() can grant user activation. Send observations from the page
+// itself so the first gesture and later notification really exercise autoplay.
+function publish(stage: string) {
+  const snapshot: AudioSnapshot = {
+    data,
+    states: contexts.map((context) => ({ state: context.state, time: context.currentTime })),
+    activation: navigator.userActivation?.hasBeenActive,
+    visibility: document.visibilityState,
+  }
+  void fetch(`/telemetry?probe=${encodeURIComponent(probeId)}`, {
+    method: 'POST',
+    body: JSON.stringify({ stage, snapshot }),
+  }).catch(() => {})
+}
 const NativeContext = window.AudioContext ?? Reflect.get(window, 'webkitAudioContext')
 const InstrumentedContext = new Proxy(NativeContext, {
   construct(target, args) {
@@ -70,6 +91,7 @@ if (Reflect.get(window, 'webkitAudioContext'))
 
 const button = document.querySelector('button')
 if (!button) throw new Error('Missing probe button')
+button.focus()
 let clicks = 0
 for (const name of ['pointerdown', 'keydown', 'click']) {
   window.addEventListener(
@@ -90,6 +112,7 @@ button.addEventListener('click', () => {
   requestAnimationFrame(() =>
     requestAnimationFrame(() => {
       data.paints.push({ click: clicks, committed, input: input.start, time: performance.now() })
+      publish('first')
     }),
   )
 })
@@ -135,3 +158,11 @@ Reflect.set(window, '__emitNotification', () => {
   )
 })
 data.started = true
+setTimeout(() => publish('before'), 400)
+const commands = setInterval(async () => {
+  const response = await fetch(`/command?probe=${encodeURIComponent(probeId)}`)
+  if ((await response.text()) !== 'notify') return
+  clearInterval(commands)
+  Reflect.get(window, '__emitNotification')()
+  setTimeout(() => publish('later'), 200)
+}, 50)
