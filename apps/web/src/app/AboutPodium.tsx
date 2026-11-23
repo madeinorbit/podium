@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
+import { PODIUM_REPO_URL } from '@/features/tips/github-star-link'
 import { PodiumMark } from '@/lib/icons/PodiumMark'
 import { pageBuildVersion } from '@/lib/logging/build-version'
 
@@ -52,6 +53,14 @@ export function AboutPodium({ open, onClose, version }: AboutPodiumProps): JSX.E
           <p className="mt-4 text-[13px] leading-none font-medium text-foreground">
             Ship more, better
           </p>
+          <a
+            href={PODIUM_REPO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 text-[12px] text-muted-foreground underline underline-offset-3 hover:text-text-strong"
+          >
+            Star Podium on GitHub
+          </a>
           {/* The dialog's own ring, turned inward — `--hairline-soft` is one
             step off panel ink (#24272d on #23262d) and simply does not exist
             in the dark theme, which is the signature one. */}

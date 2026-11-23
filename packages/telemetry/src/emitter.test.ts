@@ -494,6 +494,19 @@ describe('failure is silent and free', () => {
 })
 
 describe('the GitHub star counters', () => {
+  it('drops shows and clicks while usage sharing is off, with no backlog on opt-in', () => {
+    const h = harness({ telemetry: { usage: 'off', installId: INSTALL_ID, since: 1 } })
+    h.emitter.recordGithubStar('shown', 'finished_task')
+    h.emitter.recordGithubStar('clicked', 'new_prompt')
+    h.setConfig(onUsage)
+    expect(h.emitter.buildUsageReport()).not.toHaveProperty('githubStar')
+    h.emitter.recordGithubStar('shown', 'new_prompt')
+    expect(h.emitter.buildUsageReport()?.githubStar).toEqual({
+      shown: { new_prompt: 1 },
+      clicked: {},
+    })
+  })
+
   it('reports shown and clicked per surface, and nothing until the card acts', () => {
     const { emitter } = harness({ telemetry: { usage: 'on', installId: INSTALL_ID, since: 1 } })
     expect(emitter.buildUsageReport()).not.toHaveProperty('githubStar')

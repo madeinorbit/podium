@@ -22,6 +22,76 @@ function fixture() {
   stop = engine.connect()
   return { log, record, engine }
 }
+describe('the GitHub star moment', () => {
+  const standalone = { eyebrow: 'Now that you’re shipping', declineLabel: 'Not now' }
+
+  it('spends the shared ask on showing and never counts it toward First Flights', () => {
+    const { engine, log, record } = fixture()
+    const show = vi.fn()
+    const surface = () => ({ active: true, cards: [{ ...card(), standalone, onShow: show }] })
+    engine.register('github-star', surface)
+    engine.register('github-star', surface)
+    vi.advanceTimersByTime(0)
+    expect(log.isSeen('github-star')).toBe(true)
+    expect(show).toHaveBeenCalledOnce()
+    expect(engine.progress).toBe(0)
+    engine.close('dismissed')
+    engine.refresh()
+    vi.advanceTimersByTime(TIP_GAP_MS)
+    expect(show).toHaveBeenCalledOnce()
+    expect(record.mock.calls).toEqual([
+      ['github-star', 'shown'],
+      ['github-star', 'finished'],
+      ['github-star', 'dismissed'],
+    ])
+  })
+
+  it('keeps the shown card up when marking it seen switches its trigger off', () => {
+    const { engine, log } = fixture()
+    engine.register('github-star', () => ({
+      active: !log.isSeen('github-star'),
+      cards: [{ ...card(), standalone }],
+    }))
+    vi.advanceTimersByTime(0)
+    expect(engine.current?.registration.id).toBe('github-star')
+    engine.refresh()
+    expect(engine.current?.registration.id).toBe('github-star')
+  })
+
+  it.each([
+    'inactive',
+    'unmounted',
+  ])('hands a queued ask to the other place when the first becomes %s', (kind) => {
+    const { engine } = fixture()
+    engine.input()
+    let active = true
+    const unregister = engine.register('github-star', () => ({
+      active,
+      cards: [{ ...card(), standalone }],
+    }))
+    engine.register('github-star', () => ({
+      active: true,
+      cards: [{ ...card('fallback'), standalone }],
+    }))
+    if (kind === 'unmounted') unregister()
+    else {
+      active = false
+      engine.refresh()
+    }
+    vi.advanceTimersByTime(TIP_QUIET_MS)
+    expect(engine.current?.card.anchor).toBe('fallback')
+  })
+
+  it('honors skip tips, including after onboarding is re-enabled', () => {
+    const { engine, log } = fixture()
+    log.record('first-prompt', 'skipped-all')
+    log.setEnabled(true)
+    engine.register('github-star', () => ({ active: true, cards: [{ ...card(), standalone }] }))
+    vi.advanceTimersByTime(0)
+    expect(engine.current).toBeNull()
+  })
+})
+
 describe('First Flights queue', () => {
   it('shows only one moment, pairs card hooks, and waits twenty seconds after finish', () => {
     const { engine, record, log } = fixture()

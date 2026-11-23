@@ -63,6 +63,7 @@ import {
 } from '@/features/settings/readers'
 import { useSettingsClient } from '@/features/settings/stable-access'
 import { useTipMoment } from '@/features/tips'
+import { useGitHubStarOnNewPrompt } from '@/features/tips/github-star-tip'
 import { noteFirstSend } from '@/features/worklist/first-send-tip'
 import {
   agentFleetStatus,
@@ -410,6 +411,7 @@ export function ColdStartComposer({
   /** First Flights moment 1 (POD-2196). The ghost demo never touches the draft. */
   const [ghost, setGhost] = useState(false)
   const [tipShowing, setTipShowing] = useState(false)
+  useGitHubStarOnNewPrompt({ first, setShowing: setTipShowing })
   useTipMoment('first-prompt', {
     active: first,
     cards: firstPromptCards({ setGhost, setShowing: setTipShowing, focusComposer: focusField }),

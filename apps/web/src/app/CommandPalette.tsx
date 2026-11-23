@@ -40,6 +40,7 @@ import {
   Square,
   SquareKanban,
   SquarePlus,
+  Star,
   Trash2,
   Workflow,
 } from 'lucide-react'
@@ -63,6 +64,7 @@ import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { useAdminSections } from '@/features/settings/admin-viewer'
 import { SETTINGS_TABS } from '@/features/settings/page-definitions'
 import { adminSectionOf } from '@/features/settings/surfaces'
+import { openPodiumRepo } from '@/features/tips/github-star-link'
 import { agentIconFor } from '@/lib/agent-tone'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { AgentStatusGlyph, WorkingMark } from '@/lib/motion'
@@ -626,6 +628,14 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
     }
 
     // ── Actions: create ───────────────────────────────────────────────────
+    add({
+      id: 'action:star-github',
+      group: 'action',
+      label: 'Star Podium on GitHub',
+      keywords: ['github', 'star', 'support', 'open source'],
+      icon: Star,
+      run: openPodiumRepo,
+    })
     add({
       id: 'action:new-task',
       group: 'action',

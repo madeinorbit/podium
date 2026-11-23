@@ -37,6 +37,7 @@ async function tokens(
     fleetChannel?: string
     candidateDefault?: string
     candidateLimit?: number
+    issueStubFields?: readonly string[]
     workflowInstructionsDefault?: string
     evidenceSummaryDefault?: string
     eventWindow?: number
@@ -61,6 +62,12 @@ async function tokens(
     const actual = await original<typeof import('@podium/model')>()
     return {
       ...actual,
+      recordOf: (kind: Parameters<typeof actual.recordOf>[0]) => {
+        const record = actual.recordOf(kind)
+        return kind === 'issueProjection' && options.issueStubFields
+          ? { ...record, stub: options.issueStubFields }
+          : record
+      },
       DEFAULT_FLEET_UPDATE_CHANNEL: options.fleetChannel ?? DEFAULT_FLEET_UPDATE_CHANNEL,
       MAX_AGENT_PROFILE_CANDIDATES: options.candidateLimit ?? actual.MAX_AGENT_PROFILE_CANDIDATES,
       AgentCandidate:
@@ -130,6 +137,14 @@ function changedKinds(before: Record<string, string>, after: Record<string, stri
 }
 
 describe('record kind code inputs', () => {
+  it('refreshes only issue stubs when the shared stub gains task type', async () => {
+    const { recordOf } = await import('@podium/model')
+    const previous = recordOf('issueProjection').stub.filter((field) => field !== 'type')
+    expect(changedKinds(await tokens({ issueStubFields: previous }), await tokens())).toEqual([
+      'issueProjection',
+    ])
+  })
+
   it('changes only machine when the fleet channel default changes', async () => {
     expect(changedKinds(await tokens(), await tokens({ fleetChannel: 'dev' }))).toEqual(['machine'])
   })

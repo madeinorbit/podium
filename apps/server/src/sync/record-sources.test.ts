@@ -574,6 +574,7 @@ describe('record sources (POD-6920)', () => {
     const CREDENTIAL_COLUMNS_WATCHED =
       ' OR OLD."credential_id" IS NOT NEW."credential_id" OR OLD."effective_auth" IS NOT NEW."effective_auth" OR OLD."credential_mismatch" IS NOT NEW."credential_mismatch"'
     const SHAPES_CHANGED_SINCE_THE_ORACLE: Record<string, string> = {
+      issueProjection: 'the issue stub includes task type for the GitHub star threshold',
       effect: 'a schema its wire value nests gained credential management fields',
       instancePreferences: "the daemon link's trusted networks",
       machineAccess: 'a schema its wire value nests gained credential management fields',
