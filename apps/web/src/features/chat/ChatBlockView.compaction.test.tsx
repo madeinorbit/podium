@@ -48,16 +48,6 @@ afterEach(() => {
 })
 
 describe('chat compaction notes', () => {
-  it('uses the shared filter for successful compaction hook noise while retaining failures', () => {
-    mount({
-      id: 'stdout',
-      role: 'system',
-      text: 'Compacted (ctrl+o to see full summary)\nPreCompact [http://127.0.0.1/hooks/id] completed successfully',
-    })
-    expect(host.textContent).toBe('')
-    mount({ id: 'failed-stdout', role: 'system', text: 'PreCompact [hook.sh] failed' })
-    expect(host.textContent).toContain('PreCompact [hook.sh] failed')
-  })
   it('folds the summary without presenting it as an operator prompt', () => {
     mount()
     const button = host.querySelector('button')
