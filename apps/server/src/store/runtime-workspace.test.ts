@@ -4,7 +4,6 @@ import { normalizeSettings } from '@podium/runtime'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { INSTALL_FAILING_NOTICE_MS } from '../modules/machines/install-notices'
-import { makeInstancePreferencesFeedCapture } from '../modules/settings/instance-record'
 import { asSystemWrite } from '../plain-command-scope'
 import { SessionRegistry } from '../relay'
 import type { SessionStore } from '../store'
@@ -14,7 +13,6 @@ import { countStatements, settledCommand } from '../test-support/statement-count
 import { openWorkspaceStores } from '../test-support/workspace-stores'
 import { writeProcedureBuilder } from '../trpc'
 import { memberFacts } from './fixtures/test-support'
-import { SettingsRepository } from './settings'
 
 type Tag = 'a' | 'b'
 const TAGS = ['a', 'b'] as const
@@ -25,7 +23,7 @@ let stores: Record<Tag, SessionStore>
 let registries: Partial<Record<Tag, SessionRegistry>>
 
 beforeEach(async () => {
-  const [a, b] = await openWorkspaceStores(['ws_a', 'ws_b'])
+  const [a, b] = await openWorkspaceStores(['ws_a', 'ws_b'], { path: ':memory:' })
   stores = { a, b }
   registries = {}
   for (const tag of TAGS) {
@@ -118,12 +116,10 @@ describe('two workspaces in one process', () => {
     stores.a.tableWrites.wrote('repos')
     expect(heard).toEqual({ a: ['repos'], b: [] })
 
-    // Another request's repository changes A without notifying the service graph's bus.
+    // Another request changes A through its repository, without the service graph's bus.
     // Feature policy must read the store rather than a boot/event snapshot.
-    const writer = new SettingsRepository(stores.a.queries)
-    writer.setInstanceFeedCapture(makeInstancePreferencesFeedCapture(registry('a').changeLedger))
     await asSystemWrite(() =>
-      writer.setSettings(
+      stores.a.settings.setSettings(
         normalizeSettings({ experimental: { concertmaster: true, workflows: true } }),
       ),
     )

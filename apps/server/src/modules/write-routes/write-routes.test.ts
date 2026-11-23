@@ -53,7 +53,7 @@ const mutations = () => served().filter((p) => p.type === 'mutation')
 it('only the generator imports the full builder; its boundary needs no process-wide claim', () => {
   const root = fileURLToPath(new URL('../../', import.meta.url))
   const consumers = readdirSync(root, { recursive: true })
-    .map(String)
+    .map((file) => String(file).replaceAll('\\', '/'))
     .filter((file) => file.endsWith('.ts') && !/\.(?:test|typecheck|suites)\./.test(file))
     .filter((file) => file !== 'trpc.ts')
     .filter((file) => /\bwriteProcedureBuilder\b/.test(readFileSync(`${root}/${file}`, 'utf8')))
