@@ -117,7 +117,7 @@ describe('live client grant statement count', () => {
       const sessions = f.store.sessions
       const original = sessions.bindingConfirmations.bind(sessions)
       sessions.bindingConfirmations = async (ids) => {
-        for (const id of ids) await sessions.getSession(id)
+        for (const id of ids) await sessions.getSession(asSessionId(id))
         return await original(ids)
       }
       return () => {

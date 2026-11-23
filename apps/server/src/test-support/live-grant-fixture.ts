@@ -8,6 +8,7 @@ import {
   asMachineId,
   asSessionId,
   asUserId,
+  type GrantVerb,
   type MachineId,
   type SessionId,
   type UserId,
@@ -44,7 +45,7 @@ export async function grantEdge(
   resourceKind: 'machine' | 'session',
   resourceId: string,
   grantee: UserId,
-  verb: string,
+  verb: GrantVerb,
   owner: UserId,
 ): Promise<void> {
   await store.grants.upsert({
