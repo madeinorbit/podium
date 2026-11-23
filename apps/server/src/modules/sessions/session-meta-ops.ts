@@ -64,6 +64,7 @@ export interface SessionMetaOpsPorts {
     | 'markRead'
     | 'markUnread'
     | 'setWorkState'
+    | 'setConcertmaster'
     | 'setArchived'
     | 'clearAllSnoozes'
     | 'suppressNativeDraft'
@@ -373,6 +374,14 @@ export class SessionMetaOps {
     },
   ): Promise<void> {
     return this.ports.state.setWorkState(writer, sessionId, workState)
+  }
+
+  /** Set or clear the Concertmaster mark (POD-7211). */
+  setConcertmaster(
+    writer: SessionWriter,
+    { sessionId, concertmaster }: { sessionId: SessionId; concertmaster: boolean },
+  ): Promise<void> {
+    return this.ports.state.setConcertmaster(writer, sessionId, concertmaster)
   }
 
   /**

@@ -1,6 +1,4 @@
-import type { Trpc } from '@/app/trpc'
-import { useRequestClient, useHttpOrigin, useCommands } from '@podium/client-core/react'
-import { useUiValue } from '@podium/client-core/react'
+import { useCommands, useHttpOrigin, useRequestClient, useUiValue } from '@podium/client-core/react'
 import { artifactKind, artifactUrl, basename, operationalState } from '@podium/client-core/values'
 import type { issuePages, PageIssue } from '@podium/client-graph/issue-page'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -22,7 +20,8 @@ import type { JSX, ReactNode } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { DockHeaderActions } from '@/app/DockHeaderSlot'
 import { useOperatorFocus } from '@/app/operator-focus'
-import { type IssueViewModel, type IssueWithBodies } from '@/app/store'
+import type { IssueViewModel, IssueWithBodies } from '@/app/store'
+import type { Trpc } from '@/app/trpc'
 import { ArtifactLightbox, artifactLightboxKey } from '@/components/ArtifactLightbox'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -790,7 +789,11 @@ export const IssuePanelBody = observer(function IssuePanelBody({
   issueId: _issueId,
   onNavigate,
   onViewAllArtifacts,
+  lead,
 }: {
+  /** Drawn at the top of the panel's one scroll, above the task (POD-7211:
+   *  a Concertmaster's "Needs you" list). */
+  lead?: ReactNode
   cwd: string
   machineId?: MachineId
   sessionId?: SessionId
@@ -920,6 +923,7 @@ export const IssuePanelBody = observer(function IssuePanelBody({
         data-testid="dock-scroll"
         data-dock-scroll=""
       >
+        {lead}
         {/* Expand the task being inspected, including a closed task or one
             outside the current mission. */}
         <InspectHead

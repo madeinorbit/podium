@@ -131,6 +131,10 @@ export const SYSTEM_WRITE_ORIGINS = {
     what: "each person's notices, from every write to the notices table (an emit, a resolve, a read mark, the cap on read event notices; POD-6881)",
     kind: 'mirror',
   },
+  'feed.concertmaster': {
+    what: "a Concertmaster session's curated conversation, from every write to the concertmaster_entries table (its agent's say and asks, its person's response, a delivered message's record; POD-7211)",
+    kind: 'mirror',
+  },
   'feed.instancePreferences': {
     what: "the instance settings record, from every write of the settings blob (an admin's edit, a deployment write, the server's telemetry identity)",
     kind: 'mirror',

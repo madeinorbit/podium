@@ -26,6 +26,7 @@ import {
   asSessionId,
   asUserId,
   type CheckoutWire,
+  concertmasterEntryRowId,
   INSTANCE_PREFERENCES_ROW_ID,
   issueUserStateRowId,
   layoutRowId,
@@ -218,6 +219,8 @@ const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
   'checkouts',
   // POD-6881: my open notices.
   'inboxNotices',
+  // POD-7211: the Concertmaster conversations this device shows.
+  'concertmasterEntries',
 ])
 
 const OVERLAID: readonly OverlayTarget[] = [
@@ -259,6 +262,9 @@ const RECORD_COMPANIONS = {
   workflowBinding: 'workflowBindings',
   workflowRun: 'workflowRuns',
   subscription: 'subscriptions',
+  // POD-7211: one entry of a Concertmaster's conversation, keyed by its feed
+  // id (`concertmasterEntryRowId`); its own id is `entryId`.
+  concertmasterEntry: 'concertmasterEntries',
 } as const satisfies Record<string, ReplicaKind>
 export type RecordCompanion = keyof typeof RECORD_COMPANIONS
 const RECORD_COMPANION_KINDS = Object.keys(RECORD_COMPANIONS) as RecordCompanion[]
@@ -280,6 +286,11 @@ function recordFeedIdOf(kind: RecordCompanion, row: AnyRow): string | undefined 
     if (typeof row.id !== 'string' || typeof row.subscriberId !== 'string') return undefined
     if (row.subscriberKind !== 'session' && row.subscriberKind !== 'issue') return undefined
     return subscriptionRowId(row.subscriberKind, row.subscriberId, row.id)
+  }
+  if (kind === 'concertmasterEntry') {
+    return typeof row.sessionId === 'string' && typeof row.entryId === 'string'
+      ? concertmasterEntryRowId(row.sessionId, row.entryId)
+      : undefined
   }
   return idOf(row) ?? undefined
 }
@@ -918,7 +929,9 @@ export function createRowSource(
         : { ...value, id: feedId, subscriptionId: raw?.id ?? value.id }
     }
     if (raw === undefined) return undefined
-    return kind === 'workflowBinding' ? { ...raw, id: feedId } : raw
+    return kind === 'workflowBinding' || kind === 'concertmasterEntry'
+      ? { ...raw, id: feedId }
+      : raw
   }
 
   /** Every resident row of one record companion. */

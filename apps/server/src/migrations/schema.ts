@@ -403,6 +403,14 @@ export const sessions = sqliteTable(
      * `session.asking` seeks it (`collection-sql.ts`).
      */
     asksUser: integer('asks_user', { mode: 'boolean' }).default(sql`0`).notNull(),
+    /**
+     * THE CONCERTMASTER MARK (POD-7211): this session's person talks to it
+     * through its curated conversation (`concertmaster_entries`) and not the
+     * transcript or the terminal. Set and cleared by that person; read only
+     * while the `concertmaster` feature is on. Additive: an existing row is an
+     * ordinary session (0).
+     */
+    concertmaster: integer({ mode: 'boolean' }).default(sql`0`).notNull(),
     ...workspaceColumn(),
   },
   (table) => [
@@ -4803,6 +4811,70 @@ export const notices = sqliteTable(
       table.resolvedAt,
       table.createdAt,
       table.id,
+    ),
+  ],
+)
+
+/**
+ * A CONCERTMASTER'S CURATED CONVERSATION (POD-7211): one row per entry of the
+ * chat its person reads instead of the transcript. `kind` says which:
+ *
+ *  - `say`: a message the agent sent with `podium concertmaster say`;
+ *  - `user`: a message the person sent into the session, recorded once the
+ *    agent has it. Its id is derived from the message, so recording one
+ *    message twice is one row;
+ *  - `ask`: something the agent needs from the person. `number` is its handle
+ *    in this conversation, `status` where it stands (`open` until settled).
+ *
+ * AN ID STARTS WITH THE ENTRY'S TIME (`concertmasterEntryId` in
+ * `@podium/model`), so the ids of one session sort in conversation order and
+ * one index reads the conversation, its newest tail and the sync fetch's keys
+ * without a sort.
+ *
+ * Synced as the record `concertmasterEntry`: a session's rows reach the
+ * devices that show its conversation. No foreign key to `sessions`, like the
+ * other session-owned tables.
+ */
+export const concertmasterEntries = sqliteTable(
+  'concertmaster_entries',
+  {
+    id: text().notNull(),
+    sessionId: text('session_id').$type<SessionId>().notNull(),
+    kind: text().notNull(),
+    /** The message text, or an ask's title. */
+    body: text().notNull(),
+    createdAt: text('created_at').notNull(),
+    /** `say`: a JSON list of issue-artifact names shown with the message. */
+    artifactsJson: text('artifacts_json'),
+    /** `user`: who sent it, and a JSON list of what they attached. */
+    senderUserId: text('sender_user_id').$type<UserId>(),
+    attachmentsJson: text('attachments_json'),
+    /** `ask`: its number in this session's conversation, from 1. */
+    number: integer(),
+    askKind: text('ask_kind'),
+    detail: text(),
+    /** `ask`: a JSON list of the choices offered. */
+    optionsJson: text('options_json'),
+    status: text(),
+    /** `ask`: what it was settled with, when, and by whom (`user` | `agent`). */
+    answer: text(),
+    settledAt: text('settled_at'),
+    settledBy: text('settled_by'),
+    ...workspaceColumn(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.id], name: 'concertmaster_entries_pk' }),
+    // One session's conversation in order (an id starts with its time), with
+    // no sort: the `ofSession` collection and the agent's listing seek it.
+    index('idx_concertmaster_entries_session').on(table.workspaceId, table.sessionId, table.id),
+    // An ask by its number: what every agent command names it by, the next
+    // number's read (the session's highest), and the guard that two asks of
+    // one session never share a number. Not partial: no read asks for the
+    // rows without a number, and a NULL never collides with another.
+    uniqueIndex('concertmaster_entries_ask_number').on(
+      table.workspaceId,
+      table.sessionId,
+      table.number,
     ),
   ],
 )

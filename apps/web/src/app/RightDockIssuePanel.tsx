@@ -1,15 +1,23 @@
 import { asIssueId, type MachineId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { CircleDot, CornerUpLeft } from 'lucide-react'
-import type { JSX } from 'react'
+import type { JSX, ReactNode } from 'react'
 import { useDockIssue, useDockIssueRows } from '@/features/issues/dock-issue'
 import { IssuePanelEmpty, IssuePanelView } from '@/features/issues/IssuePanelView'
 
-type Props = { kind: 'header' } | { kind: 'panel'; cwd: string; machineId?: MachineId }
+type Props =
+  | { kind: 'header' }
+  | {
+      kind: 'panel'
+      cwd: string
+      machineId?: MachineId
+      /** Drawn above the task, in the same scroll (a Concertmaster's asks, POD-7211). */
+      lead?: ReactNode
+    }
 
 export default function RightDockIssuePanel(props: Props): JSX.Element {
   if (props.kind === 'header') return <DockIssueHeader />
-  return <DockIssueBody cwd={props.cwd} machineId={props.machineId} />
+  return <DockIssueBody cwd={props.cwd} machineId={props.machineId} lead={props.lead} />
 }
 
 /**
@@ -61,11 +69,29 @@ function DockIssueHeader(): JSX.Element {
   )
 }
 
-function DockIssueBody({ cwd, machineId }: { cwd: string; machineId?: MachineId }): JSX.Element {
+function DockIssueBody({
+  cwd,
+  machineId,
+  lead,
+}: {
+  cwd: string
+  machineId?: MachineId
+  lead?: ReactNode
+}): JSX.Element {
   const { issueId, show } = useDockIssue()
-  if (!issueId) return <IssuePanelEmpty />
+  if (!issueId) {
+    // With no task, what leads the panel is the whole panel.
+    return lead ? (
+      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-[18px] pt-3 pb-5">
+        {lead}
+      </div>
+    ) : (
+      <IssuePanelEmpty />
+    )
+  }
   return (
     <IssuePanelView
+      lead={lead}
       cwd={cwd}
       machineId={machineId}
       issueId={asIssueId(issueId)}

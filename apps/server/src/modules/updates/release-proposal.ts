@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { basename } from 'node:path'
 import { promisify } from 'node:util'
 import { commitShaFromDevVersion, type ReleaseProposalCommit } from '@podium/protocol'
+import { commitRev } from './commit-rev'
 
 const execFileAsync = promisify(execFile)
 export const RELEASE_COMMIT_LIMIT = 200
@@ -94,21 +95,13 @@ export async function releaseProposalFacts(input: {
   git?: ReleaseProposalGit
 }): Promise<ReleaseProposalFacts> {
   const run = input.git ?? gitAt(input.root)
-  const rangeBase = await resolveBaselineSha(input, run)
-  const range = `${rangeBase}..${input.headSha}`
+  const rangeBase = commitRev(await resolveBaselineSha(input, run))
+  const head = commitRev(input.headSha)
+  const range = `${rangeBase}..${head}`
   const [branchRaw, commitsRaw, migrationsRaw, countRaw] = await Promise.all([
     run(['rev-parse', '--abbrev-ref', 'HEAD']),
     run(['log', '-z', '--format=%H%x00%s', `--max-count=${RELEASE_COMMIT_LIMIT}`, range]),
-    run([
-      'diff',
-      '--diff-filter=A',
-      '--name-only',
-      '-z',
-      rangeBase,
-      input.headSha,
-      '--',
-      MIGRATIONS_TREE,
-    ]),
+    run(['diff', '--diff-filter=A', '--name-only', '-z', rangeBase, head, '--', MIGRATIONS_TREE]),
     run(['rev-list', '--count', range]),
   ])
   const commits = parseCommits(commitsRaw)

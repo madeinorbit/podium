@@ -72,6 +72,7 @@ import type {
   AgentProfileWire,
   AutomationRunWire,
   AutomationWire,
+  ConcertmasterEntryWire,
   EffectRecordWire,
   InstancePreferences,
   IssueBriefWire,
@@ -305,6 +306,10 @@ export interface PoolRows {
   /** POD-6675: one of my superagent threads, its feed id stamped as `id`. */
   /** POD-6881: one of my open notices, its feed id stamped as `id`. */
   inboxNotice: Readonly<NoticeWire> & { readonly id: string } & Readonly<Record<string, unknown>>
+  /** POD-7211: one entry of a Concertmaster's conversation, its feed id stamped as `id`. */
+  concertmasterEntry: Readonly<ConcertmasterEntryWire> & { readonly id: string } & Readonly<
+      Record<string, unknown>
+    >
   superagentThread: Readonly<SuperagentThreadWire> & { readonly id: string } & Readonly<
       Record<string, unknown>
     >

@@ -1,6 +1,6 @@
 // Generated from apps/server/src/router.ts. Run bun run api:types. Do not edit.
 import * as _podium_model from '@podium/model';
-import { MachineId, IssueId, UserId, UserRole, IssueJoinVia, ArtifactId, SessionId, IssueProjection, UsageBucketWire, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, CredentialId, AgentPhase, HarnessAgent } from '@podium/model';
+import { MachineId, IssueId, UserId, UserRole, IssueJoinVia, ArtifactId, SessionId, IssueProjection, UsageBucketWire, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentPhase, AgentKind, CredentialId, HarnessAgent } from '@podium/model';
 import { z } from 'zod';
 import * as Protocol from '@podium/protocol';
 import { ModelChoiceWire, ConvergenceState, MobileWebIdentity } from '@podium/protocol';
@@ -1216,32 +1216,6 @@ interface TranscriptSlice {
 }
 
 /**
- * THE CHATGPT PLAN MODULE (credential management §11; epic Task 14): the
- * sign-in, the keeper, and the daemon that listens for the browser's return.
- * The credential commands reach it as `CredentialsState.chatgpt`; the
- * composition root builds it with {@link composeChatgptPlan}
- * (`registry.modules.chatgptPlan`).
- */
-
-type ChatgptSignInVia = 'machine' | 'paste';
-
-interface SessionSpawnResult {
-    sessionId: SessionId;
-    agentId: string;
-    harness: AgentKind;
-    model: string | null;
-    effort: string | null;
-    machine: string;
-    machineId: MachineId;
-    /** The credential the session runs on; `null`: none, the harness's own login. */
-    credentialId: CredentialId | null;
-    /** The task prompt as its spawner's message, when a session spawned this one
-     *  and the prompt is queued rather than launched with the process (POD-4778):
-     *  the id the spawner checks with `podium mail status`. */
-    promptMessageId?: string;
-}
-
-/**
  * PER-SESSION PHASE HISTORY (POD-1854) — the durable on/off record behind the
  * Flight Deck waterfall's segmented bars.
  *
@@ -1281,6 +1255,32 @@ interface AgentConcurrencyHistoryResult {
     peak: number;
     buckets: AgentConcurrencyBucket[];
 }
+
+interface SessionSpawnResult {
+    sessionId: SessionId;
+    agentId: string;
+    harness: AgentKind;
+    model: string | null;
+    effort: string | null;
+    machine: string;
+    machineId: MachineId;
+    /** The credential the session runs on; `null`: none, the harness's own login. */
+    credentialId: CredentialId | null;
+    /** The task prompt as its spawner's message, when a session spawned this one
+     *  and the prompt is queued rather than launched with the process (POD-4778):
+     *  the id the spawner checks with `podium mail status`. */
+    promptMessageId?: string;
+}
+
+/**
+ * THE CHATGPT PLAN MODULE (credential management §11; epic Task 14): the
+ * sign-in, the keeper, and the daemon that listens for the browser's return.
+ * The credential commands reach it as `CredentialsState.chatgpt`; the
+ * composition root builds it with {@link composeChatgptPlan}
+ * (`registry.modules.chatgptPlan`).
+ */
+
+type ChatgptSignInVia = 'machine' | 'paste';
 
 type NativeLoginAttemptStatus = 'running' | 'refreshing' | 'succeeded' | 'failed';
 
@@ -2695,6 +2695,7 @@ type Output_credentials_login = Pick<{
     };
     archived: boolean;
     attachKinds?: ("client" | "engine")[] | undefined;
+    concertmaster?: boolean | undefined;
     configureFields?: string[] | undefined;
     conversationPodiumId?: (string & z.BRAND<"ConversationId">) | undefined;
     createdAt: string;
@@ -2925,6 +2926,7 @@ type Output_credentials_login = Pick<{
     };
     archived: boolean;
     attachKinds?: ("client" | "engine")[] | undefined;
+    concertmaster?: boolean | undefined;
     configureFields?: string[] | undefined;
     conversationPodiumId?: (string & z.BRAND<"ConversationId">) | undefined;
     createdAt: string;
@@ -5070,6 +5072,7 @@ type Output_issues_get = (null) | ({
         };
         archived: boolean;
         attachKinds?: ("client" | "engine")[] | undefined;
+        concertmaster?: boolean | undefined;
         configureFields?: string[] | undefined;
         conversationPodiumId?: (string & z.BRAND<"ConversationId">) | undefined;
         createdAt: string;

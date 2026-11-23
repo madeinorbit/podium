@@ -266,6 +266,9 @@ export interface SessionRow {
   delegation?: import('@podium/model').SessionDelegation
   createdBy?: Attribution
   archived: boolean
+  /** The Concertmaster mark (POD-7211). Optional so existing row literals stay
+   *  valid; absent = an ordinary session. */
+  concertmaster?: boolean
   /** Kanban column on the home board; null = unsorted. */
   workState: string | null
   /** The machine this session runs on. REQUIRED (POD-318): the server knows the host

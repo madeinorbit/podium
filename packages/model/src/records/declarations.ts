@@ -18,6 +18,7 @@
 
 import { AgentProfileWire } from '../entities/agent-profile'
 import { AutomationRunWire, AutomationWire } from '../entities/automation'
+import { ConcertmasterEntryWire, concertmasterEntryRowId } from '../entities/concertmaster'
 import { ConversationRecordWire } from '../entities/conversation'
 import { EffectRecordWire } from '../entities/effect'
 import { IssueDepProjection } from '../entities/issue-dep'
@@ -883,6 +884,27 @@ const inboxNotice = defineRecord({
   why: "One open notice in one person's inbox (POD-6881, credential management spec §13); a resolved notice is a remove.",
 })
 
+const concertmasterEntry = defineRecord({
+  builderShape: 'row',
+  kind: 'concertmasterEntry',
+  replicaKind: 'concertmasterEntries',
+  schema: ConcertmasterEntryWire,
+  rowKey: (row) => concertmasterEntryRowId(row.sessionId, row.entryId),
+  // Not listed in what a session comes with: holding a session does not hold
+  // its conversation. The curated chat and the Concertmaster dock panel read
+  // `ofSession` while they show the session, and that read holds it.
+  group: 'comesWithSession',
+  links: { sessionId: { to: 'session', why: 'The Concertmaster session it was said in.' } },
+  collections: {
+    ofSession: {
+      part: 'main',
+      where: { sessionId: { eq: param('sessionId') } },
+      why: "One Concertmaster session's curated conversation: its messages and its asks, held while the session's chat or dock panel is shown.",
+    },
+  },
+  why: "One entry of a Concertmaster's curated conversation (POD-7211): a message the agent sent, one its person sent, or an ask.",
+})
+
 /** Every record type, in wire order. */
 export const RECORDS = [
   session,
@@ -924,4 +946,5 @@ export const RECORDS = [
   issuePanelDeferred,
   issuePanelState,
   inboxNotice,
+  concertmasterEntry,
 ] as const

@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "2915c4fc-974a-4109-8b5b-e33f1aadd261",
+  "id": "def13676-a320-41d7-865a-2180fc220947",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
@@ -87,6 +87,12 @@
     {
       "isRlsEnabled": false,
       "name": "client_sessions",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "concertmaster_entries",
       "entityType": "tables",
       "schema": "public"
     },
@@ -2525,6 +2531,227 @@
       "entityType": "columns",
       "schema": "public",
       "table": "client_sessions"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "concertmaster_entries"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "concertmaster_entries"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "kind",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "concertmaster_entries"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "body",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "concertmaster_entries"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "concertmaster_entries"
+    },
+    {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "artifacts_json",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "concertmaster_entries"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "sender_user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "concertmaster_entries"
+    },
+    {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "attachments_json",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "concertmaster_entries"
+    },
+    {
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "number",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "concertmaster_entries"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "ask_kind",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "concertmaster_entries"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "detail",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "concertmaster_entries"
+    },
+    {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "options_json",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "concertmaster_entries"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "concertmaster_entries"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "answer",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "concertmaster_entries"
+    },
+    {
+      "type": "timestamp(3) with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "settled_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "concertmaster_entries"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "settled_by",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "concertmaster_entries"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "workspace_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "concertmaster_entries"
     },
     {
       "type": "text COLLATE \"C\"",
@@ -12703,6 +12930,19 @@
       "table": "sessions"
     },
     {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "concertmaster",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "sessions"
+    },
+    {
       "type": "text COLLATE \"C\"",
       "typeSchema": null,
       "notNull": true,
@@ -18832,6 +19072,76 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "client_sessions"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "session_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "idx_concertmaster_entries_session",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "concertmaster_entries"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "session_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "number",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "concertmaster_entries_ask_number",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "concertmaster_entries"
     },
     {
       "nameExplicit": true,
@@ -26198,6 +26508,17 @@
       "entityType": "pks",
       "schema": "public",
       "table": "client_sessions"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "id"
+      ],
+      "nameExplicit": true,
+      "name": "concertmaster_entries_pk",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "concertmaster_entries"
     },
     {
       "columns": [

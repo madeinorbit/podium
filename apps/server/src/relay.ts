@@ -122,6 +122,10 @@ import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
 import { EventBus, type EventMap } from './modules/bus'
 import { CheckoutsService } from './modules/checkouts/service'
+import { CONCERTMASTER_RULES } from './modules/concertmaster/briefing'
+import { DeliveredMessageWatch } from './modules/concertmaster/delivered'
+import { makeConcertmasterFeedCapture } from './modules/concertmaster/records'
+import { ConcertmasterService } from './modules/concertmaster/service'
 import { CostService } from './modules/cost/service'
 import type { AttachAccessDeps } from './modules/credentials/attach-access'
 import {
@@ -598,6 +602,12 @@ export interface RegistryModules {
   notify: NotifyService
   /** Each person's notice inbox (POD-6881, credential management spec §13). */
   notices: NoticeService
+  /**
+   * Concertmaster sessions' curated conversations and the mark (POD-7211).
+   * OPTIONAL for the reason `effects` gives: a module set assembled by hand
+   * without it is a server with no Concertmasters, not a broken one.
+   */
+  concertmaster?: ConcertmasterService
   issues: IssueService
   /** Named agent setups (POD-6107): the library and the launch resolver. */
   agentProfiles: AgentProfileService
@@ -754,6 +764,8 @@ export class SessionRegistry {
   private readonly superagentDefaults: SuperagentDefaultSeeder
   /** Message delivery slow sweep (#237). */
   private readonly messageSweep: ReturnType<typeof setInterval>
+  /** Adds a person's delivered message to a Concertmaster's conversation (POD-7211). */
+  private readonly concertmasterDelivered: DeliveredMessageWatch
   /** The credential expiry sweep (credential management §7). */
   private readonly credentialExpirySweep: ReturnType<typeof setInterval>
   /** Queued-INPUT sweep (POD-1703) — the PTY queue's own backstop. The sweep
@@ -1421,6 +1433,12 @@ export class SessionRegistry {
     // publishes the open notice (or its removal) to its recipient's devices
     // inside its own transaction.
     this.store.notices.setFeedCapture(makeNoticeFeedCapture(writes.system('feed.notices')))
+    // ONE HOOK ON THE CONCERTMASTER CONVERSATION'S WRITE FUNNEL (POD-7211):
+    // every write to `concertmaster_entries` publishes the entry to the devices
+    // that show its session's conversation, inside its own transaction.
+    this.store.concertmaster.setFeedCapture(
+      makeConcertmasterFeedCapture(writes.system('feed.concertmaster')),
+    )
     // ONE HOOK ON THE SETTINGS BLOB WRITE (POD-6677): every write of
     // `meta['settings']` publishes the instance settings record to every member
     // inside its own transaction, whoever made it.
@@ -3456,6 +3474,38 @@ export class SessionRegistry {
       sessionWorkspace,
     })
     this.bus.on('session.exited', ({ sessionId }) => locks.releaseForSession(sessionId))
+    // THE CONCERTMASTER (POD-7211): the mark on a session, and the curated
+    // conversation its person reads instead of the transcript. Behind the
+    // `concertmaster` feature, read on every call.
+    const concertmaster = new ConcertmasterService({
+      entries: this.store.concertmaster,
+      enabled: () => featureEnabled('concertmaster'),
+      now: () => this.now(),
+      mint: () => randomUUID().slice(0, 8),
+      session: async (sessionId) => {
+        const row = await this.store.sessions.getSession(sessionId)
+        return row === undefined
+          ? undefined
+          : {
+              concertmaster: row.concertmaster === true,
+              agentKind: row.agentKind,
+              headless: row.headless === true,
+              deleted: Boolean(row.deletedAt),
+            }
+      },
+      setMark: async (writer, sessionId, on) =>
+        await sessionsSvc.setConcertmaster(writer, { sessionId, concertmaster: on }),
+      send: async (writer, from, input) => await messagesSvc.send(writer, from, input),
+      message: async (id) => await messagesSvc.message(id),
+    })
+    // A person's message joins that conversation once its delivery is
+    // confirmed, after the delivery's commit and never inside it.
+    this.concertmasterDelivered = new DeliveredMessageWatch({
+      enabled: () => featureEnabled('concertmaster'),
+      subscribe: (listener) => this.store.messages.committed.subscribe(listener),
+      record: async (sessionId, messageId) =>
+        await asSystemWrite(async () => await concertmaster.recordDelivered(sessionId, messageId)),
+    })
     // Both people hear about a reassignment in their own inbox (POD-6287).
     // Best effort: the reassignment has committed, and a lost notice must not
     // turn it into an error the caller would retry.
@@ -3761,6 +3811,14 @@ export class SessionRegistry {
             : {}),
         }
       },
+    })
+    // A Concertmaster's rules (POD-7211), for a marked session that is started
+    // again. A session is marked after it exists, so a first start has none; the
+    // mark itself briefs the running agent, and `prime` carries the rules too.
+    sessionInstructions.register({
+      source: 'podium:concertmaster',
+      prepare: async ({ sessionId }) =>
+        (await concertmaster.isConcertmaster(sessionId)) ? { content: CONCERTMASTER_RULES } : null,
     })
     // LAST, so it layers after the issue rules and seat text (flight deck D4):
     // the registry keeps registration order.
@@ -4263,6 +4321,7 @@ export class SessionRegistry {
         )
         return r.ok ? { ok: true, via: r.via } : r
       },
+      isConcertmaster: async (sessionId) => await concertmaster.isConcertmaster(sessionId),
       // issue stop: park every member session + free worktree.
       stopIssueSessions: async (input) => await issueSessionLifecycle.stopIssue(input),
     })
@@ -5169,6 +5228,7 @@ export class SessionRegistry {
       reactions,
       notify,
       notices,
+      concertmaster,
       issues,
       agentProfiles,
       shipping,
@@ -5792,6 +5852,7 @@ export class SessionRegistry {
     this.accountQuota.dispose()
     this.accountUsage.dispose()
     this.quotaBackfill.dispose()
+    this.concertmasterDelivered.dispose()
     clearInterval(this.messageSweep)
     clearInterval(this.credentialExpirySweep)
     clearInterval(this.queuedInputSweep)

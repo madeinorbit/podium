@@ -182,6 +182,8 @@ export const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = 
   ['apps/server/src/store/grants.ts:grantsToGrantees', SIZES],
   // The notice inbox (POD-6881): the open notices a record build names, chunked at 500.
   ['apps/server/src/store/notices.ts:openOfIds', SIZES],
+  // A Concertmaster's conversation (POD-7211): the entries a record build names, chunked at 500.
+  ['apps/server/src/store/concertmaster.ts:entriesOfIds', SIZES],
   ['apps/server/src/store/grants.ts:grantsOfResourceKeys', ['1x1', '2x4', '4x512']],
   ['apps/server/src/store/shipping.ts:activeOrdersOfLane', SIZES],
   ['apps/server/src/store/grants.ts:audiencesOf', SIZES],

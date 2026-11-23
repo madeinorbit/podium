@@ -41,6 +41,7 @@ export const SESSION_PANE_SCHEMA = {
       'displayRef',
       'agentKind',
       'headless',
+      'concertmaster',
       'driverFamily',
       'transcriptAvailable',
       'attachKinds',

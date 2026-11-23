@@ -779,6 +779,11 @@ export class SessionLifecycle {
       this.sessionMetaOps.setWorkState(...args),
     )
   }
+  setConcertmaster(...args: Parameters<SessionMetaOps['setConcertmaster']>): Promise<void> {
+    return this.leased(args[1].sessionId, 'setConcertmaster', () =>
+      this.sessionMetaOps.setConcertmaster(...args),
+    )
+  }
   /** Whether any row, deleted ones included, holds this id (POD-6398). */
   async sessionRowExists(sessionId: SessionId): Promise<boolean> {
     return (await this.store.sessions.getSession(sessionId)) !== undefined

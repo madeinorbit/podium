@@ -36,6 +36,7 @@ import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import { checkIssueAccess } from '../../issue-authz'
 import type { IssueMessageRow } from '../../store'
 import { withReadScope } from '../../store/executor/read-scope'
+import { CONCERTMASTER_ASK_USER_REFUSAL } from '../concertmaster/briefing'
 import { ShippingOrderAccessError } from '../shipping/service'
 import { artifactEffectCommitOf } from './artifact-effect-record'
 import type { IssueCaller, IssueCommandAccess, IssueCommandCtx } from './command-ctx'
@@ -2000,6 +2001,10 @@ const defs = {
         sessionId,
         scope.kind === 'subtree' ? scope.rootId : undefined,
       )
+      // A Concertmaster's person reads its curated chat, where a harness's own
+      // ask-the-user prompt never shows: it asks through its ask list (POD-7211).
+      const concertmaster =
+        seat.kind === 'top' && (await ctx.deps.isConcertmaster?.(sessionId)) === true
       return {
         ...seat,
         text: seatText(seat),
@@ -2010,7 +2015,9 @@ const defs = {
                 'Asking the user (a question, or plan-mode approval)',
               ),
             }
-          : {}),
+          : concertmaster
+            ? { askUserRefusal: CONCERTMASTER_ASK_USER_REFUSAL }
+            : {}),
       }
     },
   }),

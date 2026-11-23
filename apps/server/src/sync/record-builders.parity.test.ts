@@ -186,8 +186,8 @@ async function parityOf(
 describe('record builders (POD-6763)', () => {
   it('registers every record kind once', () => {
     const kinds = serverRecordBuilders().kinds()
-    expect(kinds).toHaveLength(39)
-    expect(new Set(kinds).size).toBe(39)
+    expect(kinds).toHaveLength(40)
+    expect(new Set(kinds).size).toBe(40)
     expect(
       () => new RecordBuilderRegistry([...DATABASE_ONLY_BUILDERS, DATABASE_ONLY_BUILDERS[0]!]),
     ).toThrow(/already registered/)

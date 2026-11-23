@@ -437,6 +437,47 @@ export const clientSessions = pgTable(
   ],
 )
 
+export const concertmasterEntries = pgTable(
+  'concertmaster_entries',
+  {
+    id: textC('id').notNull().$type<SqliteRow<'concertmasterEntries'>['id']>(),
+    sessionId: textC('session_id')
+      .notNull()
+      .$type<SqliteRow<'concertmasterEntries'>['sessionId']>(),
+    kind: textC('kind').notNull().$type<SqliteRow<'concertmasterEntries'>['kind']>(),
+    body: textC('body').notNull().$type<SqliteRow<'concertmasterEntries'>['body']>(),
+    createdAt: isoTimestamp('created_at')
+      .notNull()
+      .$type<SqliteRow<'concertmasterEntries'>['createdAt']>(),
+    artifactsJson:
+      jsonText('artifacts_json').$type<SqliteRow<'concertmasterEntries'>['artifactsJson']>(),
+    senderUserId:
+      textC('sender_user_id').$type<SqliteRow<'concertmasterEntries'>['senderUserId']>(),
+    attachmentsJson:
+      jsonText('attachments_json').$type<SqliteRow<'concertmasterEntries'>['attachmentsJson']>(),
+    number: int8('number').$type<SqliteRow<'concertmasterEntries'>['number']>(),
+    askKind: textC('ask_kind').$type<SqliteRow<'concertmasterEntries'>['askKind']>(),
+    detail: textC('detail').$type<SqliteRow<'concertmasterEntries'>['detail']>(),
+    optionsJson: jsonText('options_json').$type<SqliteRow<'concertmasterEntries'>['optionsJson']>(),
+    status: textC('status').$type<SqliteRow<'concertmasterEntries'>['status']>(),
+    answer: textC('answer').$type<SqliteRow<'concertmasterEntries'>['answer']>(),
+    settledAt: isoTimestamp('settled_at').$type<SqliteRow<'concertmasterEntries'>['settledAt']>(),
+    settledBy: textC('settled_by').$type<SqliteRow<'concertmasterEntries'>['settledBy']>(),
+    workspaceId: textC('workspace_id')
+      .notNull()
+      .$type<SqliteRow<'concertmasterEntries'>['workspaceId']>(),
+  },
+  (table) => [
+    primaryKey({ name: 'concertmaster_entries_pk', columns: [table.workspaceId, table.id] }),
+    index('idx_concertmaster_entries_session').on(table.workspaceId, table.sessionId, table.id),
+    uniqueIndex('concertmaster_entries_ask_number').on(
+      table.workspaceId,
+      table.sessionId,
+      table.number,
+    ),
+  ],
+)
+
 export const conversationIdentities = pgTable(
   'conversation_identities',
   {
@@ -2741,6 +2782,10 @@ export const sessions = pgTable(
       .notNull()
       .default(false)
       .$type<SqliteRow<'sessions'>['asksUser']>(),
+    concertmaster: boolean('concertmaster')
+      .notNull()
+      .default(false)
+      .$type<SqliteRow<'sessions'>['concertmaster']>(),
     workspaceId: textC('workspace_id').notNull().$type<SqliteRow<'sessions'>['workspaceId']>(),
   },
   (table) => [

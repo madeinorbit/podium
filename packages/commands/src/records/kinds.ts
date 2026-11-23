@@ -1257,6 +1257,11 @@ export const NOT_YET_GENERIC: Readonly<
       'All status: raised and resolved by the server (`emitNotice`, `resolveNotices`); the recipient marks it read with `notices.markRead` / `notices.markAllRead` (POD-6881).',
     by: 'never (notices.*)',
   },
+  concertmasterEntry: {
+    reason:
+      'A conversation, never edited as a record: its agent writes it with `concertmaster.say` / `ask` / `update` / `resolve` / `retract`, its person settles an ask with `concertmaster.respond`, and the server records the person’s delivered messages (POD-7211).',
+    by: 'never (concertmaster.*)',
+  },
   issueGitState: {
     reason: 'All status: observed by the server, never client-written.',
     by: 'never (status)',

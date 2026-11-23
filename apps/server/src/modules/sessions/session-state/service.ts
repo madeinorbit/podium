@@ -86,7 +86,7 @@ export type SessionStateRecord = Pick<
  */
 export type SessionStateDraft = Pick<
   SessionDurableState,
-  'draftUpdatedAt' | 'archived' | 'workState'
+  'draftUpdatedAt' | 'archived' | 'workState' | 'concertmaster'
 >
 
 /**
@@ -649,6 +649,18 @@ export class SessionStateService {
   ): Promise<void> {
     await this.ports.mutateSession(writer, sessionId, (draft) => {
       draft.workState = workState ?? undefined
+    })
+  }
+
+  /** Set or clear the Concertmaster mark (POD-7211). Who may is the command's
+   *  to decide (`concertmaster.assign`): the session's own person. */
+  async setConcertmaster(
+    writer: SessionWriter,
+    sessionId: SessionId,
+    concertmaster: boolean,
+  ): Promise<void> {
+    await this.ports.mutateSession(writer, sessionId, (draft) => {
+      draft.concertmaster = concertmaster
     })
   }
 

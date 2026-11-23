@@ -11,6 +11,7 @@
  */
 
 import { HarnessAgent } from '../entities/agent'
+import { concertmasterEntryRowId } from '../entities/concertmaster'
 import type { IssueId, SessionId, UserId } from '../ids'
 import { issueUserStateRowId } from '../user-state/issue-state'
 import { sessionUserStateRowId } from '../user-state/session-state'
@@ -257,6 +258,18 @@ export const CORPUS_RECORDS: Readonly<Record<string, readonly Row[]>> = {
     { userId: 'u1', sessionId: 's1', readAt: ago(1) },
     { userId: 'u1', sessionId: 's2' },
   ],
+  concertmasterEntry: [
+    { entryId: 'e1', sessionId: 's1', kind: 'say', body: 'Started.', createdAt: ago(2) },
+    {
+      entryId: 'e2',
+      sessionId: 's1',
+      kind: 'ask',
+      body: 'Which one?',
+      status: 'open',
+      createdAt: ago(1),
+    },
+    { entryId: 'e3', sessionId: 's2', kind: 'user', body: 'Hello', createdAt: ago(1) },
+  ],
   issueGitState: [
     { id: 'i1', updatedAt: ago(1) },
     { id: 'i3', updatedAt: ago(2) },
@@ -379,6 +392,11 @@ export const CORPUS_CASES: readonly CorpusCase[] = [
     expect: [sessionUserStateRowId(U1, 's1' as SessionId)],
   },
   { rule: 'issueGitState.ofIssue', args: { issueId: 'i3' }, expect: ['i3'] },
+  {
+    rule: 'concertmasterEntry.ofSession',
+    args: { sessionId: 's1' },
+    expect: [concertmasterEntryRowId('s1', 'e1'), concertmasterEntryRowId('s1', 'e2')],
+  },
   // Body records
   { rule: 'issueBrief.ofIssue', args: { issueId: 'i2' }, expect: ['i2'] },
   { rule: 'issueDescription.ofIssue', args: { issueId: 'i2' }, expect: [] },

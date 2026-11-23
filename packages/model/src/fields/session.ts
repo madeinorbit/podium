@@ -427,6 +427,15 @@ export const SessionWorkState = z.object({
 })
 export type SessionWorkState = z.infer<typeof SessionWorkState>
 
+/** THE CONCERTMASTER MARK (POD-7211). A SHARED session fact, like `archived`:
+ *  the session's person set it, and it says the same to every viewer who may
+ *  see the session ("this one is talked to through its curated chat"). Mutable:
+ *  the same person clears it. Absent = an ordinary session. */
+export const SessionRole = z.object({
+  concertmaster: z.boolean().optional(),
+})
+export type SessionRole = z.infer<typeof SessionRole>
+
 /** EXTERNAL COORDINATOR PASS-THROUGH. Unbranded BY DECISION: these name rows in
  *  an external coordinator's id space and the substrate never interprets them,
  *  so a brand would assert a namespace we neither own nor mint. */

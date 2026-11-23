@@ -70,6 +70,22 @@ export {
   cloudWakeContract,
   cloudWakeInput,
 } from './cloud/contracts'
+// The Concertmaster's curated conversation (POD-7211).
+export {
+  CONCERTMASTER_SYNC_COMMANDS,
+  type ConcertmasterAssignInput,
+  type ConcertmasterListInput,
+  type ConcertmasterRespondInput,
+  concertmasterAskInput,
+  concertmasterAssignInput,
+  concertmasterCommands,
+  concertmasterListInput,
+  concertmasterResolveInput,
+  concertmasterRespondInput,
+  concertmasterRetractInput,
+  concertmasterSayInput,
+  concertmasterUpdateInput,
+} from './concertmaster/contracts'
 export {
   type AnyCommandContract,
   type AttributionPolicy,

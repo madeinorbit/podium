@@ -76,6 +76,18 @@ export const FEATURES = [
     visibility: 'edge',
   },
   {
+    // POD-7211. A session marked as a Concertmaster shows a curated chat (only
+    // what its agent sends with `podium concertmaster say`, the person's own
+    // messages and the agent's open asks) instead of the transcript and the
+    // CLI. Off: a marked session shows as any other session, the mark cannot be
+    // set, and the agent commands refuse.
+    id: 'concertmaster',
+    name: 'Concertmaster',
+    description:
+      'An agent you talk to like a teammate: a curated chat and a list of what it needs from you.',
+    visibility: 'edge',
+  },
+  {
     id: 'runtime-drivers',
     name: 'Headless agents',
     description: 'Run some agents without a terminal.',

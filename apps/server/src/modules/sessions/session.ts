@@ -118,6 +118,8 @@ export interface SessionInit {
   /** WHO set `name` (#490): 'user' (sovereign) | 'agent' (self-named). */
   nameSource?: 'user' | 'agent'
   archived?: boolean
+  /** The Concertmaster mark (POD-7211), restored from the row. */
+  concertmaster?: boolean
   workState?: WorkState
   /** WHO created this session (provenance, issue #60): 'user', 'issue:<id>',
    *  'superagent:<threadId>', … Absent = unknown (legacy row). */
@@ -225,6 +227,9 @@ export interface SessionDurableState {
   name: string
   nameSource: 'user' | 'agent' | undefined
   archived: boolean
+  /** The Concertmaster mark (POD-7211): its person talks to it through the
+   *  curated conversation. Set and cleared by that person. */
+  concertmaster: boolean
   stoppedAt: string | undefined
   stopReason: 'self' | 'parent' | 'forced' | 'exited' | 'oom' | undefined
   oomKilledAt: string | undefined
@@ -368,6 +373,8 @@ export class Session {
    *  named itself and may re-title itself. undefined = nobody named it yet. */
   nameSource: 'user' | 'agent' | undefined = undefined
   archived = false
+  /** The Concertmaster mark (POD-7211). */
+  concertmaster = false
   /** Terminal-transition hook that re-arms unread; see {@link SessionInit.onUnreadRearm}. */
   private onUnreadRearm: (() => void) | undefined
   /** Set only by the explicit stop lifecycle, not ordinary hibernation/exits. */
@@ -619,6 +626,7 @@ export class Session {
     this.name = d.name
     this.nameSource = d.nameSource
     this.archived = d.archived
+    this.concertmaster = d.concertmaster
     this.stoppedAt = d.stoppedAt
     this.stopReason = d.stopReason
     this.oomKilledAt = d.oomKilledAt
@@ -1007,6 +1015,7 @@ export class Session {
       name: this.name,
       nameSource: this.nameSource,
       archived: this.archived,
+      concertmaster: this.concertmaster,
       stoppedAt: this.stoppedAt,
       stopReason: this.stopReason,
       oomKilledAt: this.oomKilledAt,
@@ -1090,6 +1099,7 @@ export class Session {
     this.name = state.name
     this.nameSource = state.nameSource
     this.archived = state.archived
+    this.concertmaster = state.concertmaster
     this.stoppedAt = state.stoppedAt
     this.stopReason = state.stopReason
     this.oomKilledAt = state.oomKilledAt
@@ -1149,6 +1159,7 @@ export class Session {
       name: d.name || null,
       nameSource: d.nameSource ?? null,
       archived: d.archived,
+      concertmaster: d.concertmaster,
       workState: d.workState ?? null,
       originKind: this.origin.kind,
       conversationId: this.origin.kind === 'resume' ? this.origin.conversationId : null,

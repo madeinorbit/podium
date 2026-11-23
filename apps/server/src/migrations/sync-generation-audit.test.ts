@@ -50,6 +50,7 @@ const kindsByTable: Record<string, readonly string[]> = {
   agent_profiles: ['agentProfile'],
   superagent_threads: ['superagentThread'],
   notices: ['inboxNotice'],
+  concertmaster_entries: ['concertmasterEntry'],
   effects: ['effect'],
   automations: ['automation'],
   automation_runs: ['automationRun'],

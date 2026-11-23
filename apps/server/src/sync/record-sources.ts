@@ -908,6 +908,9 @@ export const RECORD_SOURCES: RecordSources = {
   // A notice is on its recipient's feed while it is open (POD-6881): resolving
   // it takes it off, and what is written to it afterwards reaches no record.
   inboxNotice: ROW_RECORDS.inboxNotice.sources,
+  // Every entry of a Concertmaster conversation is a record, a settled ask
+  // included (POD-7211): the conversation is read back as it was said.
+  concertmasterEntry: ROW_RECORDS.concertmasterEntry.sources,
   issueEvent: [
     via(
       podiumEvents,

@@ -96,6 +96,11 @@ export const TEXT_COLUMN_CLASSES: Readonly<Record<string, TableTextClasses>> = {
     timestamp: 'created_at expires_at last_seen_at',
     text: 'token_hash user_id label session_id device_id device_name platform workspace_id',
   },
+  concertmaster_entries: {
+    timestamp: 'created_at settled_at',
+    json: 'artifacts_json attachments_json options_json',
+    text: 'id session_id kind body sender_user_id ask_kind detail status answer settled_by workspace_id',
+  },
   conversation_identities: {
     timestamp: 'created_at',
     text: 'podium_id parent_podium_id workspace_id',

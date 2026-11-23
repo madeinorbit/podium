@@ -181,6 +181,10 @@ export const TABLE_MANIFEST = {
     reason:
       'the janitor lease and fencing token: one per installation or fleet, not per workspace (POD-6962 decides per-workspace leases)',
   },
+  concertmaster_entries: workspace(
+    'random',
+    "one entry of a Concertmaster session's curated conversation (POD-7211); a session's entries stream to the devices that show it",
+  ),
   message_reads: workspace('natural', 'per-reader receipts of workspace messages'),
   message_wake_cooldowns: workspace('natural', 'wake cooldowns of workspace sessions'),
   messages: workspace('random', 'workspace mail'),

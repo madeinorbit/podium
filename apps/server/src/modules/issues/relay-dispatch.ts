@@ -32,7 +32,7 @@ import { commandAccess } from './command-ctx'
  * duplicates, and these are not.
  */
 
-import { sessionHandoffInput } from '@podium/commands'
+import { concertmasterListInput, sessionHandoffInput } from '@podium/commands'
 import {
   asMachineId,
   asSessionId,
@@ -49,6 +49,11 @@ import { type Capability, checkIssueAccess } from '../../issue-authz'
 import type { RegistryModules } from '../../relay'
 import { isGenericClaudeTitle, isTransientTitle } from '../../title-filter'
 import type { ApprovalService } from '../approvals/service'
+import { concertmasterPrime } from '../concertmaster/briefing'
+import {
+  ConcertmasterRefusal,
+  CONCERTMASTER_NOT_SERVED as NOT_SERVED,
+} from '../concertmaster/service'
 import type { LockCommandDispatcher } from '../lock/registry'
 import type { MessageGate } from '../messages/gate'
 import {
@@ -359,6 +364,23 @@ export function makeAgentRelayDispatch(
       if (proc !== 'set' && proc !== 'clear') return NO_SUCH_PROCEDURE
       return await relaySyncWrite({ ...writeCall, input: input ?? {} }, await relayPrincipal())
     }
+    // A Concertmaster's own conversation (POD-7211). Its writes are sync
+    // commands, sent in a `sync.submit` envelope; the one direct arm is the
+    // read of the calling session's asks (`podium concertmaster list`).
+    if (router === 'concertmaster') {
+      if (proc !== 'list') return NO_SUCH_PROCEDURE
+      const actor = capability.actorSessionId
+      if (!actor) throw new Error('`podium concertmaster` is only callable by an agent session')
+      try {
+        const service = modules().concertmaster
+        if (service === undefined) throw new ConcertmasterRefusal('unauthorized', NOT_SERVED)
+        return await service.list(actor, concertmasterListInput.parse(input ?? {}))
+      } catch (error) {
+        // The service's refusal reaches the agent in its own sentence.
+        if (error instanceof ConcertmasterRefusal) throw new Error(error.message)
+        throw error
+      }
+    }
     if (router === 'sessions') {
       // Read toolkit tiers 1–2 (#237): status is
       // a structured snapshot (no transcript text); read is a bounded
@@ -589,7 +611,15 @@ export function makeAgentRelayDispatch(
         // never sees the instruction, so the prime doesn't nag an agent into
         // re-titling something already titled.
         const titlePrime = await sessionTitlePrime(sessionsSvc, issues, actorSessionId)
-        return [String(issuePrime), workflowPrime, titlePrime].filter(Boolean).join('\n\n')
+        // A Concertmaster's rules (POD-7211), for a fresh or compacted context:
+        // its person reads only what it sends, so it must not learn that late.
+        const concertmaster =
+          (await modules().concertmaster?.isConcertmaster(actorSessionId)) === true
+            ? concertmasterPrime()
+            : ''
+        return [String(issuePrime), workflowPrime, titlePrime, concertmaster]
+          .filter(Boolean)
+          .join('\n\n')
       })
     }
     return result
