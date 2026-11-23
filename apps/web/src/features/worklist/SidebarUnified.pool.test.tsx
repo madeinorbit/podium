@@ -184,7 +184,7 @@ describe('real sidebar pool cutover', () => {
     }
   })
 
-  it('updates only the folded age leaf at its clock ticks and leaves row bodies cold', async () => {
+  it('updates only the folded age leaf when its text changes and leaves row bodies cold', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
     const fixture = await mount('pool')
@@ -203,9 +203,12 @@ describe('real sidebar pool cutover', () => {
     expect(screen.getByTestId('folded-work-row').textContent).toContain('2h')
     mode.commits.clear()
     mode.ageCommits.clear()
+    // D5 (POD-2656): web keeps dev/tf's exact age deadlines (eb0d147ca2,
+    // 3cfbbb25d1): an age leaf re-renders only when its text changes, not on
+    // every minute tick. 2h29m still reads "2h".
     await advanceClock(60_000)
     expect(Object.fromEntries(mode.commits)).toEqual({})
-    expect(Object.fromEntries(mode.ageCommits)).toEqual({ 'synthetic-5': 1 })
+    expect(Object.fromEntries(mode.ageCommits)).toEqual({})
     expect(screen.getByTestId('folded-work-row').textContent).toContain('2h')
     mode.ageCommits.clear()
     await advanceClock(60_000)
@@ -214,9 +217,10 @@ describe('real sidebar pool cutover', () => {
     expect(screen.getByTestId('folded-work-row').textContent).toContain('3h')
     mode.commits.clear()
     mode.ageCommits.clear()
+    // 2h31m still reads "3h": no commit until the next text deadline.
     await advanceClock(60_000)
     expect(Object.fromEntries(mode.commits)).toEqual({})
-    expect(Object.fromEntries(mode.ageCommits)).toEqual({ 'synthetic-5': 1 })
+    expect(Object.fromEntries(mode.ageCommits)).toEqual({})
     expect(mode.reads).toBe(0)
   })
 
