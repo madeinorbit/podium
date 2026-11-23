@@ -158,7 +158,7 @@ describe('principal replica storage', () => {
       { text: 'offline edit', serverRev: 1, editedAt: 1, dirty: true },
       { text: '', serverRev: 1, editedAt: 1, dirty: true },
       { text: 'legacy edit', serverRev: 0, editedAt: 1 },
-    ].map((draft) => [
+    ].map((draft): [string, string] => [
       '.uistate.v1',
       JSON.stringify({ 'podium.drafts.v1': JSON.stringify({ s1: draft }) }),
     ]),
@@ -176,7 +176,7 @@ describe('principal replica storage', () => {
       })
     const alice = open('alice', 0)
     const workKey = `${alice.keyPrefix}${suffix}`
-    memory.api.setItem(workKey, value!)
+    memory.api.setItem(workKey, value)
     open('bob', 50)
     // Alice is the oldest, but only the clean Bob namespace may give way.
     expect(open('carol', 75).evictedPrincipals).toEqual(['bob'])
