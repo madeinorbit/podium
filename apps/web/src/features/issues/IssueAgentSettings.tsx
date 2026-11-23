@@ -100,7 +100,10 @@ export const IssueAgentSettings = observer(function IssueAgentSettings({
 
   const agentKind = issueDefaultAgentKind(selected.defaultAgent, codingHarness)
   const AgentIcon = agentIconFor(agentKind)
-  const agentFleet = useAgentFleet({ repoPath: issue.repoPath, machineId: selected.machineId })
+  const agentFleet = useAgentFleet({
+    repoPath: issue.repoPath,
+    machineId: selected.machineId ?? undefined,
+  })
   const machine = machines.find((m) => m.id === selected.machineId)
   const machineChoices = useMachineChoices(
     machines,
