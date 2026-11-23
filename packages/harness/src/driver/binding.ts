@@ -1,10 +1,11 @@
 import type { SessionMetadataObservation } from './events.js'
+
 // Part of the Agent Runtime contract (POD-1761 W1). See ./host.js for the
 // surface's five governing rules and the core-vs-extended tier boundary.
 
-import type { DriverFamily, DriverId } from '../manifest.js'
 import type { AgentRuntimeState, ResumeRef, SessionId } from '@podium/model'
 import type { ProviderCursor } from '@podium/protocol'
+import type { DriverFamily, DriverId } from '../manifest.js'
 import type { PendingInteraction } from './interactions.js'
 
 // ---------------------------------------------------------------------------
@@ -75,8 +76,6 @@ export interface SessionSnapshot {
   title?: string
   /** Latest observation per metadata kind, retaining its original causal envelope. */
   metadata?: readonly SessionMetadataObservation[]
-  /** The composer's contents, where the driver has a draft. */
-  draft?: string
   at: string
 }
 

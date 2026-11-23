@@ -741,7 +741,6 @@ function fullSessionUpsertSet(
     requestedDriverId: value('requestedDriverId'),
     boundDriverId: value('boundDriverId'),
     boundDriverCapabilities: value('boundDriverCapabilities'),
-    draftSyncEngine: value('draftSyncEngine'),
     agentStateJson: value('agentStateJson'),
     agentColor: value('agentColor'),
     observedModel: value('observedModel'),
@@ -938,7 +937,6 @@ function sessionUpsertValues(row: SessionRow, now = Date.now()) {
     boundDriverId: row.boundDriverId ?? null,
     boundDriverCapabilities:
       row.boundDriverCapabilities == null ? null : JSON.stringify(row.boundDriverCapabilities),
-    draftSyncEngine: row.draftSyncEngine ?? false,
     agentStateJson: row.agentState ? JSON.stringify(row.agentState) : null,
     agentColor: row.agentColor ?? null,
     observedModel: row.observedModel ?? null,
@@ -3033,7 +3031,6 @@ function mapSession(r: SessionSelect): SessionRow {
     requestedDriverId: r.requestedDriverId ?? null,
     boundDriverId: r.boundDriverId ?? null,
     boundDriverCapabilities: decodeDriverCapabilities(r.boundDriverCapabilities),
-    draftSyncEngine: r.draftSyncEngine === true,
     agentState: parseAgentState(r.agentStateJson),
     agentColor: r.agentColor ?? null,
     observedModel: r.observedModel ?? null,

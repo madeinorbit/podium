@@ -145,7 +145,6 @@ const SESSION_META_FULL = {
   observedEffort: 'medium',
   machineId: 'machine-1',
   draftUpdatedAt: '2026-07-30T09:58:00.000Z',
-  draftSyncEngine: true,
   driverId: 'generic-pty',
   requestedDriverId: 'opencode-server',
   // The degraded pair, and the family that goes with the driver ACTUALLY bound

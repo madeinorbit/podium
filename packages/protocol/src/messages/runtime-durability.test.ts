@@ -3,29 +3,40 @@ import { describe, expect, it } from 'vitest'
 import { parseControlMessage } from '../daemon'
 import {
   isDurableRuntimeEvent,
-  RuntimeEventMessage,
-  SessionSnapshot,
   RuntimeDurableSendRequestMessage,
-  RuntimeSendRequestMessage,
-  TurnReceipt,
-  type RuntimeEventBody,
   type RuntimeEvent,
+  type RuntimeEventBody,
+  RuntimeEventMessage,
+  RuntimeSendRequestMessage,
+  SessionSnapshot,
+  TurnReceipt,
 } from './runtime'
 
 const at = '2026-09-18T12:00:00.000Z'
 
 describe('program-held receipt evidence survives the wire', () => {
   it('preserves exact history id evidence on a delivery report', () => {
-    const frame = { type: 'runtimeEvent', sessionId: asSessionId('s1'), event: event({
-      t: 'delivery', rowId: 'msg_one', outcome: 'delivered',
-      transcriptItem: { id: 'entry-1' }, harnessRef: [{ kind: 'codex-client-message', id: 'msg_one' }],
-    }) }
+    const frame = {
+      type: 'runtimeEvent',
+      sessionId: asSessionId('s1'),
+      event: event({
+        t: 'delivery',
+        rowId: 'msg_one',
+        outcome: 'delivered',
+        transcriptItem: { id: 'entry-1' },
+        harnessRef: [{ kind: 'codex-client-message', id: 'msg_one' }],
+      }),
+    }
     expect(RuntimeEventMessage.parse(frame)).toEqual(frame)
   })
   it.each(['memory', 'durable'] as const)('preserves a %s hold on an accepted receipt', (held) => {
     const receipt = {
-      outcome: 'accepted', turnEpoch: 1, deliveredAs: 'when-ready',
-      provenBy: 'protocol-ack', held, at,
+      outcome: 'accepted',
+      turnEpoch: 1,
+      deliveredAs: 'when-ready',
+      provenBy: 'protocol-ack',
+      held,
+      at,
     }
     expect(TurnReceipt.parse(receipt)).toEqual(receipt)
   })
@@ -39,67 +50,122 @@ describe('program-held receipt evidence survives the wire', () => {
   })
 
   it('keeps a refusal when a newer peer sends an unknown cause', () => {
-    expect(TurnReceipt.parse({
-      outcome: 'refused',
-      refusal: { reason: 'invalid_value', cause: 'newer-rejection-cause' },
-    })).toEqual({ outcome: 'refused', refusal: { reason: 'invalid_value' } })
+    expect(
+      TurnReceipt.parse({
+        outcome: 'refused',
+        refusal: { reason: 'invalid_value', cause: 'newer-rejection-cause' },
+      }),
+    ).toEqual({ outcome: 'refused', refusal: { reason: 'invalid_value' } })
   })
 
   it('keeps an accepted receipt when a newer peer sends an unknown hold', () => {
     const receipt = {
-      outcome: 'accepted', turnEpoch: 1, deliveredAs: 'when-ready',
-      provenBy: 'protocol-ack', at,
+      outcome: 'accepted',
+      turnEpoch: 1,
+      deliveredAs: 'when-ready',
+      provenBy: 'protocol-ack',
+      at,
     }
     expect(TurnReceipt.parse({ ...receipt, held: 'newer-hold' })).toEqual(receipt)
   })
 })
 const bodies = {
   metadata: { t: 'metadata', change: { kind: 'context', source: 'transcript', percent: 42 } },
-  binding: { t: 'binding', resume: { kind: 'codex-thread', value: 'native' }, confidence: 'exact', bindingVersion: 1, ackRequested: true },
+  binding: {
+    t: 'binding',
+    resume: { kind: 'codex-thread', value: 'native' },
+    confidence: 'exact',
+    bindingVersion: 1,
+    ackRequested: true,
+  },
   delivery: { t: 'delivery', rowId: 'row', outcome: 'delivered' },
   state: { t: 'state', change: { kind: 'activity' } },
-  item: { t: 'item', item: { kind: 'complete', item: { id: 'item', role: 'system', text: 'Interrupted', ts: at } } },
+  item: {
+    t: 'item',
+    item: { kind: 'complete', item: { id: 'item', role: 'system', text: 'Interrupted', ts: at } },
+  },
   interaction: { t: 'interaction', ev: { ev: 'expired', id: 'ask', at } },
   turn: { t: 'turn', ev: { ev: 'started', turnEpoch: 1, origin: 'human' } },
   process: { t: 'process', ev: { ev: 'exited', code: 0, signal: null, classification: 'clean' } },
   workspace: { t: 'workspace', ev: { ev: 'cwd-changed', cwd: '/repo' } },
   'open-url': { t: 'open-url', ev: { url: 'https://example.com/login', intent: 'login' } },
-  draft: { t: 'draft', text: 'latest draft' },
   'transcript-reset': { t: 'transcript-reset', items: [] },
 } satisfies Record<RuntimeEventBody['t'], RuntimeEventBody>
 
-function event(body: RuntimeEventBody, provenance: RuntimeEvent['provenance'] = 'live'): RuntimeEvent {
+function event(
+  body: RuntimeEventBody,
+  provenance: RuntimeEvent['provenance'] = 'live',
+): RuntimeEvent {
   return {
-    ...body, at, provenance, observerGeneration: 2, turnEpoch: 1,
+    ...body,
+    at,
+    provenance,
+    observerGeneration: 2,
+    turnEpoch: 1,
     cursor: { segmentId: 'segment', components: { seq: 1 } },
   }
 }
 
 describe('runtime event retention contract', () => {
-  it.each(['metadata', 'binding', 'delivery', 'item', 'transcript-reset', 'interaction', 'turn', 'process', 'open-url'] as const)(
-    'retains %s because loss is not repaired by the next observation', (kind) => {
-      expect(isDurableRuntimeEvent(event(bodies[kind]))).toBe(true)
-    },
-  )
+  it.each([
+    'metadata',
+    'binding',
+    'delivery',
+    'item',
+    'transcript-reset',
+    'interaction',
+    'turn',
+    'process',
+    'open-url',
+  ] as const)('retains %s because loss is not repaired by the next observation', (kind) => {
+    expect(isDurableRuntimeEvent(event(bodies[kind]))).toBe(true)
+  })
 
   it('retains git-activity because commits are additive, not superseded', () => {
-    const git = event({ t: 'workspace', ev: { ev: 'git-activity', commits: ['sha'], touchedFiles: [] } })
+    const git = event({
+      t: 'workspace',
+      ev: { ev: 'git-activity', commits: ['sha'], touchedFiles: [] },
+    })
     expect(isDurableRuntimeEvent(git)).toBe(true)
   })
 
-  it.each(['state', 'workspace', 'draft'] as const)(
-    'sends %s live without a delivery id, but retains its bootstrap', (kind) => {
-      const live = event(bodies[kind])
-      expect(isDurableRuntimeEvent(live)).toBe(false)
-      const frame = { type: 'runtimeEvent', sessionId: asSessionId('session'), event: live }
-      expect(RuntimeEventMessage.parse(frame)).toEqual(frame)
-      expect(isDurableRuntimeEvent(event(bodies[kind], 'bootstrap'))).toBe(true)
-    },
-  )
+  it.each([
+    'state',
+    'workspace',
+  ] as const)('sends %s live without a delivery id, but retains its bootstrap', (kind) => {
+    const live = event(bodies[kind])
+    expect(isDurableRuntimeEvent(live)).toBe(false)
+    const frame = { type: 'runtimeEvent', sessionId: asSessionId('session'), event: live }
+    expect(RuntimeEventMessage.parse(frame)).toEqual(frame)
+    expect(isDurableRuntimeEvent(event(bodies[kind], 'bootstrap'))).toBe(true)
+  })
 
-  it.each(['live', 'bootstrap'] as const)('keeps fine fragments live-only for %s provenance', (provenance) => {
-    expect(isDurableRuntimeEvent(event({ t: 'item', item: { kind: 'delta', itemId: 'item', textDelta: 'token' } }, provenance))).toBe(false)
-    expect(isDurableRuntimeEvent(event({ t: 'item', item: { kind: 'partial', item: { id: 'tool', role: 'assistant', text: 'running', ts: at } } }, provenance))).toBe(false)
+  it.each([
+    'live',
+    'bootstrap',
+  ] as const)('keeps fine fragments live-only for %s provenance', (provenance) => {
+    expect(
+      isDurableRuntimeEvent(
+        event(
+          { t: 'item', item: { kind: 'delta', itemId: 'item', textDelta: 'token' } },
+          provenance,
+        ),
+      ),
+    ).toBe(false)
+    expect(
+      isDurableRuntimeEvent(
+        event(
+          {
+            t: 'item',
+            item: {
+              kind: 'partial',
+              item: { id: 'tool', role: 'assistant', text: 'running', ts: at },
+            },
+          },
+          provenance,
+        ),
+      ),
+    ).toBe(false)
   })
 })
 
@@ -145,14 +211,21 @@ describe('delivery failure cause (POD-4802)', () => {
   })
 })
 
-
 describe('a send from an older server that still marks coalescable', () => {
   // The routine-mail digest is gone (operator decision, POD-4720); a server
   // that predates the removal still sets the flag. The daemon must accept the
   // frame and deliver the row as its own prompt, so the key is stripped.
-  const send = { type: 'runtimeSendRequest', requestId: 'rpc', sessionId: 'session',
-    turnId: 'row', rowId: 'row', text: 'routine ack', origin: 'mail', delivery: 'when-ready',
-    coalescable: true }
+  const send = {
+    type: 'runtimeSendRequest',
+    requestId: 'rpc',
+    sessionId: 'session',
+    turnId: 'row',
+    rowId: 'row',
+    text: 'routine ack',
+    origin: 'mail',
+    delivery: 'when-ready',
+    coalescable: true,
+  }
 
   it('parses and drops the flag, on the frame schema and on the control plane', () => {
     const parsed = RuntimeSendRequestMessage.parse(send)
@@ -164,28 +237,54 @@ describe('a send from an older server that still marks coalescable', () => {
   })
 })
 
-
 describe('durable admission command', () => {
   it('requires migration discriminators and cannot parse as a legacy send', () => {
-    const frame = { type: 'runtimeDurableSendRequest', requestId: 'rpc', sessionId: 'session',
-      turnId: 'row', rowId: 'row', deliveryRecovery: true, initialPrompt: true,
-      text: 'create once', origin: 'human', delivery: 'when-ready' }
+    const frame = {
+      type: 'runtimeDurableSendRequest',
+      requestId: 'rpc',
+      sessionId: 'session',
+      turnId: 'row',
+      rowId: 'row',
+      deliveryRecovery: true,
+      initialPrompt: true,
+      text: 'create once',
+      origin: 'human',
+      delivery: 'when-ready',
+    }
     expect(RuntimeDurableSendRequestMessage.parse(frame)).toMatchObject(frame)
     expect(RuntimeSendRequestMessage.safeParse(frame).success).toBe(false)
-    expect(RuntimeDurableSendRequestMessage.safeParse({ ...frame, deliveryRecovery: undefined }).success).toBe(false)
+    expect(
+      RuntimeDurableSendRequestMessage.safeParse({ ...frame, deliveryRecovery: undefined }).success,
+    ).toBe(false)
   })
 })
-
 
 it('preserves title and causal metadata through the snapshot wire schema', () => {
   const metadata = event(bodies.metadata)
   const snapshot = {
-    binding: { sessionId: 'session', harness: 'claude-code', driver: 'terminal-claude', family: 'terminal', workdir: '/repo', resume: null,
-      bindingVersion: 1, process: { key: 'process' } },
-    state: {}, cursor: metadata.cursor, observerGeneration: 2, turnEpoch: 1,
-    interactions: [], title: 'Native title', metadata: [metadata], at,
+    binding: {
+      sessionId: 'session',
+      harness: 'claude-code',
+      driver: 'terminal-claude',
+      family: 'terminal',
+      workdir: '/repo',
+      resume: null,
+      bindingVersion: 1,
+      process: { key: 'process' },
+    },
+    state: {},
+    cursor: metadata.cursor,
+    observerGeneration: 2,
+    turnEpoch: 1,
+    interactions: [],
+    title: 'Native title',
+    metadata: [metadata],
+    at,
   }
-  expect(SessionSnapshot.parse(snapshot)).toMatchObject({ title: 'Native title', metadata: [metadata] })
+  expect(SessionSnapshot.parse(snapshot)).toMatchObject({
+    title: 'Native title',
+    metadata: [metadata],
+  })
 })
 
 describe('the entry a delivered row became (POD-4774)', () => {
@@ -221,7 +320,11 @@ describe("the agent program's own ids for a message (POD-4841)", () => {
     { kind: 'codex-client-message', id: 'msg_row' },
   ]
   const frame = (body: RuntimeEventBody) =>
-    RuntimeEventMessage.safeParse({ type: 'runtimeEvent', sessionId: 'session', event: event(body) })
+    RuntimeEventMessage.safeParse({
+      type: 'runtimeEvent',
+      sessionId: 'session',
+      event: event(body),
+    })
 
   it('carries harnessRef on a delivery outcome through the wire schema, on any outcome', () => {
     for (const outcome of ['delivered', 'failed'] as const) {
@@ -252,7 +355,10 @@ describe("the agent program's own ids for a message (POD-4841)", () => {
       harnessRef: [{ kind: 'codex-turn', id: '' }],
     })
     expect(parsed.success).toBe(true)
-    expect(parsed.data?.event).toMatchObject({ outcome: 'delivered', transcriptItem: { id: 'entry' } })
+    expect(parsed.data?.event).toMatchObject({
+      outcome: 'delivered',
+      transcriptItem: { id: 'entry' },
+    })
     expect((parsed.data?.event as { harnessRef?: unknown }).harnessRef).toBeUndefined()
   })
 

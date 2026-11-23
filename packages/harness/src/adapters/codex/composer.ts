@@ -1,21 +1,16 @@
 /**
- * CODEX'S COMPOSER RULES (POD-4477): pure scrape/inject/verify over screen
- * text — one authoritative definition (spec §4).
+ * CODEX'S COMPOSER READINESS RULE (POD-4477): a pure check over screen text.
  *
- * Moved from `driver/families/terminal/prompt-extract.ts` (the extractor) and
- * `driver/families/terminal/composer-sync.ts` (the driver object); the Codex
- * input-ready heuristic moved from
- * `packages/terminal-client/src/session-mount.ts` (`codexInputReady`). The
- * family mechanism is harness-free and takes these as a handed typed subset,
- * while the daemon reads the same functions through the manifest and the
- * browser entry bundles them for the client build (CODE, never served).
+ * Codex can paint its composer before startup work (notably MCP
+ * initialization) redraws it, so the browser client gates synthetic input on
+ * an EMPTY composer. This reads the screen only to answer that; it never
+ * reads a draft out of the CLI or types one in (POD-7417).
  *
- * Browser-safe by construction — a type-only import plus the shared composer
- * vocabulary — so `@podium/harness/browser` may bundle this file.
+ * Browser-safe by construction — a type-only import — so
+ * `@podium/harness/browser` may bundle this file.
  */
 
 import type { ComposerScreenLines, HarnessComposer } from '../../manifest.js'
-import { CTRL_C, normalizeForVerify, PASTE_END, PASTE_START } from '../shared/composer'
 
 // Codex's composer prompt marker (U+203A, ›). Unlike Claude, Codex draws no box —
 // the in-progress prompt is a `› <text>` row near the bottom, with dim hint/status
@@ -29,7 +24,7 @@ const CODEX_MARKER = '›'
 /**
  * Codex's in-progress prompt from the (dim-stripped) rendered screen. Returns the
  * typed text (multiline joined by \n), '' for an empty composer, or null when no
- * composer line is present (callers must NOT overwrite the shared draft on null).
+ * composer line is present.
  *
  * Multiline / wrapped input (POD-506): codex renders the extra rows as indent-
  * aligned continuation rows under the marker. We capture the marker row plus the
@@ -67,34 +62,12 @@ export function extractCodexPromptDraft(lines: ComposerScreenLines): string | nu
   return text.trim() === '' ? '' : text
 }
 
-// A codex ">=1000-char paste" collapse — "[Pasted Content N chars]".
-const CODEX_PASTE_PLACEHOLDER = /\[Pasted Content \d+ chars?\]/i
-
 export const codexComposer: HarnessComposer = {
-  // Codex renders its rotating placeholder + hints DIM, so a scraper must strip
-  // them (else it mistakes a suggestion for typed text); claude reads raw. This
-  // is the harness-specific screen-read choice, kept behind the rules.
+  // Codex renders its rotating placeholder + hints DIM, so the screen is read
+  // with dim cells blanked (else a suggestion reads as typed text).
   dimStripped: true,
-  extract: extractCodexPromptDraft,
-  injectable: (screen) => extractCodexPromptDraft(screen) !== null,
-  // Ctrl-C wipes a NON-EMPTY codex composer (stashed to history). On an empty
-  // composer it arms quit, so refuse to clear — null means "no clear needed/safe".
-  clearSequence: (currentText) => (currentText ? CTRL_C : null),
-  // One bracketed-paste burst: newlines stay literal inside it, and there is no
-  // trailing CR — the engine never submits as a side effect of typing.
-  typeSequence: (text) => `${PASTE_START}${text}${PASTE_END}`,
-  verify: (screen, expected) => {
-    const got = extractCodexPromptDraft(screen)
-    if (got === null) return 'mismatch'
-    if (normalizeForVerify(got) === normalizeForVerify(expected)) return 'match'
-    if (CODEX_PASTE_PLACEHOLDER.test(got)) return 'placeholder'
-    return 'mismatch'
-  },
-  // EMPTY-composer check over DIM-STRIPPED screen lines. The caller sources the
-  // lines with dim cells blanked AND keeps the bracketed-paste transport check
-  // (DECSET 2004): codex can paint a composer before startup work (notably MCP
-  // initialization) redraws it, so an empty composer alone is not proof input
-  // is safe — the transport must be up too. Unknown harnesses have no rule, so
-  // the client falls back to "no heuristic" rather than a fetched one.
+  // EMPTY-composer check over DIM-STRIPPED screen lines. The caller keeps the
+  // bracketed-paste transport check (DECSET 2004) too: an empty composer alone
+  // is not proof input is safe — the transport must be up as well.
   inputReady: (screen) => extractCodexPromptDraft(screen) === '',
 }

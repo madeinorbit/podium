@@ -113,11 +113,14 @@ it('parks the losing Terminal when a reattach and an adopting spawn race for one
     backend: 'host',
     machineId: 'terminal-slot-test-machine',
     settingsDir,
-    launch: (_kind: string, opts: { cwd: string }) => ({ cmd: '/bin/true', args: [], cwd: opts.cwd }),
+    launch: (_kind: string, opts: { cwd: string }) => ({
+      cmd: '/bin/true',
+      args: [],
+      cwd: opts.cwd,
+    }),
     sessions: testSessions(),
     durableLabelFor: () => LABEL,
     sessionBinding: { transition: async () => ({ status: 'applied' }) },
-    composerEngine: { attach: () => false, onData: () => {}, detach: () => {}, has: () => false },
     outputScheduler: {
       enqueue: (_id: string, data: Uint8Array) => enqueued.push(new TextDecoder().decode(data)),
       remove: () => {},

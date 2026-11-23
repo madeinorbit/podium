@@ -252,9 +252,8 @@ export const ViewStateMessage = z.object({
   modes: z.record(z.string(), z.enum(['native', 'chat'])).optional(),
 })
 
-// The in-progress composer / native-prompt text for a session. The controlling
-// client publishes its scraped native prompt, and a chat composer edit publishes
-// its draft, so every view/device converges. Server-persisted (debounced) so the
+// The in-progress chat composer text for a session. A chat composer edit
+// publishes its draft, so every view/device converges. Server-persisted (debounced) so the
 // draft survives a full reload / server restart and replays on (re)connect
 // (issue #34) — real user work is never lost.
 export const SetSessionDraftMessage = z.object({
@@ -277,16 +276,6 @@ export const DraftEditMessage = z.object({
   text: z.string(),
 })
 export type DraftEditMessage = z.infer<typeof DraftEditMessage>
-
-// server -> daemon: drive this text into the session's native composer (Draft Sync
-// v2). The server sends it once a chat edit's soft lease has settled (and on
-// catchup), so the daemon's injection state machine mirrors chat → native.
-export const DraftTargetMessage = z.object({
-  type: z.literal('draftTarget'),
-  sessionId: SessionIdField,
-  text: z.string(),
-})
-export type DraftTargetMessage = z.infer<typeof DraftTargetMessage>
 
 // ---- Server -> browser client: terminal control frames ----
 /** One flag a server build defines (`ServerFeatureFlag`). */
@@ -528,10 +517,6 @@ export const SpawnMessage = z.object({
   // terminal's colors (roles.coding.seedCliTheme).
   // Absent = the setting's default (on) — older servers simply get the default.
   seedCliTheme: z.boolean().optional(),
-  // Draft Sync v2 (POD-859): the server's `draftSync` flag for this session — the
-  // daemon runs its composer scrape/inject engine (and disables codex kitty
-  // keyboard enhancement) only when true. Additive; older servers omit it (off).
-  draftSync: z.boolean().optional(),
   /** Durable server-issued observer lease fence. */
   observationGeneration: z.number().int().positive().optional(),
   /** Version of the exact provider binding carried by this lease. */
@@ -593,7 +578,7 @@ export const ReattachMessage = z.object({
    * NAMED FOR WHAT IT IS so the misuse cannot come back unnoticed. This is what
    * the server last KNEW W to be, not a size anything applied — after a daemon
    * restart the pty has been running at a size of its own all along. So it feeds
-   * the daemon's HEADLESS screens (the composer engine and the screen observers
+   * the daemon's HEADLESS screens (the screen observers
    * need some cols x rows to parse output against) and nothing else: it never
    * reaches the pty (the reattach's podium-host attach sends no size) and it is
    * never echoed back on `bind`, which reports only what the daemon applied.
@@ -613,9 +598,6 @@ export const ReattachMessage = z.object({
   // daemon restart — without a floor the reattached observer could never bind it
   // and the session would stay status-blind forever.
   createdAtMs: z.number().optional(),
-  // Draft Sync v2 (POD-859): as SpawnMessage.draftSync — the daemon runs its
-  // composer engine for this reattached session only when true.
-  draftSync: z.boolean().optional(),
   /** THE DRIVER THIS SESSION IS EXPECTED TO REBIND TO (POD-4426).
    *
    * A driver id names the engine a revived session rebinds to. The server sends
@@ -873,10 +855,6 @@ export const BindMessage = z.object({
   geometry: Geometry.optional(),
   /** This session supports picture items on the negotiated binary output link. */
   pictures: z.literal(true).optional(),
-  // Draft Sync v2 (POD-859): true when the daemon runs its composer scrape/inject
-  // engine for this session. Surfaced in SessionMeta so a client retires its own
-  // sampler/flush. Additive; older daemons omit it (no engine).
-  draftSyncEngine: z.boolean().optional(),
   /**
    * THE DRIVER THAT HOLDS THIS SESSION (POD-1761 W4, unconditional since POD-4426).
    *

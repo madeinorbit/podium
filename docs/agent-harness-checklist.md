@@ -71,7 +71,7 @@ do it, for a reader deciding whether the gap is permanent.
   and `unsupported('…')` for the rest, then grow sections in later PRs.
 - [ ] `capabilities` fully stated (no parallel table): `argvPrompt`,
   `effortFlag`, `systemPromptFlag`, `newSessionIdFlag`, `quota`, `cloud`,
-  `composerScrape`, `oscTitle`, `subagentModelEnv`, `promptModeHints`,
+  `oscTitle`, `subagentModelEnv`, `promptModeHints`,
   `handoff`, `mcp`, `hookInstall`, `observationProvider`,
   `observationProtocol`, `submitVerification`, `composerReadiness`,
   `rawFirstTurn`, `exclusiveInteractiveResume`, `promptTitleFallback`,

@@ -117,9 +117,6 @@ export interface SessionObserversDeps {
    *  burst) — narrow concurrency, and held until the burst's bridge wiring has
    *  settled (POD-612). Omitted (tests) = seeds run immediately. */
   tailSeedGate?: (fn: () => Promise<void>) => Promise<void>
-  /** Draft Sync v2 (POD-859): agent-idle transitions, so the composer engine only
-   *  scrapes/injects while the composer is the live input. Omitted (tests) = no-op. */
-  onIdleState?: (sessionId: SessionId, idle: boolean) => void
   /** A provider saw an explicit login-success line in its native terminal. */
   onAuthSignal?: (sessionId: SessionId) => void
   /** This session's shared TerminalScreen model (P2c): the observer reads it
@@ -1489,7 +1486,6 @@ export function createSessionObservers(deps: SessionObserversDeps) {
             })
             send({ type: 'agentState', sessionId, state: current })
           }
-          deps.onIdleState?.(sessionId, true)
         }
       }, IDLE_TRANSITION_DEBOUNCE_MS)
       pendingIdleEmits.set(sessionId, timer)
@@ -1506,7 +1502,6 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       })
       send({ type: 'agentState', sessionId, state: next })
     }
-    deps.onIdleState?.(sessionId, next.phase === 'idle')
   }
 
   const applyCausalAgentState = (sessionId: SessionId, next: AgentRuntimeState): void => {
@@ -1675,7 +1670,6 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         bootstrap: true,
       })
       send({ type: 'agentState', sessionId, state: next })
-      deps.onIdleState?.(sessionId, next.phase === 'idle')
     }
   }
 

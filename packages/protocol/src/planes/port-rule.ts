@@ -51,8 +51,6 @@ export const HOST_EDGE_FRAMES = [
   'agentObservationRebind',
   'agentObservationRebindAck',
   'agentObserverLiveConfirmation',
-  'nativeDraft',
-  'draftTarget',
   // Resume-ref receipts — explicitly "separate from the agent
   // command relay" in that spec's own words.
   'sessionResumeRef',
@@ -103,8 +101,6 @@ export const HOST_EDGE_FRAMES = [
   'runtimeLifecycleResult',
   'runtimeConfigureRequest',
   'runtimeConfigureResult',
-  'runtimeDraftRequest',
-  'runtimeDraftResult',
   'runtimeSnapshotRequest',
   'runtimeHistoryRequest',
   'runtimeSnapshotResult',

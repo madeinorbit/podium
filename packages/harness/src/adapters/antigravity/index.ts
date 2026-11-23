@@ -46,7 +46,6 @@ export const antigravityManifest: AgentManifest = {
     newSessionIdFlag: false,
     quota: true,
     cloud: false,
-    composerScrape: false,
     oscTitle: true,
     subagentModelEnv: false,
     promptModeHints: false,

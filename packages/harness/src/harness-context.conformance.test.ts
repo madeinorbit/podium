@@ -800,7 +800,7 @@ const CASES: Record<string, Case> = {
   'transcript.recordToItems': PURE('maps one parsed record to items'),
   'transcript.recordRuntime': PURE('reads model/effort off one parsed record'),
   'transcript.recordColor': PURE('reads a color off one parsed record'),
-  composer: PURE('pure scrape/inject/verify rules over screen text'),
+  composer: PURE('pure readiness rule over screen text'),
   classifyBrowserOpen: (h) => {
     declaredValue(h.manifest.classifyBrowserOpen)!(new URL('https://example.invalid/login'))
   },

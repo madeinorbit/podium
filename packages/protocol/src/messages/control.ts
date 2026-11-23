@@ -67,7 +67,6 @@ import { OauthLoopbackCancelMessage, OauthLoopbackRequestMessage } from './oauth
 import {
   RuntimeAnswerRequestMessage,
   RuntimeConfigureRequestMessage,
-  RuntimeDraftRequestMessage,
   RuntimeDurableSendRequestMessage,
   RuntimeEventAckMessage,
   RuntimeHistoryRequestMessage,
@@ -100,7 +99,6 @@ import {
 } from './shipping'
 import {
   CloseClientTerminalMessage,
-  DraftTargetMessage,
   InputMessage,
   KillMessage,
   ReattachMessage,
@@ -164,7 +162,6 @@ export const ControlMessage = z.discriminatedUnion('type', [
   SessionBindingRetireMessage,
   AgentObservationAckMessage,
   AgentObservationRebindAckMessage,
-  DraftTargetMessage,
   SessionResumeRefAckMessage,
   SessionResumeRefConflictMessage,
   TranscriptMirrorReadMessage,
@@ -219,7 +216,6 @@ export const ControlMessage = z.discriminatedUnion('type', [
    *  of this union for the same reason it is appended at the end of
    *  `RuntimeCommandMessage`: the golden corpus samples arms by index. */
   RuntimeConfigureRequestMessage,
-  RuntimeDraftRequestMessage,
   SetDaemonLogLevelMessage,
   RuntimeDurableSendRequestMessage,
   /** Server-ordered attach-TUI warm-park close (POD-4524). Appended at the END

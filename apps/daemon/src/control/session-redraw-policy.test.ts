@@ -58,7 +58,6 @@ function world(opts: { headed: boolean }): {
       setPriority: vi.fn(),
     },
     observers: {},
-    composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
     access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   attachTestTerminal(ctx, SESSION, bridge, opts.headed ? 'client' : 'headed')
@@ -122,7 +121,7 @@ describe.each([
     untouched()
   })
 
-  it('the user\'s hard redraw reaches the program as exactly one Ctrl-L, and never resizes it', async () => {
+  it("the user's hard redraw reaches the program as exactly one Ctrl-L, and never resizes it", async () => {
     await seedNormal(w.ctx)
     sessionHandlers.redraw(w.ctx, { type: 'redraw', sessionId: SESSION, hard: true })
     expect(w.bridge.writeBytes).toHaveBeenCalledTimes(1)

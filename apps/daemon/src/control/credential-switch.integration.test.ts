@@ -233,7 +233,6 @@ describe('terminal driver: an idle session switches and answers about an earlier
           ? { ...fixtureManifest.launch(opts as never), cmd: stand }
           : agentLaunchCommand(kind as never, opts),
       settingsDir: join(home, 'settings'),
-      composerEngine: { attach: () => false, onData: () => {}, detach: () => {}, has: () => false },
       outputScheduler: {
         enqueue: (_id: string, data: string) => {
           output += Buffer.from(data, 'base64').toString('utf8')

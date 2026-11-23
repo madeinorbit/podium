@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` DROP COLUMN `draft_sync_engine`;

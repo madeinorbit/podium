@@ -22,7 +22,6 @@ function world(contracted: boolean, bridged: boolean) {
     dispose: () => {},
   } as unknown as DurableAttachment
   const input = vi.fn(() => true)
-  const onInputByte = vi.fn()
   const recordInputOrigin = vi.fn()
   const sessions = testSessions()
   sessions.ensure(sessionId).nativeRequested = true
@@ -30,12 +29,11 @@ function world(contracted: boolean, bridged: boolean) {
     agentRuntime: { has: () => contracted },
     sessions,
     clientTerminals: { input },
-    composerEngine: { onInputByte },
     observers: { recordInputOrigin },
     access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   if (bridged) attachTestTerminal(ctx, sessionId, attachment)
-  return { ctx, writeBytes, input, recordInputOrigin, onInputByte }
+  return { ctx, writeBytes, input, recordInputOrigin }
 }
 
 describe('contracted automation refusal', () => {
@@ -52,7 +50,6 @@ describe('contracted automation refusal', () => {
     expect(w.writeBytes).not.toHaveBeenCalled()
     expect(w.input).not.toHaveBeenCalled()
     expect(w.recordInputOrigin).not.toHaveBeenCalled()
-    expect(w.onInputByte).not.toHaveBeenCalled()
   })
 
   // Driverless hosts (POD-4278: shells, logins, profile-less and older unbound
@@ -62,7 +59,6 @@ describe('contracted automation refusal', () => {
     const w = world(false, true)
     dispatchInputBytes(w.ctx, { sessionId, inputOrigin: 'controller' }, bytes)
     expect(w.writeBytes).toHaveBeenCalledTimes(1)
-    expect(w.onInputByte).toHaveBeenCalledTimes(1)
     expect(w.recordInputOrigin).toHaveBeenCalledTimes(1)
   })
 
@@ -72,7 +68,6 @@ describe('contracted automation refusal', () => {
       dispatchInputBytes(w.ctx, { sessionId, inputOrigin: 'controller' }, bytes)
       expect(w.writeBytes).not.toHaveBeenCalled()
       expect(w.input).not.toHaveBeenCalled()
-      expect(w.onInputByte).not.toHaveBeenCalled()
     }
   })
 })

@@ -1,7 +1,6 @@
 import { beginSwitch, isSwitchTraced, markSwitch } from '@podium/client-core/perf'
 import {
   useChatSends,
-  useClientRuntime,
   useCommands,
   useDeviceState,
   useRequestClient,
@@ -88,7 +87,6 @@ import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import type { AgentPanelProps } from './agent-panel-props'
 import { applyInitialTerminalAppearance, TERMINAL_DEFAULTS, withBackground } from './appearance'
-import { createDraftSync } from './draft-sync'
 import { EchoHud, echoHudEnabled } from './EchoHud'
 import { HandoverPane, useHandoverView } from './HandoverPane'
 import { hibernateAction } from './lifecycle-actions'
@@ -137,7 +135,6 @@ export const AgentPanel = observer(function AgentPanel({
     hub,
     trpc,
     startBtw,
-    setSessionDraft,
     hibernateSession,
     dismissOffer: dismissOfferWrite,
     sendChat,
@@ -148,7 +145,6 @@ export const AgentPanel = observer(function AgentPanel({
     hub: useSocketHub(),
     trpc: useRequestClient<Trpc>(),
     startBtw: useCommands<Trpc>().sessions.startBtw,
-    setSessionDraft: useCommands<Trpc>().sessions.setSessionDraft,
     hibernateSession: useCommands<Trpc>().sessions.hibernate,
     dismissOffer: useCommands<Trpc>().issues.dismissOffer,
     sendChat: useChatSends().sendChat,
@@ -251,10 +247,6 @@ export const AgentPanel = observer(function AgentPanel({
   )
   const handover = useHandoverView(session, requestedMove)
   const inTransit = handover?.phase === 'transit'
-  // Re-arm hook for the chat→native draft flush, published by onMounted below.
-  // Declared here because the arbitration hook owns the chat→native EDGE and
-  // calls it; the flush machinery itself lives in the mount closure.
-  const rearmFlushRef = useRef<(() => void) | null>(null)
   // THE ARBITRATION (POD-408). `surface` says which of the four states this panel
   // is in and, when live, which view; `gates` are every "may I" the panel used to
   // re-spell from `!hibernated && !exited && …` at eight separate call sites.
@@ -274,7 +266,6 @@ export const AgentPanel = observer(function AgentPanel({
     paneActive: active,
     spawnConfirmed,
     inTransit,
-    onEnterNative: () => rearmFlushRef.current?.(),
   })
   const concertmasterEnabled = useFeature('concertmaster')
   const referenceStages = usePaneReferenceStages(gates.terminalActive)
@@ -451,45 +442,10 @@ export const AgentPanel = observer(function AgentPanel({
     dockUnpinFallbackRef.current = setTimeout(() => dockUnpinRef.current?.(), 700)
   }, [dockOpen, dockOpenTarget, gates.ptySizingAllowed])
   const fileLinkPathsRef = useRef(new FileLinkPathIndex())
-  // Latest shared chat draft for this session, mirrored into a ref so the
-  // draft-flush machinery (onMounted, below) can read it at flush time
-  // (chat→native sync, #17/#62) WITHOUT depending on `drafts` directly — a dep
-  // there would tear down and remount the whole terminal on every keystroke.
-  const draftRef = useRef('')
   const conversation = useConversation(sessionId, {
     deferInitialTranscript: !spawnConfirmed,
     initialPendingText: optimisticFirstPrompt,
   })
-  const runtime = useClientRuntime<Trpc>()
-  useEffect(
-    () =>
-      reaction(
-        () => runtime.drafts.get(sessionId),
-        (text) => {
-          draftRef.current = text
-        },
-        { fireImmediately: true },
-      ),
-    [runtime, sessionId],
-  )
-  // Draft Sync v2 (POD-859): when the session's daemon runs the composer engine, it
-  // owns native scrape + chat→native inject — so this client retires BOTH its 150ms
-  // native sampler and its one-shot chat→native flush. Read via a ref so the runtime
-  // check needs no effect dep (no terminal remount when the capability flips on).
-  const draftEngineRef = useRef(false)
-  draftEngineRef.current = session?.draftSyncEngine === true
-  // (`rearmFlushRef` is declared above the arbitration hook, which owns the
-  // chat→native edge that calls it: the flush machinery — one-shot guard plus
-  // bounded poll — lives inside onMounted's closure and otherwise only runs once,
-  // at mount. The terminal stays mounted across a chat↔native toggle (Task 6), so
-  // onMounted does NOT re-fire per toggle; without the re-arm a draft typed in
-  // chat and carried into native on a later toggle would never be injected.)
-  // Latest per-frame sampler, published by onMounted. Forwarded into
-  // useTerminalSession's onFrame via a stable wrapper defined before the hook
-  // call (onFrame is bound at mountSession-construction time, before onMounted
-  // — by the time any frame actually fires, onMounted has already run and
-  // reassigned this ref, since both happen synchronously in the same effect).
-  const scheduleSampleRef = useRef<() => void>(() => {})
 
   // Device-level terminal appearance (font size/family, line height, background).
   // `appearance` is memoized on the stored blob, so a settings change applies to
@@ -555,7 +511,6 @@ export const AgentPanel = observer(function AgentPanel({
     // Applied synchronously in onMounted below. Passing it here would make
     // useTerminalSession apply it a second time in its initial appearance
     // effect, which also schedules a redundant fit.
-    onFrame: () => scheduleSampleRef.current(),
     onMounted: (mounted) => {
       applyInitialTerminalAppearance(mounted.view, appearance)
       initialAppearanceAppliedRef.current = appearance
@@ -577,25 +532,6 @@ export const AgentPanel = observer(function AgentPanel({
         beginPaint: () => referenceStagesRef.current.beginPaint(),
         endPaint: () => referenceStagesRef.current.endPaint(),
       })
-      // Draft sync between the PTY and chat, both directions (#17/#62/#53,
-      // POD-859). Everything it needs from React arrives as a getter, so no
-      // closure here can capture a stale render's value; the chat->native edge
-      // that re-arms the one-shot flush is owned by the arbitration hook above.
-      const sync = createDraftSync({
-        mounted,
-        agentKind: session?.agentKind,
-        hasFocus: () => !!termRef.current?.contains(document.activeElement),
-        draft: () => draftRef.current,
-        engineActive: () => draftEngineRef.current,
-        publish: (text) => setSessionDraft(sessionId, text),
-      })
-      scheduleSampleRef.current = sync.scheduleSample
-      rearmFlushRef.current = sync.rearm
-      return () => {
-        rearmFlushRef.current = null
-        scheduleSampleRef.current = () => {}
-        sync.dispose()
-      }
     },
   })
 

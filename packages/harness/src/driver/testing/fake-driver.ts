@@ -1,4 +1,5 @@
 import { pageHistory } from '../history'
+
 /**
  * THE IN-MEMORY REFERENCE DRIVER (POD-1761 W1).
  *
@@ -27,11 +28,12 @@ import { pageHistory } from '../history'
  * strong one would prove nothing about the hardest driver.
  */
 
-import { supported, unsupported } from '../../manifest.js'
 import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { ProviderCursor } from '@podium/protocol'
+import { supported, unsupported } from '../../manifest.js'
 import { decideConfigure, noWhitespaceCheck } from '../configure.js'
 import { DriverRefusalError } from '../errors.js'
+import { createRuntimeEventStream } from '../events.js'
 import type {
   AgentSessionHandle,
   AttachEndpoint,
@@ -70,7 +72,6 @@ import type {
   UsageSnapshot,
   WatchLevel,
 } from '../host.js'
-import { createRuntimeEventStream } from '../events.js'
 
 // ---------------------------------------------------------------------------
 // The surviving-process registry — what makes `adopt()` testable
@@ -325,7 +326,6 @@ interface SessionCore {
    *  records a turn that never had a body. */
   queue: string[]
   lease: SessionLease | null
-  draft: string
   items: TranscriptItem[]
   alive: boolean
   oomEvents: number
@@ -521,7 +521,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
     staging: supported({ kinds: ['image', 'file'], promptForm: 'file-part' }),
     attach: supported({ kinds: family === 'terminal' ? ['engine'] : ['client'] }),
     lease: supported({ humanTakeover: true }),
-    snapshot: supported({ includesDraft: true }),
+    snapshot: supported({}),
     archive: resumable
       ? supported({ formatVersion: 1, byteFaithful: true })
       : unsupported(
@@ -530,7 +530,6 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
     resumeRefTiming,
     placement: 'dedicated',
     instrumentation: 'none',
-    draft: supported({ read: true, write: true }),
     /**
      * `permissionMode` USED TO BE DECLARED HERE AND IS GONE (POD-3081).
      *
@@ -763,7 +762,6 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
           observerGeneration: core.observerGeneration,
           turnEpoch: core.turnEpoch,
           interactions: [...core.interactions.values()],
-          draft: core.draft,
           at: stamp(),
         }
       },
@@ -819,7 +817,13 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
         if (options.delivery === 'at-boundary') {
-          return { outcome: 'refused', refusal: { reason: 'unsupported', detail: 'boundary delivery is not implemented by this driver' } }
+          return {
+            outcome: 'refused',
+            refusal: {
+              reason: 'unsupported',
+              detail: 'boundary delivery is not implemented by this driver',
+            },
+          }
         }
         assertLive()
         // HEADLESS FENCES (POD-4386). Refuse, never silently drop: a turn that
@@ -836,7 +840,10 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
           if (!input.accountId || !input.accountId.startsWith('native:')) {
             return {
               outcome: 'refused',
-              refusal: refuse('invalid_value', 'tool-less headless turn requires an exact native account fingerprint'),
+              refusal: refuse(
+                'invalid_value',
+                'tool-less headless turn requires an exact native account fingerprint',
+              ),
             }
           }
         }
@@ -869,7 +876,9 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
                 ...(input.contextPrompt !== undefined
                   ? { contextPrompt: input.contextPrompt }
                   : {}),
-                ...(input.contextPrompt !== undefined ? { contextPrompt: input.contextPrompt } : {}),
+                ...(input.contextPrompt !== undefined
+                  ? { contextPrompt: input.contextPrompt }
+                  : {}),
                 ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
                 ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
                 ...(input.overrides !== undefined ? { overrides: input.overrides } : {}),
@@ -1113,18 +1122,6 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       },
 
       // ---- extended ----
-      draft: {
-        async get() {
-          return core.draft
-        },
-        async set(text) {
-          if (core.draft !== text) {
-            core.draft = text
-            push(core, { t: 'draft', text })
-          }
-          return { ok: true as const }
-        },
-      },
 
       /**
        * THE REFERENCE IMPLEMENTATION, and it must go through the same decision
@@ -1194,7 +1191,6 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       expired: new Set(),
       queue: [],
       lease: null,
-      draft: '',
       items: [],
       alive: true,
       oomEvents: 0,

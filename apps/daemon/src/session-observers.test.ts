@@ -1,4 +1,3 @@
-import type { TerminalStateObservation } from '@podium/harness/driver/host'
 import { readFileSync } from 'node:fs'
 import { appendFile, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -8,34 +7,34 @@ import {
   type AgentStateProvider,
   acceptAgentObservation,
   agentStateProviderFor,
+  CODEX_TRUST_SUMMARY,
   captureClaudeTranscript,
   claudeProjectSlug,
   claudeTranscriptSegmentId,
+  codexUsageLimitSummary,
   type HarnessObserveInput,
   type HarnessObserverHost,
   harnessAdapterFor,
-  CODEX_TRUST_SUMMARY,
-  codexUsageLimitSummary,
   parseClaudeTranscriptSegmentId,
   STATE_CHANNEL_STALENESS_MS,
   supported,
   withStateChannelEvent,
 } from '@podium/harness'
-
+import type { TerminalStateObservation } from '@podium/harness/driver/host'
+import type { StatTick } from '@podium/harness/store'
 import { asSessionId, type SessionId } from '@podium/model'
+import type { DurableAttachment } from '@podium/process/durable'
 import type { AgentObservation, SessionObservationCheckpointV1 } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import type { StatTick } from '@podium/harness/store'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { DurableAttachment } from '@podium/process/durable'
 import { attachTestTerminal, testSessions } from './session/testing.js'
-import { writeHeadedInput } from './terminal/headed-input.js'
 import {
   CAUSAL_DELIVERY_RETRY_BASE_MS,
   createSessionObservers,
   IDLE_TRANSITION_DEBOUNCE_MS,
   type SpawnControl,
 } from './session-observers'
+import { writeHeadedInput } from './terminal/headed-input.js'
 
 class ManualStatTick implements StatTick {
   readonly watchers = new Set<() => void>()
@@ -68,7 +67,6 @@ function agentStateMsgs(sent: DaemonMessage[], sessionId: SessionId) {
 function setupControlledSession(sessionId = asSessionId('s-idle')) {
   const sent: DaemonMessage[] = []
   const states: TerminalStateObservation[] = []
-  const idle: boolean[] = []
   let nextEvents: AgentStateEvent[] = []
   const provider: AgentStateProvider = {
     instrumentation: () => ({ args: [] }),
@@ -81,7 +79,6 @@ function setupControlledSession(sessionId = asSessionId('s-idle')) {
   const observers = createSessionObservers({
     send: (m) => sent.push(m),
     onState: (state) => states.push(state),
-    onIdleState: (_sessionId, value) => idle.push(value),
     onTranscriptDirty: vi.fn(),
     cwdTracker: { onHookCwd: vi.fn(async () => {}) },
   })
@@ -113,7 +110,7 @@ function setupControlledSession(sessionId = asSessionId('s-idle')) {
     await Promise.resolve()
   }
 
-  return { sent, states, idle, apply, observers, sessionId }
+  return { sent, states, apply, observers, sessionId }
 }
 
 describe('session observer stat polling', () => {
@@ -908,15 +905,14 @@ describe('session observer →idle debounce', () => {
     vi.useRealTimers()
   })
 
-  it('keeps private state and composer idle debounced across idle refreshes', async () => {
-    const { states, idle, apply, observers, sessionId } = setupControlledSession()
+  it('keeps private state debounced across idle refreshes', async () => {
+    const { states, apply, observers, sessionId } = setupControlledSession()
     try {
       await apply([{ kind: 'prompt_submitted' }])
       await apply([{ kind: 'turn_completed' }])
       await vi.advanceTimersByTimeAsync(500)
       await apply([{ kind: 'turn_completed', verdict: { kind: 'open_todos' } }])
       expect(states.map(({ state }) => state.phase)).toEqual(['working'])
-      expect(idle).toEqual([false])
       await vi.advanceTimersByTimeAsync(500)
       expect(states.map(({ state }) => state.phase)).toEqual(['working', 'idle'])
       expect(states.at(-1)).toMatchObject({
@@ -924,7 +920,6 @@ describe('session observer →idle debounce', () => {
         bindingVersion: 1,
         state: { idle: { kind: 'open_todos' } },
       })
-      expect(idle).toEqual([false, true])
     } finally {
       observers.clearSession(sessionId)
     }
@@ -1192,7 +1187,9 @@ describe('Claude causal daemon emission', () => {
       await vi.waitFor(() => {
         expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
       })
-      expect(sent.find((message) => message.type === 'agentObservation')!.observation).toMatchObject({
+      expect(
+        sent.find((message) => message.type === 'agentObservation')!.observation,
+      ).toMatchObject({
         provenance: 'bootstrap',
         transitionKind: 'snapshot',
         observerGeneration: 2,
@@ -1252,7 +1249,9 @@ describe('Claude causal daemon emission', () => {
       await vi.waitFor(() => {
         expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
       })
-      expect(sent.find((message) => message.type === 'agentObservation')!.observation).toMatchObject({
+      expect(
+        sent.find((message) => message.type === 'agentObservation')!.observation,
+      ).toMatchObject({
         provenance: 'bootstrap',
         transitionKind: 'snapshot',
         observerGeneration: 2,
@@ -1295,7 +1294,9 @@ describe('Claude causal daemon emission', () => {
       )
       expect(observers.trackedState(sessionId)?.phase).toBe('idle')
       expect(
-        sent.filter((message) => message.type === 'agentState' || message.type === 'agentObservation'),
+        sent.filter(
+          (message) => message.type === 'agentState' || message.type === 'agentObservation',
+        ),
       ).toEqual([])
     } finally {
       observers.clearSession(sessionId)
@@ -1598,91 +1599,6 @@ describe('Claude causal daemon emission', () => {
       expect(sent.some((message) => message.type === 'agentState')).toBe(false)
     } finally {
       observers.clearSession(sessionId)
-      await rm(dir, { recursive: true, force: true })
-    }
-  })
-
-  it('keeps composer idle false through an unflushed causal turn and true only after terminal debounce', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-composer-causal-'))
-    const transcript = join(dir, 'claude-1.jsonl')
-    await writeFile(transcript, '')
-    const sent: DaemonMessage[] = []
-    const idleStates: boolean[] = []
-    const observers = createSessionObservers({
-      send: (message) => sent.push(message),
-      onTranscriptDirty: vi.fn(),
-      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
-      onIdleState: (_sessionId, idle) => idleStates.push(idle),
-    })
-    const prompt = {
-      hook_event_name: 'UserPromptSubmit',
-      session_id: 'claude-1',
-      transcript_path: transcript,
-      cwd: dir,
-      promptSource: 'system',
-      prompt: '<system-reminder>You have new Podium mail.</system-reminder>',
-    }
-    try {
-      observers.initSessionObservers(
-        {
-          type: 'spawn',
-          sessionId: asSessionId('podium-composer'),
-          agentKind: 'claude-code',
-          cwd: dir,
-          geometry: G,
-          durableLabel: 'podium-podium-composer',
-          observationGeneration: 7,
-          observationBindingVersion: 2,
-        },
-        { onFrame: () => () => {} } as never,
-        claudeProvider(),
-        { seedOnFrame: false },
-      )
-      observers.onHookPayload(asSessionId('podium-composer'), prompt)
-      await vi.waitFor(() => {
-        expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
-      })
-      const bootstrap = sent.find((message) => message.type === 'agentObservation')!.observation
-      observers.onObservationAck({
-        type: 'agentObservationAck',
-        sessionId: asSessionId('podium-composer'),
-        observerGeneration: 7,
-        bindingVersion: 2,
-        transitionId: bootstrap.transitionId,
-        result: 'snapshot_applied',
-        acceptedCursor: bootstrap.providerCursor,
-      })
-      await vi.waitFor(() => {
-        expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(2)
-      })
-      expect(idleStates).toEqual([false])
-      expect(sent.some((message) => message.type === 'agentState')).toBe(false)
-
-      const opened = sent
-        .filter((message) => message.type === 'agentObservation')
-        .at(-1)!.observation
-      observers.onObservationAck({
-        type: 'agentObservationAck',
-        sessionId: asSessionId('podium-composer'),
-        observerGeneration: 7,
-        bindingVersion: 2,
-        transitionId: opened.transitionId,
-        result: 'live_transition_accepted',
-        acceptedCursor: opened.providerCursor,
-      })
-      observers.onHookPayload(asSessionId('podium-composer'), {
-        ...prompt,
-        hook_event_name: 'Stop',
-      })
-      await vi.waitFor(() => {
-        expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(3)
-      })
-      expect(idleStates).toEqual([false])
-      await new Promise((resolve) => setTimeout(resolve, IDLE_TRANSITION_DEBOUNCE_MS + 25))
-      expect(idleStates).toEqual([false, true])
-      expect(sent.some((message) => message.type === 'agentState')).toBe(false)
-    } finally {
-      observers.clearSession(asSessionId('podium-composer'))
       await rm(dir, { recursive: true, force: true })
     }
   })
@@ -3210,7 +3126,14 @@ describe('Claude user interrupt ends the turn [POD-4633]', () => {
   const screen = (lines: string[]) => Buffer.from(`\x1b[2J\x1b[H${lines.join('\r\n')}`)
   const RULE = '─'.repeat(78)
   const PROMPT = '❯ Write the numbers from 1 to 2000'
-  const THINKING_SCREEN = [PROMPT, '✢ Pontificating… (2s · thinking)', RULE, '❯ ', RULE, '  ⏸ manual mode on · esc to interrupt']
+  const THINKING_SCREEN = [
+    PROMPT,
+    '✢ Pontificating… (2s · thinking)',
+    RULE,
+    '❯ ',
+    RULE,
+    '  ⏸ manual mode on · esc to interrupt',
+  ]
   // Esc before any output: Claude takes the turn back and returns the prompt to its box.
   const REWOUND_SCREEN = [RULE, PROMPT, RULE, '  ⏸ manual mode on']
   // Back at its prompt with nothing in the box.
@@ -3320,7 +3243,10 @@ describe('Claude user interrupt ends the turn [POD-4633]', () => {
         state: { idle: { kind: 'interrupted' } },
       })
       const fenced = turn.accept(ended)
-      expect(fenced.checkpoint.terminalFence).toMatchObject({ turnEpoch: 1, verdict: 'interrupted' })
+      expect(fenced.checkpoint.terminalFence).toMatchObject({
+        turnEpoch: 1,
+        verdict: 'interrupted',
+      })
       // What the delivery gate reads: the session is idle, so a held message goes out.
       expect(turn.observers.trackedState(turn.sessionId)?.phase).toBe('idle')
 
@@ -3375,7 +3301,8 @@ describe('Claude user interrupt ends the turn [POD-4633]', () => {
     const sessions = testSessions()
     let turn!: Awaited<ReturnType<typeof openClaudeTurn>>
     const cleared: string[] = []
-    const writeInput = (sessionId: SessionId, bytes: string) => writeHeadedInput(sessions, sessionId, bytes)
+    const writeInput = (sessionId: SessionId, bytes: string) =>
+      writeHeadedInput(sessions, sessionId, bytes)
     turn = await openClaudeTurn(20, writeInput)
     attachTestTerminal({ sessions }, turn.sessionId, {
       pid: 1,

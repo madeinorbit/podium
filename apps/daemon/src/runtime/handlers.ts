@@ -25,7 +25,6 @@ import { type AgentKind, hasTurnEnded, type SessionId } from '@podium/model'
 import type { SessionPosture } from '@podium/protocol'
 import type {
   RuntimeConfigureResultMessage,
-  RuntimeDraftResultMessage,
   RuntimeHistoryResultMessage,
   RuntimeSendRequestMessage,
   RuntimeSnapshotResultMessage,
@@ -126,7 +125,6 @@ export const runtimeHandlers: Pick<
   | 'runtimeAnswerRequest'
   | 'runtimeLifecycleRequest'
   | 'runtimeConfigureRequest'
-  | 'runtimeDraftRequest'
   | 'runtimeSnapshotRequest'
   | 'runtimeHistoryRequest'
   | 'runtimeQueueDrainAbandonedAck'
@@ -523,43 +521,6 @@ export const runtimeHandlers: Pick<
       .catch((err: unknown) => answer({ reason: 'not_running', detail: String(err) }))
   },
 
-  /**
-   * THE OBSERVATION BOOTSTRAP (POD-2023) — the frame that makes the runtime event stream's
-   * recovery contract stand on its own.
-   *
-   * A server that missed events re-reads from `snapshot()` and its cursor. That
-   * was the recovery story from W1 onward, and until this handler existed it
-   * named a call no remote caller could make. There is no interpretation here:
-   * the snapshot is what the handle returned, and a session that is not behind
-   * the contract answers `not_running`, which is the true statement rather than
-   * an empty snapshot a consumer would mistake for "nothing has happened".
-   */
-  runtimeDraftRequest: (ctx, msg) => {
-    const answer = (result: RuntimeDraftResultMessage['result']): void => {
-      ctx.send({
-        type: 'runtimeDraftResult',
-        requestId: msg.requestId,
-        sessionId: msg.sessionId,
-        result,
-      })
-    }
-    const handle = handleFor(ctx, msg.sessionId)
-    if (!handle) {
-      answer({ reason: 'not_running' })
-      return
-    }
-    void Promise.resolve()
-      .then(async () => {
-        if (msg.operation.verb === 'get') {
-          const result = await handle.draft.get()
-          answer(typeof result === 'string' ? { text: result } : result)
-        } else {
-          answer(await handle.draft.set(msg.operation.text))
-        }
-      })
-      .catch((err: unknown) => answer({ reason: 'not_running', detail: String(err) }))
-  },
-
   runtimeHistoryRequest: (ctx, msg) => {
     const answer = (result: RuntimeHistoryResultMessage['result']): void => {
       ctx.send({
@@ -582,6 +543,17 @@ export const runtimeHandlers: Pick<
       )
   },
 
+  /**
+   * THE OBSERVATION BOOTSTRAP (POD-2023) — the frame that makes the runtime event stream's
+   * recovery contract stand on its own.
+   *
+   * A server that missed events re-reads from `snapshot()` and its cursor. That
+   * was the recovery story from W1 onward, and until this handler existed it
+   * named a call no remote caller could make. There is no interpretation here:
+   * the snapshot is what the handle returned, and a session that is not behind
+   * the contract answers `not_running`, which is the true statement rather than
+   * an empty snapshot a consumer would mistake for "nothing has happened".
+   */
   runtimeSnapshotRequest: (ctx, msg) => {
     const answer = (result: RuntimeSnapshotResultMessage['result']): void => {
       ctx.send({

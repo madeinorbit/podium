@@ -211,8 +211,6 @@ describe('adopt rebinding delivers mail (POD-4794 defect 1)', () => {
         }),
         send: (msg) => frames.push(msg),
         trackedState: (sessionId) => phases.get(sessionId),
-        draftSyncing: () => false,
-        setDraftTarget: () => false,
         observationLease: () => undefined,
         recover: async ({ sessionId }) => ({
           terminal: ensureTransport(sessionId),

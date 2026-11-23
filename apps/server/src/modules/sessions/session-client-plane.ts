@@ -133,7 +133,6 @@ export class SessionClientPlane {
       ...(Number.isFinite(Date.parse(session.createdAt))
         ? { createdAtMs: Date.parse(session.createdAt) }
         : {}),
-      ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
     } as ControlMessage
   }
 

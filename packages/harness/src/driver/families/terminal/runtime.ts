@@ -28,7 +28,7 @@ import { respondToMailBoundary } from './mail-boundary.js'
  * Nineteen thousand lines of survived edge cases sit under this file: the spawn
  * path's launch-file materialization and instrumentation env, the observers'
  * causal fencing, binding-store's transition machine, the transcript tail's
- * segment rotation, composer-sync's screen scrape. NONE of it moves. What this
+ * segment rotation. NONE of it moves. What this
  * file does is give that machinery ONE DOORWAY, so that a feature asking "send
  * this text and tell me whether it landed" gets an answer with the same shape it
  * will get from `opencode-server` — and so switching a session between them is a
@@ -48,8 +48,8 @@ import { respondToMailBoundary } from './mail-boundary.js'
  * `agentObservation` carries the whole causal envelope (cursor, observer
  * generation, turn epoch, provenance, event time) plus the phase transition;
  * `transcriptDelta` carries items; `agentExit` carries process death;
- * `sessionCwd` and `sessionGitActivity` carry workspace moves; `nativeDraft`
- * carries the composer; `agentContext` carries usage.
+ * `sessionCwd` and `sessionGitActivity` carry workspace moves; `agentContext`
+ * carries usage.
  *
  * So the driver TAPS that stream (see {@link TerminalRuntime.observe}) and
  * translates. Three consequences worth stating, because they are the reasons
@@ -391,7 +391,6 @@ interface DriverSession {
   /** The open ask a screen-classified wait opened, if any (POD-4632). */
   screenAskId?: string
   lease: SessionLease | null
-  draft: string | undefined
   metadata: Map<SessionMetadataChange['kind'], SessionMetadataObservation>
   contextUsedPercent: number | undefined
   observedStatePhase: AgentRuntimeState['phase'] | undefined
@@ -559,7 +558,6 @@ export interface TerminalRuntime {
   /** Undefined means this session has no driver-owned context channel. */
   boundaryContextFor(sessionId: SessionId): BoundaryContextOperation | undefined
 
-  observeDraft(sessionId: SessionId, text: string): void
   /** Put a session behind the contract. Idempotent for the same binding version:
    *  a reconnect re-sends reattach, and re-registering must rebind rather than
    *  open a second record. */
@@ -1138,13 +1136,6 @@ export function createTerminalRuntime(
     }
   }
 
-  function observeDraft(sessionId: SessionId, text: string): void {
-    const session = sessions.get(sessionId)
-    if (!session || session.disposed || session.draft === text) return
-    session.draft = text
-    emit(session, { t: 'draft', text }, observedAt(), 'live')
-  }
-
   function observeMetadata(
     session: DriverSession,
     change: SessionMetadataChange,
@@ -1405,10 +1396,6 @@ export function createTerminalRuntime(
           new Date(host.now()).toISOString(),
           'live',
         )
-        return
-      }
-      case 'nativeDraft': {
-        observeDraft(session.sessionId, msg.text)
         return
       }
       case 'agentState':
@@ -2576,7 +2563,6 @@ export function createTerminalRuntime(
       interactionOwners: new Map(),
       answered: new Set(),
       lease: null,
-      draft: undefined,
       contextUsedPercent: undefined,
       metadata: new Map(),
       observedStatePhase: undefined,
@@ -2737,7 +2723,6 @@ export function createTerminalRuntime(
           turnEpoch: session.turnEpoch,
           interactions: [...session.interactions.values()],
           metadata: [...session.metadata.values()],
-          ...(session.draft !== undefined ? { draft: session.draft } : {}),
           at: new Date(host.now()).toISOString(),
         }
       },
@@ -3210,25 +3195,6 @@ export function createTerminalRuntime(
       },
 
       // ---- extended ----
-      draft: {
-        async get() {
-          if (!host.draftSyncing(session.sessionId)) {
-            return refuse('unsupported', 'composer sync is not running for this session')
-          }
-          return session.draft ?? ''
-        },
-        async set(text) {
-          if (session.disposed) return refuse('not_running')
-          if (
-            !host.draftSyncing(session.sessionId) ||
-            !host.setDraftTarget(session.sessionId, text)
-          ) {
-            return refuse('unsupported', 'composer injection is unavailable for this session')
-          }
-          observeDraft(session.sessionId, text)
-          return { ok: true as const }
-        },
-      },
 
       /**
        * REFUSES, and the capability says the same thing for the same reason —
@@ -3503,7 +3469,6 @@ export function createTerminalRuntime(
     },
     observe,
     observeState: (observation) => observe({ type: 'terminalState', ...observation }),
-    observeDraft,
     onHookPayload,
     async respondToHook(sessionId, payload, signal) {
       const session = sessions.get(sessionId)
@@ -3704,11 +3669,6 @@ function capabilitiesFor(profile: TerminalHarnessProfile | undefined): DriverCap
     composerReadiness: resolved.composerReadiness,
     interactionsFromHooks: resolved.interactionsFromHooks === true,
     usesRawFirstTurn: resolved.usesRawFirstTurn,
-    // Composer sync is a per-session flag, and the capability is a per-DRIVER
-    // declaration, so the driver declares what it can do when the engine runs and
-    // `draft.get()` refuses per session when it does not. Declaring it false here
-    // would hide a working read behind a capability nobody would consult.
-    draftReadable: true,
     reportsContextPercent: resolved.reportsContextPercent,
     archivable: resolved.archivable,
     queuesBusyInput: resolved.queuesBusyInput === true,

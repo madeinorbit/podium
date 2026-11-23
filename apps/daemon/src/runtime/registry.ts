@@ -19,8 +19,8 @@
  */
 
 import {
-  AGENT_MANIFESTS,
   type AcceptedDriverId,
+  AGENT_MANIFESTS,
   canonicalDriverId,
   type DriverId,
   declaredValue,
@@ -31,10 +31,11 @@ import {
   manifestFor,
   type SelectionContext,
 } from '@podium/harness'
-import type { TerminalInstrumentationSections } from '@podium/harness/driver/host'
-import type { TerminalComposerSections } from '@podium/harness/driver/host'
+import type {
+  TerminalHarnessProfile,
+  TerminalInstrumentationSections,
+} from '@podium/harness/driver/host'
 import type { AgentKind } from '@podium/model'
-import type { TerminalHarnessProfile } from '@podium/harness/driver/host'
 
 /**
  * The per-harness facts the terminal driver needs, resolved from the manifest.
@@ -100,24 +101,6 @@ export function terminalInstrumentationSectionsFor(kind: string): TerminalInstru
   // the family looks its strategy up by `scope.kind`, so no environment or
   // capability flag is handed here.
   return { instrumentation }
-}
-
-/**
- * THE COMPOSER SECTIONS THE TERMINAL FAMILY IS HANDED (POD-4477, spec §4.1).
- *
- * The same shape as {@link terminalInstrumentationSectionsFor}: the ONE place
- * that resolves a manifest by harness kind for composer sync. The engine
- * receives this typed subset — never the whole Adapter and never a kind to
- * look up. Unknown kinds and harnesses with a declined composer section
- * answer `undefined`, and the engine treats that as "no sync for this
- * session" (composer sync is best-effort behind the draftSync flag, not an
- * install gate, so absence is a no-op rather than a refusal).
- */
-export function terminalComposerSectionsFor(kind: string): TerminalComposerSections | undefined {
-  const manifest = manifestFor(kind)
-  const composer = manifest ? declaredValue(manifest.composer) : undefined
-  if (!manifest || !composer) return undefined
-  return { composer }
 }
 
 // ---------------------------------------------------------------------------

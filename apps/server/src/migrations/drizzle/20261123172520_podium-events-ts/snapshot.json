@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "8d4ce055-b7be-4efb-8eec-0f9c03bb37a7",
+  "id": "9933c204-b6b5-4518-aa1e-86ee56a10500",
   "prevIds": [
-    "29db6356-24e4-4d0b-b6c5-0faf9fab8a16"
+    "bf4ba73a-a3f5-4929-9b28-7e077fd7b7a5"
   ],
   "ddl": [
     {
@@ -9045,16 +9045,6 @@
       "default": null,
       "generated": null,
       "name": "bound_driver_capabilities",
-      "entityType": "columns",
-      "table": "sessions"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": "0",
-      "generated": null,
-      "name": "draft_sync_engine",
       "entityType": "columns",
       "table": "sessions"
     },

@@ -195,7 +195,6 @@ export function durableStateFromInit(init: StoredSessionInit): SessionDurableSta
     effectiveAuth: init.effectiveAuth,
     credentialMismatch: init.credentialMismatch,
     credentialId: init.credentialId,
-    draftSyncEngine: init.draftSyncEngine === true,
     handoffTargetMachineId: init.handoffTargetMachineId,
     conversationPodiumId: undefined,
     draftUpdatedAt: undefined,
@@ -343,7 +342,6 @@ export function storedSessionInit(
     // What a daemon last reported and the transcript tail last showed (POD-6764).
     // They describe the session until it starts again, when a bind and the
     // tail's seed window state them afresh.
-    ...(r.draftSyncEngine ? { draftSyncEngine: true } : {}),
     ...(r.agentColor ? { agentColor: r.agentColor } : {}),
     ...(r.observedModel ? { observedModel: r.observedModel } : {}),
     ...(r.observedEffort ? { observedEffort: r.observedEffort } : {}),
@@ -467,7 +465,6 @@ export function projectSessionMeta(s: SessionIdentity, d: SessionDurableFields):
     ...(configureFields ? { configureFields: [...configureFields] } : {}),
     ...(attachKinds ? { attachKinds: [...attachKinds] } : {}),
     ...(d.draftUpdatedAt !== undefined ? { draftUpdatedAt: d.draftUpdatedAt } : {}),
-    ...(d.draftSyncEngine ? { draftSyncEngine: true } : {}),
     ...(d.offer !== undefined ? { offer: d.offer } : {}),
     ...(d.handoffTargetMachineId ? { handoffTargetMachineId: d.handoffTargetMachineId } : {}),
     ...(driverId ? { driverId } : {}),

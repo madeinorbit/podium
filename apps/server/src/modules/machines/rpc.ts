@@ -80,7 +80,6 @@ import type {
   ControlMessage,
   DaemonMessage,
   RuntimeConfigureResultMessage,
-  RuntimeDraftResultMessage,
   RuntimeHistoryResultMessage,
   RuntimeLifecycleResultMessage,
   RuntimeSnapshotResultMessage,
@@ -356,7 +355,6 @@ const log = createLogger('server:daemon-rpc')
  *  release so the fan-in remains total over the frames the gateway routes. */
 const RUNTIME_HISTORY = daemonRequestKind<Payload<RuntimeHistoryResultMessage>>('rh')
 const RUNTIME_SNAPSHOT = daemonRequestKind<Payload<RuntimeSnapshotResultMessage>>('rn')
-const RUNTIME_DRAFT = daemonRequestKind<Payload<RuntimeDraftResultMessage>>('rd')
 const RUNTIME_CONFIGURE = daemonRequestKind<Payload<RuntimeConfigureResultMessage>>('rc')
 
 /** How ONE reply frame settles: pick the family, project the payload, hand both
@@ -530,8 +528,6 @@ const RPC_REPLY_SETTLERS: { [K in SettledFrameType]: ReplySettler<K> } = {
     void broker.settle(RUNTIME_HISTORY, msg.requestId, machineId, payloadOf(msg)),
   runtimeSnapshotResult: (broker, machineId, msg) =>
     void broker.settle(RUNTIME_SNAPSHOT, msg.requestId, machineId, payloadOf(msg)),
-  runtimeDraftResult: (broker, machineId, msg) =>
-    void broker.settle(RUNTIME_DRAFT, msg.requestId, machineId, payloadOf(msg)),
   runtimeConfigureResult: (broker, machineId, msg) =>
     void broker.settle(RUNTIME_CONFIGURE, msg.requestId, machineId, payloadOf(msg)),
 }
@@ -1174,19 +1170,6 @@ export class DaemonRpcService {
    * session. Manufacturing an empty snapshot would hand a consumer a cursor that
    * silently discards everything before it.
    */
-  async runtimeDraft(
-    input: { sessionId: SessionId; operation: { verb: 'get' } | { verb: 'set'; text: string } },
-    machineId: MachineId,
-  ): Promise<Payload<RuntimeDraftResultMessage>> {
-    return await this.request(
-      RUNTIME_DRAFT,
-      RUNTIME_VERB_TIMEOUT_MS,
-      () => ({ sessionId: input.sessionId, result: { reason: 'not_running' as const } }),
-      (requestId) => ({ type: 'runtimeDraftRequest', requestId, ...input }),
-      machineId,
-    )
-  }
-
   async runtimeSnapshot(
     sessionId: SessionId,
     machineId: MachineId,

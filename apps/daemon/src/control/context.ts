@@ -8,7 +8,6 @@ import type { ConversationDeltaWire } from '../active-refresh'
 import type { AgentRelayHub } from '../agent-relay'
 import type { BindingStore } from '../binding-store'
 import type { BrowserOpenManager } from '../browser-open'
-import type { ComposerSyncEngine } from '../composer-sync'
 import type { DaemonHarnessRuntime } from '../harness-runtime.js'
 import type { HarnessUpdater } from '../installs/updater'
 import type { OutputScheduler } from '../output-scheduler'
@@ -93,8 +92,6 @@ export interface DaemonContext {
    * Session is what OWNS one.
    */
   sessions: SessionRegistry
-  /** Draft Sync v2 (POD-859): read-only/inject composer engine for flagged sessions. */
-  composerEngine: ComposerSyncEngine
   /** Coalesced, prioritized PTY frame relay. */
   outputScheduler: OutputScheduler
   /**

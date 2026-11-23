@@ -53,7 +53,6 @@ const BOOLEAN_COLUMNS = [
   // The materialized asking flag is maintained by the offer/checkpoint triggers.
   'sessions.asks_user',
   'sessions.desired_force',
-  'sessions.draft_sync_engine',
   'sessions.headless',
   'subscriptions.deliver_notify',
   'subscriptions.deliver_nudge',

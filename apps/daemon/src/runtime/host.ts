@@ -78,8 +78,6 @@ export function daemonRuntimeHost(
       save: (sessionId, watch) => ctx.bindingStore.saveTerminalProofWatch(sessionId, watch),
       remove: (sessionId, turnId) => ctx.bindingStore.removeTerminalProofWatch(sessionId, turnId),
     },
-    draftSyncing: (sessionId) => ctx.composerEngine.has(sessionId),
-    setDraftTarget: (sessionId, text) => ctx.composerEngine.setTarget(sessionId, text),
     // The lease rides the server's spawn or reattach order; a session the
     // contract drives directly has none.
     observationLease: (sessionId) => {

@@ -471,13 +471,12 @@ export function headlessCapabilities(harness?: string): DriverCapabilities {
       supported: false,
       reason: 'no human terminal to take over on a headless session',
     },
-    snapshot: { supported: true, value: { includesDraft: false } },
+    snapshot: { supported: true, value: {} },
     archive: headlessArchivable(archivableHarness)
       ? supported({ formatVersion: 1, byteFaithful: true })
       : unsupported('this harness declares no handoff transcript locator'),
     resumeRefTiming: 'first-turn',
     placement: 'dedicated',
-    draft: { supported: false, reason: 'headless sessions have no composer' },
     configure: {
       supported: true,
       value: {
@@ -1519,14 +1518,6 @@ export function createHeadlessRuntime(
         async release(): Promise<void> {},
         async state(): Promise<SessionLease | null> {
           return null
-        },
-      },
-      draft: {
-        async get(): Promise<string | Refusal> {
-          return refuse('unsupported', 'headless sessions have no composer')
-        },
-        async set(): Promise<Refusal | { ok: true }> {
-          return refuse('unsupported', 'headless sessions have no composer')
         },
       },
       async configure(request: ConfigureRequest): Promise<Refusal | { ok: true }> {

@@ -455,9 +455,6 @@ export class SessionDaemonLifecycle {
         this.inbox.markSessionBound(msg.sessionId)
         const s = this.sessions.get(msg.sessionId)
         if (s) {
-          // Whether the daemon runs the composer engine for this session (POD-859)
-          // — surfaced in meta so a client retires its own sampler/flush.
-          s.draftSyncEngine = msg.draftSyncEngine ?? false
           // Whether the daemon bound a driver for this session (POD-1761 W4,
           // renamed POD-4440) — the bound fact W4's migrated senders branch on.
           // Read off `driverId`, the live handle's binding: the daemon binds a
@@ -499,7 +496,6 @@ export class SessionDaemonLifecycle {
             draft.boundDriverId = msg.driverId
             // Stored with the binding (POD-6764), so the record says what the
             // daemon last reported without asking this process.
-            draft.draftSyncEngine = msg.draftSyncEngine ?? false
             draft.boundDriverCapabilities =
               msg.driverId === undefined
                 ? undefined
@@ -524,9 +520,6 @@ export class SessionDaemonLifecycle {
         // session to 'live', so by the time it looks, an unproven CLI and a
         // long-settled one are the same word (POD-1100).
         await this.inbox.drain(msg.sessionId, { justBound: true })
-        // Catchup (POD-859 §6): seed native with a chat draft edited while the
-        // session was down — on BIND (the engine is attached by the time the daemon
-        // reports draftSyncEngine), not on reattach (dispatched before attach).
         if (msg.driverId !== undefined) {
           void this.ports
             .initializeRuntimeMetadata?.(msg.sessionId, machineId)
@@ -537,20 +530,6 @@ export class SessionDaemonLifecycle {
               }),
             )
         }
-        if (msg.driverId !== undefined || msg.draftSyncEngine) {
-          void this.state
-            .initializeRuntimeDraft(msg.sessionId, machineId)
-            .catch((error: unknown) =>
-              log.warn('runtime draft bootstrap failed', { sessionId: msg.sessionId, err: error }),
-            )
-        }
-        break
-      }
-      case 'nativeDraft': {
-        // The daemon's composer engine scraped the native composer (POD-859).
-        // Sequence it as an origin='native' versioned edit and broadcast. Skip a
-        // message the server is currently typing OUT (reviewer fix 5).
-        await this.state.handleNativeDraft(msg.sessionId, msg.text)
         break
       }
       case 'agentFrame':

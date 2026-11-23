@@ -716,7 +716,6 @@ export class SessionRevival {
       // management §8): read from the vault above, before the row was
       // written, and held in memory until this frame goes out.
       ...(access.access ? { access: access.access } : {}),
-      ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
     })
     await preparedInstructions.commit()
     if (selection?.forced) {

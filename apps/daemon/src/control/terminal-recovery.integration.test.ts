@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createTerminalRuntime } from '@podium/harness/driver/host'
 import { asSessionId } from '@podium/model'
-import { createDurableProcess, killHostSession, resolveHostBin, spawnHostAgent } from '@podium/process/durable'
+import {
+  createDurableProcess,
+  killHostSession,
+  resolveHostBin,
+  spawnHostAgent,
+} from '@podium/process/durable'
 import type { DurableAttachment } from '@podium/process/screen'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { expect, it } from 'vitest'
@@ -60,7 +65,6 @@ it('rebuilds the screen from a durable survivor, and a link-B reattach never sig
       settingsDir: join(root, 'settings'),
       sessions: testSessions(),
       durableLabelFor: () => label,
-      composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
       outputScheduler: {
         enqueue: () => {
           redrawFrames += 1

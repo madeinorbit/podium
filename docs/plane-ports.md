@@ -88,7 +88,7 @@ at this branch's implementation baseline (`6931d7f6`):
 | Frames classified ahead of their wire landing (D16) | — | 1 |
 
 The delta is drift the ADR's baseline predates, not reclassification: the scoped feed and presence-room families, credential export/install,
-Draft Sync v2 (`draftEdit`, `draftTarget`, `nativeDraft`), the agent-observation family,
+Draft Sync v2 (`draftEdit`), the agent-observation family,
 `sessionViewDelta`, `sessionGitActivity`, `agentModel`, and `browseDirs*`. Every one keeps the
 class it had under `MessageSyncClass`, translated through D1's bridge. `inventory.test.ts`
 re-derives these numbers from the code on every run, so they cannot drift the way a number in

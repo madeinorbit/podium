@@ -229,9 +229,7 @@ export interface AttachmentStagingCapability {
    * The corpus reads it per kind either way, and holds the one pairing that is
    * always a lie: `local-image` may only ever be the form for an IMAGE.
    */
-  promptForm:
-    | AttachmentPromptForm
-    | { readonly [K in AttachmentKind]?: AttachmentPromptForm }
+  promptForm: AttachmentPromptForm | { readonly [K in AttachmentKind]?: AttachmentPromptForm }
 }
 
 /** The declared form for one kind, whichever spelling the driver used. */
@@ -269,7 +267,7 @@ export interface DriverCapabilities {
   staging: Declared<AttachmentStagingCapability>
   attach: Declared<AttachCapability>
   lease: Declared<{ humanTakeover: boolean }>
-  snapshot: Declared<{ includesDraft: boolean }>
+  snapshot: Declared<Record<string, never>>
   archive: Declared<{ formatVersion: number; byteFaithful: boolean }>
   resumeRefTiming: ResumeRefTiming
   /** Dedicated process per session is v1's guarantee. A POOLED driver visibly
@@ -278,7 +276,6 @@ export interface DriverCapabilities {
   placement: 'dedicated' | 'pooled'
 
   // ---- EXTENDED ----
-  draft: Declared<{ read: boolean; write: boolean }>
   configure: Declared<ConfigureCapability>
   usage: Declared<{ perTurn: boolean }>
   openUrl: Declared<{ intents: readonly ('login' | 'link')[] }>

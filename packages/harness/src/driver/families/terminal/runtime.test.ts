@@ -548,8 +548,6 @@ function makeWorld(
       for (const listener of frameListeners) listener(msg)
     },
     trackedState: (sessionId) => phases.get(sessionId),
-    draftSyncing: () => false,
-    setDraftTarget: () => false,
     observationLease: () => undefined,
     // The attach is the proof the process lives: no survivor, no recovery.
     recover: async ({ sessionId, workdir, agentKind }) => {
@@ -4532,55 +4530,6 @@ describe('capabilities', () => {
     // terminal is exactly the thing it has.
     expect(caps.attach.supported).toBe(true)
     expect(caps.observation.watchLevels).toEqual(['coarse'])
-    expect(caps.draft.supported && caps.draft.value.write).toBe(true)
-  })
-})
-
-describe('contract draft synchronization', () => {
-  it('pushes native changes and routes writes through the composer target', async () => {
-    const world = makeWorld()
-    world.host.draftSyncing = () => true
-    const target = vi.fn(() => true)
-    Object.assign(world.host, { setDraftTarget: target })
-    const driver = world.runtime.driverFor('claude-code', CLAUDE)
-    const session = await driver.create(SPEC)
-    world.runtime.observe({
-      type: 'nativeDraft',
-      sessionId: session.binding.sessionId,
-      text: 'half typed',
-    })
-    expect(world.frames).toContainEqual(
-      expect.objectContaining({
-        type: 'runtimeEvent',
-        event: expect.objectContaining({ t: 'draft', text: 'half typed' }),
-      }),
-    )
-    expect(await session.draft.get()).toBe('half typed')
-    expect(await session.draft.set('replacement')).toEqual({ ok: true })
-    expect(target).toHaveBeenCalledWith(session.binding.sessionId, 'replacement')
-  })
-})
-
-describe('draft write availability', () => {
-  it('refuses when the composer is disabled or demoted', async () => {
-    const world = makeWorld()
-    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
-    expect(await session.draft.set('blocked')).toMatchObject({ reason: 'unsupported' })
-    world.host.draftSyncing = () => true
-    expect(await session.draft.set('still blocked')).toMatchObject({ reason: 'unsupported' })
-  })
-
-  it('publishes a cleared draft once and includes it in snapshots', async () => {
-    const world = makeWorld()
-    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
-    world.runtime.observeDraft(session.binding.sessionId, 'draft')
-    world.runtime.observeDraft(session.binding.sessionId, '')
-    world.runtime.observeDraft(session.binding.sessionId, '')
-    const drafts = world.frames.filter(
-      (frame) => frame.type === 'runtimeEvent' && frame.event.t === 'draft',
-    )
-    expect(drafts).toHaveLength(2)
-    expect((await session.snapshot()).draft).toBe('')
   })
 })
 

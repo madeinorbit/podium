@@ -1246,7 +1246,6 @@ CREATE TABLE "sessions" (
 	"requested_driver_id" text COLLATE "C",
 	"bound_driver_id" text COLLATE "C",
 	"bound_driver_capabilities" text COLLATE "C",
-	"draft_sync_engine" boolean DEFAULT false NOT NULL,
 	"agent_color" text COLLATE "C",
 	"agent_state_json" json,
 	"observed_model" text COLLATE "C",

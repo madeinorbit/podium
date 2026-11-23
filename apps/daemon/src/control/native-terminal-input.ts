@@ -48,6 +48,4 @@ export function dispatchNativeInputBytes(
   if (bridge && metadata.inputOrigin === 'human' && submitted) {
     driverTiming.nativePromptSubmitted(metadata.sessionId)
   }
-  // Only accepted bytes make the native replica hot or change attribution.
-  ctx.composerEngine.onInputByte(metadata.sessionId)
 }

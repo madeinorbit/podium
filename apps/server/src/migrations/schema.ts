@@ -259,12 +259,10 @@ export const sessions = sqliteTable(
     /**
      * WHAT THE SESSION RECORD USED TO READ FROM SERVER MEMORY (POD-6764), stored
      * so the record builds from this row alone. Each describes the session
-     * until it starts again: the daemon's last bind report (whether it runs the
-     * composer engine), what the transcript tail last showed (the agent's
+     * until it starts again: what the transcript tail last showed (the agent's
      * colour, the model and effort answering), and the machine a move in flight
-     * is going to. NULL / 0 = not reported, or a row from before these columns.
+     * is going to. NULL = not reported, or a row from before these columns.
      */
-    draftSyncEngine: integer('draft_sync_engine', { mode: 'boolean' }).default(sql`0`).notNull(),
     agentColor: text('agent_color'),
     // Last accepted unfenced report; durable checkpoints override it when read.
     agentStateJson: text('agent_state_json'),

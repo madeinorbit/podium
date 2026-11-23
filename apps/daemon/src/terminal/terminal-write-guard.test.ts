@@ -63,7 +63,6 @@ const INVENTORY: Record<string, Sink> = {
   // onto the session's Terminal in one place (POD-4785).
   "runtime/terminal-transport.ts: terminal.writeBase64(dataBase64, role === 'message' ? MESSAGE_WRITE : undefined),":
     'terminal',
-  'composer-sync.ts: if (this.ownsScreen) this.screen.write(data)': 'screen emulator',
   'terminal-screen-observer.ts: if (ownsScreen) screenReader.write(data)': 'screen emulator',
   'handoff-package.ts: await handle.write(input.data, 0, input.data.length, input.offset)':
     'file handle',

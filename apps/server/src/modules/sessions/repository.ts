@@ -23,7 +23,6 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import type { WriteScope } from '@podium/sync'
 import { type BaselineFoldPort, StagedOverlay } from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
-import { isFeatureEnabled } from '../../features'
 import type { SessionRow, SessionStore } from '../../store'
 import type { WriteFunnel } from '../funnel'
 import type { MemoryService } from '../memory/service'
@@ -1246,9 +1245,6 @@ export class SessionRepository {
     const checkpoints = await this.store.observationCheckpoints.checkpointsOf(ids)
 
     // Shared draft documents hydrate here; viewer rows remain lazy per principal.
-    this.state.setDraftSyncEnabled(
-      isFeatureEnabled('draft-sync', await this.store.settings.getSettings()),
-    )
     await this.state.loadFromStore()
     bootStage('sessions draft hydration', recoveryStarted)
     const rowsStarted = performance.now()

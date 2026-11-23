@@ -26,7 +26,9 @@ import { shellChildEnv } from './session-env'
 type Size = { cols: number; rows: number }
 
 /** A host-shaped attachment: the test plays the host's WELCOME/RESIZED. */
-function fakeHost(opts: { welcome?: Size; answer?: 'ack' | 'refuse' | 'never' } = {}): DurableAttachment & {
+function fakeHost(
+  opts: { welcome?: Size; answer?: 'ack' | 'refuse' | 'never' } = {},
+): DurableAttachment & {
   asks: Array<[number, number]>
   state: (size: Size) => void
 } {
@@ -69,7 +71,6 @@ function daemonContext(): { ctx: DaemonContext; sent: DaemonMessage[] } {
     backend: 'host',
     settingsDir: join(tmpdir(), 'podium-session-geometry-test'),
     sessions: testSessions(),
-    composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
     outputScheduler: { enqueue: () => {}, remove: () => {}, flushNow: () => {} },
     observers: { clearSession: () => {} },
     sessionCwdTracker: { clear: () => {} },

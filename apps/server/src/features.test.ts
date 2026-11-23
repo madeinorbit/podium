@@ -273,65 +273,14 @@ describe('isFeatureEnabled', () => {
   })
 })
 
-describe('draft-sync feature (POD-859)', () => {
-  it('is listed on the edge channel and carries its registry metadata', () => {
-    const result = getFeatureStates(
-      settings(),
-      { updateChannel: 'edge' },
-      { PODIUM_APP_VERSION: '1.0.0' },
+describe('retired draft-sync feature (POD-7417)', () => {
+  it('ignores saved user and config overrides for the removed flag', () => {
+    const state = getFeatureStates(
+      settings({ 'draft-sync': true }),
+      { updateChannel: 'edge', features: { 'draft-sync': true } },
+      { PODIUM_APP_VERSION: 'dev' },
     )
-    const flag = result.flags.find((f) => f.id === 'draft-sync')
-    expect(flag).toMatchObject({
-      id: 'draft-sync',
-      visibility: 'edge',
-      listed: true,
-      enabled: false,
-      source: 'default',
-    })
-    expect(flag?.name.length ?? 0).toBeGreaterThan(0)
-    expect(flag?.description.length ?? 0).toBeGreaterThan(0)
-  })
-
-  it('is NOT listed on the stable channel in a release build', () => {
-    const flag = getFeatureStates(
-      settings(),
-      { updateChannel: 'stable' },
-      { PODIUM_APP_VERSION: '1.0.0' },
-    ).flags.find((f) => f.id === 'draft-sync')
-    expect(flag).toMatchObject({ listed: false, enabled: false })
-  })
-
-  it('user toggle enables it on the edge channel (round-trips through experimental)', () => {
-    expect(
-      isFeatureEnabled(
-        'draft-sync',
-        settings({ 'draft-sync': true }),
-        { updateChannel: 'edge' },
-        { PODIUM_APP_VERSION: '1.0.0' },
-      ),
-    ).toBe(true)
-  })
-
-  it('user toggle is ignored on the stable channel (unlisted edge flag)', () => {
-    expect(
-      isFeatureEnabled(
-        'draft-sync',
-        settings({ 'draft-sync': true }),
-        { updateChannel: 'stable' },
-        { PODIUM_APP_VERSION: '1.0.0' },
-      ),
-    ).toBe(false)
-  })
-
-  it('config override forces it on even on stable/unlisted', () => {
-    expect(
-      isFeatureEnabled(
-        'draft-sync',
-        settings(),
-        { updateChannel: 'stable', features: { 'draft-sync': true } },
-        { PODIUM_APP_VERSION: '1.0.0' },
-      ),
-    ).toBe(true)
+    expect(state.flags.some((flag) => flag.id === 'draft-sync')).toBe(false)
   })
 })
 

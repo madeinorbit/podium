@@ -89,13 +89,11 @@ export function usePanelSurface(input: {
   spawnConfirmed: boolean
   /** The handover veil owns the pane. */
   inTransit: boolean
-  /** Fired on a chat → native transition, never on mount-in-native. */
-  onEnterNative?: () => void
 }): PanelArbitration {
   const setPanelMode = useUiValue('setPanelMode')
   const panelMode = usePanePanelModes()
   const machines = usePaneMachines()
-  const { sessionId, session, paneActive, spawnConfirmed, inTransit, onEnterNative } = input
+  const { sessionId, session, paneActive, spawnConfirmed, inTransit } = input
   // A CONCERTMASTER IS ITS CURATED CHAT AND NOTHING ELSE (POD-7211). The rule
   // is stated once, here, by answering the two questions every later decision
   // asks: it has a chat, and it has no terminal to show. Rule 0 of
@@ -199,25 +197,6 @@ export function usePanelSurface(input: {
     // Only an explicit choice is durable. Other sessions keep following Agents.
     setPanelMode(sessionId, m)
   }
-
-  // chat → native. Read `onEnterNative` through a ref so a caller that passes an
-  // inline closure cannot make this effect fire on every render — the edge is
-  // the MODE change and nothing else.
-  const enterNativeRef = useRef(onEnterNative)
-  enterNativeRef.current = onEnterNative
-  const prevModeRef = useRef<PanelMode | null>(null)
-  useEffect(() => {
-    const prev = prevModeRef.current
-    prevModeRef.current = mode
-    if (mode !== 'native') return
-    // Only a *transition* into native fires; the first observation (prev null)
-    // is the mount-in-native case, already handled by the mount effect.
-    if (prev === null || prev === 'native') return
-    // The forced login-repair route is not a user-selected chat → native edge;
-    // never flush a chat draft into a terminal whose only job is authentication.
-    if (loginRequired) return
-    enterNativeRef.current?.()
-  }, [loginRequired, mode])
 
   const surface = panelSurface({
     status: session?.status,

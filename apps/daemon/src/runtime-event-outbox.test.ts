@@ -543,20 +543,14 @@ describe('delivery typing state in the runtime-event journal (POD-5556)', () => 
 })
 
 describe('runtime event delivery preparation', () => {
-  it.each([
-    'state',
-    'workspace',
-    'draft',
-  ] as const)('sends live %s without touching the journal', (kind) => {
+  it.each(['state', 'workspace'] as const)('sends live %s without touching the journal', (kind) => {
     const dir = makeDir()
     const outbox = createRuntimeEventOutbox(dir)
     const { deliveryId: _id, ...base } = event('unused')
     const body =
       kind === 'state'
         ? { t: 'state' as const, change: { kind: 'activity' } }
-        : kind === 'workspace'
-          ? { t: 'workspace' as const, ev: { ev: 'cwd-changed' as const, cwd: '/repo' } }
-          : { t: 'draft' as const, text: 'latest input' }
+        : { t: 'workspace' as const, ev: { ev: 'cwd-changed' as const, cwd: '/repo' } }
     const message: RuntimeEventMessage = {
       ...base,
       event: { ...CausalEnvelope.parse(base.event), ...body, provenance: 'live' },

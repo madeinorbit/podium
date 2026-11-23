@@ -86,7 +86,6 @@ export type RuntimePrimitive =
   | 'attach'
   | 'lease'
   // extended
-  | 'draft'
   | 'configure'
   | 'openUrl'
   | 'title'
@@ -148,10 +147,9 @@ export const RUNTIME_PRIMITIVE_TIER = {
 
   // ---- EXTENDED: feature seams -------------------------------------------
   // Each of these is a real Podium feature's seam, and NONE of them may block a
-  // driver from being complete. Cross-device draft sync, the settings model
-  // picker, the usage ledger, the browser-open relay, session titles and the
+  // driver from being complete. The settings model picker, the usage ledger,
+  // the browser-open relay, session titles and the
   // board's accent colours all degrade cleanly when a driver declines.
-  draft: 'extended',
   configure: 'extended',
   // Machine accounting and accounts. Extended because every one of them
   // degrades cleanly: a harness that reports no quota simply shows no quota,

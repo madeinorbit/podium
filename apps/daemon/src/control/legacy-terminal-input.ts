@@ -38,5 +38,4 @@ export function dispatchInputBytes(
     ctx.observers.recordInputOrigin(metadata.sessionId, metadata.inputOrigin)
   }
   bridge.write(bytes)
-  ctx.composerEngine.onInputByte(metadata.sessionId)
 }

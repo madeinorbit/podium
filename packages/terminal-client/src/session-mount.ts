@@ -55,12 +55,6 @@ export interface MountSessionOptions {
    */
   readyTimeoutMs?: number
   /**
-   * Fires on every PTY frame written to the view. The panel uses this to sample
-   * the rendered prompt region (debounced) and mirror the native input into the
-   * shared chat draft. Distinct from onFirstFrame (which fires once).
-   */
-  onFrame?: () => void
-  /**
    * Focus the terminal as soon as it mounts (default true). The panel sets this
    * false so the soft keyboard doesn't pop up over the "Starting…" overlay on a
    * mobile spawn — it focuses itself once the first frame lands instead.
@@ -488,7 +482,6 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         opts.onFirstFrame?.()
         markReady('frame')
       }
-      opts.onFrame?.()
     },
     // Compatibility with older servers' `resumed: false` attaches only.
     // Host pictures reset xterm through RIS in the ordinary output stream.

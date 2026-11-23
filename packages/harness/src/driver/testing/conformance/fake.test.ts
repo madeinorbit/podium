@@ -451,9 +451,9 @@ describe('the corpus has teeth', () => {
 describe('the tier boundary', () => {
   it('keeps the feature seams out of core', () => {
     // A driver shipping only the core is COMPLETE. If one of these drifts to
-    // core, a driver that cannot sync drafts stops being shippable — which is
+    // core, a driver that cannot report usage stops being shippable — which is
     // exactly the growth the two tiers exist to resist.
-    for (const primitive of ['draft', 'configure', 'usage', 'quota', 'title'] as const) {
+    for (const primitive of ['configure', 'usage', 'quota', 'title'] as const) {
       expect(RUNTIME_PRIMITIVE_TIER[primitive]).toBe('extended')
     }
   })

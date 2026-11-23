@@ -361,7 +361,6 @@
           "rows": 1
         },
         "pictures": true,
-        "draftSyncEngine": true,
         "driverId": "driverId",
         "requestedDriverId": "requestedDriverId",
         "configureFields": ["configureFields[0]"],
@@ -370,7 +369,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"bind\",\"sessionId\":\"sessionId\",\"cmd\":\"cmd\",\"cwd\":\"cwd\",\"agentKind\":\"claude-code\",\"geometry\":{\"cols\":1,\"rows\":1},\"pictures\":true,\"draftSyncEngine\":true,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"engine\"]}"
+      "encoded": "{\"type\":\"bind\",\"sessionId\":\"sessionId\",\"cmd\":\"cmd\",\"cwd\":\"cwd\",\"agentKind\":\"claude-code\",\"geometry\":{\"cols\":1,\"rows\":1},\"pictures\":true,\"driverId\":\"driverId\",\"requestedDriverId\":\"requestedDriverId\",\"configureFields\":[\"configureFields[0]\"],\"attachKinds\":[\"engine\"]}"
     },
     {
       "schema": "CloseClientTerminalMessage",
@@ -509,32 +508,6 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"draftEdit\",\"sessionId\":\"sessionId\",\"baseRev\":1,\"text\":\"text\"}"
-    },
-    {
-      "schema": "DraftTargetMessage",
-      "variant": "minimal",
-      "wire": {
-        "type": "draftTarget",
-        "sessionId": "sessionId",
-        "text": "text"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"type\":\"draftTarget\",\"sessionId\":\"sessionId\",\"text\":\"text\"}"
-    },
-    {
-      "schema": "DraftTargetMessage",
-      "variant": "full",
-      "wire": {
-        "type": "draftTarget",
-        "sessionId": "sessionId",
-        "text": "text"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"type\":\"draftTarget\",\"sessionId\":\"sessionId\",\"text\":\"text\"}"
     },
     {
       "schema": "DriverSelectedMessage",
@@ -1016,7 +989,6 @@
         },
         "pathHint": "pathHint",
         "createdAtMs": 1,
-        "draftSync": true,
         "requestedDriverId": "requestedDriverId",
         "observationGeneration": 1,
         "observationBindingVersion": 1,
@@ -1028,7 +1000,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"reattach\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"claude-code\",\"cwd\":\"cwd\",\"model\":\"model\",\"effort\":\"effort\",\"lastKnownGeometry\":{\"cols\":1,\"rows\":1},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":1},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"allowed\",\"sessionAccess\":\"allowed\",\"principal\":{\"kind\":\"user\",\"userId\":\"binding.principal.userId\"},\"adopt\":{\"ownerUserId\":\"binding.adopt.ownerUserId\",\"issueId\":\"binding.adopt.issueId\"}},\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"pathHint\":\"pathHint\",\"createdAtMs\":1,\"draftSync\":true,\"requestedDriverId\":\"requestedDriverId\",\"observationGeneration\":1,\"observationBindingVersion\":1,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
+      "encoded": "{\"type\":\"reattach\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"claude-code\",\"cwd\":\"cwd\",\"model\":\"model\",\"effort\":\"effort\",\"lastKnownGeometry\":{\"cols\":1,\"rows\":1},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":1},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"allowed\",\"sessionAccess\":\"allowed\",\"principal\":{\"kind\":\"user\",\"userId\":\"binding.principal.userId\"},\"adopt\":{\"ownerUserId\":\"binding.adopt.ownerUserId\",\"issueId\":\"binding.adopt.issueId\"}},\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"pathHint\":\"pathHint\",\"createdAtMs\":1,\"requestedDriverId\":\"requestedDriverId\",\"observationGeneration\":1,\"observationBindingVersion\":1,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
     },
     {
       "schema": "ReattachMessage",
@@ -1073,7 +1045,6 @@
         },
         "pathHint": "pathHint",
         "createdAtMs": 2,
-        "draftSync": false,
         "requestedDriverId": "requestedDriverId",
         "observationGeneration": 2,
         "observationBindingVersion": 2,
@@ -1085,7 +1056,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"reattach\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"codex\",\"cwd\":\"cwd\",\"model\":\"model\",\"effort\":\"effort\",\"lastKnownGeometry\":{\"cols\":2,\"rows\":2},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":2},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"denied\",\"sessionAccess\":\"not-found\",\"principal\":{\"kind\":\"agent\",\"parentBindingId\":\"binding.principal.parentBindingId\"},\"adopt\":{\"ownerUserId\":\"binding.adopt.ownerUserId\",\"issueId\":\"binding.adopt.issueId\"}},\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"pathHint\":\"pathHint\",\"createdAtMs\":2,\"draftSync\":false,\"requestedDriverId\":\"requestedDriverId\",\"observationGeneration\":2,\"observationBindingVersion\":2,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
+      "encoded": "{\"type\":\"reattach\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"codex\",\"cwd\":\"cwd\",\"model\":\"model\",\"effort\":\"effort\",\"lastKnownGeometry\":{\"cols\":2,\"rows\":2},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":2},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"denied\",\"sessionAccess\":\"not-found\",\"principal\":{\"kind\":\"agent\",\"parentBindingId\":\"binding.principal.parentBindingId\"},\"adopt\":{\"ownerUserId\":\"binding.adopt.ownerUserId\",\"issueId\":\"binding.adopt.issueId\"}},\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"pathHint\":\"pathHint\",\"createdAtMs\":2,\"requestedDriverId\":\"requestedDriverId\",\"observationGeneration\":2,\"observationBindingVersion\":2,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
     },
     {
       "schema": "ReattachMessage",
@@ -1131,7 +1102,6 @@
         },
         "pathHint": "pathHint",
         "createdAtMs": 3,
-        "draftSync": true,
         "requestedDriverId": "requestedDriverId",
         "observationGeneration": 3,
         "observationBindingVersion": 3,
@@ -1143,7 +1113,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"reattach\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"grok\",\"cwd\":\"cwd\",\"model\":\"model\",\"effort\":\"effort\",\"lastKnownGeometry\":{\"cols\":3,\"rows\":3},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"binding.delegation.grantedScope.rootId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":3},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"sessionAccess\":\"not-found\",\"principal\":{\"kind\":\"system\",\"job\":\"binding.principal.job\"},\"adopt\":{\"ownerUserId\":\"binding.adopt.ownerUserId\",\"issueId\":\"binding.adopt.issueId\"}},\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"pathHint\":\"pathHint\",\"createdAtMs\":3,\"draftSync\":true,\"requestedDriverId\":\"requestedDriverId\",\"observationGeneration\":3,\"observationBindingVersion\":3,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
+      "encoded": "{\"type\":\"reattach\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"grok\",\"cwd\":\"cwd\",\"model\":\"model\",\"effort\":\"effort\",\"lastKnownGeometry\":{\"cols\":3,\"rows\":3},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"binding.delegation.grantedScope.rootId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":3},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"sessionAccess\":\"not-found\",\"principal\":{\"kind\":\"system\",\"job\":\"binding.principal.job\"},\"adopt\":{\"ownerUserId\":\"binding.adopt.ownerUserId\",\"issueId\":\"binding.adopt.issueId\"}},\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"pathHint\":\"pathHint\",\"createdAtMs\":3,\"requestedDriverId\":\"requestedDriverId\",\"observationGeneration\":3,\"observationBindingVersion\":3,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
     },
     {
       "schema": "ReattachMessage",
@@ -1189,7 +1159,6 @@
         },
         "pathHint": "pathHint",
         "createdAtMs": 4,
-        "draftSync": false,
         "requestedDriverId": "requestedDriverId",
         "observationGeneration": 4,
         "observationBindingVersion": 4,
@@ -1201,7 +1170,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"reattach\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"opencode\",\"cwd\":\"cwd\",\"model\":\"model\",\"effort\":\"effort\",\"lastKnownGeometry\":{\"cols\":4,\"rows\":4},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"binding.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":4},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"sessionAccess\":\"not-found\",\"principal\":{\"kind\":\"system\",\"job\":\"binding.principal.job\"},\"adopt\":{\"ownerUserId\":\"binding.adopt.ownerUserId\",\"issueId\":\"binding.adopt.issueId\"}},\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"pathHint\":\"pathHint\",\"createdAtMs\":4,\"draftSync\":false,\"requestedDriverId\":\"requestedDriverId\",\"observationGeneration\":4,\"observationBindingVersion\":4,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
+      "encoded": "{\"type\":\"reattach\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"opencode\",\"cwd\":\"cwd\",\"model\":\"model\",\"effort\":\"effort\",\"lastKnownGeometry\":{\"cols\":4,\"rows\":4},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"binding.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":4},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"sessionAccess\":\"not-found\",\"principal\":{\"kind\":\"system\",\"job\":\"binding.principal.job\"},\"adopt\":{\"ownerUserId\":\"binding.adopt.ownerUserId\",\"issueId\":\"binding.adopt.issueId\"}},\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"pathHint\":\"pathHint\",\"createdAtMs\":4,\"requestedDriverId\":\"requestedDriverId\",\"observationGeneration\":4,\"observationBindingVersion\":4,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
     },
     {
       "schema": "ReattachMessage",
@@ -1247,7 +1216,6 @@
         },
         "pathHint": "pathHint",
         "createdAtMs": 5,
-        "draftSync": true,
         "requestedDriverId": "requestedDriverId",
         "observationGeneration": 5,
         "observationBindingVersion": 5,
@@ -1259,7 +1227,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"reattach\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"cursor\",\"cwd\":\"cwd\",\"model\":\"model\",\"effort\":\"effort\",\"lastKnownGeometry\":{\"cols\":5,\"rows\":5},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"binding.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":5},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"sessionAccess\":\"not-found\",\"principal\":{\"kind\":\"system\",\"job\":\"binding.principal.job\"},\"adopt\":{\"ownerUserId\":\"binding.adopt.ownerUserId\",\"issueId\":\"binding.adopt.issueId\"}},\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"pathHint\":\"pathHint\",\"createdAtMs\":5,\"draftSync\":true,\"requestedDriverId\":\"requestedDriverId\",\"observationGeneration\":5,\"observationBindingVersion\":5,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
+      "encoded": "{\"type\":\"reattach\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"cursor\",\"cwd\":\"cwd\",\"model\":\"model\",\"effort\":\"effort\",\"lastKnownGeometry\":{\"cols\":5,\"rows\":5},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"binding.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":5},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"sessionAccess\":\"not-found\",\"principal\":{\"kind\":\"system\",\"job\":\"binding.principal.job\"},\"adopt\":{\"ownerUserId\":\"binding.adopt.ownerUserId\",\"issueId\":\"binding.adopt.issueId\"}},\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"pathHint\":\"pathHint\",\"createdAtMs\":5,\"requestedDriverId\":\"requestedDriverId\",\"observationGeneration\":5,\"observationBindingVersion\":5,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"}}"
     },
     {
       "schema": "RedrawMessage",
@@ -2125,7 +2093,6 @@
           "env.key": "env.env.key"
         },
         "seedCliTheme": true,
-        "draftSync": true,
         "observationGeneration": 1,
         "observationBindingVersion": 1,
         "observationProviderSessionId": "observationProviderSessionId",
@@ -2148,7 +2115,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"spawn\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"claude-code\",\"loginHarness\":\"claude-code\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"geometry\":{\"cols\":1,\"rows\":1},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":1},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"allowed\",\"principal\":{\"kind\":\"user\",\"userId\":\"binding.principal.userId\"},\"issueId\":\"binding.issueId\",\"requestedScope\":{\"kind\":\"all\"},\"scopeOverrideConfirmed\":true,\"relaunch\":true},\"adoptedBinding\":{\"transitionId\":\"adoptedBinding.transitionId\",\"machineAccess\":\"allowed\",\"transferId\":\"adoptedBinding.transferId\",\"role\":\"source\",\"fromMachineId\":\"adoptedBinding.fromMachineId\",\"toMachineId\":\"adoptedBinding.toMachineId\"},\"model\":\"model\",\"subagentModel\":\"subagentModel\",\"effort\":\"effort\",\"initialPrompt\":\"initialPrompt\",\"instructions\":[{\"source\":\"instructions[0].source\",\"content\":\"instructions[0].content\"}],\"env\":{\"env.key\":\"env.env.key\"},\"seedCliTheme\":true,\"draftSync\":true,\"observationGeneration\":1,\"observationBindingVersion\":1,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"},\"requestedDriverId\":\"requestedDriverId\",\"posture\":{\"mode\":\"supervised\"},\"access\":{\"credentialId\":\"access.credentialId\",\"delivery\":{\"kind\":\"env\",\"variable\":\"access.delivery.variable\",\"secret\":\"access.delivery.secret\"}}}"
+      "encoded": "{\"type\":\"spawn\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"claude-code\",\"loginHarness\":\"claude-code\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"geometry\":{\"cols\":1,\"rows\":1},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"all\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":1},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"allowed\",\"principal\":{\"kind\":\"user\",\"userId\":\"binding.principal.userId\"},\"issueId\":\"binding.issueId\",\"requestedScope\":{\"kind\":\"all\"},\"scopeOverrideConfirmed\":true,\"relaunch\":true},\"adoptedBinding\":{\"transitionId\":\"adoptedBinding.transitionId\",\"machineAccess\":\"allowed\",\"transferId\":\"adoptedBinding.transferId\",\"role\":\"source\",\"fromMachineId\":\"adoptedBinding.fromMachineId\",\"toMachineId\":\"adoptedBinding.toMachineId\"},\"model\":\"model\",\"subagentModel\":\"subagentModel\",\"effort\":\"effort\",\"initialPrompt\":\"initialPrompt\",\"instructions\":[{\"source\":\"instructions[0].source\",\"content\":\"instructions[0].content\"}],\"env\":{\"env.key\":\"env.env.key\"},\"seedCliTheme\":true,\"observationGeneration\":1,\"observationBindingVersion\":1,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"},\"requestedDriverId\":\"requestedDriverId\",\"posture\":{\"mode\":\"supervised\"},\"access\":{\"credentialId\":\"access.credentialId\",\"delivery\":{\"kind\":\"env\",\"variable\":\"access.delivery.variable\",\"secret\":\"access.delivery.secret\"}}}"
     },
     {
       "schema": "SpawnMessage",
@@ -2213,7 +2180,6 @@
           "env.key": "env.env.key"
         },
         "seedCliTheme": false,
-        "draftSync": false,
         "observationGeneration": 2,
         "observationBindingVersion": 2,
         "observationProviderSessionId": "observationProviderSessionId",
@@ -2237,7 +2203,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"spawn\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"codex\",\"loginHarness\":\"codex\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"geometry\":{\"cols\":2,\"rows\":2},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":2},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"denied\",\"principal\":{\"kind\":\"agent\",\"parentBindingId\":\"binding.principal.parentBindingId\"},\"issueId\":\"binding.issueId\",\"requestedScope\":{\"kind\":\"none\"},\"scopeOverrideConfirmed\":false,\"relaunch\":false},\"adoptedBinding\":{\"transitionId\":\"adoptedBinding.transitionId\",\"machineAccess\":\"denied\",\"transferId\":\"adoptedBinding.transferId\",\"role\":\"target\",\"fromMachineId\":\"adoptedBinding.fromMachineId\",\"toMachineId\":\"adoptedBinding.toMachineId\"},\"model\":\"model\",\"subagentModel\":\"subagentModel\",\"effort\":\"effort\",\"initialPrompt\":\"initialPrompt\",\"instructions\":[{\"source\":\"instructions[0].source\",\"content\":\"instructions[0].content\"}],\"env\":{\"env.key\":\"env.env.key\"},\"seedCliTheme\":false,\"draftSync\":false,\"observationGeneration\":2,\"observationBindingVersion\":2,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"},\"requestedDriverId\":\"requestedDriverId\",\"posture\":{\"mode\":{\"native\":\"posture.mode.native\"}},\"access\":{\"credentialId\":\"access.credentialId\",\"delivery\":{\"kind\":\"home\",\"homeId\":\"access.delivery.homeId\"}}}"
+      "encoded": "{\"type\":\"spawn\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"codex\",\"loginHarness\":\"codex\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"geometry\":{\"cols\":2,\"rows\":2},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"none\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":2},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"denied\",\"principal\":{\"kind\":\"agent\",\"parentBindingId\":\"binding.principal.parentBindingId\"},\"issueId\":\"binding.issueId\",\"requestedScope\":{\"kind\":\"none\"},\"scopeOverrideConfirmed\":false,\"relaunch\":false},\"adoptedBinding\":{\"transitionId\":\"adoptedBinding.transitionId\",\"machineAccess\":\"denied\",\"transferId\":\"adoptedBinding.transferId\",\"role\":\"target\",\"fromMachineId\":\"adoptedBinding.fromMachineId\",\"toMachineId\":\"adoptedBinding.toMachineId\"},\"model\":\"model\",\"subagentModel\":\"subagentModel\",\"effort\":\"effort\",\"initialPrompt\":\"initialPrompt\",\"instructions\":[{\"source\":\"instructions[0].source\",\"content\":\"instructions[0].content\"}],\"env\":{\"env.key\":\"env.env.key\"},\"seedCliTheme\":false,\"observationGeneration\":2,\"observationBindingVersion\":2,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"},\"requestedDriverId\":\"requestedDriverId\",\"posture\":{\"mode\":{\"native\":\"posture.mode.native\"}},\"access\":{\"credentialId\":\"access.credentialId\",\"delivery\":{\"kind\":\"home\",\"homeId\":\"access.delivery.homeId\"}}}"
     },
     {
       "schema": "SpawnMessage",
@@ -2304,7 +2270,6 @@
           "env.key": "env.env.key"
         },
         "seedCliTheme": true,
-        "draftSync": true,
         "observationGeneration": 3,
         "observationBindingVersion": 3,
         "observationProviderSessionId": "observationProviderSessionId",
@@ -2328,7 +2293,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"spawn\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"grok\",\"loginHarness\":\"grok\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"geometry\":{\"cols\":3,\"rows\":3},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"binding.delegation.grantedScope.rootId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":3},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"principal\":{\"kind\":\"system\",\"job\":\"binding.principal.job\"},\"issueId\":\"binding.issueId\",\"requestedScope\":{\"kind\":\"subtree\",\"rootId\":\"binding.requestedScope.rootId\"},\"scopeOverrideConfirmed\":true,\"relaunch\":true},\"adoptedBinding\":{\"transitionId\":\"adoptedBinding.transitionId\",\"machineAccess\":\"unreachable\",\"transferId\":\"adoptedBinding.transferId\",\"role\":\"target\",\"fromMachineId\":\"adoptedBinding.fromMachineId\",\"toMachineId\":\"adoptedBinding.toMachineId\"},\"model\":\"model\",\"subagentModel\":\"subagentModel\",\"effort\":\"effort\",\"initialPrompt\":\"initialPrompt\",\"instructions\":[{\"source\":\"instructions[0].source\",\"content\":\"instructions[0].content\"}],\"env\":{\"env.key\":\"env.env.key\"},\"seedCliTheme\":true,\"draftSync\":true,\"observationGeneration\":3,\"observationBindingVersion\":3,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"},\"requestedDriverId\":\"requestedDriverId\",\"posture\":{\"mode\":{\"native\":\"posture.mode.native\"}},\"access\":{\"credentialId\":\"access.credentialId\",\"delivery\":{\"kind\":\"home\",\"homeId\":\"access.delivery.homeId\"}}}"
+      "encoded": "{\"type\":\"spawn\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"grok\",\"loginHarness\":\"grok\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"geometry\":{\"cols\":3,\"rows\":3},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"binding.delegation.grantedScope.rootId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":3},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"principal\":{\"kind\":\"system\",\"job\":\"binding.principal.job\"},\"issueId\":\"binding.issueId\",\"requestedScope\":{\"kind\":\"subtree\",\"rootId\":\"binding.requestedScope.rootId\"},\"scopeOverrideConfirmed\":true,\"relaunch\":true},\"adoptedBinding\":{\"transitionId\":\"adoptedBinding.transitionId\",\"machineAccess\":\"unreachable\",\"transferId\":\"adoptedBinding.transferId\",\"role\":\"target\",\"fromMachineId\":\"adoptedBinding.fromMachineId\",\"toMachineId\":\"adoptedBinding.toMachineId\"},\"model\":\"model\",\"subagentModel\":\"subagentModel\",\"effort\":\"effort\",\"initialPrompt\":\"initialPrompt\",\"instructions\":[{\"source\":\"instructions[0].source\",\"content\":\"instructions[0].content\"}],\"env\":{\"env.key\":\"env.env.key\"},\"seedCliTheme\":true,\"observationGeneration\":3,\"observationBindingVersion\":3,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"},\"requestedDriverId\":\"requestedDriverId\",\"posture\":{\"mode\":{\"native\":\"posture.mode.native\"}},\"access\":{\"credentialId\":\"access.credentialId\",\"delivery\":{\"kind\":\"home\",\"homeId\":\"access.delivery.homeId\"}}}"
     },
     {
       "schema": "SpawnMessage",
@@ -2395,7 +2360,6 @@
           "env.key": "env.env.key"
         },
         "seedCliTheme": false,
-        "draftSync": false,
         "observationGeneration": 4,
         "observationBindingVersion": 4,
         "observationProviderSessionId": "observationProviderSessionId",
@@ -2419,7 +2383,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"spawn\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"opencode\",\"loginHarness\":\"opencode\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"geometry\":{\"cols\":4,\"rows\":4},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"binding.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":4},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"principal\":{\"kind\":\"system\",\"job\":\"binding.principal.job\"},\"issueId\":\"binding.issueId\",\"requestedScope\":{\"kind\":\"owned\",\"userId\":\"binding.requestedScope.userId\"},\"scopeOverrideConfirmed\":false,\"relaunch\":false},\"adoptedBinding\":{\"transitionId\":\"adoptedBinding.transitionId\",\"machineAccess\":\"unreachable\",\"transferId\":\"adoptedBinding.transferId\",\"role\":\"target\",\"fromMachineId\":\"adoptedBinding.fromMachineId\",\"toMachineId\":\"adoptedBinding.toMachineId\"},\"model\":\"model\",\"subagentModel\":\"subagentModel\",\"effort\":\"effort\",\"initialPrompt\":\"initialPrompt\",\"instructions\":[{\"source\":\"instructions[0].source\",\"content\":\"instructions[0].content\"}],\"env\":{\"env.key\":\"env.env.key\"},\"seedCliTheme\":false,\"draftSync\":false,\"observationGeneration\":4,\"observationBindingVersion\":4,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"},\"requestedDriverId\":\"requestedDriverId\",\"posture\":{\"mode\":{\"native\":\"posture.mode.native\"}},\"access\":{\"credentialId\":\"access.credentialId\",\"delivery\":{\"kind\":\"home\",\"homeId\":\"access.delivery.homeId\"}}}"
+      "encoded": "{\"type\":\"spawn\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"opencode\",\"loginHarness\":\"opencode\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"geometry\":{\"cols\":4,\"rows\":4},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"owned\",\"userId\":\"binding.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":4},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"principal\":{\"kind\":\"system\",\"job\":\"binding.principal.job\"},\"issueId\":\"binding.issueId\",\"requestedScope\":{\"kind\":\"owned\",\"userId\":\"binding.requestedScope.userId\"},\"scopeOverrideConfirmed\":false,\"relaunch\":false},\"adoptedBinding\":{\"transitionId\":\"adoptedBinding.transitionId\",\"machineAccess\":\"unreachable\",\"transferId\":\"adoptedBinding.transferId\",\"role\":\"target\",\"fromMachineId\":\"adoptedBinding.fromMachineId\",\"toMachineId\":\"adoptedBinding.toMachineId\"},\"model\":\"model\",\"subagentModel\":\"subagentModel\",\"effort\":\"effort\",\"initialPrompt\":\"initialPrompt\",\"instructions\":[{\"source\":\"instructions[0].source\",\"content\":\"instructions[0].content\"}],\"env\":{\"env.key\":\"env.env.key\"},\"seedCliTheme\":false,\"observationGeneration\":4,\"observationBindingVersion\":4,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"},\"requestedDriverId\":\"requestedDriverId\",\"posture\":{\"mode\":{\"native\":\"posture.mode.native\"}},\"access\":{\"credentialId\":\"access.credentialId\",\"delivery\":{\"kind\":\"home\",\"homeId\":\"access.delivery.homeId\"}}}"
     },
     {
       "schema": "SpawnMessage",
@@ -2486,7 +2450,6 @@
           "env.key": "env.env.key"
         },
         "seedCliTheme": true,
-        "draftSync": true,
         "observationGeneration": 5,
         "observationBindingVersion": 5,
         "observationProviderSessionId": "observationProviderSessionId",
@@ -2510,7 +2473,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"spawn\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"cursor\",\"loginHarness\":\"cursor\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"geometry\":{\"cols\":5,\"rows\":5},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"binding.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":5},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"principal\":{\"kind\":\"system\",\"job\":\"binding.principal.job\"},\"issueId\":\"binding.issueId\",\"requestedScope\":{\"kind\":\"self\",\"userId\":\"binding.requestedScope.userId\"},\"scopeOverrideConfirmed\":true,\"relaunch\":true},\"adoptedBinding\":{\"transitionId\":\"adoptedBinding.transitionId\",\"machineAccess\":\"unreachable\",\"transferId\":\"adoptedBinding.transferId\",\"role\":\"target\",\"fromMachineId\":\"adoptedBinding.fromMachineId\",\"toMachineId\":\"adoptedBinding.toMachineId\"},\"model\":\"model\",\"subagentModel\":\"subagentModel\",\"effort\":\"effort\",\"initialPrompt\":\"initialPrompt\",\"instructions\":[{\"source\":\"instructions[0].source\",\"content\":\"instructions[0].content\"}],\"env\":{\"env.key\":\"env.env.key\"},\"seedCliTheme\":true,\"draftSync\":true,\"observationGeneration\":5,\"observationBindingVersion\":5,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"},\"requestedDriverId\":\"requestedDriverId\",\"posture\":{\"mode\":{\"native\":\"posture.mode.native\"}},\"access\":{\"credentialId\":\"access.credentialId\",\"delivery\":{\"kind\":\"home\",\"homeId\":\"access.delivery.homeId\"}}}"
+      "encoded": "{\"type\":\"spawn\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"cursor\",\"loginHarness\":\"cursor\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"geometry\":{\"cols\":5,\"rows\":5},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"binding.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":5},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"principal\":{\"kind\":\"system\",\"job\":\"binding.principal.job\"},\"issueId\":\"binding.issueId\",\"requestedScope\":{\"kind\":\"self\",\"userId\":\"binding.requestedScope.userId\"},\"scopeOverrideConfirmed\":true,\"relaunch\":true},\"adoptedBinding\":{\"transitionId\":\"adoptedBinding.transitionId\",\"machineAccess\":\"unreachable\",\"transferId\":\"adoptedBinding.transferId\",\"role\":\"target\",\"fromMachineId\":\"adoptedBinding.fromMachineId\",\"toMachineId\":\"adoptedBinding.toMachineId\"},\"model\":\"model\",\"subagentModel\":\"subagentModel\",\"effort\":\"effort\",\"initialPrompt\":\"initialPrompt\",\"instructions\":[{\"source\":\"instructions[0].source\",\"content\":\"instructions[0].content\"}],\"env\":{\"env.key\":\"env.env.key\"},\"seedCliTheme\":true,\"observationGeneration\":5,\"observationBindingVersion\":5,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"},\"requestedDriverId\":\"requestedDriverId\",\"posture\":{\"mode\":{\"native\":\"posture.mode.native\"}},\"access\":{\"credentialId\":\"access.credentialId\",\"delivery\":{\"kind\":\"home\",\"homeId\":\"access.delivery.homeId\"}}}"
     },
     {
       "schema": "StealWriterMessage",

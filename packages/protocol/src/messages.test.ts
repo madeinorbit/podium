@@ -7,8 +7,8 @@ import {
   asSessionId,
   asThreadId,
   asUserId,
-  ConversationSummaryWire,
   ConversationDiscoveryWire,
+  ConversationSummaryWire,
   GitRepositoryWire,
   MachineWire,
   ResumeRef,
@@ -355,18 +355,34 @@ describe('parseServerMessageLenient (per-element quarantine)', () => {
 
   it('drops one poisoned session and keeps the rest (the original bug, survivable)', () => {
     const raw = JSON.stringify({
-      type: 'metadataDelta', seq: 3,
-      changes: [session('a', 'claude-code'), session('bad', 'auto'), session('c', 'codex')].map((value, index) => ({ seq: index + 1, entity: 'session', id: value.sessionId, op: 'upsert', value })),
+      type: 'metadataDelta',
+      seq: 3,
+      changes: [session('a', 'claude-code'), session('bad', 'auto'), session('c', 'codex')].map(
+        (value, index) => ({
+          seq: index + 1,
+          entity: 'session',
+          id: value.sessionId,
+          op: 'upsert',
+          value,
+        }),
+      ),
     })
     const { message, dropped } = parseServerMessageLenient(raw)
     expect(dropped).toBe(1)
-    expect(message?.type === 'metadataDelta' && message.changes.map((c) => c.id)).toEqual(
-      ['a', 'c'],
-    )
+    expect(message?.type === 'metadataDelta' && message.changes.map((c) => c.id)).toEqual([
+      'a',
+      'c',
+    ])
   })
 
   it('passes a fully valid collection through unchanged (dropped=0)', () => {
-    const raw = JSON.stringify({ type: 'metadataDelta', seq: 1, changes: [{ seq: 1, entity: 'session', id: 'a', op: 'upsert', value: session('a', 'claude-code') }] })
+    const raw = JSON.stringify({
+      type: 'metadataDelta',
+      seq: 1,
+      changes: [
+        { seq: 1, entity: 'session', id: 'a', op: 'upsert', value: session('a', 'claude-code') },
+      ],
+    })
     const { message, dropped } = parseServerMessageLenient(raw)
     expect(dropped).toBe(0)
     expect(message?.type === 'metadataDelta' && message.changes.length).toBe(1)
@@ -400,7 +416,13 @@ describe('parseServerMessageLenient (per-element quarantine)', () => {
       seq: 2,
       changes: [
         { seq: 1, entity: 'session', id: 's1', op: 'remove' },
-        { seq: 2, entity: 'a-kind-from-a-newer-server', id: 'm1', op: 'upsert', value: { os: 'linux' } },
+        {
+          seq: 2,
+          entity: 'a-kind-from-a-newer-server',
+          id: 'm1',
+          op: 'upsert',
+          value: { os: 'linux' },
+        },
       ],
     })
     const { message, dropped } = parseServerMessageLenient(raw)
@@ -946,24 +968,6 @@ describe('versioned draft messages (POD-859)', () => {
   it('parses draftEdit (client -> server) carrying baseRev', () => {
     const m = { type: 'draftEdit', sessionId: asSessionId('s'), baseRev: 3, text: 'hello' } as const
     expect(parseClientMessage(encode(m))).toEqual(m)
-  })
-
-  it('parses nativeDraft (daemon -> server)', () => {
-    const m = {
-      type: 'nativeDraft',
-      sessionId: asSessionId('s'),
-      text: 'scraped from native',
-    } as const
-    expect(parseDaemonMessage(encode(m))).toEqual(m)
-  })
-
-  it('parses draftTarget (server -> daemon)', () => {
-    const m = {
-      type: 'draftTarget',
-      sessionId: asSessionId('s'),
-      text: 'inject me into native',
-    } as const
-    expect(parseControlMessage(encode(m))).toEqual(m)
   })
 })
 

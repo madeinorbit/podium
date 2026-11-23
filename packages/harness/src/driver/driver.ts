@@ -3,9 +3,9 @@
 
 import type { AgentRuntimeState, ResumeRef, TranscriptItem } from '@podium/model'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
-import type { BoundaryContextOperation } from './boundary-context.js'
 import type { AttachEndpoint, AttachRequest, SessionLease } from './attach.js'
 import type { SessionArchive, SessionBinding, SessionSnapshot } from './binding.js'
+import type { BoundaryContextOperation } from './boundary-context.js'
 import type {
   ConfigureRequest,
   DriverCapabilities,
@@ -16,8 +16,8 @@ import type { TurnEvent } from './errors.js'
 import type { EventStreamStart, RuntimeEvent, WatchLevel } from './events.js'
 import type { DriverFamily, DriverId } from './families.js'
 import type { InteractionAnswerOutcome, PendingInteraction } from './interactions.js'
-import type { SessionSpec } from './session-spec.js'
 import type { OneShotOptions, ProcedureOptions } from './procedures.js'
+import type { SessionSpec } from './session-spec.js'
 import type {
   AnswerOptions,
   AttachmentSource,
@@ -141,10 +141,6 @@ export interface AgentSessionHandle {
   }
 
   // ---- EXTENDED ----
-  readonly draft: {
-    get(): Promise<string | Refusal>
-    set(text: string): Promise<Refusal | { ok: true }>
-  }
   configure(request: ConfigureRequest): Promise<Refusal | { ok: true }>
   /** daemon-internal (POD-3990): no server-side frame, no prod caller today. */
   usage(): Promise<UsageSnapshot | Refusal>

@@ -104,7 +104,6 @@ export const piManifest: AgentManifest = {
     newSessionIdFlag: true,
     quota: false,
     cloud: false,
-    composerScrape: false,
     // Pi emits no OSC title of its own; only an installed titlebar extension would.
     oscTitle: false,
     subagentModelEnv: false,
@@ -330,7 +329,7 @@ export const piManifest: AgentManifest = {
 
   transcript: piTranscript,
 
-  composer: unsupported('pi has no composer scrape rules yet'),
+  composer: unsupported('pi needs no composer readiness heuristic'),
 
   handoffTranscript: unsupported('cross-machine handoff is not supported for pi sessions'),
   // A Pi conversation is one file, so it moves between the homes of one
