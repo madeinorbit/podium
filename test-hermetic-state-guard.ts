@@ -5,7 +5,7 @@ type StateDirEnv = { PODIUM_STATE_DIR?: string }
 
 /** Refuse any test case that could fall back to the live ~/.podium state tree. */
 export function assertHermeticStateDir(
-  env: StateDirEnv = process.env,
+  env: StateDirEnv = { PODIUM_STATE_DIR: process.env.PODIUM_STATE_DIR },
   liveStateDir = join(homedir(), '.podium'),
 ): string {
   const configured = env.PODIUM_STATE_DIR?.trim()

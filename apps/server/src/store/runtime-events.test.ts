@@ -139,7 +139,7 @@ describe('durable runtime observation gate', () => {
         await save(head)
         afterCommit(() => {
           committed.add(Number(head.cursor.components.seq))
-        })
+        }, 'runtime-replay-test.committed-checkpoint')
       })
     let heartbeat: ReturnType<typeof setTimeout> | undefined
     try {
