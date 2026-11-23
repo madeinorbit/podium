@@ -80,6 +80,10 @@ export const HOST_MACHINE_ALLOWLIST: readonly HostAccessException[] = [
     reason: 'Injects installation identity into machine, update and server-move services.',
   },
   {
+    path: 'server-mode.ts',
+    reason: 'Derives from the server mode whether there is an installation machine.',
+  },
+  {
     path: 'store.ts',
     reason: 'Carries nullable installation identity and runs the legacy worktree import.',
   },
