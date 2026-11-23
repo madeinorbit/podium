@@ -18,9 +18,9 @@
  */
 
 import type { MachineModel } from '@podium/client-graph'
-import { headerView } from '@podium/client-graph/header-views'
 import { here } from '@podium/client-graph/lookup'
 import { observer } from '@podium/client-graph/react'
+import { useShellMachines } from '@/app/shell-data'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import {
@@ -29,18 +29,15 @@ import {
   setupAgentsRequest,
   switchSetupAgentsMachine,
 } from './open-setup-agents'
-import { SetupAgentsPanel } from './SetupAgentsPanel'
+import { type SetupAgentsMachineChoice, SetupAgentsPanel } from './SetupAgentsPanel'
 import { useAgentSetupView } from './use-agent-setup-view'
 
 export const SetupAgentsDialog = observer(function SetupAgentsDialog() {
   const request = setupAgentsRequest()
   const pool = useWorklistPool()
   const machine = request && pool ? here(pool.model('machine', request.machineId)) : undefined
-  const machines = pool
-    ? headerView(pool)
-        .machines()
-        .filter((candidate) => candidate.use === 'granted')
-    : []
+  // The person's fleet; a machine they may not change shows the panel's notice.
+  const machines = useShellMachines()
   return (
     <Dialog open={request !== null} onOpenChange={(open) => !open && closeSetupAgents()}>
       <DialogContent
@@ -75,7 +72,7 @@ const OpenPanel = observer(function OpenPanel({
   request: SetupAgentsRequest
   opening: number
   machine: MachineModel
-  machines: readonly MachineModel[]
+  machines: readonly SetupAgentsMachineChoice[]
 }) {
   const view = useAgentSetupView({
     machine,

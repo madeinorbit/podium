@@ -11,7 +11,6 @@
  */
 
 import { relativeTime } from '@podium/client-core/focus'
-import type { MachineModel } from '@podium/client-graph'
 import type {
   AgentSetupDetail,
   AgentSetupGroup,
@@ -187,13 +186,19 @@ function Chip({
 
 type Page = { kind: 'list' } | { kind: 'sign-in'; harness: BuiltinHarnessKind }
 
+/** A machine the header chip can switch to. */
+export interface SetupAgentsMachineChoice {
+  readonly id: MachineId
+  readonly name?: string
+}
+
 export interface SetupAgentsPanelProps {
   readonly view: AgentSetupView
   /** `dialog`: header with close, footer always. `embedded`: Settings › Machine. */
   readonly variant: 'dialog' | 'embedded'
   readonly onClose?: () => void
   /** Machines the person may set up; the header chip switches between them. */
-  readonly machines?: readonly MachineModel[]
+  readonly machines?: readonly SetupAgentsMachineChoice[]
   readonly onSwitchMachine?: (machineId: MachineId) => void
 }
 
@@ -319,7 +324,7 @@ const MachineChip = observer(function MachineChip({
   onSwitchMachine,
 }: {
   view: AgentSetupView
-  machines?: readonly MachineModel[]
+  machines?: readonly SetupAgentsMachineChoice[]
   onSwitchMachine?: (machineId: MachineId) => void
 }) {
   const others = (machines ?? []).filter((machine) => machine.id !== view.machine.id)
@@ -409,7 +414,7 @@ const ListPage = observer(function ListPage({
   variant: 'dialog' | 'embedded'
   onClose?: () => void
   onSignIn: (harness: BuiltinHarnessKind) => void
-  machines?: readonly MachineModel[]
+  machines?: readonly SetupAgentsMachineChoice[]
   onSwitchMachine?: (machineId: MachineId) => void
 }) {
   return (
