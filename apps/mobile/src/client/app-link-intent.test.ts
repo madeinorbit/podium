@@ -12,9 +12,12 @@ describe('gate-owned app links', () => {
       'podium://signed-in?code=abc&challenge=def',
     ]) {
       expect(isGateOwnedAppLink(link)).toBe(true)
-      for (const initial of [true, false]) {
-        expect(redirectSystemPath({ path: link, initial })).toBe('/')
-      }
+      expect(redirectSystemPath({ path: link, initial: true })).toBe('/')
+      // A running app moves nowhere for a pairing link: a root navigation would
+      // remount the gate and drop the envelope it is opening (POD-6913).
+      expect(redirectSystemPath({ path: link, initial: false })).toBe(
+        link.includes('signed-in') ? '/' : null,
+      )
     }
   })
 

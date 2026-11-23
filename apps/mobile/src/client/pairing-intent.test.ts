@@ -27,16 +27,18 @@ const pairingLinks = [
   ['the HTTPS fragment URL', https],
 ] as const
 
-// The phone keeps dev/tf's link owner (app-link-intent, POD-2364): every
-// pairing spelling goes to the root on cold AND warm start; the gate reads the
-// raw URL from Linking. Sign-in, mission and handoff links are covered in
-// app-link-intent.test.ts.
+// The phone keeps dev/tf's link owner (app-link-intent, POD-2364) with
+// upstream's pairing rule: a cold pairing link starts at the root, a warm one
+// moves the router nowhere; the gate reads the raw URL from Linking. Sign-in,
+// mission and handoff links are covered in app-link-intent.test.ts.
 describe('OS pairing links and the router (POD-6913)', () => {
-  it.each(pairingLinks)('keeps %s out of the router', (_, link) => {
+  it.each(
+    pairingLinks,
+  )('starts a cold app at the root and moves a running one nowhere for %s', (_, link) => {
     // The gate still parses the same raw URL from Linking.
     expect(parsePairingLink(link).envelope).toEqual(envelope)
     expect(redirectSystemPath({ path: link, initial: true })).toBe('/')
-    expect(redirectSystemPath({ path: link, initial: false })).toBe('/')
+    expect(redirectSystemPath({ path: link, initial: false })).toBeNull()
   })
 
   // The gate refuses these spellings with an error, but they still carry the
@@ -46,7 +48,7 @@ describe('OS pairing links and the router (POD-6913)', () => {
     `PODIUM://Pair?url=${encodeURIComponent(https)}`,
   ])('keeps the variant spelling %s out of the router as well', (link) => {
     expect(redirectSystemPath({ path: link, initial: true })).toBe('/')
-    expect(redirectSystemPath({ path: link, initial: false })).toBe('/')
+    expect(redirectSystemPath({ path: link, initial: false })).toBeNull()
   })
 
   it('is the file expo-router loads for native intents', () => {

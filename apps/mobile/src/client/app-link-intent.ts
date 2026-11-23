@@ -54,6 +54,11 @@ export function redirectSystemPath({
   path: string
   initial: boolean
 }): string | null {
+  // A pairing link starts a cold app at the root and moves a running one
+  // nowhere (POD-6913): a navigation at the root remounts the root layout, and
+  // the gate's incoming envelope is React state. The gate receives the warm URL
+  // itself from Linking (subscribeAppUrls in ./app-links), on every screen.
+  if (isPairingSystemPath(path)) return initial ? '/' : null
   if (isGateOwnedAppLink(path)) return '/'
   const mission = nativeMissionHref(path)
   if (mission) return mission
