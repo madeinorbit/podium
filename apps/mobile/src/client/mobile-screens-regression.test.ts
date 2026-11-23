@@ -53,7 +53,9 @@ async function settle(pool: MobxPool, input: MobileScreenInput) {
 
 it.each([
   { selectedId: 'i100', header: { id: 'i100', archived: true, startedBySession: 's4048' } },
-  { selectedId: 'i1157', header: { id: 'i1321', archived: true } },
+  // dev/tf's shared default seat (75d210056f) leads this archived root with its
+  // own header; upstream's attention/recency pick chose a child's (i1321).
+  { selectedId: 'i1157', header: { id: 'i1157', archived: true } },
 ])('archived corpus $selectedId retains its full header and record-derived phone output', async ({
   selectedId,
   header,
