@@ -26,13 +26,22 @@
  * `.partial-` files are never listed (`retainedSnapshotPaths`) and never touched.
  * The verifier's catalogue keys on size and mtime, so a replaced snapshot
  * stops matching its old record and is verified again.
+ *
+ * WHAT IS NOT TRIED AGAIN (POD-7252). A snapshot written after the live file's
+ * last clean compaction is a copy of the clean file and is left alone. A failed
+ * snapshot is tried at most {@link SNAPSHOT_SCRUB_ATTEMPTS} times while it keeps
+ * its size and mtime; after that it is given up, reported once, until retention
+ * prunes it. The scrub runs after the server is up (`StoreDatabase`), so none of
+ * this is on the boot's path.
  */
 
 import { randomUUID } from 'node:crypto'
 import {
+  closeSync,
   existsSync,
+  openSync,
   readdirSync,
-  readFileSync,
+  readSync,
   renameSync,
   rmSync,
   statSync,
@@ -50,13 +59,27 @@ export interface SnapshotStamp {
   mtimeMs: number
 }
 
+/** A snapshot that failed, as `stat` knew it then, and how many tries it has had. */
+export interface SnapshotFailure extends SnapshotStamp {
+  attempts: number
+}
+
+/** Tries a snapshot gets while its size and mtime stay the same. */
+export const SNAPSHOT_SCRUB_ATTEMPTS = 3
+
 export interface SnapshotScrubResult {
   path: string
-  outcome: 'scrubbed' | 'already-scrubbed' | 'failed'
+  /**
+   * `clean-copy`: written after the live file's last clean compaction.
+   * `given-up`: failed {@link SNAPSHOT_SCRUB_ATTEMPTS} times as it is; not tried.
+   */
+  outcome: 'scrubbed' | 'already-scrubbed' | 'clean-copy' | 'failed' | 'given-up'
   /** Why it failed (never a value). */
   reason?: string
   /** The scrubbed file's stamp, to remember. */
   stamp?: SnapshotStamp
+  /** A failed or given-up snapshot's record, to remember. */
+  failure?: SnapshotFailure
 }
 
 export interface SnapshotScrubOptions {
@@ -64,6 +87,13 @@ export interface SnapshotScrubOptions {
   knownValues?: readonly string[]
   /** Stamps of snapshots already scrubbed. */
   done?: readonly SnapshotStamp[]
+  /** Snapshots that failed before, with their tries. */
+  failures?: readonly SnapshotFailure[]
+  /**
+   * When the live file was last compacted clean (epoch ms). A snapshot modified
+   * after it is a copy of the clean file.
+   */
+  cleanSinceMs?: number
   /** Test seam: runs just before the rename (a throw stands for a crash). */
   beforeReplace?: (snapshotPath: string) => void
   /** Free bytes on the snapshot's filesystem. Default: `freeDiskBytes`. */
@@ -187,6 +217,26 @@ function needlesOf(value: string): string[] {
   return out
 }
 
+/** Whether the file at `path` holds any of `needles`, read in pieces, never whole. */
+function fileHoldsAny(path: string, needles: readonly Buffer[]): boolean {
+  if (needles.length === 0) return false
+  const overlap = Math.max(...needles.map((needle) => needle.length)) - 1
+  const chunk = Buffer.alloc(4 * 1024 * 1024)
+  const fd = openSync(path, 'r')
+  try {
+    let tail = Buffer.alloc(0)
+    for (;;) {
+      const read = readSync(fd, chunk, 0, chunk.length, null)
+      if (read === 0) return false
+      const window = Buffer.concat([tail, chunk.subarray(0, read)])
+      if (needles.some((needle) => window.includes(needle))) return true
+      tail = Buffer.from(window.subarray(Math.max(0, window.length - overlap)))
+    }
+  } finally {
+    closeSync(fd)
+  }
+}
+
 function sameStamp(a: SnapshotStamp, b: SnapshotStamp): boolean {
   return a.path === b.path && a.size === b.size && a.mtimeMs === b.mtimeMs
 }
@@ -248,8 +298,8 @@ function scrubOne(snapshot: string, options: SnapshotScrubOptions): SnapshotScru
       rmSync(`${temp}${suffix}`, { force: true })
     }
     rmSync(`${temp}-shm`, { force: true })
-    const bytes = readFileSync(temp)
-    if (values.flatMap(needlesOf).some((needle) => bytes.includes(Buffer.from(needle, 'utf8')))) {
+    const needles = values.flatMap(needlesOf).map((needle) => Buffer.from(needle, 'utf8'))
+    if (fileHoldsAny(temp, needles)) {
       throw new Error('an old value is still in the scrubbed copy')
     }
     fsyncPath(temp)
@@ -273,8 +323,57 @@ function scrubOne(snapshot: string, options: SnapshotScrubOptions): SnapshotScru
 }
 
 /**
- * Scrub every retained snapshot of `dbPath` not already scrubbed (`done`), newest
- * first. Returns one result per snapshot.
+ * What a scrub would do with each retained snapshot, from `stat` alone: the
+ * result for one it leaves alone, or `undefined` for one it would scrub.
+ */
+function settledWithoutScrub(
+  path: string,
+  options: SnapshotScrubOptions,
+): SnapshotScrubResult | undefined {
+  let stamp: SnapshotStamp
+  try {
+    stamp = stampOf(path)
+  } catch {
+    return { path, outcome: 'failed', reason: 'cannot be read' }
+  }
+  if ((options.done ?? []).some((done) => sameStamp(done, stamp))) {
+    return { path, outcome: 'already-scrubbed', stamp }
+  }
+  if (options.cleanSinceMs !== undefined && stamp.mtimeMs > options.cleanSinceMs) {
+    return { path, outcome: 'clean-copy', stamp }
+  }
+  const failure = (options.failures ?? []).find((failed) => sameStamp(failed, stamp))
+  if (failure && failure.attempts >= SNAPSHOT_SCRUB_ATTEMPTS) {
+    return { path, outcome: 'given-up', reason: 'failed every try', failure }
+  }
+  return undefined
+}
+
+/**
+ * The retained snapshots as a scrub would find them now, from `stat` alone
+ * (nothing is opened): those it would work on and the largest one's size, and
+ * those that would still hold old keys after it (given up, or unreadable).
+ */
+export function planSnapshotScrub(
+  dbPath: string,
+  options: SnapshotScrubOptions = {},
+): { toScrub: string[]; unclean: string[]; largestBytes: number } {
+  const toScrub: string[] = []
+  const unclean: string[] = []
+  let largestBytes = 0
+  for (const path of retainedSnapshotPaths(dbPath)) {
+    const settled = settledWithoutScrub(path, options)
+    if (!settled) {
+      toScrub.push(path)
+      largestBytes = Math.max(largestBytes, statSync(path, { throwIfNoEntry: false })?.size ?? 0)
+    } else if (settled.outcome === 'given-up' || settled.outcome === 'failed') unclean.push(path)
+  }
+  return { toScrub, unclean, largestBytes }
+}
+
+/**
+ * Scrub every retained snapshot of `dbPath` that needs it, newest first. Returns
+ * one result per snapshot; a failure carries its count of tries.
  */
 export function scrubLegacySnapshots(
   dbPath: string,
@@ -282,14 +381,12 @@ export function scrubLegacySnapshots(
 ): SnapshotScrubResult[] {
   removeStaleTemps(dbPath)
   return retainedSnapshotPaths(dbPath).map((path) => {
-    const done = options.done ?? []
-    try {
-      if (done.some((stamp) => sameStamp(stamp, stampOf(path)))) {
-        return { path, outcome: 'already-scrubbed', stamp: stampOf(path) }
-      }
-    } catch {
-      return { path, outcome: 'failed', reason: 'cannot be read' }
-    }
-    return scrubOne(path, options)
+    const settled = settledWithoutScrub(path, options)
+    if (settled) return settled
+    const before = stampOf(path)
+    const result = scrubOne(path, options)
+    if (result.outcome !== 'failed') return result
+    const previous = (options.failures ?? []).find((failed) => sameStamp(failed, before))
+    return { ...result, failure: { ...before, attempts: (previous?.attempts ?? 0) + 1 } }
   })
 }

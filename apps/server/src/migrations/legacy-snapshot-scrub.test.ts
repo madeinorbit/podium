@@ -20,7 +20,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { scrubLegacySnapshots } from './legacy-snapshot-scrub'
+import {
+  planSnapshotScrub,
+  SNAPSHOT_SCRUB_ATTEMPTS,
+  type SnapshotFailure,
+  scrubLegacySnapshots,
+} from './legacy-snapshot-scrub'
 
 /** Obviously fake old values. */
 const ACCOUNT_KEY = 'FAKE-sk-ant-snapshot-account-0101'
@@ -289,5 +294,69 @@ describe('scrubbing the old keys out of retained snapshots', () => {
     const [result] = scrubLegacySnapshots(dbPath, { freeBytes: () => 0 })
     expect(result?.outcome).toBe('failed')
     expect(readFileSync(snapshot).equals(before)).toBe(true)
+  })
+
+  it('counts the tries of a snapshot that fails, and gives it up after the last one (POD-7252)', () => {
+    const { dbPath } = place()
+    const snapshot = `${dbPath}.backup-vdrizzle-48-2026-11-09T00-00-00-000Z`
+    vaultEraSnapshot(snapshot)
+    let failures: SnapshotFailure[] = []
+    for (let attempt = 1; attempt <= SNAPSHOT_SCRUB_ATTEMPTS; attempt += 1) {
+      const [result] = scrubLegacySnapshots(dbPath, { freeBytes: () => 0, failures })
+      expect(result).toMatchObject({ outcome: 'failed', failure: { attempts: attempt } })
+      failures = result?.failure ? [result.failure] : []
+    }
+    expect(planSnapshotScrub(dbPath, { failures })).toMatchObject({
+      toScrub: [],
+      unclean: [snapshot],
+    })
+    // Room or not, a given-up snapshot is not opened again while it is the same file.
+    const before = readFileSync(snapshot)
+    const [given] = scrubLegacySnapshots(dbPath, { failures })
+    expect(given).toMatchObject({
+      outcome: 'given-up',
+      failure: { attempts: SNAPSHOT_SCRUB_ATTEMPTS },
+    })
+    expect(readFileSync(snapshot).equals(before)).toBe(true)
+    // A different file at that path is a new snapshot, tried again.
+    utimesSync(snapshot, new Date('2026-11-10T00:00:00Z'), new Date('2026-11-10T00:00:00Z'))
+    expect(planSnapshotScrub(dbPath, { failures }).toScrub).toEqual([snapshot])
+  })
+
+  it('leaves alone a snapshot written after the last clean compaction (POD-7252)', () => {
+    const { dbPath } = place()
+    const older = `${dbPath}.backup-vdrizzle-49-2026-11-10T00-00-00-000Z`
+    const newer = `${dbPath}.backup-vdrizzle-50-2026-11-11T00-00-00-000Z`
+    vaultEraSnapshot(older)
+    vaultEraSnapshot(newer)
+    utimesSync(older, new Date('2026-11-10T00:00:00Z'), new Date('2026-11-10T00:00:00Z'))
+    utimesSync(newer, new Date('2026-11-11T00:00:00Z'), new Date('2026-11-11T00:00:00Z'))
+    const cleanSinceMs = Date.parse('2026-11-10T12:00:00Z')
+    expect(planSnapshotScrub(dbPath, { cleanSinceMs })).toMatchObject({
+      toScrub: [older],
+      unclean: [],
+    })
+    const results = scrubLegacySnapshots(dbPath, { cleanSinceMs })
+    expect(results.find((r) => r.path === newer)?.outcome).toBe('clean-copy')
+    expect(results.find((r) => r.path === older)?.outcome).toBe('scrubbed')
+    expect(heldIn(fileBytes(older))).toEqual([])
+  })
+
+  it('finds an old value the scrub left, wherever it sits in a large file', () => {
+    const { dbPath } = place()
+    const snapshot = `${dbPath}.backup-vdrizzle-51-2026-11-12T00-00-00-000Z`
+    vaultEraSnapshot(snapshot)
+    // Well past the 4 MiB the search reads at a time, so the key falls across pieces.
+    withDb(snapshot, (db) => {
+      db.exec('CREATE TABLE padding (v BLOB)')
+      db.prepare('INSERT INTO padding VALUES (randomblob(?))').run(5 * 1024 * 1024)
+      db.prepare('INSERT INTO padding VALUES (?)').run(`kept-${API_KEY}`)
+      db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get()
+    })
+    const [result] = scrubLegacySnapshots(dbPath)
+    expect(result).toMatchObject({
+      outcome: 'failed',
+      reason: 'an old value is still in the scrubbed copy',
+    })
   })
 })
