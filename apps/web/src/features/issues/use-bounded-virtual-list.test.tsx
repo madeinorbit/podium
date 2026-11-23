@@ -362,6 +362,61 @@ describe('bounded variable-height issue window', () => {
     )
   })
 
+  it('keeps the owner when an animation restores height after a transient clamp', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('ResizeObserver', RecordingResizeObserver)
+    const view = render(<SectionedWindowHarness keys={SHORT_KEYS} />)
+    const scroll = view.getByTestId('sectioned-scroll')
+    const container = view.getByTestId('sectioned-container')
+    const section = container.parentElement as HTMLElement
+    sizeViewport(scroll, 320)
+    let precedingHeight = 3074
+    Object.defineProperty(container, 'offsetParent', { configurable: true, value: section })
+    Object.defineProperty(section, 'offsetParent', { configurable: true, value: scroll })
+    vi.spyOn(section, 'offsetTop', 'get').mockImplementation(() => precedingHeight)
+    vi.spyOn(section, 'offsetHeight', 'get').mockReturnValue(560)
+    vi.spyOn(scroll, 'scrollHeight', 'get').mockImplementation(() => precedingHeight + 560)
+    scroll.scrollTop = 3314
+    fireEvent.scroll(scroll)
+    flushViewport()
+
+    // Motion briefly set the final height, clamping to 240, then restored an
+    // intermediate frame before this window's resize publication ran.
+    precedingHeight = 3000
+    scroll.scrollTop = 240
+    RecordingResizeObserver.resize(view.getByTestId('preceding-section'))
+    flushViewport()
+    expect(scroll.scrollTop).toBe(3240)
+    precedingHeight = 0
+    scroll.scrollTop = 240
+    RecordingResizeObserver.resize(view.getByTestId('preceding-section'))
+    flushViewport()
+    expect(scroll.scrollTop).toBe(240)
+  })
+
+  it('preserves wheel movement while compensating a simultaneous section shift', () => {
+    vi.useFakeTimers()
+    const view = render(<SectionedWindowHarness keys={SHORT_KEYS} />)
+    const scroll = view.getByTestId('sectioned-scroll')
+    const container = view.getByTestId('sectioned-container')
+    const section = container.parentElement as HTMLElement
+    sizeViewport(scroll, 320)
+    let precedingHeight = 3074
+    Object.defineProperty(container, 'offsetParent', { configurable: true, value: section })
+    Object.defineProperty(section, 'offsetParent', { configurable: true, value: scroll })
+    vi.spyOn(section, 'offsetTop', 'get').mockImplementation(() => precedingHeight)
+    vi.spyOn(section, 'offsetHeight', 'get').mockReturnValue(560)
+    scroll.scrollTop = 3154
+    fireEvent.scroll(scroll)
+    flushViewport()
+    fireEvent.wheel(scroll, { deltaY: 40 })
+    scroll.scrollTop += 40
+    precedingHeight = 0
+    view.rerender(<SectionedWindowHarness keys={SHORT_KEYS} />)
+    flushViewport()
+    expect(scroll.scrollTop).toBe(120)
+  })
+
   it('does not anchor a retained window while its own fold is hidden', () => {
     vi.useFakeTimers()
     const view = render(<SectionedWindowHarness keys={SHORT_KEYS} />)

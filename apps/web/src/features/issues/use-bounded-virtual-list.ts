@@ -16,7 +16,53 @@ const DEFAULT_INITIAL_ITEMS = 16
 // A grouped surface has several independent windows. A correction by one of
 // them invalidates the others' scroll snapshots; it is not a user scroll that
 // transfers ownership to a different section in the old layout.
-const scrollAnchorVersions = new WeakMap<HTMLElement, number>()
+interface SharedScrollState {
+  anchorVersion: number
+  inputVersion: number
+  subscribers: number
+  onInput: (event: Event) => void
+}
+const scrollStates = new WeakMap<HTMLElement, SharedScrollState>()
+const SCROLL_INPUTS = ['wheel', 'touchmove', 'pointermove', 'keydown'] as const
+const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'])
+
+function sharedScrollState(scroll: HTMLElement): SharedScrollState {
+  const saved = scrollStates.get(scroll)
+  if (saved) return saved
+  const state: SharedScrollState = {
+    anchorVersion: 0,
+    inputVersion: 0,
+    subscribers: 0,
+    onInput(event) {
+      if (
+        event.type === 'pointermove' &&
+        (!(event as PointerEvent).buttons || event.target !== scroll)
+      )
+        return
+      if (event.type === 'keydown') {
+        if (!SCROLL_KEYS.has((event as KeyboardEvent).key)) return
+        // Row navigation may consume the key later in React's event handler.
+        queueMicrotask(() => {
+          if (!event.defaultPrevented) state.inputVersion++
+        })
+      } else state.inputVersion++
+    },
+  }
+  scrollStates.set(scroll, state)
+  return state
+}
+
+/** One set of input listeners per surface, shared by all its windows. */
+function observeScrollInput(scroll: HTMLElement): () => void {
+  const state = sharedScrollState(scroll)
+  if (state.subscribers++ === 0)
+    for (const type of SCROLL_INPUTS)
+      scroll.addEventListener(type, state.onInput, { passive: true })
+  return () => {
+    if (--state.subscribers === 0)
+      for (const type of SCROLL_INPUTS) scroll.removeEventListener(type, state.onInput)
+  }
+}
 
 export interface VirtualIssueItem {
   key: string
@@ -97,7 +143,8 @@ function localScrollTop(
 ): number {
   if (!scroll) return 0
   if (!container || container === scroll) return scroll.scrollTop
-  return scroll.scrollTop - containerOffset(scroll, container)
+  const offset = containerOffset(scroll, container)
+  return scroll.scrollTop - offset
 }
 
 /** Virtual rows occupy layout space, before Motion's transient transforms.
@@ -173,6 +220,7 @@ export function useBoundedVirtualList({
     scrollTop: number
     section: { start: number; end: number } | null
     anchorVersion: number
+    inputVersion: number
   } | null>(null)
   const onScrollAnchorRef = useRef(onScrollAnchor)
   onScrollAnchorRef.current = onScrollAnchor
@@ -228,16 +276,28 @@ export function useBoundedVirtualList({
     // A closing/retained fold cannot supply a visible row to anchor. In
     // particular, a folder drag hides its visited windows before restoring them.
     const visible = !container?.closest('[aria-hidden="true"], [inert]')
-    const currentTop = localScrollTop(scroll, container)
     const saved = priorViewportRef.current
-    const anchorVersion = scroll ? (scrollAnchorVersions.get(scroll) ?? 0) : 0
-    const scrollTop = scroll?.scrollTop ?? 0
+    const shared = scroll ? sharedScrollState(scroll) : null
+    const anchorVersion = shared?.anchorVersion ?? 0
+    const inputVersion = shared?.inputVersion ?? 0
+    // Flush layout before reading scrollTop: measuring the new extent may
+    // itself clamp an offset that was valid in the previous layout.
     const maxScroll = scroll ? Math.max(0, scroll.scrollHeight - scroll.clientHeight) : 0
+    const containerStart =
+      scroll && container && container !== scroll ? containerOffset(scroll, container) : 0
+    const scrollTop = scroll?.scrollTop ?? 0
+    const currentTop = scrollTop - containerStart
     // Shrinking the scroll extent can clamp the browser's offset before any
     // observer or effect runs. That movement is not a request to change rows.
     // scrollHeight/clientHeight are rounded; animated scrollTop can be fractional.
+    // Motion can briefly clamp at the final height before restoring an
+    // intermediate frame. By then scrollTop is no longer at the current max.
+    // Keep the original owner when its container moved without scroll input.
+    const containerMoved = saved && saved.scrollTop - saved.top !== containerStart
     const anchorScrollTop =
-      saved && Math.abs(scrollTop - maxScroll) <= 1 && saved.scrollTop > maxScroll
+      saved &&
+      saved.inputVersion === inputVersion &&
+      (containerMoved || (Math.abs(scrollTop - maxScroll) <= 1 && saved.scrollTop > maxScroll))
         ? saved.scrollTop
         : scrollTop
     const top = saved ? saved.top + anchorScrollTop - saved.scrollTop : currentTop
@@ -264,7 +324,7 @@ export function useBoundedVirtualList({
           offsetAt(current, currentIndex) - offsetAt(prior, anchorIndex) + top - currentTop
         if (delta !== 0) {
           scroll.scrollTop += delta
-          scrollAnchorVersions.set(scroll, anchorVersion + 1)
+          if (shared) shared.anchorVersion++
           onScrollAnchorRef.current?.()
         }
       }
@@ -277,7 +337,8 @@ export function useBoundedVirtualList({
             top: nextTop,
             scrollTop: scroll.scrollTop,
             section: sectionBounds(scroll, container),
-            anchorVersion: scrollAnchorVersions.get(scroll) ?? 0,
+            anchorVersion: shared?.anchorVersion ?? 0,
+            inputVersion,
           }
         : null
     return { top: nextTop, height: scroll?.clientHeight ?? 0, changed }
@@ -308,6 +369,7 @@ export function useBoundedVirtualList({
     }
     const scroll = scrollRef.current
     if (!scroll) return
+    const stopInput = observeScrollInput(scroll)
     publishViewport()
     scroll.addEventListener('scroll', publishViewport, { passive: true })
     const resize =
@@ -333,6 +395,7 @@ export function useBoundedVirtualList({
     }
     return () => {
       scroll.removeEventListener('scroll', publishViewport)
+      stopInput()
       sections?.disconnect()
       resize?.disconnect()
       if (viewportFrameRef.current !== null) {

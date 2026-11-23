@@ -2,6 +2,7 @@
  * Run on an agent VM through validation-admission, with --before=<base SHA>.
  * Default: replace only work-folds.tsx for the control. With --scroll-anchor,
  * replace only the virtualizer instead, to compare viewport preservation.
+ * --trace-anchor adds clamp ownership/corrections to the clamped sample.
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
