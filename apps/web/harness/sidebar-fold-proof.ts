@@ -125,13 +125,17 @@ async function anchor(page: Page) {
   const top = box.y
   const scroll = await page.getByTestId('work-scroll').evaluate((el) => el.scrollTop)
   // The header is above the viewport: do not let Playwright scroll it into view.
-  await header(page).evaluate((button) => button.click())
+  await header(page).evaluate((button) => {
+    if (button instanceof HTMLElement) button.click()
+  })
   await group(page).getByTestId('project-group-rows').waitFor({ state: 'detached' })
   await settle(page)
   const finalRow = page.locator(`[data-window-row="${key}"]`)
   const finalTop = (await finalRow.boundingBox())?.y ?? null
   const finalScroll = await page.getByTestId('work-scroll').evaluate((el) => el.scrollTop)
-  await header(page).evaluate((button) => button.click())
+  await header(page).evaluate((button) => {
+    if (button instanceof HTMLElement) button.click()
+  })
   await settle(page)
   await page.getByTestId('work-scroll').evaluate((el) => {
     el.scrollTop = 0

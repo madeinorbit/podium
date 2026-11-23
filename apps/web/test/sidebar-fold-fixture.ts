@@ -35,26 +35,33 @@ export function createSidebarFoldFixture() {
       while (i < openRows && i >= end) end += sizes[++group] ?? 0
       const repo = repos[group]
       if (!repo) throw new Error(`Missing synthetic project ${group}`)
-      record.value = {
-        ...row,
-        repoId: repo.repoId,
-        worktreePath: repo.path,
-        stage: i < openRows ? 'in_progress' : 'done',
-        ...(i >= openRows
-          ? {
-              closedAt: new Date(now - 3600000).toISOString(),
-              closedReason: 'done',
-            }
-          : {}),
-      }
+      fixture.records.set(key, {
+        ...record,
+        value: {
+          ...row,
+          repoId: repo.repoId,
+          worktreePath: repo.path,
+          stage: i < openRows ? 'in_progress' : 'done',
+          ...(i >= openRows
+            ? {
+                closedAt: new Date(now - 3600000).toISOString(),
+                closedReason: 'done',
+              }
+            : {}),
+        },
+      })
     } else if (record.entity === 'issueUserState') {
       const { entityId } = row
       const i = Number(String(entityId).slice('synthetic-'.length))
-      if (i >= openRows) record.value = { ...row, tuckedAt: new Date(now - 3600000).toISOString() }
+      if (i >= openRows)
+        fixture.records.set(key, {
+          ...record,
+          value: { ...row, tuckedAt: new Date(now - 3600000).toISOString() },
+        })
     } else if (record.entity === 'session') {
       const i = Number(record.entityId.slice('synthetic-session-'.length))
       if (i >= 1831) fixture.records.delete(key)
-      else record.value = { ...row, cwd: '/synthetic/fold-00' }
+      else fixture.records.set(key, { ...record, value: { ...row, cwd: '/synthetic/fold-00' } })
     }
   }
   return fixture
