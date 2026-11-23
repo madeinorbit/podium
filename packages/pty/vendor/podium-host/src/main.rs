@@ -37,8 +37,11 @@ const VERSION: &str = match option_env!("PODIUM_HOST_VERSION") {
     None => "1-podium",
 };
 /// 1 — SPEC-6 protocol version 1. 2 — the screen: WELCOME's features byte
-/// and PICTURE (POD-4909). The retired C host (host.c) reports 1.
-const HOST_FEATURES: u32 = if cfg!(feature = "screen") { 2 } else { 1 };
+/// and PICTURE (POD-4909). 3 — `create --pipe-env` (POD-7378), which exists
+/// on Unix only: a Windows host at 3 has nothing more than at 2, and nothing
+/// asks it for a pipe. Levels are cumulative, so a build without the screen
+/// stays at 1. The retired C host (host.c) reports 1.
+const HOST_FEATURES: u32 = if cfg!(feature = "screen") { 3 } else { 1 };
 
 pub fn die(msg: fmt::Arguments) -> ! {
     let _ = writeln!(io::stderr(), "podium-host: {msg}");
@@ -56,7 +59,8 @@ fn usage() -> ! {
     let _ = io::stderr().write_all(
         b"usage: podium-host create --socket <path> [--cols N --rows N | --no-pty]\n\
           \x20                         [--ring-bytes N] [--linger-secs N] [--cwd <dir>]\n\
-          \x20                         [--screen-scrollback N] -- <cmd> [args...]\n\
+          \x20                         [--screen-scrollback N] [--pipe-env <VARIABLE>]\n\
+          \x20                         -- <cmd> [args...]\n\
           \x20      podium-host version\n",
     );
     std::process::exit(2)

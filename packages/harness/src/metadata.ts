@@ -61,9 +61,11 @@ export {
 // The model provider Codex runs a ChatGPT plan under (epic Task 15): a credential
 // switch records it in a moved thread (Task 11).
 export {
+  CODEX_API_KEY_PROVIDER_ID,
   CODEX_PLAN_PROVIDER_ID,
   codexModelProvider,
   codexModelProviderChange,
+  codexProviderInPodiumHome,
 } from './adapters/codex/plan-provider.js'
 export type { AgentStateEvent } from './agent-state/types.js'
 // Two prompt-pointer string constants. Data the server renders into agent

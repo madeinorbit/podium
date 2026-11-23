@@ -29,6 +29,7 @@ export * from './adapters/claude-code/credential-freshness.js'
 export {
   claudeHomeSharing,
   claudeLoginFileRemovalError,
+  claudePodiumHomeFill,
   prepareClaudeHomeLaunch,
   probeClaudeHomeModels,
 } from './adapters/claude-code/home.js'
@@ -43,6 +44,7 @@ export * from './adapters/codex/credential-absence-grace.js'
 export {
   type CodexHomeStopPorts,
   codexHomeSharing,
+  codexPodiumHomeFill,
   type RunningProcess,
   stopCodexHome,
 } from './adapters/codex/home.js'
@@ -57,6 +59,7 @@ export * from './adapters/codex/responses.js'
 export * from './adapters/codex/state-provider.js'
 export { codexPromptTextMatches } from './adapters/codex/transcript.js'
 export * from './adapters/cursor/state.js'
+export { grokHomeSharing, grokPodiumHomeFill } from './adapters/grok/home.js'
 export * from './adapters/grok/state-binding.js'
 export * from './adapters/grok/state-causal.js'
 export * from './adapters/grok/state-locate.js'
@@ -64,6 +67,7 @@ export * from './adapters/grok/state-provider.js'
 export { opencodeAuthPath } from './adapters/opencode/auth.js'
 export * from './adapters/opencode/state.js'
 export { opencodePromptTextMatches } from './adapters/opencode/transcript.js'
+export { piHomeSharing, piPodiumHomeFill } from './adapters/pi/home.js'
 export * from './adapters/pi/state.js'
 export * from './adapters/shared/login-identity.js'
 export * from './agent-state/index.js'

@@ -137,6 +137,8 @@ const CLAUDE_STRIP = [
   'CLAUDE_CODE_SESSION_ID',
   'CLAUDE_CODE_ENTRYPOINT',
   'CLAUDE_CODE_EXECPATH',
+  // POD-7378: with it, Claude writes a piped credential to a file.
+  'CLAUDE_CODE_REMOTE',
   'CLAUDE_CONFIG_DIR',
   'CLAUDE_SECURESTORAGE_CONFIG_DIR',
   // POD-6613: Claude's update, URL handler, locks and profile follow XDG too.
@@ -233,6 +235,46 @@ it('never deletes a credential the server put on the frame', async () => {
   // And exactly that one is exempted — nothing else narrows with it.
   expect(opts.stripEnv).toEqual(CLAUDE_STRIP.filter((key) => key !== 'ANTHROPIC_API_KEY'))
 })
+
+it.runIf(process.platform === 'linux')(
+  'hands a passed-in Claude key over on a pipe: no variable, no scrub switch, the variable stripped (POD-7378)',
+  async () => {
+    const secret = 'sk-ant-api03-FAKE-planted-pty-secret'
+    const opts = (await spawnOptionsFor({
+      sessionId: 'strip-piped-key',
+      agentKind: 'claude-code',
+      access: {
+        credentialId: 'cred_00000000-0000-4000-8000-0000000000b1',
+        delivery: { kind: 'env', variable: 'ANTHROPIC_API_KEY', secret },
+      },
+    })) as SpawnOptions & { pipe?: { variable: string; contents: string } }
+    expect(opts.pipe).toEqual({ variable: 'CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR', contents: secret })
+    expect(opts.env?.ANTHROPIC_API_KEY).toBeUndefined()
+    expect(opts.env?.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBeUndefined()
+    expect(opts.stripEnv).toEqual(CLAUDE_STRIP)
+    // Canary first (the pipe holds it), then everything else the PTY layer gets.
+    expect(JSON.stringify(opts.pipe)).toContain(secret)
+    const { pipe: _pipe, ...rest } = opts
+    expect(JSON.stringify(rest)).not.toContain(secret)
+  },
+)
+
+it.runIf(process.platform === 'linux')(
+  'a passed-in Claude token goes on its own pipe and an inherited token is stripped (POD-7378)',
+  async () => {
+    const opts = (await spawnOptionsFor({
+      sessionId: 'strip-piped-token',
+      agentKind: 'claude-code',
+      access: {
+        credentialId: 'cred_00000000-0000-4000-8000-0000000000b2',
+        delivery: { kind: 'env', variable: 'CLAUDE_CODE_OAUTH_TOKEN', secret: 'sk-ant-oat01-x' },
+      },
+    })) as SpawnOptions & { pipe?: { variable: string; contents: string } }
+    expect(opts.pipe?.variable).toBe('CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR')
+    expect(opts.env?.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined()
+    expect(opts.stripEnv).toContain('CLAUDE_CODE_OAUTH_TOKEN')
+  },
+)
 
 it('still deletes a parent CONTROL on the frame — the exemption is credential-only', async () => {
   // WHY THE ASYMMETRY IS DELIBERATE, since the exemption above could look like

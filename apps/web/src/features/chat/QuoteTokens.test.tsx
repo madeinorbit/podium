@@ -3,13 +3,13 @@ import { principalKeyPrefix } from '@podium/client-core/replica'
 import { fixtureUi } from '@podium/client-core/test-support/ui'
 import { openLegacyDeviceKeys, UiPersistence } from '@podium/client-core/ui'
 import { createRoutedUiState, type RoutedUiState } from '@podium/client-core/ui-state'
-import { act } from 'react'
+import { act, type JSX, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadQuotes, QUOTES_KEY, saveQuotes, sweepQuotes } from '@/lib/quote/quote-store'
 import { quoteLabel } from '@/lib/quote/quote-tokens'
 import { createSideCache } from '../../../../../packages/client-core/src/replica/kernel/side-cache'
-import { type UseQuotesResult, useQuotes } from './QuoteTokens'
+import { QuoteOverlay, type UseQuotesResult, useQuotes } from './QuoteTokens'
 
 let currentOwner: RoutedUiState
 vi.mock('@podium/client-core/react', async (original) => ({
@@ -268,4 +268,35 @@ it('expires old passages and never adopts unattributable raw quote bytes', () =>
   expect(loadQuotes(currentOwner, 'foreign')).toEqual([])
   sweepQuotes(currentOwner)
   expect(currentOwner.get(QUOTES_KEY)).toBeNull()
+})
+
+it('lays out like the field when it mounts with a token already in the draft', () => {
+  // In the composer's order (field first, then overlay) the field's ref is
+  // attached by the time the overlay's layout effect reads it on mount (a
+  // reload, a session switch, a remounted panel with a quote in the draft).
+  // With the overlay first, it read null and never copied the field's styles.
+  const label = quoteLabel('Board counts by priority')
+  const draft = `before\n\n${label}`
+  function Composer(): JSX.Element {
+    const taRef = useRef<HTMLTextAreaElement | null>(null)
+    return (
+      <div>
+        <textarea
+          ref={taRef}
+          defaultValue={draft}
+          style={{ fontSize: '14px', whiteSpace: 'pre-wrap' }}
+        />
+        <QuoteOverlay taRef={taRef} draft={draft} quotes={[]} />
+      </div>
+    )
+  }
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  act(() => root.render(<Composer />))
+  const text = host.querySelector<HTMLElement>('.quote-overlay-text')
+  expect(text?.style.fontSize).toBe('14px')
+  expect(text?.style.whiteSpace).toBe('pre-wrap')
+  act(() => root.unmount())
+  host.remove()
 })

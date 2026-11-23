@@ -78,6 +78,15 @@ const TABLE = {
     sharing: 'free',
     revocation: 'none',
   },
+  // Managed installs §4.7 (POD-7370): Grok's login, held in a GROK_HOME home.
+  'xai.grok-login': {
+    provider: 'xai',
+    store: 'home',
+    renewal: undefined,
+    obtain: ['harness-sign-in', 'found-on-machine'],
+    sharing: 'warn',
+    revocation: 'sign-out',
+  },
 } as const
 
 describe('CREDENTIAL_TYPES', () => {

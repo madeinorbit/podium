@@ -13,8 +13,7 @@ import type { HarnessRoots } from './manifest.js'
  * Machine level, from the inventory. Nothing account-specific.
  *
  * Machine facts (version and capability checks) use this plus the MACHINE
- * command env, never an account env. Leaves room for a later
- * `managed | external` provenance field.
+ * command env, never an account env.
  */
 export interface HarnessInstallation {
   readonly kind: BuiltinHarnessKind
@@ -25,7 +24,25 @@ export interface HarnessInstallation {
   readonly version: string
   /** Command-environment generation the executable was resolved in. */
   readonly generation: number
+  /**
+   * Podium installed it (a release folder the install ledger
+   * names), or the person did (found on the command path or in the adapter's
+   * known folders). docs/design/harness-managed-installs.md §6.1. A managed
+   * installation only ever runs in a home Podium made (§4.2, M9).
+   */
+  readonly provenance: HarnessInstallationProvenance
+  /**
+   * The release folder's number, for a managed installation (managed installs
+   * §5.2); absent for the person's own. What a session's install row records,
+   * so housekeeping keeps the folder while the session runs on it (§6.2).
+   */
+  readonly release?: number
+  /** The vendor updater cannot be stopped; launch without Podium's updater guard. */
+  readonly vendorUpdated?: boolean
 }
+
+/** Who put an installation on the machine (managed installs §6.1). */
+export type HarnessInstallationProvenance = 'managed' | 'external'
 
 /**
  * A Podium home the context runs in (credential management §10): the

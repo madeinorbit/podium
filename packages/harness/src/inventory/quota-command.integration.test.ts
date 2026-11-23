@@ -15,7 +15,13 @@ async function runner() {
   roots.push(home)
   return quotaCommandRunner({
     ...harnessAccount('pi', home, { HOME: home, PATH: process.env.PATH ?? '' }),
-    installation: { kind: 'pi', executable: process.execPath, version: '', generation: 1 },
+    installation: {
+      kind: 'pi',
+      executable: process.execPath,
+      version: '',
+      generation: 1,
+      provenance: 'external',
+    },
   })
 }
 

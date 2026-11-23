@@ -5,7 +5,7 @@
  * login on one machine. The daemon keeps Podium's homes under its state
  * directory, one per credential and harness, and a session on that credential
  * starts with the harness's directory variable (`CLAUDE_CONFIG_DIR`,
- * `CODEX_HOME`) pointed at it. The harness's own directory is the home Podium
+ * `CODEX_HOME`, `GROK_HOME`, `PI_CODING_AGENT_DIR`) pointed at it. The harness's own directory is the home Podium
  * did not create: {@link DEFAULT_HOME_ID}.
  *
  * Nothing in these messages is secret. A home holds a login, but the login
@@ -28,6 +28,23 @@ export const DEFAULT_HOME_ID = 'default'
 export const HOME_HARNESSES = HOME_HARNESS_KINDS
 export const HomeHarness = z.enum(HOME_HARNESSES)
 export type HomeHarness = z.infer<typeof HomeHarness>
+
+/** A daemon that offers this also keeps Grok homes (`GROK_HOME`, managed
+ *  installs §4.7). An older daemon cannot read a request that names `grok`,
+ *  so it is never asked for one. */
+export const CAP_HARNESS_HOMES_GROK = 'harness.homes.grok.v1'
+
+/** A daemon that offers this also keeps Pi homes (`PI_CODING_AGENT_DIR`,
+ *  managed installs §4.7). An older daemon cannot read a request that names
+ *  `pi`, so it is never asked for one. */
+export const CAP_HARNESS_HOMES_PI = 'harness.homes.pi.v1'
+
+/** The capabilities a daemon must offer before it is asked for a home of `harness`. */
+export function homeCapabilities(harness: HomeHarness): readonly string[] {
+  if (harness === 'grok') return [CAP_HARNESS_HOMES, CAP_HARNESS_HOMES_GROK]
+  if (harness === 'pi') return [CAP_HARNESS_HOMES, CAP_HARNESS_HOMES_PI]
+  return [CAP_HARNESS_HOMES]
+}
 
 /**
  * A credential id as it may name a directory: `cred_` and then letters,
@@ -54,6 +71,29 @@ export function parseHomeId(homeId: string): { credentialId: string; harness: Ho
   if (!CREDENTIAL_SEGMENT.test(credentialId)) return null
   const parsed = HomeHarness.safeParse(harness)
   return parsed.success ? { credentialId, harness: parsed.data } : null
+}
+
+/**
+ * THE PODIUM HOME (managed installs §4.3): one home per harness on a machine,
+ * `<stateDir>/homes/podium/<harness>/`, where every credential Podium passes
+ * in (an API key, a long-lived token, a plan token in a variable) runs once
+ * the machine has a managed install of the harness. It belongs to no
+ * credential, so it is never named by {@link parseHomeId}, never removed with
+ * a credential, and never holds a login of its own.
+ */
+export const PODIUM_HOME_OWNER = 'podium'
+
+/** The Podium home of `harness`: `podium:<harness>`. */
+export function podiumHomeId(harness: HomeHarness): string {
+  return `${PODIUM_HOME_OWNER}:${harness}`
+}
+
+/** The harness a Podium home id names; null for anything else. */
+export function parsePodiumHomeId(homeId: string): HomeHarness | null {
+  const parts = homeId.split(':')
+  if (parts.length !== 2 || parts[0] !== PODIUM_HOME_OWNER) return null
+  const parsed = HomeHarness.safeParse(parts[1])
+  return parsed.success ? parsed.data : null
 }
 
 /** Server → daemon: make sure the home for this credential and harness exists. */

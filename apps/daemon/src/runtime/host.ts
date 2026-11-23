@@ -41,6 +41,7 @@ import {
 import { sourceForRead } from '../control/transcripts'
 import { transcriptForExport } from '../handoff-package'
 import { reportHarnessProbe } from '../harness-version-reporting'
+import { recordInstrumentationHookFile } from '../home-edit-service'
 import { stageRuntimeAttachment } from './attachment-staging'
 import { driverTiming } from './driver-timing'
 import type { ClientTerminalKind, OpencodeClientTerminals } from './opencode-attach'
@@ -103,8 +104,8 @@ export function daemonRuntimeHost(
     // on the version of the executable the launch binds, in the folders the
     // observer reads. Neither asks the inventory, so a refresh between them
     // changes nothing for this session.
-    installInstrumentation: (sessionId, spec) =>
-      installTerminalInstrumentation({
+    installInstrumentation: async (sessionId, spec) => {
+      const installed = await installTerminalInstrumentation({
         sessionId,
         harness: spec.harness,
         spec,
@@ -115,7 +116,11 @@ export function daemonRuntimeHost(
         ...(ctx.codexHookTrust
           ? { launchHookTrust: ctx.codexHookTrust.trustFor.bind(ctx.codexHookTrust) }
           : {}),
-      }),
+      })
+      // A hook file in the person's own folder is a home change (POD-7388).
+      await recordInstrumentationHookFile(spec.harness, spec.harnessContext, installed.hookFile)
+      return installed
+    },
     launch: (input) => launchTerminalProcess(ctx, input),
     readHistory: async (session, range) => {
       const segmentId = `history:${session.sessionId}:${session.resume?.value ?? ''}`

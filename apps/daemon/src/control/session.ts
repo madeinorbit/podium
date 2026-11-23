@@ -116,7 +116,12 @@ import {
 } from '../session-screens'
 import { removeSessionUploads } from '../session-uploads'
 import { Terminal } from '../terminal/terminal.js'
-import { deliveryOverlay } from './access'
+import {
+  assertDeliveryPrerequisites,
+  deliveredCredentialEnv,
+  deliveryOverlay,
+  isPodiumHomeId,
+} from './access'
 import { type BindFacts, bindFrame, reportSize } from './applied-geometry'
 import type { ControlHandlers, DaemonContext } from './context'
 import { reportEffectiveAuth, sessionProcessEnvironment } from './effective-auth'
@@ -858,7 +863,8 @@ export async function launchTerminalProcess(
     if ('terms' in cmd) {
       const applied = await prepareLaunch(
         cmd,
-        nodePrepareLaunchPorts({ sessionId, launch: 'terminal' }),
+        nodePrepareLaunchPorts({ sessionId, launch: 'terminal' }, ctx.sessionInstalls),
+        { session: sessionId },
       )
       if (!loginHarness && agentKind !== 'shell') {
         reportLaunchTerms(ctx, sessionId, applied, terminalProfileFor(agentKind)?.driverId)
@@ -885,13 +891,17 @@ export async function launchTerminalProcess(
     // A login pane and a shell have none.
     const access =
       childContext && !loginHarness ? await ctx.access.awaitAccess(sessionId) : undefined
+    // A credential that goes in on a pipe (POD-7378) is in no variable: the
+    // host hands this process a pipe of its own. An empty one refuses here.
     const delivered =
       childContext && !loginHarness
-        ? deliveryOverlay(agentKind, access)
-        : { env: {}, args: [], keep: [] }
-    const child = childContext
+        ? deliveryOverlay(agentKind, access, {
+            podiumHome: isPodiumHomeId(childContext.harnessHome?.id),
+          })
+        : undefined
+    const childBase = childContext
       ? harnessChildEnv(childContext, {
-          sessionEnv: { ...spec.env, ...delivered.env },
+          sessionEnv: { ...spec.env, ...delivered?.env },
           wiringEnv: {
             // The adapter's own launch env.
             ...cmd.env,
@@ -912,6 +922,16 @@ export async function launchTerminalProcess(
           }),
           strip: [],
         }
+    // A piped line's own variable goes too: no inherited copy competes with the pipe.
+    const child = delivered?.strip.length
+      ? { ...childBase, strip: [...new Set([...childBase.strip, ...delivered.strip])] }
+      : childBase
+    // A HIDE SWITCH THE HARNESS CANNOT RUN HERE REFUSES THE START (POD-7375):
+    // Claude Code on Linux exits at once without bubblewrap when a passed-in
+    // credential sets its scrub switch. Looked up on the PATH the process gets.
+    if (childContext && !loginHarness) {
+      assertDeliveryPrerequisites(agentKind, access, sessionProcessEnvironment(process.env, child))
+    }
     const session = await spawnSessionProcess(durable, {
       // DEMAND THE WRITER LEASE (POD-4434). A spawn that adopts a live master
       // while another writer holds it is the update-overlap symptom: two
@@ -920,7 +940,7 @@ export async function launchTerminalProcess(
       label,
       command: withArgs(cmd, [
         // The harness's hide-from-commands switches lead its own arguments.
-        ...delivered.args,
+        ...(delivered?.args ?? []),
         ...instrumentedLaunchArgs(cmd.args, instrumentation.args),
       ]),
       cwd: cmd.cwd,
@@ -940,6 +960,7 @@ export async function launchTerminalProcess(
       // ANTHROPIC_API_KEY greets you with "Detected a custom API key in your
       // environment" instead.
       stripEnv: child.strip,
+      ...(delivered?.pipe ? { pipe: delivered.pipe } : {}),
     })
     driverTiming.headedCliStage(sessionId, agentKind, 'native_cli_process_started', {
       adopted: session.adopted,
@@ -954,6 +975,7 @@ export async function launchTerminalProcess(
         executable: childContext.installation.executable,
         env: sessionProcessEnvironment(process.env, child),
         access,
+        ...(delivered?.pipe ? { pipe: delivered.pipe } : {}),
       })
     }
     const terminal = wireBridge(ctx, sessionId, session, agentKind, label)
@@ -2167,8 +2189,9 @@ export async function launchServerDriverSession(
   const loginState = ctx.harnessLoginState(msg.agentKind)
   const selectionAuth = selectionAuthForLogin(msg.agentKind, loginState, {
     ...msg.env,
-    // The delivered credential decides the auth mode as the frame env once did.
-    ...deliveryOverlay(msg.agentKind, msg.access).env,
+    // The delivered credential decides the auth mode as the frame env once
+    // did: its line's variable, also when the secret goes on a pipe.
+    ...deliveredCredentialEnv(msg.access),
   })
   const terminalLoginReason =
     selectionAuth === 'logged-out'
@@ -2831,11 +2854,13 @@ export async function recoverTerminalProcess(
     // Inside the gate on purpose — a restart reattaches every session at once, and
     // this forks git.
     void ctx.sessionCwdTracker.setLaunchCwd(msg.sessionId, msg.cwd)
-    // A RESTARTED DAEMON REBUILDS THE CONTEXT (POD-6533) from the current
-    // inventory: the old one went with the old process. Roots depend only on
-    // the home and the account env, so the observer reads the same folders the
-    // running harness writes; nothing here relaunches it. Before the host
-    // attach, so no wait sits between wiring the bridge and its observers.
+    // A RESTARTED DAEMON REBUILDS THE CONTEXT (POD-6533): the old one went
+    // with the old process. From the session's row in the install ledger, the
+    // binary that really runs (managed installs §6.2), else from the current
+    // inventory. Roots depend only on the home and the account env, so the
+    // observer reads the same folders the running harness writes; nothing
+    // here relaunches it. Before the host attach, so no wait sits between
+    // wiring the bridge and its observers.
     const harnessContext = await sessionHarnessContextFor(ctx, msg.sessionId, msg.agentKind)
     let found: DurableReattach | undefined
     const durable = durableProcessFor(ctx)
@@ -3161,10 +3186,14 @@ async function stopSessionProcessOnce(
       killed: false,
       reason: 'instance-owned descendants survived process retirement',
     })
-  const retired =
-    measured &&
+  const reaped =
     descendants.remaining === 0 &&
     results.every((result) => result.status === 'fulfilled' && result.value)
+  // The session's processes are gone, so no release is in use for it any
+  // more (managed installs §6.2). A process that may have survived keeps its
+  // row: a kept release costs disk, a deleted one breaks the process.
+  if (reaped) ctx.sessionInstalls?.remove(msg.sessionId)
+  const retired = measured && reaped
   if (!retired)
     log.warn('session process retirement was not confirmed', { sessionId: msg.sessionId })
   return retired

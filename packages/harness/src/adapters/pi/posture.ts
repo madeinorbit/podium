@@ -25,7 +25,10 @@ export function piPosture(launch: PostureLaunch, request: PostureRequest): Postu
       // Before a `--` prompt boundary, or at the end (a turn's prompt rides
       // stdin).
       args: optionArgs(launch.args, ['--approve']),
-      env: launch.env,
+      env:
+        request.context.installation.provenance === 'managed'
+          ? { ...launch.env, PI_SKIP_VERSION_CHECK: '1' }
+          : launch.env,
       files: launch.files,
     },
     homeEdits: [],

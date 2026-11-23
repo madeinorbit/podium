@@ -1,11 +1,13 @@
 import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
-import { asMachineId } from '@podium/model'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { type AgentInventory, asMachineId } from '@podium/model'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { publishPoolFixture } from '@/test-support/pool-fixture'
 import { FirstTaskActivation } from './FirstTaskActivation'
 
+const harnessAction = vi.fn()
 const login = vi.fn()
 const useOnMyMachines = vi.fn()
 const finishRequest = vi.fn()
@@ -14,6 +16,9 @@ let accounts: unknown[] = []
 const telemetryState = vi.fn()
 const telemetrySet = vi.fn()
 const uiValues = new Map<string, string>()
+let codexInstalled = true
+let codexInstall: AgentInventory['install']
+let codexInstallable = true
 let codexLogin: 'in' | 'out' | 'unknown' = 'in'
 const machineId = asMachineId('machine-a')
 
@@ -41,7 +46,16 @@ function store() {
           os: 'darwin' as const,
           arch: 'arm64' as const,
           agents: [
-            { kind: 'codex' as const, installed: true, login: { state: codexLogin } },
+            {
+              kind: 'codex' as const,
+              installed: codexInstalled,
+              login: { state: codexLogin },
+              install: codexInstall,
+              management: {
+                installable: codexInstallable,
+                ...(!codexInstallable ? { reason: 'Not supported on this platform' } : {}),
+              },
+            },
             { kind: 'claude-code' as const, installed: false, login: { state: 'out' as const } },
             { kind: 'opencode' as const, installed: false, login: { state: 'out' as const } },
             { kind: 'cursor' as const, installed: false, login: { state: 'out' as const } },
@@ -60,6 +74,7 @@ function store() {
       subscribe: () => () => {},
     },
     trpc: {
+      harnessInstalls: { action: { mutate: harnessAction } },
       settings: {
         get: {
           query: vi.fn(async () => ({
@@ -127,19 +142,93 @@ afterEach(() => {
   useOnMyMachines.mockReset()
   accounts = []
   codexLogin = 'in'
+  codexInstalled = true
+  codexInstall = undefined
+  codexInstallable = true
+  harnessAction.mockReset()
 })
 
 describe('FirstTaskActivation', () => {
+  it('installs the first harness and unlocks Continue only after inventory reports it', async () => {
+    codexInstalled = false
+    codexLogin = 'out'
+    let finishInstall!: (value: unknown) => void
+    harnessAction.mockReturnValue(
+      new Promise((resolve) => {
+        finishInstall = resolve
+      }),
+    )
+    const onRouteChange = vi.fn()
+    render(<FirstTaskActivation route="agent" onRouteChange={onRouteChange} onComplete={vi.fn()} />)
+
+    expect(screen.getAllByRole('button', { name: 'Install' })).toHaveLength(6)
+    expect(screen.getByRole('button', { name: 'Continue' }).hasAttribute('disabled')).toBe(true)
+    const codex = screen.getByRole('group', { name: 'Codex actions' })
+    fireEvent.click(within(codex).getByRole('button', { name: 'Install' }))
+    expect(harnessAction).toHaveBeenCalledWith({ machineId, harness: 'codex', action: 'install' })
+    expect(await screen.findByText('Waiting for the machine…')).toBeTruthy()
+    expect(within(codex).getByRole('button', { name: 'Install' }).hasAttribute('disabled')).toBe(
+      true,
+    )
+    await act(async () => {
+      finishInstall({ ok: true, outcome: 'confirmed' })
+    })
+    expect(screen.getByRole('button', { name: 'Continue' }).hasAttribute('disabled')).toBe(true)
+
+    codexInstall = { managed: { paused: false, installing: { version: '0.171.0' } } }
+    act(() => publishPoolFixture())
+    expect(await screen.findByText('Installing 0.171.0…')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Continue' }).hasAttribute('disabled')).toBe(true)
+
+    codexInstalled = true
+    codexInstall = {
+      managed: {
+        paused: false,
+        active: { path: '/state/harnesses/codex/1/tool', version: '0.171.0', release: 1 },
+      },
+    }
+    act(() => publishPoolFixture())
+    expect(await screen.findByText('0.171.0 · managed by Podium')).toBeTruthy()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' }).hasAttribute('disabled')).toBe(false),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(onRouteChange).toHaveBeenCalledWith('first-task')
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeTruthy()
+  })
+
+  it('shows an install failure and lets the person retry without leaving setup', async () => {
+    codexInstalled = false
+    harnessAction
+      .mockRejectedValueOnce(new Error('Download failed'))
+      .mockResolvedValueOnce({ ok: true, outcome: 'confirmed' })
+    render(<FirstTaskActivation route="agent" onRouteChange={vi.fn()} onComplete={vi.fn()} />)
+    const codex = screen.getByRole('group', { name: 'Codex actions' })
+    fireEvent.click(within(codex).getByRole('button', { name: 'Install' }))
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Download failed')
+    fireEvent.click(within(codex).getByRole('button', { name: 'Install' }))
+    await waitFor(() => expect(harnessAction).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('button', { name: 'Continue' }).hasAttribute('disabled')).toBe(true)
+  })
+
+  it('shows why a managed install is unavailable', () => {
+    codexInstalled = false
+    codexInstallable = false
+    render(<FirstTaskActivation route="agent" onRouteChange={vi.fn()} onComplete={vi.fn()} />)
+    const codex = screen.getByRole('group', { name: 'Codex actions' })
+    expect(within(codex).getByRole('button', { name: 'Install' }).hasAttribute('disabled')).toBe(
+      true,
+    )
+    expect(screen.getByText('Not supported on this platform')).toBeTruthy()
+  })
+
   it('shows supported agents as an honest readiness checklist', async () => {
     const onRouteChange = vi.fn()
     render(<FirstTaskActivation route="agent" onRouteChange={onRouteChange} onComplete={vi.fn()} />)
 
     await screen.findByText('Ready')
-    expect(screen.getByText(/Install OpenCode.*opencode auth login/)).toBeTruthy()
-    // Cursor states its install step as prose around a copyable command chip,
-    // so the sentence is spread across elements; assert on the row that holds it.
-    const cursorHint = screen.getByText('Install the CLI, then run').closest('p')
-    expect(cursorHint?.textContent).toContain('cursor-agent login')
+    expect(screen.getAllByRole('button', { name: 'Install' })).toHaveLength(5)
+    expect(screen.getByRole('group', { name: 'OpenCode actions' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Set up your agents.' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Choose a project/ })).toBeNull()
 

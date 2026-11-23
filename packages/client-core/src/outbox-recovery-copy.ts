@@ -286,6 +286,7 @@ const EFFECT_LABELS: Readonly<Record<string, string>> = {
   'folder.rename': 'Rename the folder',
   'machine.scan': 'Scan the machine',
   'machine.update': 'Update the machine',
+  'machine.uninstall': 'Uninstall Podium',
   'repo.clone': 'Clone the repository',
   'repo.create': 'Create the repository',
   'server.update': 'Update the server',

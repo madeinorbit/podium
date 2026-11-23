@@ -111,6 +111,7 @@ export class UiStore {
   @observable accessor selectedWorktree: string | null = null
   @observable accessor selectedIssueId: IssueId | null = null
   @observable accessor settingsTab: string | null = null
+  @observable accessor settingsMachineId: string | null = null
   @observable accessor openIssueId: IssueId | null = null
   @observable accessor superThreadId: ThreadId | null = asThreadId('global')
   @observable accessor attachedSessionId: SessionId | null = null
@@ -390,6 +391,11 @@ export class UiStore {
     const [view] = parameters
 
     if (this.view !== view) this.navigate({ view })
+  }
+
+  @actionBound openMachineSettings(machineId: string | null): void {
+    this.settingsMachineId = machineId
+    if (machineId !== null) this.setSettingsTab('machines')
   }
 
   @actionBound setSettingsTab(tab: string | null): void {

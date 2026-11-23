@@ -9,6 +9,7 @@ import {
   declaredValue,
   harnessAccount,
   harnessDetectLogin,
+  harnessInstallationFor,
   harnessLoginReadEnv,
   harnessRoots,
   launchPosture,
@@ -63,6 +64,7 @@ import {
   startHookIngest,
   type TerminalRuntime,
 } from '@podium/harness/driver/host'
+import { defaultHarnessesDir, managedInstallsReader } from '@podium/harness/inventory'
 import { createLogger, resolveLevel, setNamespaceFloor } from '@podium/logger'
 import {
   type AgentKind,
@@ -159,11 +161,14 @@ import { DaemonHarnessRuntime } from './harness-runtime'
 import { withHarnessVersionReporting } from './harness-version-reporting'
 import { probeCodexLaunchHookTrust } from './homes/codex-hook-probe'
 import { CodexHookTrust } from './homes/codex-hook-trust'
+import { PodiumHomes, personFolderOf } from './homes/podium-home'
 import { homeQuotaReader } from './homes/probes'
 import { HomeRegistry, homeDiscoveryRoots } from './homes/registry'
-import { stopHome, systemProcessPorts } from './homes/stop'
+import { homeExecutable, stopHome, systemProcessPorts } from './homes/stop'
 import { createHostDiskSampler, sampleHostLoad, sampleHostMemory } from './host-metrics'
 import { loadIdentity } from './identity'
+import { HarnessInstalls } from './installs/service'
+import { HarnessUpdater } from './installs/updater'
 import type { DaemonInstanceBootstrap } from './instance-bootstrap'
 import { dumpLoopTotals, reportLongTick, startLoopAttribution } from './loop-attribution'
 import {
@@ -206,7 +211,13 @@ import { createSessionEngineScope } from './session/engines.js'
 import { createEngineJournal } from './session/journal.js'
 import { SessionRegistry } from './session/registry.js'
 import { SessionBinding } from './session-binding'
-import { driverHarnessContextFrom, engineSessionHarnessContext } from './session-harness-context'
+import {
+  driverHarnessContextFrom,
+  engineSessionHarnessContext,
+  sessionHomeSide,
+  snapshotHomeFacts,
+} from './session-harness-context'
+import { dropInstallsOfLostSessions, ledgerSessionInstalls } from './session-installs'
 import { createSessionObservers } from './session-observers'
 import { launchFoldersFor, podiumGrantsFor } from './session-posture'
 import { storedSessionPosture } from './session-posture-store'
@@ -504,9 +515,56 @@ export async function createDaemonHostRuntime(args: {
    * cannot drift apart the way they did when each derived its own.
    */
   const credentialHome = accountHome?.path ?? homeDir ?? machineHome
+  const harnessesDir = opts.harnessesDir ?? defaultHarnessesDir()
+  // Made below, once the home registry exists; a wave that settles before
+  // then is followed by the next one.
+  let podiumHomes: PodiumHomes | undefined
   const harnessRuntime = opts.launch
     ? undefined
-    : new DaemonHarnessRuntime({ machineHome, credentialHome })
+    : new DaemonHarnessRuntime({
+        machineHome,
+        credentialHome,
+        // The install ledger, read on every inventory wave (managed installs
+        // §7), so a release the CLI publishes appears without a restart.
+        managedInstalls: managedInstallsReader(harnessesDir),
+        // A managed install that appeared: its Podium home is made, filled
+        // from the person's folder and linked from the sign-in folders (§4.3).
+        onSettled: (snapshot) => {
+          if (!podiumHomes || !snapshot.managed || snapshot.managed.size === 0) return
+          podiumHomes
+            .reconcile((harness) => snapshot.managed?.has(harness) ?? false)
+            .catch((err: unknown) => log.warn('the Podium home could not be made ready', { err }))
+        },
+      })
+  /**
+   * UPDATE CHECKS (managed installs §5.5): a timer shortly after start, then
+   * every six hours. Never awaited by the connection path. Each round reports
+   * the inventory again, once the context exists.
+   */
+  const harnessUpdater = harnessRuntime
+    ? new HarnessUpdater({
+        harnessesDir,
+        commandEnv: async () => (await harnessRuntime.current()).commandEnvironment.env,
+        currentFailed: async (kind) =>
+          harnessRuntime.settled()?.inventory.agents.find((agent) => agent.kind === kind)?.install
+            ?.managed?.currentFailed?.release,
+        report: () =>
+          context ? reportInventory(context, { reprobe: true }) : harnessRuntime.reprobe(),
+      })
+    : undefined
+  /**
+   * WHICH INSTALL EACH SESSION RUNS (managed installs §6.2), in the same
+   * ledger. The rows a previous daemon left are read now, before this one
+   * starts any process: once recovery has found which of those sessions still
+   * run, the others' rows are dropped (`dropStaleSessionInstalls` below).
+   */
+  // A daemon on the `launch` test seam runs no real install and records none
+  // unless its test names a harnesses folder.
+  const sessionInstalls =
+    opts.launch && !opts.harnessesDir ? undefined : ledgerSessionInstalls(harnessesDir)
+  let inheritedSessionInstalls: SessionId[] | undefined = sessionInstalls
+    ?.list()
+    .map((row) => row.sessionId)
   const replayPendingBindingReceipts = async (): Promise<number> => {
     let replayed = 0
     for (const owner of await bindingStore.ownersWithPendingReceipts()) {
@@ -680,21 +738,25 @@ export async function createDaemonHostRuntime(args: {
         flags,
         cwd: probeHome,
       }),
-    // The throwaway home: Codex's daemon there stopped, then deleted.
-    cleanProbeHome: async (probeHome) => {
+    // The throwaway home: Codex's daemon there stopped, by the Codex the
+    // probe ran, then deleted.
+    cleanProbeHome: async (probeHome, installation) => {
       await stopHome(
         { homeId: 'probe', credentialId: 'probe', harness: codexHarnessKind, dir: probeHome },
         {
           ...systemProcessPorts,
           sessionsIn: () => [],
           stopSession: async () => undefined,
-          codexExecutable: () => harnessRuntime?.settled()?.executables.get(codexHarnessKind)?.path,
+          codexExecutable: () => installation.executable,
           commandEnv: settledCommandEnv,
         },
       )
       await rm(probeHome, { recursive: true, force: true })
     },
   })
+  /** What the last settled wave says of managed installs (§4.2), for callers
+   *  with no snapshot in hand. */
+  const settledHomeFacts = () => snapshotHomeFacts(harnessRuntime?.settled() ?? {})
   const homes = new HomeRegistry({
     root: homesRoot,
     beforeRemove: (home) =>
@@ -705,7 +767,7 @@ export async function createDaemonHostRuntime(args: {
             .filter(
               ([sessionId, session]) =>
                 session.harnessContext?.harnessHome?.id === homeId ||
-                ctx.access.homeIdOf(sessionId) === homeId,
+                ctx.access.homeIdOf(sessionId, settledHomeFacts()) === homeId,
             )
             .map(([sessionId]) => sessionId),
         // The daemon's own decision, not the server's kill: so it says the
@@ -714,7 +776,9 @@ export async function createDaemonHostRuntime(args: {
           await stopSessionProcess(ctx, { sessionId: sessionId as SessionId })
           ctx.send({ type: 'agentExit', sessionId: sessionId as SessionId, code: 143 })
         },
-        codexExecutable: () => harnessRuntime?.settled()?.executables.get(codexHarnessKind)?.path,
+        // The Codex this home runs (managed installs §6.1): Podium's install
+        // when there is one, else the person's.
+        codexExecutable: (home) => homeExecutable(harnessRuntime?.settled(), home),
         commandEnv: settledCommandEnv,
       }),
   })
@@ -1149,6 +1213,7 @@ export async function createDaemonHostRuntime(args: {
     }),
     homes,
     codexHookTrust,
+    ...(sessionInstalls ? { sessionInstalls } : {}),
     ...(args.picturesAccepted ? { picturesAccepted: args.picturesAccepted } : {}),
     acknowledgeQueueDrainReport: args.acknowledgeQueueDrainReport,
     acknowledgeRuntimeEvent: args.acknowledgeRuntimeEvent,
@@ -1161,6 +1226,7 @@ export async function createDaemonHostRuntime(args: {
     ...(durable ? { durable } : {}),
     launch,
     ...(harnessRuntime ? { harnessRuntime } : {}),
+    ...(harnessUpdater ? { harnessUpdater } : {}),
     settingsDir: instance.settingsDir,
     ...(accountHome ? { accountHome } : {}),
     // Inventory publishes this detector's result; selection reads the same fact
@@ -1227,6 +1293,34 @@ export async function createDaemonHostRuntime(args: {
   // Close the late-bound observer loop: observer setup from here on reads the
   // session's one TerminalScreen model.
   daemonCtx = ctx
+  // The Podium home of each harness (managed installs §4.3): filled from the
+  // person's own folder, read through the account the daemon manages.
+  podiumHomes = new PodiumHomes({
+    homes,
+    personFolder: async (harness) => {
+      const account = await resolveManagementAccount(ctx)
+      return account
+        ? personFolderOf(harness, { home: account.home, env: account.machineEnv })
+        : undefined
+    },
+  })
+  ctx.podiumHomes = podiumHomes
+  if (harnessRuntime && harnessUpdater)
+    ctx.harnessInstalls = new HarnessInstalls({
+      runtime: harnessRuntime,
+      updater: harnessUpdater,
+      podiumHomes,
+      homes,
+      harnessesDir,
+      report: () => reportInventory(ctx, { rebuild: true }),
+    })
+  // A wave that settled before the service existed: catch up on it now.
+  const settledAtStart = harnessRuntime?.settled()
+  if (settledAtStart?.managed && settledAtStart.managed.size > 0) {
+    podiumHomes
+      .reconcile((harness) => settledAtStart.managed?.has(harness) ?? false)
+      .catch((err: unknown) => log.warn('the Podium home could not be made ready', { err }))
+  }
   /**
    * Client terminals (POD-2059), built here and put on the CONTEXT as well as
    * into the opencode host: `sessionPriority` (the viewer signal its idle clock
@@ -1280,6 +1374,7 @@ export async function createDaemonHostRuntime(args: {
           sessionId,
           target.kind as BuiltinHarnessKind,
           target.driverId,
+          (label) => sessionEngines.engineAlive(label),
         ),
       // THE CLIENT'S LAUNCH TERMS (POD-6858). The client attached to a
       // session runs on the posture the session was spawned on, as the daemon
@@ -1301,6 +1396,8 @@ export async function createDaemonHostRuntime(args: {
       }),
       ...(homeDir ? { homeDir } : {}),
       instanceUuid: instance.instanceUuid,
+      // The client's installation, recorded for its session (§6.2).
+      ...(sessionInstalls ? { sessionInstalls } : {}),
       // The client terminal is a durable session like any other: it lives under
       // whichever host this daemon selected (SPEC-6) — the session-owned scope
       // above, handed to `createClientTerminalsFor` as one object, never rebuilt
@@ -1404,6 +1501,8 @@ export async function createDaemonHostRuntime(args: {
     // A session engine's applied terms, to the server with its driver
     // decision (POD-6858 Task 11).
     onLaunchTerms: (sessionId, applied) => reportLaunchTerms(ctx, sessionId, applied),
+    // Each start's installation, recorded for the session it serves (§6.2).
+    ...(sessionInstalls ? { sessionInstalls } : {}),
   })
   /**
    * ENGINES READ THE SESSION'S CONTEXT (POD-6546), never a snapshot taken
@@ -1415,7 +1514,9 @@ export async function createDaemonHostRuntime(args: {
    * command environment of the current generation (design §3.3).
    */
   const engineContextFor = (kind: AgentKind, driverId: string) => (sessionId: SessionId) =>
-    engineSessionHarnessContext(ctx, sessionId, kind as BuiltinHarnessKind, driverId)
+    engineSessionHarnessContext(ctx, sessionId, kind as BuiltinHarnessKind, driverId, (label) =>
+      sessionEngines.engineAlive(label),
+    )
   /**
    * WHAT AN ENGINE STATES ITS LAUNCH TERMS FROM (POD-6858). Podium's grants
    * for a launch with no spec in hand (adopt, wake), over the same context
@@ -1734,6 +1835,20 @@ export async function createDaemonHostRuntime(args: {
         })
         return { env, stripEnv: strip }
       },
+      // The turn's binary follows its home (managed installs §4.2), the same
+      // side `turnChildEnv` above composes for. A home this machine does not
+      // hold is refused there, with its own words.
+      turnExecutable: ({ agent, sessionId, snapshot }) => {
+        try {
+          return harnessInstallationFor(
+            snapshot,
+            agent as BuiltinHarnessKind,
+            sessionHomeSide(ctx, sessionId, agent, snapshotHomeFacts(snapshot)),
+          )?.executable
+        } catch {
+          return undefined
+        }
+      },
       assertNativeAccount: (agent, accountId, inventory) =>
         assertNativeHeadlessAccount({
           agent,
@@ -1841,6 +1956,7 @@ export async function createDaemonHostRuntime(args: {
   // Closes the cycle the `let context` declaration above describes. Nothing that
   // binds a session may move above this line — see that comment.
   context = ctx
+  if (opts.harnessUpdates !== false) harnessUpdater?.start()
 
   let pendingAuthReprobe: Promise<void> | undefined
   requestAuthRefresh = (_sessionId) => {
@@ -1951,33 +2067,45 @@ export async function createDaemonHostRuntime(args: {
   let bindingRecovery: Promise<void> | undefined
   let currentBindingFacts: BindingConfirmations | undefined
   let reapingBindings = false
+  /** Whether a process of session `id` still runs: its terminal, its
+   *  driver's handle, its journalled server process, or its durable host. */
+  const sessionProcessAlive = async (id: SessionId): Promise<boolean> => {
+    // A headless session's running turn answers through its driver
+    // handle below, like every other contract session.
+    if (sessions.get(id)?.terminal?.kind === 'headed') return true
+    const handle = ctx.agentRuntime?.handleFor(id)
+    if (handle && (await handle.health()).alive) return true
+    const journal = ctx.agentRuntime?.journalledServerProcess(id)
+    if (journal) {
+      if (journal.identity.pid === undefined) return true
+      try {
+        process.kill(journal.identity.pid, 0)
+        return true
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return true
+      }
+    }
+    return (await durable?.has(sessions.get(id)?.label ?? ctx.durableLabelFor(id))) ?? false
+  }
   const reapBindings = async (): Promise<void> => {
     if (reapingBindings || disposed) return
     reapingBindings = true
     try {
-      await bindingStore.reapQuarantined(async (id) => {
-        // A headless session's running turn answers through its driver
-        // handle below, like every other contract session.
-        if (sessions.get(id)?.terminal?.kind === 'headed') return true
-        const handle = ctx.agentRuntime?.handleFor(id)
-        if (handle && (await handle.health()).alive) return true
-        const journal = ctx.agentRuntime?.journalledServerProcess(id)
-        if (journal) {
-          if (journal.identity.pid === undefined) return true
-          try {
-            process.kill(journal.identity.pid, 0)
-            return true
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return true
-          }
-        }
-        return (await durable?.has(sessions.get(id)?.label ?? ctx.durableLabelFor(id))) ?? false
-      }, instance.codexReceiptDir)
+      await bindingStore.reapQuarantined(sessionProcessAlive, instance.codexReceiptDir)
     } finally {
       reapingBindings = false
       readiness.quarantined(bindingStore.quarantinedCount)
     }
   }
+  /** Once, after the first recovery: the rows the previous daemon left for
+   *  sessions whose process did not survive are dropped (§6.2). */
+  const dropStaleSessionInstalls = async (): Promise<void> => {
+    const inherited = inheritedSessionInstalls
+    if (!inherited || !sessionInstalls || disposed) return
+    inheritedSessionInstalls = undefined
+    await dropInstallsOfLostSessions(sessionInstalls, inherited, sessionProcessAlive)
+  }
+
   const connected = (
     _owners?: Readonly<Record<string, string>>,
     facts?: BindingConfirmations,
@@ -2001,6 +2129,7 @@ export async function createDaemonHostRuntime(args: {
         )
         .then(async () => {
           await reapBindings()
+          await dropStaleSessionInstalls()
           pushHostMetrics()
           await replayPendingBindingReceipts()
           readiness.recovered(recoveryEpoch, bindingStore.quarantinedCount)
@@ -2106,6 +2235,7 @@ export async function createDaemonHostRuntime(args: {
     dropLoopAccounting = undefined
     loopMinuteSink?.close()
     stopInventoryRefresh?.()
+    harnessUpdater?.stop()
     workerClient.stop()
     outputScheduler.stop()
     const durableReaps: Promise<unknown>[] = []

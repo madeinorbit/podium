@@ -134,6 +134,14 @@ export const antigravityManifest: AgentManifest = {
       ports.runTool('bash', [script, '--dir', binDir], ports.env)
     },
   }),
+  // Managed installs (POD-6865): Antigravity's release channel, archive and
+  // updater were never measured, so Podium does not keep its own copy yet.
+  managedInstall: unsupported(
+    'Antigravity releases and updater not yet measured for a Podium-managed install',
+  ),
+  conversationFile: unsupported(
+    'antigravity declares no conversation file to move between its homes',
+  ),
   posture: antigravityPosture,
   launch(opts) {
     const context = antigravityContext(opts.runtimeDir, composeAgentInstructions(opts.instructions))

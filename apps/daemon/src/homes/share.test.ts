@@ -44,6 +44,24 @@ describe('linkShared', () => {
     expect(SHARED_ENTRIES).toEqual({
       'claude-code': ['settings.json', 'CLAUDE.md', 'skills', 'agents', 'commands', 'plugins'],
       codex: ['config.toml', 'AGENTS.md', 'skills'],
+      // Grok 1.0.89 writes through a linked config.toml (POD-7370).
+      grok: ['config.toml', 'AGENTS.md', 'skills', 'agents', 'plugins'],
+      // Pi 1.5 writes settings.json, trust.json and auth.json in place (POD-7372).
+      pi: [
+        'settings.json',
+        'models.json',
+        'mcp.json',
+        'keybindings.json',
+        'AGENTS.md',
+        'SYSTEM.md',
+        'APPEND_SYSTEM.md',
+        'skills',
+        'prompts',
+        'extensions',
+        'themes',
+        'npm',
+        'git',
+      ],
       antigravity: [],
     })
   })
@@ -104,7 +122,10 @@ describe('linkShared', () => {
 describe('prepareHomeLaunch for Claude Code', () => {
   it('seeds onboarding and trusts the folder in a new home', () => {
     const home = homeIn('claude-code')
-    prepareHomeLaunch(home, { defaultDir, cwd: '/work/repo', personClaudeState: personState })
+    prepareHomeLaunch(home, {
+      shareFrom: { dir: defaultDir, claudeState: personState },
+      cwd: '/work/repo',
+    })
     const state = readJson(join(home.dir, '.claude.json'))
     expect(state.hasCompletedOnboarding).toBe(true)
     expect(state.projects).toEqual({ '/work/repo': { hasTrustDialogAccepted: true } })
@@ -130,7 +151,7 @@ describe('prepareHomeLaunch for Claude Code', () => {
         projects: { '/a': { hasTrustDialogAccepted: true, allowedTools: ['x'] } },
       }),
     )
-    prepareHomeLaunch(home, { defaultDir, cwd: '/b', personClaudeState: personState })
+    prepareHomeLaunch(home, { shareFrom: { dir: defaultDir, claudeState: personState }, cwd: '/b' })
     let state = readJson(join(home.dir, '.claude.json'))
     // The home's identity is its own: never the person's.
     expect(state.oauthAccount).toEqual({ emailAddress: 'home@example.invalid' })
@@ -141,7 +162,7 @@ describe('prepareHomeLaunch for Claude Code', () => {
     })
 
     writeFileSync(personState, JSON.stringify({ mcpServers: { mark: { command: 'mark-v2' } } }))
-    prepareHomeLaunch(home, { defaultDir, cwd: '/b', personClaudeState: personState })
+    prepareHomeLaunch(home, { shareFrom: { dir: defaultDir, claudeState: personState }, cwd: '/b' })
     state = readJson(join(home.dir, '.claude.json'))
     expect(state.mcpServers).toEqual({ own: { command: 'own' }, mark: { command: 'mark-v2' } })
   })
@@ -150,16 +171,15 @@ describe('prepareHomeLaunch for Claude Code', () => {
     writeFileSync(personState, '{"mcpServers":{}}')
     const before = readFileSync(personState, 'utf8')
     prepareHomeLaunch(homeIn('claude-code'), {
-      defaultDir,
+      shareFrom: { dir: defaultDir, claudeState: personState },
       cwd: '/x',
-      personClaudeState: personState,
     })
     expect(readFileSync(personState, 'utf8')).toBe(before)
   })
 
   it('writes no .claude.json into a Codex home', () => {
     const home = homeIn('codex')
-    prepareHomeLaunch(home, { defaultDir, cwd: '/x', personClaudeState: personState })
+    prepareHomeLaunch(home, { shareFrom: { dir: defaultDir, claudeState: personState }, cwd: '/x' })
     expect(existsSync(join(home.dir, '.claude.json'))).toBe(false)
   })
 })
@@ -168,7 +188,7 @@ describe('prepareHomeLaunch with an unreadable state file', () => {
   it('leaves a .claude.json it cannot parse as it is', () => {
     const home = homeIn('claude-code')
     writeFileSync(join(home.dir, '.claude.json'), '{"oauthAccount":')
-    prepareHomeLaunch(home, { defaultDir, cwd: '/x', personClaudeState: personState })
+    prepareHomeLaunch(home, { shareFrom: { dir: defaultDir, claudeState: personState }, cwd: '/x' })
     expect(readFileSync(join(home.dir, '.claude.json'), 'utf8')).toBe('{"oauthAccount":')
   })
 })

@@ -92,6 +92,10 @@ export const HOST_MACHINE_ALLOWLIST: readonly HostAccessException[] = [
     reason: 'Refuses host enrollment when the installation has no machine.',
   },
   {
+    path: 'modules/fleet/uninstall-effect.ts',
+    reason: 'Refuses to uninstall Podium from the machine the server runs on.',
+  },
+  {
     path: 'identity/member-of-request.ts',
     reason: 'Disables same-machine sign-in facts without an installation machine.',
   },

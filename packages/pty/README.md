@@ -25,7 +25,7 @@ A durable host is what makes a session survive the daemon. On Linux and macOS it
 podium-host, the Rust crate in `vendor/podium-host/` — the only host Podium spawns
 (POD-4986); building or releasing it needs no C compiler. `resolveHostBin()`
 picks the binary for a new spawn: `$PODIUM_HOST_BIN` (must answer `version` at feature
-level `HOST_FEATURES` = 2, else resolution fails), then a release's `podium-host`
+level `HOST_FEATURES` = 3, else resolution fails), then a release's `podium-host`
 beside `podium-cli`, then — in a source checkout — the crate built with cargo on first
 use and cached by source hash under `~/.cache/podium/podium-host-src`
 (`ensureSourceRustHost()`). With none of these the daemon refuses every spawn

@@ -36,6 +36,14 @@ export const ConversationPrepareRequestMessage = z.object({
   resume: ResumeRef,
   /** The home the session resumes in (`default`: the harness's own directory). */
   toHomeId: z.string().min(1),
+  /**
+   * How the target credential reaches the harness. `env` with `toHomeId`
+   * `default` is a credential Podium passes in: on a machine with a managed
+   * install of the harness it runs in the Podium home instead (managed
+   * installs §4.3), so the daemon places the conversation there. Absent from
+   * an older server: the daemon places it in `toHomeId`, as before.
+   */
+  toDelivery: z.enum(['env', 'home']).optional(),
   account: ConversationAccount,
   fromAccount: ConversationAccount.optional(),
   /** Codex: the model provider the target runs on, recorded in the copy. */

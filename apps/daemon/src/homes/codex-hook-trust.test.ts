@@ -10,6 +10,7 @@ const INSTALL_A = {
   executable: '/usr/bin/codex',
   version: 'codex-cli 0.169.0',
   generation: 1,
+  provenance: 'external' as const,
 }
 const INSTALL_B = { ...INSTALL_A, version: 'codex-cli 0.170.0' }
 const FLAGS = ['-c', 'hooks.SessionStart=[{hooks=[{type="command",command="x"}]}]']
@@ -56,10 +57,61 @@ describe('CodexHookTrust', () => {
     expect(restarted.calls).toEqual(['codex-cli 0.170.0'])
   })
 
+  it('stops the throwaway home with the Codex the probe ran (managed installs §6.1)', async () => {
+    const managed = {
+      ...INSTALL_A,
+      executable: '/state/harnesses/codex/1-0.169.0/codex',
+      provenance: 'managed' as const,
+    }
+    const stoppedWith: string[] = []
+    const cache = new CodexHookTrust({
+      root,
+      probe: async () => ({ [KEY]: 'sha256:aaa' }),
+      cleanProbeHome: async (probeHome, installation) => {
+        stoppedWith.push(installation.executable)
+        rmSync(probeHome, { recursive: true, force: true })
+      },
+    })
+    await cache.trustFor(managed, FLAGS)
+    expect(stoppedWith).toEqual([managed.executable])
+  })
+
   it('two launches at once share one probe', async () => {
     const { cache, calls } = trust(async () => ({ [KEY]: 'sha256:aaa' }))
     await Promise.all([cache.trustFor(INSTALL_A, FLAGS), cache.trustFor(INSTALL_A, FLAGS)])
     expect(calls).toHaveLength(1)
+  })
+
+  it('re-reads once after a managed version update and caches later launches and restarts', async () => {
+    const old = {
+      ...INSTALL_A,
+      executable: '/state/harnesses/codex/1-0.169.0/package/bin/codex',
+      provenance: 'managed' as const,
+    }
+    const updated = {
+      ...old,
+      executable: '/state/harnesses/codex/2-0.171.0/package/bin/codex',
+      version: 'codex-cli 0.171.0',
+      generation: 2,
+    }
+    let hash = 'sha256:old'
+    const first = trust(async () => ({ [KEY]: hash }))
+    expect(await first.cache.trustFor(old, FLAGS)).toEqual({ [KEY]: hash })
+    hash = 'sha256:new'
+    const launches = await Promise.all([
+      first.cache.trustFor(updated, FLAGS),
+      first.cache.trustFor(updated, FLAGS),
+    ])
+    expect(launches).toEqual([{ [KEY]: hash }, { [KEY]: hash }])
+    expect(await first.cache.trustFor(updated, FLAGS)).toEqual({ [KEY]: hash })
+    expect(first.calls).toEqual([old.version, updated.version])
+    expect(first.cleaned).toHaveLength(2)
+
+    const restarted = trust(async () => {
+      throw new Error('must use the persisted cache')
+    })
+    expect(await restarted.cache.trustFor(updated, FLAGS)).toEqual({ [KEY]: hash })
+    expect(restarted.calls).toEqual([])
   })
 
   it('a failed or empty probe gives no trust and is asked again next time', async () => {

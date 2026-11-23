@@ -22,6 +22,7 @@ import {
   runHarnessStatusCommand,
 } from '@podium/harness'
 import type { AgentKind } from '@podium/model'
+import type { PipeSecret } from '@podium/process/durable'
 import type { AccessField, SessionAuthMessage } from '@podium/protocol'
 
 export type SessionAuthReport = Omit<SessionAuthMessage, 'type' | 'sessionId'>
@@ -48,25 +49,39 @@ export async function readEffectiveAuth(i: {
   executable: string
   env: Readonly<Record<string, string>>
   access?: AccessField | undefined
+  /**
+   * The session's credential went in on a pipe (POD-7378): the probe gets a
+   * pipe of its own, as its stdin, with the variable naming descriptor 0.
+   * The status command reads nothing else from stdin.
+   */
+  pipe?: PipeSecret | undefined
   probe?: HarnessAuthStatusProbe | undefined
   run?: LoginProbeExec
 }): Promise<SessionAuthReport> {
   const probe = i.probe ?? manifestFor(i.agentKind)?.inventory.authStatusProbe
   if (!probe) return { method: 'unknown' }
+  const env = i.pipe ? { ...i.env, [i.pipe.variable]: '0' } : i.env
   let reported: ReturnType<HarnessAuthStatusProbe['classify']>
   try {
     const run = i.run ?? runHarnessStatusCommand
-    reported = probe.classify(await run([i.executable, ...probe.args], probe.timeoutMs, i.env))
+    reported = probe.classify(
+      await run([i.executable, ...probe.args], probe.timeoutMs, env, i.pipe?.contents),
+    )
   } catch {
     return { method: 'unknown' }
   }
   const delivery = i.access?.delivery
   const source = reported.sourceVariable
+  // Piped, the variable the harness names holds no secret: the probe's
+  // environment carries no copy of it (the start strips it), so naming the
+  // line's own variable means it read the pipe.
+  const readDelivered = (variable: string, secret: string): boolean =>
+    source === variable && (i.pipe ? env[source] === undefined : env[source] === secret)
   return {
     method: reported.method,
     ...(source ? { source } : {}),
     ...(delivery?.kind === 'env' && source && reported.method !== 'unknown'
-      ? { delivered: source === delivery.variable && i.env[source] === delivery.secret }
+      ? { delivered: readDelivered(delivery.variable, delivery.secret) }
       : {}),
     ...(reported.email || reported.fingerprint
       ? {
@@ -92,6 +107,7 @@ export function reportEffectiveAuth(
     executable: string
     env: Readonly<Record<string, string>>
     access: AccessField | undefined
+    pipe?: PipeSecret | undefined
   },
 ): void {
   void readEffectiveAuth(i)

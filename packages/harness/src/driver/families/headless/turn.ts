@@ -377,6 +377,7 @@ export function runHostedHeadlessTurn(
     })
     const { attachment: writer } = await deps.owner.startEngine({
       label,
+      turnFor: identity.sessionId,
       command: wrapped,
       cwd: spec.cwd,
       env,

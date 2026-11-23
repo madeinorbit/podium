@@ -55,6 +55,7 @@
           "value": "resume.value"
         },
         "toHomeId": "toHomeId",
+        "toDelivery": "env",
         "account": "account",
         "fromAccount": "fromAccount",
         "modelProvider": "modelProvider"
@@ -62,7 +63,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"conversationPrepareRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"toHomeId\":\"toHomeId\",\"account\":\"account\",\"fromAccount\":\"fromAccount\",\"modelProvider\":\"modelProvider\"}"
+      "encoded": "{\"type\":\"conversationPrepareRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"agentKind\":\"claude-code\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"toHomeId\":\"toHomeId\",\"toDelivery\":\"env\",\"account\":\"account\",\"fromAccount\":\"fromAccount\",\"modelProvider\":\"modelProvider\"}"
     },
     {
       "schema": "ConversationPrepareResultMessage",

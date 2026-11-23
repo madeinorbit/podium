@@ -1,18 +1,104 @@
 /**
  * Claude Code install layout — the Inventory install section (POD-4414 §4.4).
  *
- * KNOWLEDGE, not mechanism: the vendor installer URL, the standalone release
- * base, and the checksum-verified fallback. The temp-dir lifecycle, the fetch,
- * and the `--version` verification around it are the generic mechanism
- * (`inventory/install.ts`) and stay harness-free.
+ * The legacy script and its standalone fallback stay available until callers
+ * move to managed installs. Managed releases use that same published binary
+ * and manifest directly, without running the vendor's self-installer.
  */
 import { createHash } from 'node:crypto'
-import { chmodSync, copyFileSync, mkdtempSync, readFileSync, renameSync, rmSync } from 'node:fs'
+import {
+  chmodSync,
+  copyFileSync,
+  createReadStream,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+} from 'node:fs'
+import { chmod, rename, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { HarnessInstall, HarnessInstallPorts } from '../../manifest.js'
+import type {
+  HarnessCheckPorts,
+  HarnessInstall,
+  HarnessInstallScript,
+  HarnessInstallScriptPorts,
+} from '../../manifest.js'
 
-export const claudeCodeInstall: HarnessInstall = {
+const RELEASE_BASE = 'https://downloads.claude.ai/claude-code-releases'
+
+interface ClaudeReleaseManifest {
+  version?: string
+  buildDate?: string
+  platforms?: Record<string, { binary?: string; checksum?: string }>
+}
+
+/** Stable, checksum-verified standalone releases (POD-7267, design §5.3). */
+export const claudeCodeManagedInstall: HarnessInstall = {
+  async latest(ports) {
+    await releasePlatform(ports)
+    const version = (await ports.fetchText(`${RELEASE_BASE}/stable`)).trim()
+    requireStableVersion(version)
+    return { version }
+  },
+  async install(release, dir, ports) {
+    requireStableVersion(release.version)
+    const platform = await releasePlatform(ports)
+    const base = `${RELEASE_BASE}/${release.version}`
+    const manifest = JSON.parse(
+      await ports.fetchText(`${base}/manifest.json`),
+    ) as ClaudeReleaseManifest | null
+    if (manifest?.version !== release.version)
+      throw new Error('Claude release manifest does not match the requested version')
+    const checksum = checksumFor(manifest, platform)
+    if (!checksum) throw new Error(`Claude manifest has no valid checksum for ${platform}`)
+    if (typeof manifest.buildDate !== 'string' || !Number.isFinite(Date.parse(manifest.buildDate)))
+      throw new Error('Claude manifest has no valid build date for its checksum')
+
+    const executable = ports.platform === 'win32' ? 'claude.exe' : 'claude'
+    if (manifest.platforms?.[platform]?.binary !== executable)
+      throw new Error(`Claude manifest has no published ${executable} for ${platform}`)
+    const source = `${base}/${platform}/${executable}`
+    const staged = join(dir, '.claude-download')
+    try {
+      await ports.fetch(source, staged)
+      const hash = createHash('sha256')
+      for await (const chunk of createReadStream(staged)) hash.update(chunk)
+      const digest = hash.digest('hex')
+      if (digest !== checksum) throw new Error('Claude standalone checksum verification FAILED')
+      await chmod(staged, 0o755)
+      await rename(staged, join(dir, executable))
+      return {
+        executable,
+        source,
+        integrity: { kind: 'sha256', digest, publishedAt: manifest.buildDate },
+      }
+    } finally {
+      await rm(staged, { force: true })
+    }
+  },
+}
+
+function requireStableVersion(version: string): void {
+  if (!/^\d+\.\d+\.\d+$/.test(version))
+    throw new Error('Claude release must be a stable version in X.Y.Z form')
+}
+
+/** Platform keys from the vendor's manifest, including measured Windows names. */
+async function releasePlatform(ports: HarnessCheckPorts): Promise<string> {
+  const arch =
+    ports.arch === 'x64' || ports.arch === 'x86_64'
+      ? 'x64'
+      : ports.arch === 'arm64' || ports.arch === 'aarch64'
+        ? 'arm64'
+        : undefined
+  if (!['linux', 'darwin', 'win32'].includes(ports.platform) || !arch)
+    throw new Error(`Claude has no standalone release for ${ports.platform}/${ports.arch}`)
+  const musl = ports.platform === 'linux' && (await ports.isMusl()) ? '-musl' : ''
+  return `${ports.platform}-${arch}${musl}`
+}
+
+export const claudeCodeInstall: HarnessInstallScript = {
   binary: 'claude',
   url: (env) => env.PODIUM_CLAUDE_INSTALL_URL ?? 'https://claude.ai/install.sh',
   runInstaller(scriptPath, binDir, ports) {
@@ -37,12 +123,11 @@ export const claudeCodeInstall: HarnessInstall = {
  */
 export function installClaudeStandalone(
   binDir: string,
-  ports: Pick<HarnessInstallPorts, 'fetch' | 'env' | 'arch' | 'isMusl'>,
+  ports: Pick<HarnessInstallScriptPorts, 'fetch' | 'env' | 'arch' | 'isMusl'>,
 ): void {
   const env = ports.env
   const arch = ports.arch
-  const releaseBase =
-    env.PODIUM_CLAUDE_RELEASE_BASE_URL ?? 'https://downloads.claude.ai/claude-code-releases'
+  const releaseBase = env.PODIUM_CLAUDE_RELEASE_BASE_URL ?? RELEASE_BASE
   const claudeArch = arch === 'x64' || arch === 'x86_64' ? 'x64' : 'arm64'
   const platform = ports.isMusl() ? `linux-${claudeArch}-musl` : `linux-${claudeArch}`
 
@@ -58,7 +143,9 @@ export function installClaudeStandalone(
     }
 
     ports.fetch(`${releaseBase}/${version}/manifest.json`, join(tmp, 'manifest.json'))
-    const manifest = readFileSync(join(tmp, 'manifest.json'), 'utf8')
+    const manifest = JSON.parse(
+      readFileSync(join(tmp, 'manifest.json'), 'utf8'),
+    ) as ClaudeReleaseManifest | null
     const checksum = checksumFor(manifest, platform)
     if (!checksum) throw new Error(`Claude manifest has no valid checksum for ${platform}`)
 
@@ -78,11 +165,8 @@ export function installClaudeStandalone(
   }
 }
 
-/** The vendor's manifest, read the way install.sh's sed did: 64 lowercase hex, or nothing. */
-function checksumFor(manifest: string, platform: string): string | undefined {
-  const escaped = platform.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const m = manifest
-    .replace(/[\n\r\t]/g, '')
-    .match(new RegExp(`"${escaped}"\\s*:\\s*\\{[^}]*"checksum"\\s*:\\s*"([0-9a-f]{64})"`))
-  return m?.[1]
+/** The vendor's manifest: 64 lowercase hex for exactly this platform, or nothing. */
+function checksumFor(manifest: ClaudeReleaseManifest | null, platform: string): string | undefined {
+  const checksum = manifest?.platforms?.[platform]?.checksum
+  return typeof checksum === 'string' && /^[0-9a-f]{64}$/.test(checksum) ? checksum : undefined
 }

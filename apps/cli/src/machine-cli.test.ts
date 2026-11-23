@@ -5,8 +5,8 @@ import {
   lastSeenDescription,
   MachineCliError,
   type MachineClient,
-  machineHelpText,
   machineCliMain,
+  machineHelpText,
   renderMachines,
   runMachineCli,
   selectMachine,
@@ -263,17 +263,21 @@ it('reads harness versions and their first/last observations without treating un
   })
 })
 
- describe('machine adoption', () => {
-   it('resolves the machine and leaves the default recipient to the authenticated server', async () => {
-     const calls: unknown[] = []
-     const client = fakeClient([{ id: 'stranded', name: 'stranded', unowned: true } as MachineWire])
-     client.machines.adopt = { mutate: async (input) => { calls.push(input) } }
-     await runMachineCli(['adopt', 'stranded'], client)
-     await runMachineCli(['adopt', 'stranded', '--for', 'member'], client)
-     expect(calls).toEqual([{ id: 'stranded' }, { id: 'stranded', newOwnerUserId: 'member' }])
-     await expect(runMachineCli(['adopt', 'stranded', '--for'], client)).rejects.toThrow(/usage/)
-   })
- })
+describe('machine adoption', () => {
+  it('resolves the machine and leaves the default recipient to the authenticated server', async () => {
+    const calls: unknown[] = []
+    const client = fakeClient([{ id: 'stranded', name: 'stranded', unowned: true } as MachineWire])
+    client.machines.adopt = {
+      mutate: async (input) => {
+        calls.push(input)
+      },
+    }
+    await runMachineCli(['adopt', 'stranded'], client)
+    await runMachineCli(['adopt', 'stranded', '--for', 'member'], client)
+    expect(calls).toEqual([{ id: 'stranded' }, { id: 'stranded', newOwnerUserId: 'member' }])
+    await expect(runMachineCli(['adopt', 'stranded', '--for'], client)).rejects.toThrow(/usage/)
+  })
+})
 
 it('an operator adopts over authenticated HTTP without an agent relay', async () => {
   const requests: { url: string; cookie: string | undefined; body: string }[] = []
@@ -284,7 +288,12 @@ it('an operator adopts over authenticated HTTP without an agent relay', async ()
     const data = req.url?.includes('listWithRepos')
       ? { machines: [{ ...quiet, unowned: true }], repos: [] }
       : req.url?.includes('sync.submit')
-        ? { outcome: 'applied', result: [], receipt: { feedId: 'f', epoch: 'e', seq: 1 }, replayed: false }
+        ? {
+            outcome: 'applied',
+            result: [],
+            receipt: { feedId: 'f', epoch: 'e', seq: 1 },
+            replayed: false,
+          }
         : []
     res.writeHead(200, { 'content-type': 'application/json' })
     res.end(JSON.stringify([{ result: { data } }]))
@@ -324,10 +333,11 @@ it('an operator adopts over authenticated HTTP without an agent relay', async ()
     output.mockRestore()
     errors.mockRestore()
     process.exitCode = exitCode
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    )
   }
 })
-
 
 describe('explicit machine supersession', () => {
   it('requires IDs and sends only the named identity pair', async () => {
@@ -335,12 +345,110 @@ describe('explicit machine supersession', () => {
     const fresh = { ...ludovico, id: 'new-id', name: 'same laptop' } as MachineWire
     const calls: unknown[] = []
     const client = fakeClient([old, fresh])
-    client.machines.supersede = { mutate: async (input) => { calls.push(input) } }
-    await expect(runMachineCli(['supersede', 'same laptop', '--by', 'new-id'], client)).rejects.toThrow(/IDs/)
-    await expect(runMachineCli(['supersede', 'old-id', '--by', 'old-id'], client)).rejects.toThrow(/different/)
+    client.machines.supersede = {
+      mutate: async (input) => {
+        calls.push(input)
+      },
+    }
+    await expect(
+      runMachineCli(['supersede', 'same laptop', '--by', 'new-id'], client),
+    ).rejects.toThrow(/IDs/)
+    await expect(runMachineCli(['supersede', 'old-id', '--by', 'old-id'], client)).rejects.toThrow(
+      /different/,
+    )
     await expect(runMachineCli(['supersede', 'old-id'], client)).rejects.toThrow(/usage/)
-    const result = JSON.parse(await runMachineCli(['supersede', 'old-id', '--by', 'new-id', '--json'], client))
+    const result = JSON.parse(
+      await runMachineCli(['supersede', 'old-id', '--by', 'new-id', '--json'], client),
+    )
     expect(calls).toEqual([{ id: 'old-id', replacementId: 'new-id' }])
     expect(result.data).toEqual({ machineId: 'old-id', supersededBy: 'new-id' })
+  })
+})
+
+describe('machine installs verbs', () => {
+  it('lists an install whose updates belong to the vendor', async () => {
+    const machine: MachineWire = {
+      ...ludovico,
+      inventory: {
+        os: 'linux',
+        arch: 'x64',
+        tools: [],
+        ...ludovico.inventory,
+        agents: [
+          {
+            kind: 'cursor',
+            installed: true,
+            login: { state: 'out' },
+            management: {
+              installable: true,
+              updateNotice:
+                'Cursor updates itself. Podium installed it once and leaves updates to the vendor.',
+            },
+            install: {
+              managed: {
+                active: { path: '/state/cursor', version: '2026.11.19-f005e9d', release: 1 },
+                paused: false,
+                vendorUpdated: true,
+              },
+            },
+          },
+        ],
+      },
+    }
+    const client = fakeClient([machine])
+    const result = await runMachineCli(['installs', 'list', 'ludovico'], client)
+    expect(result).toContain('installed by Podium · vendor updates')
+    expect(result).toContain('Podium installed it once and leaves updates to the vendor.')
+  })
+
+  it('uses the public machine projection for operator installs commands', async () => {
+    const client = fakeClient([ludovico])
+    client.machines.list = { query: async () => [ludovico] }
+    client.machines.listWithRepos = {
+      query: async () => {
+        throw new Error('relay-only proc')
+      },
+    }
+    expect(await runMachineCli(['installs', 'list', 'ludovico'], client)).toContain('your install')
+  })
+  it('surfaces a failed daemon action as a CLI failure', async () => {
+    const client = {
+      ...fakeClient([ludovico]),
+      harnessInstalls: {
+        action: { mutate: async () => ({ ok: false, error: 'vendor unavailable' }) },
+      },
+    }
+    await expect(
+      runMachineCli(['installs', 'install', 'ludovico', 'codex', '--json'], client),
+    ).rejects.toThrow('vendor unavailable')
+  })
+  it('lists the reported state with and without JSON', async () => {
+    const client = fakeClient([ludovico])
+    expect(await runMachineCli(['installs', 'list', 'ludovico'], client)).toContain('your install')
+    const result = JSON.parse(
+      await runMachineCli(['installs', 'list', 'ludovico', '--json'], client),
+    )
+    expect(result).toMatchObject({ ok: true, data: { machineId: ludovico.id } })
+    expect(result.data.agents).toEqual(ludovico.inventory?.agents)
+  })
+  it.each([
+    'install',
+    'check',
+    'back',
+    'pause',
+    'resume',
+    'remove',
+    'changes',
+  ] as const)('%s works with and without JSON', async (action) => {
+    const mutate = vi.fn(async () => ({ ok: true, outcome: 'confirmed' }))
+    const client = { ...fakeClient([ludovico]), harnessInstalls: { action: { mutate } } }
+    expect(await runMachineCli(['installs', action, 'ludovico', 'codex'], client)).toContain(
+      'codex: confirmed',
+    )
+    const result = JSON.parse(
+      await runMachineCli(['installs', action, 'ludovico', 'codex', '--json'], client),
+    )
+    expect(result).toMatchObject({ ok: true, data: { results: [{ harness: 'codex', ok: true }] } })
+    expect(mutate).toHaveBeenCalledWith({ action, machineId: ludovico.id, harness: 'codex' })
   })
 })

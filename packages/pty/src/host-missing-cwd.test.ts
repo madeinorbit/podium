@@ -60,7 +60,8 @@ describe('spawnHostAgent with a missing working directory', () => {
   it('launches an existing directory as before: the scope first, then the plain create', async () => {
     await expect(spawn(root)).rejects.toThrow('create attempted')
     expect(execCreate.mock.calls.map(([file]) => file)).toEqual([
-      'systemd-run',
+      // Found on the daemon's PATH, not the agent's (POD-7060).
+      expect.stringMatching(/(^|\/)systemd-run$/),
       '/opt/podium/podium-host',
     ])
     expect(execCreate.mock.calls[1]?.[2]).toMatchObject({ cwd: root })

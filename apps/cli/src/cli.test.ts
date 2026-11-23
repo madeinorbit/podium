@@ -493,6 +493,15 @@ describe('resolvePlan — utility subcommands', () => {
     expect(plan({}, ['channel', 'edge'], agent)).toMatchObject({ kind: 'approval-request' })
   })
 
+  it('routes `podium uninstall` to its command, and refuses it inside an agent session', () => {
+    expect(plan({}, ['uninstall', '--yes'])).toEqual({ kind: 'uninstall', args: ['--yes'] })
+    const agent = { PODIUM_AGENT_RELAY: 'http://127.0.0.1:1/agent/s1' }
+    expect(plan({}, ['uninstall'], agent)).toMatchObject({
+      kind: 'usage-error',
+      message: expect.stringContaining('outside a managed agent session'),
+    })
+  })
+
   it('routes `podium tunnel` to its sub-CLI, and refuses it inside an agent session (POD-4640)', () => {
     expect(plan({}, ['tunnel', 'enable'])).toEqual({ kind: 'tunnel', args: ['enable'] })
     const agent = { PODIUM_AGENT_RELAY: 'http://127.0.0.1:1/agent/s1' }

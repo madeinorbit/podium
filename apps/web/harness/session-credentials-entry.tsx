@@ -7,6 +7,7 @@
  * the "isn't logged in" bar, POD-7062). `?theme=light` for light.
  */
 import { sessionValues } from '@podium/client-core/session-values'
+import { sessionCredentialChoices } from '@podium/client-graph/session-credential-facts'
 import { asCredentialId, asMachineId, asSessionId, type CredentialView } from '@podium/model'
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -24,7 +25,6 @@ import {
   SessionCredentialChipView,
 } from '@/features/credentials/session/SessionCredentialChip'
 import { SessionCredentialNoticeView } from '@/features/credentials/session/SessionCredentialNotice'
-import { sessionCredentialChoices } from '@/features/credentials/session/session-credential-facts'
 import { switchOutcome } from '@/features/credentials/session/switch-outcome'
 import { ExitedBanner } from '@/features/terminal/SessionLifecyclePanes'
 import { SessionLoginBar } from '@/features/terminal/SessionLoginBar'

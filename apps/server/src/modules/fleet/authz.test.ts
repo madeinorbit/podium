@@ -144,8 +144,8 @@ describe('the target table covers the contract table, in both directions', () =>
     expect(Object.keys(FLEET_TARGETS).sort()).toEqual([...NAMES].sort())
     // Non-vacuity: if the family were empty this would pass trivially.
     // Renames and update-channel pins are `machine` record edits (POD-6644).
-    expect(NAMES).toHaveLength(22)
-    expect(MACHINE_COMMANDS).toHaveLength(21)
+    expect(NAMES).toHaveLength(23)
+    expect(MACHINE_COMMANDS).toHaveLength(22)
   })
 })
 

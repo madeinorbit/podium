@@ -17,7 +17,7 @@ import { opencodeCatalog } from './catalog.js'
 import { opencodeCredentials } from './credentials.js'
 import { opencodeDescriptor } from './descriptor.js'
 import { createOpencodeConversationProvider } from './discovery.js'
-import { opencodeInstall } from './install.js'
+import { opencodeInstall, opencodeManagedInstall } from './install.js'
 import { opencodeDataRoot, opencodeDbPathForSession } from './paths.js'
 import { opencodePosture } from './posture.js'
 import { observeOpencodeState, opencodeStateProvider } from './state.js'
@@ -120,6 +120,7 @@ export const opencodeManifest: AgentManifest = {
   credentials: opencodeCredentials,
   usage: opencodeUsage,
   install: opencodeInstall,
+  managedInstall: supported(opencodeManagedInstall),
 
   posture: opencodePosture,
   launch(opts) {
@@ -421,6 +422,7 @@ export const opencodeManifest: AgentManifest = {
   ),
 
   handoffTranscript: unsupported('cross-machine handoff is not supported for opencode sessions'),
+  conversationFile: unsupported('opencode declares no conversation file to move between its homes'),
 
   classifyBrowserOpen: unsupported(
     'no catalogued opencode login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)',

@@ -157,11 +157,13 @@ export function MobileSessionLifecycle({
   hasTranscript,
   onResume,
   onRemove,
+  installRecovery,
 }: {
   session: Pick<
     SessionMeta,
     'sessionId' | 'status' | 'exitCode' | 'spawnFailure' | 'agentKind' | 'resumable' | 'neverBound'
   >
+  installRecovery?: JSX.Element
   hasTranscript: boolean
   onResume: (sessionId: SessionMeta['sessionId']) => Promise<SessionResurrectionResult>
   onRemove: (sessionId: SessionMeta['sessionId']) => Promise<void>
@@ -188,6 +190,7 @@ export function MobileSessionLifecycle({
       <View style={styles.pane} testID="lifecycle-pane">
         <Icon as={parked ? Moon : RotateCcw} size={28} color={color.accentTint} />
         <Text style={styles.paneCopy}>{parked ? action.hint : `${detail} ${action.hint}`}</Text>
+        {!parked && installRecovery}
         <LifecycleButton
           action={action}
           session={session}
@@ -222,6 +225,7 @@ export function MobileSessionLifecycle({
           `${detail} Transcript is read-only.`
         )}
       </Text>
+      {!parked && installRecovery}
       <LifecycleButton
         action={action}
         session={session}

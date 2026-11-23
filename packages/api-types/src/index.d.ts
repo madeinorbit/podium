@@ -385,20 +385,24 @@ declare const PodiumSettings: z.ZodObject<{
             mention: z.ZodDefault<z.ZodBoolean>;
             credentialAttention: z.ZodDefault<z.ZodBoolean>;
             credentialShared: z.ZodDefault<z.ZodBoolean>;
+            harnessInstalls: z.ZodDefault<z.ZodBoolean>;
         }, "strip", z.ZodTypeAny, {
             mention: boolean;
             credentialAttention: boolean;
             credentialShared: boolean;
+            harnessInstalls: boolean;
         }, {
             mention?: boolean | undefined;
             credentialAttention?: boolean | undefined;
             credentialShared?: boolean | undefined;
+            harnessInstalls?: boolean | undefined;
         }>>;
     }, "strip", z.ZodTypeAny, {
         notices: {
             mention: boolean;
             credentialAttention: boolean;
             credentialShared: boolean;
+            harnessInstalls: boolean;
         };
         web: boolean;
         ntfyTopic: string;
@@ -409,6 +413,7 @@ declare const PodiumSettings: z.ZodObject<{
             mention?: boolean | undefined;
             credentialAttention?: boolean | undefined;
             credentialShared?: boolean | undefined;
+            harnessInstalls?: boolean | undefined;
         } | undefined;
         web?: boolean | undefined;
         ntfyTopic?: string | undefined;
@@ -582,6 +587,7 @@ declare const PodiumSettings: z.ZodObject<{
             mention: boolean;
             credentialAttention: boolean;
             credentialShared: boolean;
+            harnessInstalls: boolean;
         };
         web: boolean;
         ntfyTopic: string;
@@ -678,6 +684,7 @@ declare const PodiumSettings: z.ZodObject<{
             mention?: boolean | undefined;
             credentialAttention?: boolean | undefined;
             credentialShared?: boolean | undefined;
+            harnessInstalls?: boolean | undefined;
         } | undefined;
         web?: boolean | undefined;
         ntfyTopic?: string | undefined;
@@ -1530,14 +1537,14 @@ declare const TunnelHealthReport: z.ZodObject<{
     lastError: z.ZodNullable<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     state: "starting" | "stopped" | "working" | "restarting" | "unhealthy";
-    url: string | null;
     lastError: string | null;
+    url: string | null;
     lastOkAt: number | null;
     failedSince: number | null;
 }, {
     state: "starting" | "stopped" | "working" | "restarting" | "unhealthy";
-    url: string | null;
     lastError: string | null;
+    url: string | null;
     lastOkAt: number | null;
     failedSince: number | null;
 }>;
@@ -1866,7 +1873,7 @@ type Input_conversations_search = {
 type Input_credentials_add = {
     label: string;
     secret: string;
-    type: "anthropic.api-key" | "anthropic.claude-login" | "anthropic.claude-token" | "google.antigravity-login" | "google.api-key" | "openai.api-key" | "openai.chatgpt-login" | "openai.chatgpt-plan" | "openrouter.api-key";
+    type: "anthropic.api-key" | "anthropic.claude-login" | "anthropic.claude-token" | "google.antigravity-login" | "google.api-key" | "openai.api-key" | "openai.chatgpt-login" | "openai.chatgpt-plan" | "openrouter.api-key" | "xai.grok-login";
 };
 type Input_credentials_login = {
     harness: "antigravity" | "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
@@ -1885,7 +1892,7 @@ type Input_credentials_signInStart = {
     credentialId?: string | undefined;
     label?: string | undefined;
     machineId: string;
-    type: "anthropic.api-key" | "anthropic.claude-login" | "anthropic.claude-token" | "google.antigravity-login" | "google.api-key" | "openai.api-key" | "openai.chatgpt-login" | "openai.chatgpt-plan" | "openrouter.api-key";
+    type: "anthropic.api-key" | "anthropic.claude-login" | "anthropic.claude-token" | "google.antigravity-login" | "google.api-key" | "openai.api-key" | "openai.chatgpt-login" | "openai.chatgpt-plan" | "openrouter.api-key" | "xai.grok-login";
 };
 type Input_credentials_useOnMyMachines = {
     enabled: boolean;
@@ -1916,6 +1923,12 @@ type Input_files_write = ({
     path: string;
     sessionId: string;
 });
+type Input_harnessInstalls_action = {
+    action: "back" | "changes" | "check" | "home-info" | "install" | "pause" | "remove" | "remove-changes" | "remove-home" | "resume" | "take-settings";
+    confirmedConversations?: string[] | undefined;
+    harness: "antigravity" | "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+    machineId: string;
+};
 type Input_interactions_answer = {
     answer?: undefined | z.objectInputType<{
         kind: z.ZodString;
@@ -5843,6 +5856,42 @@ type Output_machines_applyUpdate = {
         installKind?: null | string | undefined;
         inventory?: undefined | {
             agents: {
+                install?: undefined | {
+                    external?: undefined | {
+                        path: string;
+                        version?: string | undefined;
+                    };
+                    ledgerRebuilt?: undefined | {
+                        at: string;
+                        reason: "damaged" | "missing";
+                    };
+                    managed?: undefined | {
+                        active?: undefined | {
+                            path: string;
+                            release: number;
+                            version?: string | undefined;
+                        };
+                        currentFailed?: undefined | {
+                            release: number;
+                            version: string;
+                        };
+                        failingSince?: string | undefined;
+                        installing?: undefined | {
+                            version?: string | undefined;
+                        };
+                        lastCheckAt?: string | undefined;
+                        lastError?: undefined | {
+                            at: string;
+                            message: string;
+                            version?: string | undefined;
+                        };
+                        latest?: string | undefined;
+                        paused: boolean;
+                        previousVersion?: string | undefined;
+                        removingAt?: string | undefined;
+                        vendorUpdated?: boolean | undefined;
+                    };
+                };
                 installed: boolean | null;
                 kind: "antigravity" | "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
                 login: {
@@ -5864,6 +5913,18 @@ type Output_machines_applyUpdate = {
                         providerAccountId?: string | undefined;
                     };
                     state: "in" | "out" | "unknown";
+                }[];
+                management?: undefined | {
+                    homeVariable?: string | undefined;
+                    installable: boolean;
+                    reason?: string | undefined;
+                    updateNotice?: string | undefined;
+                };
+                missingPrerequisites?: undefined | {
+                    executable: string;
+                    message: string;
+                    neededFor: "passed-in-credential";
+                    package: string;
                 }[];
                 path?: string | undefined;
                 probeError?: undefined | {
@@ -5951,6 +6012,185 @@ type Output_machines_moveServer = ({
     operationId: string;
     started: true;
 });
+type Output_machines_uninstall = {
+    machines: {
+        adoptable?: boolean | undefined;
+        appVersion?: null | string | undefined;
+        availability?: undefined | {
+            daemon: boolean;
+            epoch: string;
+            server: boolean;
+            supervisor: boolean;
+        };
+        buildReportedAt?: null | string | undefined;
+        components?: ("daemon" | "server")[] | undefined;
+        daemonReadiness?: undefined | {
+            quarantinedBindings: number;
+            reason: string;
+            state: "attached" | "ready" | "recovering";
+        };
+        deliveryCaps?: string[] | undefined;
+        harnessVersions?: undefined | {
+            firstSeen: string;
+            harness: string;
+            lastSeen: string;
+            unverified?: boolean | undefined;
+            verifiedThrough?: string | undefined;
+            version: string;
+        }[];
+        hostname: string;
+        id: string & z.BRAND<"MachineId">;
+        installKind?: null | string | undefined;
+        inventory?: undefined | {
+            agents: {
+                install?: undefined | {
+                    external?: undefined | {
+                        path: string;
+                        version?: string | undefined;
+                    };
+                    ledgerRebuilt?: undefined | {
+                        at: string;
+                        reason: "damaged" | "missing";
+                    };
+                    managed?: undefined | {
+                        active?: undefined | {
+                            path: string;
+                            release: number;
+                            version?: string | undefined;
+                        };
+                        currentFailed?: undefined | {
+                            release: number;
+                            version: string;
+                        };
+                        failingSince?: string | undefined;
+                        installing?: undefined | {
+                            version?: string | undefined;
+                        };
+                        lastCheckAt?: string | undefined;
+                        lastError?: undefined | {
+                            at: string;
+                            message: string;
+                            version?: string | undefined;
+                        };
+                        latest?: string | undefined;
+                        paused: boolean;
+                        previousVersion?: string | undefined;
+                        removingAt?: string | undefined;
+                        vendorUpdated?: boolean | undefined;
+                    };
+                };
+                installed: boolean | null;
+                kind: "antigravity" | "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+                login: {
+                    account?: string | undefined;
+                    freshness?: number | undefined;
+                    identity?: undefined | {
+                        email?: string | undefined;
+                        fingerprint: string;
+                        providerAccountId?: string | undefined;
+                    };
+                    state: "in" | "out" | "unknown";
+                };
+                logins?: undefined | {
+                    freshness?: number | undefined;
+                    homeId: string;
+                    identity?: undefined | {
+                        email?: string | undefined;
+                        fingerprint: string;
+                        providerAccountId?: string | undefined;
+                    };
+                    state: "in" | "out" | "unknown";
+                }[];
+                management?: undefined | {
+                    homeVariable?: string | undefined;
+                    installable: boolean;
+                    reason?: string | undefined;
+                    updateNotice?: string | undefined;
+                };
+                missingPrerequisites?: undefined | {
+                    executable: string;
+                    message: string;
+                    neededFor: "passed-in-credential";
+                    package: string;
+                }[];
+                path?: string | undefined;
+                probeError?: undefined | {
+                    reason: "timed-out";
+                    timeoutMs: number;
+                };
+                version?: string | undefined;
+            }[];
+            arch: "arm64" | "x64";
+            homePath?: string | undefined;
+            os: "darwin" | "linux" | "win32";
+            podiumVersion?: string | undefined;
+            runtimeDrivers?: undefined | {
+                family: "server" | "terminal";
+                harness: "antigravity" | "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+                id: string;
+            }[];
+            tools: {
+                installed: boolean | null;
+                name: string;
+                path?: string | undefined;
+                probeError?: undefined | {
+                    reason: "timed-out";
+                    timeoutMs: number;
+                };
+                version?: string | undefined;
+            }[];
+        };
+        lastSeenAt: string;
+        name: string;
+        online: boolean;
+        owned?: boolean | undefined;
+        podiumManaged?: boolean | undefined;
+        presenceSource?: "legacy-daemon" | "supervisor" | undefined;
+        revokedAt?: null | string | undefined;
+        serverMoveEligibility?: undefined | {
+            eligible: boolean;
+            reason?: "current-server" | "offline" | "unsupported" | undefined;
+        };
+        serviceAssignment?: undefined | {
+            agentExecution: boolean;
+            server: boolean;
+        };
+        services?: undefined | {
+            agentExecution: {
+                observedAt: string;
+                policy: "disabled" | "enabled";
+                reason?: string | undefined;
+                state: "available" | "refused" | "starting" | "stopped";
+            };
+            agentExecutionLockout?: boolean | undefined;
+            crashOwner?: string | undefined;
+            server: {
+                observedAt: string;
+                policy: "disabled" | "enabled";
+                reason?: string | undefined;
+                state: "available" | "refused" | "starting" | "stopped";
+            };
+            topology?: undefined | {
+                legacyUnits: string[];
+                parentUnit: "absent" | "active" | "inactive";
+                persistence: "detached" | "systemd" | "unmanaged";
+            };
+        };
+        supersedable?: boolean | undefined;
+        supersededBy?: (string & z.BRAND<"MachineId">) | null | undefined;
+        targetUnavailableReason?: null | string | undefined;
+        targetVersion?: null | string | undefined;
+        transferable?: boolean | undefined;
+        unowned?: boolean | undefined;
+        updateChannel?: "dev" | "edge" | "stable" | undefined;
+        updateChannelOverride?: "dev" | "edge" | "stable" | null | undefined;
+        use?: "denied" | "granted" | undefined;
+        versionState?: "ahead" | "behind" | "current" | "unreported" | undefined;
+        wireSchemaDigest?: null | string | undefined;
+    }[];
+    outcomes: Protocol.UninstallEditOutcome[];
+    removesState: boolean;
+};
 type Output_operations_action = ({
     handled: false;
     refused: "already-finished" | "not-found" | "not-offered" | "unsupported";
@@ -7095,6 +7335,13 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
     };
+    "harnessInstalls": {
+        "action": TRPC.TRPCMutationProcedure<{
+            input: Input_harnessInstalls_action;
+            output: Protocol.HarnessActionResult;
+            meta: unknown;
+        }>;
+    };
     "hosts": {
         "memoryBreakdown": TRPC.TRPCMutationProcedure<{
             input: (undefined) | ({
@@ -7977,6 +8224,14 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 newOwnerUserId: string;
             };
             output: Array<_podium_model.MachineWire>;
+            meta: unknown;
+        }>;
+        "uninstall": TRPC.TRPCMutationProcedure<{
+            input: {
+                force?: boolean | undefined;
+                id: string;
+            };
+            output: Output_machines_uninstall;
             meta: unknown;
         }>;
         "unshare": TRPC.TRPCMutationProcedure<{

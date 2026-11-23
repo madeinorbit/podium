@@ -61,6 +61,7 @@ import { MobileConversation } from '../lib/mobile-conversation'
 import { color, font, leading, sans, space } from '../theme/theme'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
 import { Composer } from './Composer'
+import { PhoneInstallCurrentHarness } from './InstallCurrentHarness'
 import { BootstrapCrossfade, TranscriptSkeleton } from './LaunchPlaceholders'
 import { PendingInteractionBand } from './PendingInteractionBand'
 import { PullToRefreshBoundary } from './PullToRefreshBoundary'
@@ -752,6 +753,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
     <View style={styles.flex}>
       {!resumeFailed && (
         <MobileSessionLifecycle
+          installRecovery={<PhoneInstallCurrentHarness sessionId={session.sessionId} />}
           session={session}
           hasTranscript={hasTranscript}
           onResume={store.resurrectSession}

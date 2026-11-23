@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { resolveCredentialFilePath } from '../../manifest.js'
 import { optionArgs } from '../../posture.js'
 import type {
@@ -68,16 +69,32 @@ export function claudeCodePosture(launch: PostureLaunch, request: PostureRequest
     ...(mode !== null ? ['--permission-mode', mode] : []),
     ...allowRules(request.grants).map((rule) => `--allowedTools=${rule}`),
   ]
+  let env = launch.env
+  const homeEdits = [trustEdit(request)]
+  if (request.context.installation.provenance === 'managed')
+    env = { ...env, DISABLE_AUTOUPDATER: '1' }
+  if (request.context.installation.provenance === 'managed' && request.context.harnessHome) {
+    // A terminal otherwise registers Podium's binary as the person's OS URL
+    // handler. Keep the documented setting in the home Podium owns, alongside
+    // trust, without replacing the per-session --settings file and its hooks.
+    // https://code.claude.com/docs/en/settings-reference#disabledeeplinkregistration
+    homeEdits.push({
+      kind: 'json-key',
+      file: join(request.context.harnessHome.dir, 'settings.json'),
+      path: ['disableDeepLinkRegistration'],
+      value: 'disable',
+      serves: 'quiet-start',
+      createIfMissing: true,
+    })
+  }
+  if (request.mode === 'terminal') env = { ...env, CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY: '1' }
   return {
     launch: {
       args: optionArgs(launch.args, options),
-      env:
-        request.mode === 'terminal'
-          ? { ...launch.env, CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY: '1' }
-          : launch.env,
+      env,
       files: launch.files,
     },
-    homeEdits: [trustEdit(request)],
+    homeEdits,
     requestedMode: mode,
     unmet,
   }

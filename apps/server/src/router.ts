@@ -65,6 +65,7 @@ import { layoutFamilyProcedures } from './modules/layout/trpc'
 import { lockRegistry } from './modules/lock/registry'
 import { lockRouterFromCommands } from './modules/lock/trpc'
 import { logsFamilyProcedures } from './modules/logs/trpc'
+import { harnessInstallProcedures } from './modules/machines/install-trpc'
 import {
   AUTOMATION_QUERIES,
   COST_QUERIES,
@@ -422,6 +423,7 @@ export const appRouter = t.router({
     ...fleet.discovery,
     ...discoveryReadProcedures(),
   }),
+  harnessInstalls: t.router(harnessInstallProcedures()),
   machines: t.router({
     /**
      * THE ONE READ LEFT HAND-WRITTEN IN THIS FILE, and the reason is worth

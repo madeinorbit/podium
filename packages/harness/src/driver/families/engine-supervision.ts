@@ -56,6 +56,13 @@ export interface EngineSpawnRequest {
    */
   sessionId?: SessionId
   /**
+   * The session a ONE-SHOT TURN runs for. Its installation is recorded against
+   * that session (managed installs §6.2), so housekeeping keeps the release
+   * while the turn runs. Not `sessionId`: a turn is not the session's engine,
+   * keeps no address, reports no launch terms and carries its own credential.
+   */
+  turnFor?: SessionId
+  /**
    * Ask the session layer for a private Unix listener address (layers §1b:
    * the Driver "uses the engine address it was given"). The session layer
    * mints the address under its instance-private socket root, prepares that

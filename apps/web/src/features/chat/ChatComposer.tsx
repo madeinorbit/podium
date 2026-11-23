@@ -783,14 +783,14 @@ export const ChatComposer = observer(function ChatComposer({
           <div className={cn('flex gap-2', compact ? 'items-start' : 'items-end')}>
             {/* The field's box, shared with the quote pills painted behind it. */}
             <div className="relative min-w-0 flex-1">
-              {quotes && <QuoteOverlay taRef={taRef} draft={draft} quotes={quotes.quotes} />}
               <Textarea
                 ref={taRef}
                 rows={1}
                 placeholder={placeholder}
                 className={cn(
-                  // Positioned so it paints over the pills behind it.
-                  'relative',
+                  // Positioned and lifted so it paints over the pills, which
+                  // come after it in the DOM (see QuoteOverlay below).
+                  'relative z-[1]',
                   // `shell-type-primary` is the SHELL's reading size (13/18) and it
                   // belongs to the narrow dock, which is shell chrome. The wide
                   // composer sets its own 14/24 below — the transcript's size —
@@ -910,6 +910,12 @@ export const ChatComposer = observer(function ChatComposer({
                 }}
                 onPaste={replying ? undefined : attachments.onPaste}
               />
+              {/* AFTER the field: on a mount with a quote already in the draft,
+                  the overlay's layout effect reads taRef, and a ref attaches
+                  only when its own element's commit is reached. Placed first,
+                  the overlay saw null, never copied the field's font and
+                  width, and drew its pills at browser defaults (POD-7079). */}
+              {quotes && <QuoteOverlay taRef={taRef} draft={draft} quotes={quotes.quotes} />}
             </div>
             {/* ONE CALM LINE (POD-2076): without a model chip the field and its
                 attach · mic · send cluster share a row; the cluster rides the

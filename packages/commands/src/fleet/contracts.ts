@@ -181,6 +181,7 @@ export const machineShareInput = machineUnshareInput.extend({
 })
 
 export const machineRevokeInput = z.object({ id: z.string() })
+export const machineUninstallInput = z.object({ id: z.string(), force: z.boolean().optional() })
 export const machineMoveServerInput = z.object({
   targetMachineId: z.string().min(1).pipe(MachineIdField),
   publicUrl: z.string().min(1).max(2048),
@@ -743,6 +744,49 @@ export const machineRevokeContract = {
   conflictRule:
     'Removes the machine row and every surviving grant edge in one Authority commit; a second revoke of an already-revoked machine is a no-op',
 } as const satisfies FleetCommandContract<typeof machineRevokeInput>
+
+/**
+ * Uninstall Podium from a machine, then remove it (managed installs §12 item
+ * 14): the machine menu's "Uninstall Podium". The machine's daemon undoes
+ * Podium's edits in the person's harness folders and removes Podium's services
+ * and files; the server then revokes the machine as `machines.revoke` does.
+ */
+export const machineUninstallContract = {
+  name: 'machines.uninstall',
+  version: 1,
+  visibility: 'owned-compute',
+  input: machineUninstallInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'machine',
+    machineVerb: 'manage',
+    confirmation: 'confirm',
+    rationale:
+      '`manage`, as `machines.revoke`, which it ends with. `confirm` because it is more destructive ' +
+      'still: it deletes Podium’s state on the machine (managed releases, Podium homes and their ' +
+      'sign-ins), which no re-pairing brings back.',
+  },
+  exposure: SERVED_ON,
+  delivery: FLEET_DELIVERY,
+  redaction: PUBLIC_REDACTION,
+  ownership: {
+    creates: [],
+    note: 'Removes Podium from the machine and then the machine row; creates nothing.',
+  },
+  attribution: FLEET_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: true,
+    note: 'An invisible machine and an unknown id share one refusal. Inside the caller’s visible set, an offline or too-old daemon and the server’s own machine are refused by name.',
+  },
+  serverRole: 'hub',
+  cli: { summary: 'Uninstall Podium from a machine and remove it' },
+  conflict: 'cmd',
+  conflictRule:
+    'One effect record per request; the machine is revoked only after its daemon answered, and a second request for a revoked machine is refused as not found',
+} as const satisfies FleetCommandContract<typeof machineUninstallInput>
 
 /** Move the server authority and portable state to an already-paired machine. */
 export const machineMoveServerContract = {
@@ -1348,6 +1392,7 @@ export const FLEET_CONTRACTS = {
   'machines.supersede': machineSupersedeContract,
   'machines.applyUpdate': machineApplyUpdateContract,
   'machines.revoke': machineRevokeContract,
+  'machines.uninstall': machineUninstallContract,
   'machines.moveServer': machineMoveServerContract,
   'machines.pairingCode': machinePairingCodeContract,
   'repos.add': repoAddContract,

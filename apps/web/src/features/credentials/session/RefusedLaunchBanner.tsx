@@ -11,6 +11,10 @@
 import { useCommands, useUi } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph'
 import {
+  type CredentialChoice,
+  sessionCredentialChoices,
+} from '@podium/client-graph/session-credential-facts'
+import {
   ACCESS_REFUSAL_MESSAGES,
   type AccessRefusal,
   type AgentKind,
@@ -32,7 +36,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { CredentialMenuItems } from './CredentialMenuItems'
 import { useOpenCredentials } from './SessionCredentialNotice'
-import { type CredentialChoice, sessionCredentialChoices } from './session-credential-facts'
 import { useHarnessAccepts, useSessionCredentials } from './use-session-credentials'
 
 export { usePaneLaunchRefusal } from './use-session-credentials'

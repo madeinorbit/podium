@@ -151,7 +151,7 @@ describe.skipIf(!hostAvailable)('podium-host: SPEC-6 acceptance', () => {
   it('builds and answers version', () => {
     expect(bin).toBeDefined()
     expect(spawnSync(bin, ['version'], { encoding: 'utf8' }).stdout).toMatch(
-      /^podium-host \S+ features=2/,
+      /^podium-host \S+ features=3/,
     )
   })
 
@@ -730,6 +730,69 @@ describe.skipIf(!hostAvailable)(
   },
 )
 
+/**
+ * A host whose program has exited keeps its socket while it lingers (30 s by
+ * default, 1 s after a kill), so the label still answers. That host is not a
+ * session: a spawn under the label must start a new program, never bind the
+ * dead one (POD-7060: a respawn right after a kill got exit 3 from create,
+ * adopted the lingering host and reported a start whose program was gone).
+ */
+describe.skipIf(!hostAvailable)('podium-host respawn over an exited host (POD-7060)', () => {
+  it('a spawn under a label whose program exited on its own starts a new program', async () => {
+    const l = label('relaunch')
+    const first = await spawnHostAgent({
+      label: l,
+      cmd: 'sh',
+      args: ['-c', 'exit 0'],
+      cols: 80,
+      rows: 24,
+      lingerSecs: 30,
+    })
+    sessions.push(first)
+    const firstHost = (await first.ready).hostPid
+    await waitFor(() => first.connection.exited !== undefined, 'the first program to exit')
+    // Lingering: the label answers, but no program runs under it.
+    expect(await hostHasSession(l)).toBe(false)
+    expect(statSync(hostSocketPath(l)).isSocket()).toBe(true)
+
+    const second = await spawnHostAgent({
+      label: l,
+      cmd: 'sleep',
+      args: ['30'],
+      cols: 80,
+      rows: 24,
+    })
+    sessions.push(second)
+    const w = await second.ready
+    expect(second.adopted).toBeFalsy()
+    expect(w.hostPid).not.toBe(firstHost)
+    expect(await hostHasSession(l)).toBe(true)
+  }, 30_000)
+
+  it('a spawn right after a kill starts a new program instead of binding the lingering host', async () => {
+    const l = label('respawn')
+    const first = await spawnHostAgent({ label: l, cmd: 'sleep', args: ['30'], cols: 80, rows: 24 })
+    const firstHost = (await first.ready).hostPid
+    first.dispose()
+    // The kill returns once the program is gone; the host lingers ~1 s more.
+    await killHostSession(l)
+    expect(await hostHasSession(l)).toBe(false)
+
+    const second = await spawnHostAgent({
+      label: l,
+      cmd: 'sleep',
+      args: ['30'],
+      cols: 80,
+      rows: 24,
+    })
+    sessions.push(second)
+    const w = await second.ready
+    expect(second.adopted).toBeFalsy()
+    expect(w.hostPid).not.toBe(firstHost)
+    expect(await hostHasSession(l)).toBe(true)
+  }, 30_000)
+})
+
 describe.skipIf(!hostAvailable)(
   'podium-host pty-less engines through DurableProcess (POD-4433)',
   () => {
@@ -845,3 +908,63 @@ describe.skipIf(!hostAvailable)(
     }, 30_000)
   },
 )
+
+describe.skipIf(!hostAvailable)('podium-host hands a credential over on a pipe (POD-7378)', () => {
+  /** Prints what the descriptor named by CRED_FD holds, and whether the bytes reach its env. */
+  const READ_PIPE = [
+    '-e',
+    `const fs = require('node:fs')
+     const fd = Number(process.env.CRED_FD)
+     const held = fs.readFileSync('/proc/self/fd/' + fd, 'utf8')
+     const inEnv = Object.values(process.env).some((v) => v && v.includes(held))
+     process.stdout.write('held=' + held + ' env=' + inEnv + ' fd=' + fd + '\\n')`,
+  ]
+
+  async function run(contents: string, tag: string): Promise<string> {
+    const durable = createDurableProcess()
+    const s = await durable.spawnHeadless({
+      label: label(tag),
+      cmd: process.execPath,
+      args: READ_PIPE,
+      cwd: root,
+      pipe: { variable: 'CRED_FD', contents },
+    })
+    sessions.push(s)
+    await s.ready
+    let out = ''
+    s.connection.onData((_seq, d) => {
+      out += d.toString()
+    })
+    await waitFor(() => out.includes('\n'), 'the child to report its pipe')
+    return out
+  }
+
+  it('the child reads the secret from the named descriptor and not from its environment', async () => {
+    const out = await run('sk-ant-api03-ITEST-PIPE-ONE', 'pipe')
+    expect(out).toMatch(/^held=sk-ant-api03-ITEST-PIPE-ONE env=false fd=\d+\n$/)
+  }, 30_000)
+
+  it('every start gets its own pipe: a respawn reads the new secret', async () => {
+    expect(await run('sk-ant-oat01-ITEST-FIRST', 'pipe-a')).toContain(
+      'held=sk-ant-oat01-ITEST-FIRST ',
+    )
+    expect(await run('sk-ant-oat01-ITEST-SECOND', 'pipe-b')).toContain(
+      'held=sk-ant-oat01-ITEST-SECOND ',
+    )
+  }, 30_000)
+
+  it('an empty secret starts nothing', async () => {
+    const durable = createDurableProcess()
+    const l = label('pipe-empty')
+    await expect(
+      durable.spawnHeadless({
+        label: l,
+        cmd: process.execPath,
+        args: ['-e', ''],
+        cwd: root,
+        pipe: { variable: 'CRED_FD', contents: ' \n' },
+      }),
+    ).rejects.toThrow(/empty, so the program was not started/)
+    expect(await durable.has(l)).toBe(false)
+  }, 30_000)
+})

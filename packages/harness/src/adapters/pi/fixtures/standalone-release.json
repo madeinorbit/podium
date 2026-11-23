@@ -1,0 +1,43 @@
+{
+  "tag_name": "v1.6.0",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-20T11:35:03Z",
+  "assets": [
+    {
+      "name": "pi-darwin-arm64.tar.gz",
+      "browser_download_url": "https://github.com/earendil-works/pi/releases/download/v1.6.0/pi-darwin-arm64.tar.gz",
+      "digest": "sha256:6429287b7ae98d726ec577815d14fd680e7c587e89ecc5153b4a145dc4adba33"
+    },
+    {
+      "name": "pi-darwin-x64.tar.gz",
+      "browser_download_url": "https://github.com/earendil-works/pi/releases/download/v1.6.0/pi-darwin-x64.tar.gz",
+      "digest": "sha256:5b69cd87c3b00e74cce2d1499df3b7a1ec73632f11abf64696d110f0f4dc4192"
+    },
+    {
+      "name": "pi-linux-arm64.tar.gz",
+      "browser_download_url": "https://github.com/earendil-works/pi/releases/download/v1.6.0/pi-linux-arm64.tar.gz",
+      "digest": "sha256:5404547b9739be596d50ae7142c52535899e8e7dd37a7bace9be593e0355b468"
+    },
+    {
+      "name": "pi-linux-x64.tar.gz",
+      "browser_download_url": "https://github.com/earendil-works/pi/releases/download/v1.6.0/pi-linux-x64.tar.gz",
+      "digest": "sha256:ef77dbe4379b3bdeb425a1e1b862fa3c915c255000dfe4965c98eee96a5765d1"
+    },
+    {
+      "name": "pi-windows-arm64.zip",
+      "browser_download_url": "https://github.com/earendil-works/pi/releases/download/v1.6.0/pi-windows-arm64.zip",
+      "digest": "sha256:56433d392e1baecf9f1692785a3bf171c125b415a29dd36097d02baca98bc9eb"
+    },
+    {
+      "name": "pi-windows-x64.zip",
+      "browser_download_url": "https://github.com/earendil-works/pi/releases/download/v1.6.0/pi-windows-x64.zip",
+      "digest": "sha256:f5defb6c403ee698f5b3f8886db473e55b78aac670a8ce03620a47f5f0aec57c"
+    },
+    {
+      "name": "SHA256SUMS",
+      "browser_download_url": "https://github.com/earendil-works/pi/releases/download/v1.6.0/SHA256SUMS",
+      "digest": "sha256:b460037dd18c3e4d146d4dc826983f517e075a09838c827ca26ec6e5260134e9"
+    }
+  ]
+}

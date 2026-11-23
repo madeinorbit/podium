@@ -8,7 +8,7 @@
  * a process on the machine's own login.
  */
 
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
@@ -17,7 +17,11 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   type AccessMarker,
   AccessNotArrivedError,
+  assertDeliveryPrerequisites,
+  deliveredCredentialEnv,
   deliveryOverlay,
+  deliveryPipe,
+  EmptyCredentialError,
   type MarkerJournal,
   SessionAccessStore,
   withLeadingArgs,
@@ -148,12 +152,73 @@ describe('SessionAccessStore', () => {
 })
 
 describe('deliveryOverlay', () => {
-  it('a Claude Code env credential sets the variable and the subprocess scrub (acceptance 8)', () => {
-    expect(deliveryOverlay('claude-code', envAccess)).toEqual({
-      env: { ANTHROPIC_API_KEY: PLANTED, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' },
+  it('on Linux a Claude Code key goes on a pipe: no variable holds it, no scrub switch (POD-7378)', () => {
+    expect(deliveryOverlay('claude-code', envAccess, { platform: 'linux' })).toEqual({
+      env: {},
       args: [],
-      keep: ['ANTHROPIC_API_KEY'],
+      keep: [],
+      // An inherited copy of the line's own variable must not compete.
+      strip: ['ANTHROPIC_API_KEY'],
+      pipe: { variable: 'CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR', contents: PLANTED },
     })
+  })
+
+  it('on Linux a Claude Code token goes on its own pipe', () => {
+    const token = 'sk-ant-oat01-FAKE-planted-token-0005'
+    expect(
+      deliveryOverlay(
+        'claude-code',
+        {
+          credentialId: envAccess.credentialId,
+          delivery: { kind: 'env', variable: 'CLAUDE_CODE_OAUTH_TOKEN', secret: token },
+        },
+        { platform: 'linux' },
+      ),
+    ).toMatchObject({
+      env: {},
+      strip: ['CLAUDE_CODE_OAUTH_TOKEN'],
+      pipe: { variable: 'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR', contents: token },
+    })
+  })
+
+  it('refuses an empty or blank piped secret: Claude Code would fall back to a stored login', () => {
+    for (const secret of ['', '   ', '\n']) {
+      expect(() =>
+        deliveryOverlay(
+          'claude-code',
+          {
+            credentialId: envAccess.credentialId,
+            delivery: { kind: 'env', variable: 'CLAUDE_CODE_OAUTH_TOKEN', secret },
+          },
+          { platform: 'linux' },
+        ),
+      ).toThrow(EmptyCredentialError)
+    }
+  })
+
+  it('elsewhere a Claude Code credential sets the variable and the subprocess scrub (acceptance 8)', () => {
+    for (const platform of ['darwin', 'win32'] as const) {
+      expect(deliveryOverlay('claude-code', envAccess, { platform }), platform).toEqual({
+        env: { ANTHROPIC_API_KEY: PLANTED, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' },
+        args: [],
+        keep: ['ANTHROPIC_API_KEY'],
+        strip: [],
+      })
+    }
+    expect(deliveryPipe('claude-code', envAccess, 'darwin')).toBeUndefined()
+    expect(deliveryPipe('claude-code', envAccess, 'linux')?.variable).toBe(
+      'CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR',
+    )
+  })
+
+  it('driver selection still reads the line variable of a piped credential', () => {
+    expect(deliveredCredentialEnv(envAccess)).toEqual({ ANTHROPIC_API_KEY: PLANTED })
+    expect(
+      deliveredCredentialEnv({
+        credentialId: envAccess.credentialId,
+        delivery: { kind: 'home', homeId: 'default' },
+      }),
+    ).toEqual({})
   })
 
   it('codex gets its exclude switch as leading arguments', () => {
@@ -206,7 +271,7 @@ describe('deliveryOverlay', () => {
   })
 
   it('no access, or a home delivery, adds nothing', () => {
-    const none = { env: {}, args: [], keep: [] }
+    const none = { env: {}, args: [], keep: [], strip: [] }
     expect(deliveryOverlay('claude-code', undefined)).toEqual(none)
     expect(
       deliveryOverlay('claude-code', {
@@ -214,6 +279,45 @@ describe('deliveryOverlay', () => {
         delivery: { kind: 'home', homeId: 'default' },
       }),
     ).toEqual(none)
+  })
+})
+
+describe('assertDeliveryPrerequisites (POD-7375)', () => {
+  /** A PATH folder holding the named executables, as a machine would. */
+  function pathWith(...names: string[]): string {
+    const dir = markerDir()
+    for (const name of names) {
+      writeFileSync(join(dir, name), '#!/bin/sh\n')
+      chmodSync(join(dir, name), 0o755)
+    }
+    return dir
+  }
+
+  it('a piped Claude credential on Linux needs no bwrap (POD-7378 drops the POD-7375 requirement)', () => {
+    const env = { PATH: pathWith('git') }
+    expect(() => assertDeliveryPrerequisites('claude-code', envAccess, env, 'linux')).not.toThrow()
+  })
+
+  it('needs nothing without a passed-in credential, on macOS, or for a harness with no prerequisite', () => {
+    const env = { PATH: pathWith() }
+    const home: AccessField = {
+      credentialId: envAccess.credentialId,
+      delivery: { kind: 'home', homeId: 'default' },
+    }
+    expect(() => assertDeliveryPrerequisites('claude-code', undefined, env, 'linux')).not.toThrow()
+    expect(() => assertDeliveryPrerequisites('claude-code', home, env, 'linux')).not.toThrow()
+    expect(() => assertDeliveryPrerequisites('claude-code', envAccess, env, 'darwin')).not.toThrow()
+    expect(() =>
+      assertDeliveryPrerequisites(
+        'codex',
+        {
+          credentialId: envAccess.credentialId,
+          delivery: { kind: 'env', variable: 'OPENAI_API_KEY', secret: PLANTED },
+        },
+        env,
+        'linux',
+      ),
+    ).not.toThrow()
   })
 })
 

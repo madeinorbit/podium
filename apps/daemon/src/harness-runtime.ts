@@ -8,6 +8,7 @@ import {
   type ProbeExec,
   type ResolvedHarnessInventory,
 } from '@podium/harness'
+import type { ManagedInstallsReader } from '@podium/harness/inventory'
 import { createCommandEnvironment } from '@podium/runtime/command-environment'
 
 export interface HarnessRuntimeOptions {
@@ -17,6 +18,13 @@ export interface HarnessRuntimeOptions {
   exec?: ProbeExec
   loginExec?: LoginProbeExec
   launch?: typeof agentLaunchCommand
+  /** The install ledger, read on every wave (managed installs §7): a release
+   *  another process published appears in the next wave. Absent: nothing
+   *  managed is looked for. */
+  managedInstalls?: ManagedInstallsReader
+  /** Called with each snapshot a wave installs, once it is the current one:
+   *  what follows a managed install appearing (the Podium home, §4.3). */
+  onSettled?: (snapshot: ResolvedHarnessInventory) => void
   /** Hermetic generation builder used by lifecycle tests. */
   buildSnapshot?: (generation: number) => Promise<ResolvedHarnessInventory>
 }
@@ -73,6 +81,7 @@ export class DaemonHarnessRuntime {
         ...(this.options.machineHome ? { machineHome: this.options.machineHome } : {}),
         ...(this.options.credentialHome ? { credentialHome: this.options.credentialHome } : {}),
         ...(this.options.exec ? { exec: this.options.exec } : {}),
+        ...(this.options.managedInstalls ? { managedInstalls: this.options.managedInstalls } : {}),
       }),
     )
     this.authoritative = this.install(next, revision)
@@ -113,7 +122,10 @@ export class DaemonHarnessRuntime {
   ): Promise<ResolvedHarnessInventory> {
     this.authoritativePending = true
     const installed = pending.then((snapshot) => {
-      if (this.revision === revision) this.authoritativeValue = snapshot
+      if (this.revision === revision) {
+        this.authoritativeValue = snapshot
+        this.options.onSettled?.(snapshot)
+      }
       return snapshot
     })
     const tracked = installed.finally(() => {
@@ -135,6 +147,7 @@ export class DaemonHarnessRuntime {
       ...(this.options.credentialHome ? { credentialHome: this.options.credentialHome } : {}),
       ...(this.options.exec ? { exec: this.options.exec } : {}),
       ...(this.options.loginExec ? { loginExec: this.options.loginExec } : {}),
+      ...(this.options.managedInstalls ? { managedInstalls: this.options.managedInstalls } : {}),
     })
   }
 }

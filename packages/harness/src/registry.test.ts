@@ -80,6 +80,7 @@ const DECLARED_FIELD_SET: Record<DeclaredKeys<AgentManifest>, true> = {
   credentials: true,
   usage: true,
   install: true,
+  managedInstall: true,
   exec: true,
   headless: true,
   state: true,
@@ -88,6 +89,7 @@ const DECLARED_FIELD_SET: Record<DeclaredKeys<AgentManifest>, true> = {
   transcript: true,
   composer: true,
   handoffTranscript: true,
+  conversationFile: true,
   classifyBrowserOpen: true,
 }
 const DECLARED_FIELDS = Object.keys(DECLARED_FIELD_SET) as DeclaredKeys<AgentManifest>[]
@@ -321,6 +323,7 @@ describe('agent manifest registry', () => {
       'CLAUDE_CODE_SESSION_ID',
       'CLAUDE_CODE_ENTRYPOINT',
       'CLAUDE_CODE_EXECPATH',
+      'CLAUDE_CODE_REMOTE',
     ])
     expect(AGENT_MANIFESTS.codex.environment.instanceHome).toEqual({
       variable: 'CODEX_HOME',
@@ -483,10 +486,12 @@ describe('agent manifest registry', () => {
         }
       }
     }
-    // The harnesses with portable credentials and live quota probes today.
+    // The harnesses that declare a login file, and those with live quota
+    // probes, today. Pi's login file is declared for its home variable and
+    // is never copied between machines (POD-7372).
     expect(
       BUILTIN_HARNESS_KINDS.filter((kind) => declaredValue(AGENT_MANIFESTS[kind].credentials)),
-    ).toEqual(['claude-code', 'codex', 'grok', 'antigravity'])
+    ).toEqual(['claude-code', 'codex', 'grok', 'pi', 'antigravity'])
     expect(
       BUILTIN_HARNESS_KINDS.filter((kind) => declaredValue(AGENT_MANIFESTS[kind].usage)),
     ).toEqual(['claude-code', 'codex', 'grok', 'antigravity'])
@@ -874,12 +879,14 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       credentials: unsupported('no credential files yet'),
       usage: unsupported('no quota or usage layouts yet'),
       install: unsupported('no installer yet'),
+      managedInstall: unsupported('no managed install yet'),
       stateChannels: [],
       observer: unsupported('no native store to observe yet'),
       transcript: unsupported('no transcript reader yet'),
       composer: unsupported('no composer rules yet'),
       classifyBrowserOpen: unsupported('no known domains'),
       handoffTranscript: unsupported('no cross-machine handoff yet'),
+      conversationFile: unsupported('no conversation file yet'),
     }
 
     // Every degraded axis reads as explicitly-unsupported WITH a reason — never as

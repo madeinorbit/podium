@@ -124,10 +124,11 @@ import type { Geometry, SessionId } from '@podium/model'
 import type { AgentPicture } from '@podium/process/screen'
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import { ATTACH_TUI_WARM_TTL_MS } from '@podium/protocol'
-import { nodePrepareLaunchPorts, type PrepareLaunchPorts, prepareLaunch } from '../session-posture'
 import type { ClientProcessOwner } from '../session/clients.js'
 import type { ClientTerminalPolicy } from '../session/daemon-session.js'
 import type { SessionRegistry } from '../session/registry.js'
+import type { SessionInstallRecords } from '../session-installs'
+import { nodePrepareLaunchPorts, type PrepareLaunchPorts, prepareLaunch } from '../session-posture'
 import { Terminal } from '../terminal/terminal.js'
 import { driverTiming } from './driver-timing'
 
@@ -361,6 +362,10 @@ export interface OpencodeClientTerminalPorts {
   /** Where a client start writes its launch files and applies its home
    *  edits. Defaults to the real filesystem. */
   prepareLaunchPorts?: (context: Record<string, unknown>) => PrepareLaunchPorts
+  /** The daemon's session rows in the install ledger (managed installs
+   *  §6.2): the real filesystem's launch ports record the client's
+   *  installation here. Absent: nothing is recorded. */
+  sessionInstalls?: Pick<SessionInstallRecords, 'record'>
   /**
    * THE SESSION LAYER'S CLIENT HOLD (spec §5). Spawn, reclaim and the master
    * probe all go through IT — the relay never names a process verb itself, so
@@ -502,7 +507,11 @@ export function createOpencodeClientTerminals(
     // Its files, home edits and unmet terms, once, before the process exists.
     await prepareLaunch(
       launch,
-      (ports.prepareLaunchPorts ?? nodePrepareLaunchPorts)({ sessionId, launch: 'client' }),
+      (
+        ports.prepareLaunchPorts ??
+        ((context) => nodePrepareLaunchPorts(context, ports.sessionInstalls))
+      )({ sessionId, launch: 'client' }),
+      { session: sessionId },
     )
     // THE ONE RECIPE (POD-6535), over the session's context (POD-6546): the
     // recovered command env for this account, so the client gets the same

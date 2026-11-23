@@ -15,7 +15,7 @@ import {
   type Inventory,
   type MachineId,
 } from '@podium/model'
-import { CAP_HARNESS_HOMES } from '@podium/protocol'
+import { CAP_HARNESS_HOMES, CAP_HARNESS_HOMES_GROK } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import { memberFacts } from '../../store/fixtures/test-support'
@@ -36,7 +36,9 @@ afterEach(() => {
   for (const s of services.splice(0)) s.dispose()
 })
 
-async function setup(opts: { online?: boolean; homes?: boolean; created?: boolean } = {}) {
+async function setup(
+  opts: { online?: boolean; homes?: boolean; grokHomes?: boolean; created?: boolean } = {},
+) {
   const store: SessionStore = await openTestStore(':memory:')
   for (const id of [OWNER, OTHER]) {
     await memberFacts(store).create(
@@ -68,7 +70,9 @@ async function setup(opts: { online?: boolean; homes?: boolean; created?: boolea
     store,
     daemon: {
       isOnline: () => opts.online ?? true,
-      supports: (_m, cap) => cap === CAP_HARNESS_HOMES && (opts.homes ?? true),
+      supports: (_m, cap) =>
+        (cap === CAP_HARNESS_HOMES && (opts.homes ?? true)) ||
+        (cap === CAP_HARNESS_HOMES_GROK && (opts.grokHomes ?? true)),
     },
     rpc: {
       homeEnsure: async (credentialId, harness, machineId) => {
@@ -154,6 +158,27 @@ describe('signInStart (acceptance 1)', () => {
       machineId: MINE,
     })
     expect(calls.at(-1)).toBe(`open codex sign-in in ${codex.credentialId}:codex on ${MINE}`)
+  })
+
+  it('a Grok login gets a Grok home, asked only of a daemon that offers Grok homes', async () => {
+    const { service, calls } = await setup()
+    const grok = await service.start({
+      ownerUserId: OWNER,
+      type: 'xai.grok-login',
+      machineId: MINE,
+    })
+    const home = `${grok.credentialId}:grok`
+    expect(calls).toEqual([`ensure ${home} on ${MINE}`, `open grok sign-in in ${home} on ${MINE}`])
+
+    const older = await setup({ grokHomes: false })
+    const refusal = await refusalOf(
+      older.service.start({ ownerUserId: OWNER, type: 'xai.grok-login', machineId: MINE }),
+    )
+    expect(refusal.refusal).toBe('daemon-too-old')
+    expect(older.calls).toEqual([])
+    // Claude Code and Codex homes need nothing new.
+    await older.service.start({ ownerUserId: OWNER, type: 'openai.chatgpt-login', machineId: MINE })
+    expect(older.calls[0]).toMatch(/^ensure .*:codex on /)
   })
 
   it('refuses a machine the credential was not sent to with machine-not-allowed, and makes nothing', async () => {

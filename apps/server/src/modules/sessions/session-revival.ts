@@ -274,8 +274,7 @@ export class SessionRevival {
    * row the user last touched.
    */
   async findLiveByResume(resume: ResumeRef): Promise<SessionSubject | undefined> {
-    const running = (s: SessionSubject) =>
-      s.status === 'live' || s.status === 'starting'
+    const running = (s: SessionSubject) => s.status === 'live' || s.status === 'starting'
     return (
       (await this.ports.records.withResume(resume, 'findLiveByResume'))
         // A HEADLESS session shares its harness's resume ref but is not a PTY
@@ -619,7 +618,11 @@ export class SessionRevival {
           cwd,
           resume: session.resume,
         },
-        { credentialId: access.credentialId, homeId: homeIdOfDelivery(access.access?.delivery) },
+        {
+          credentialId: access.credentialId,
+          homeId: homeIdOfDelivery(access.access?.delivery),
+          ...(access.access?.delivery ? { delivery: access.access.delivery.kind } : {}),
+        },
       ).catch(
         (err: unknown): Placement => ({
           kind: 'failed',
@@ -635,8 +638,10 @@ export class SessionRevival {
     }
     // Name the allowed companions so model defaults can never leak into a
     // restart frame, even if the launch-config API later grows new fields.
-    const { subagentModel, seedCliTheme } =
-      await this.ports.launchConfig.modelDefaults(session.agentKind, session.ownerUserId)
+    const { subagentModel, seedCliTheme } = await this.ports.launchConfig.modelDefaults(
+      session.agentKind,
+      session.ownerUserId,
+    )
 
     const preparedInstructions = await this.ports.instructionsForStart({
       sessionId,

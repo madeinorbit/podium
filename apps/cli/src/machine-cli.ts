@@ -1,3 +1,9 @@
+import {
+  gateHarnessVersion,
+  HARNESS_VERSION_POLICIES,
+  type HarnessVersionPolicy,
+} from '@podium/harness/browser'
+import { type HarnessActionResult, HarnessInstallAction, InstallHarness } from '@podium/protocol'
 /**
  * `podium machine` — answer "what can I run on?" from an agent session.
  *
@@ -20,7 +26,6 @@
  */
 
 import { makeRelayIssueClient } from '@podium/issue-client'
-import { type SyncSubmitTransport, submitNow } from '@podium/protocol'
 import {
   type AgentInventory,
   type MachineId,
@@ -28,6 +33,7 @@ import {
   machineByRef,
   probeTimeoutDescription,
 } from '@podium/model'
+import { type SyncSubmitTransport, submitNow } from '@podium/protocol'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { makeOperatorIssueClient } from './operator-client'
 
@@ -42,7 +48,14 @@ type Mutation = { mutate(input?: unknown): Promise<unknown> }
  * `repos.listDetailed` would disclose paths on machines the caller cannot see.
  */
 export interface MachineClient extends SyncSubmitTransport {
-  machines: { listWithRepos: Proc; reprobe: Mutation; adopt?: Mutation; supersede?: Mutation }
+  harnessInstalls?: { action: { mutate(input: unknown): Promise<HarnessActionResult> } }
+  machines: {
+    list?: Proc
+    listWithRepos: Proc
+    reprobe: Mutation
+    adopt?: Mutation
+    supersede?: Mutation
+  }
 }
 
 interface FleetView {
@@ -67,6 +80,9 @@ export function machineHelpText(): string {
     'Commands:',
     '  supersede <old-id> --by <new-id> Retire an old identity; cancel its grants and queued work.',
     '  adopt <name|id> [--for <member>] Adopt an unowned machine (default: yourself).',
+    '  installs <verb> <machine> [harness] [--json] Manage Podium harness installs.',
+    '    Verbs: list, install, check, back, pause, resume, remove, changes,',
+    '           take-settings, remove-changes. List and changes can omit a harness.',
     '  harnesses [--json]     Recorded harness versions, first and last seen.',
     '  list [--json]           Every visible machine, one block each (default).',
     '  show <name|id> [--json]    One machine in full, including its harness inventory.',
@@ -90,15 +106,42 @@ export function machineHelpText(): string {
 
 function argumentError(argv: string[]): string | undefined {
   const [command, ...rest] = argv
+  if (command === 'installs') {
+    const args = rest.filter((arg) => arg !== '--json')
+    const [verb, machine, harness] = args
+    if (verb !== 'list' && !HarnessInstallAction.safeParse(verb).success)
+      return 'usage: podium machine installs <list|install|check|back|pause|resume|remove|changes|take-settings|remove-changes> <machine> [harness] [--json]'
+    if (
+      !machine ||
+      machine.startsWith('-') ||
+      args.length > 3 ||
+      (verb !== 'list' && verb !== 'changes' && !harness)
+    )
+      return `usage: podium machine installs ${verb} <machine> ${verb === 'list' || verb === 'changes' ? '[harness]' : '<harness>'} [--json]`
+    if (harness && !InstallHarness.safeParse(harness).success) return `unknown harness '${harness}'`
+    return undefined
+  }
   if (command === 'supersede') {
     const args = rest.filter((arg) => arg !== '--json')
-    return args.length === 3 && args[0] && !args[0].startsWith('-') && args[1] === '--by' && args[2] && !args[2].startsWith('-')
-      ? undefined : 'usage: podium machine supersede <old-id> --by <new-id> [--json]'
+    return args.length === 3 &&
+      args[0] &&
+      !args[0].startsWith('-') &&
+      args[1] === '--by' &&
+      args[2] &&
+      !args[2].startsWith('-')
+      ? undefined
+      : 'usage: podium machine supersede <old-id> --by <new-id> [--json]'
   }
   if (command === 'adopt') {
     const args = rest.filter((arg) => arg !== '--json')
-    if (!args[0] || args[0].startsWith('-') ||
-      !(args.length === 1 || (args.length === 3 && args[1] === '--for' && args[2] && !args[2].startsWith('-')))) {
+    if (
+      !args[0] ||
+      args[0].startsWith('-') ||
+      !(
+        args.length === 1 ||
+        (args.length === 3 && args[1] === '--for' && args[2] && !args[2].startsWith('-'))
+      )
+    ) {
       return 'usage: podium machines adopt <machine> [--for <member>] [--json]'
     }
     return undefined
@@ -258,15 +301,74 @@ export async function runMachineCli(
   const invalid = argumentError(argv)
   if (invalid) throw new MachineCliError(invalid)
 
-  const { machines, repos } = (await client.machines.listWithRepos.query()) as FleetView
+  const { machines, repos } =
+    argv[0] === 'installs' && client.machines.list
+      ? { machines: (await client.machines.list.query()) as MachineWire[], repos: [] as RepoRow[] }
+      : ((await client.machines.listWithRepos.query()) as FleetView)
   const json = argv.includes('--json')
+
+  if (argv[0] === 'installs') {
+    const [verb, selector, harness] = argv.slice(1).filter((arg) => arg !== '--json')
+    const machine = selectMachine(machines, selector!)
+    if (machine.use !== 'granted')
+      throw new MachineCliError('You do not have access to this machine’s harness inventory.')
+    const agents = machine.inventory?.agents.filter((row) => !harness || row.kind === harness) ?? []
+    if (verb === 'list')
+      return json
+        ? JSON.stringify({
+            command: 'machine installs list',
+            ok: true,
+            data: { machineId: machine.id, agents },
+          })
+        : `${machine.name} (${machine.id})\n${agents.map(installDescription).join('\n') || 'No harness inventory reported.'}`
+    if (!client.harnessInstalls)
+      throw new MachineCliError('This server cannot manage harness installs. Update Podium.')
+    const action = HarnessInstallAction.parse(verb)
+    const kinds = harness
+      ? [InstallHarness.parse(harness)]
+      : agents.map((agent) => InstallHarness.parse(agent.kind))
+    const results = []
+    for (const kind of kinds) {
+      const result = await client.harnessInstalls.action.mutate({
+        machineId: machine.id,
+        harness: kind,
+        action,
+      })
+      results.push({ harness: kind, ...result })
+    }
+    const ok = results.every((result) => result.ok)
+    if (!ok)
+      throw new MachineCliError(
+        results
+          .filter((result) => !result.ok)
+          .map((result) => `${result.harness}: ${result.error ?? result.outcome ?? 'failed'}`)
+          .join('\n'),
+      )
+    if (json)
+      return JSON.stringify({
+        command: `machine installs ${verb}`,
+        ok,
+        data: { machineId: machine.id, results },
+      })
+    return results
+      .map((result) =>
+        result.ok
+          ? `${result.harness}: ${result.outcome ?? 'Podium’s changes'}${result.version ? ` ${result.version}` : ''}${result.pendingSessions ? ` (waiting for ${result.pendingSessions} running sessions; homes kept)` : ''}${result.changes ? `\n${result.changes.map((change) => `  ${change.file}: ${change.edit.kind === 'owned-file' ? 'file created by Podium' : change.edit.kind === 'hook-handlers' ? `Podium’s hooks for ${change.edit.events.length} events` : `${change.edit.path.join('.')} = ${JSON.stringify(change.edit.value)}`}${change.status ? ` · ${change.status}` : ''}${change.reason ? ` · ${change.reason}` : ''}`).join('\n') || '  No changes recorded.'}` : ''}`
+          : `${result.harness}: ${result.error ?? result.outcome ?? 'failed'}`,
+      )
+      .join('\n')
+  }
 
   if (argv[0] === 'supersede') {
     const args = argv.slice(1).filter((arg) => arg !== '--json')
     const old = machines.find((machine) => machine.id === args[0])
     const replacement = machines.find((machine) => machine.id === args[2])
-    if (!old || !replacement) throw new MachineCliError('supersede requires two visible machine IDs; names are not accepted')
-    if (old.id === replacement.id) throw new MachineCliError('replacement must be a different machine')
+    if (!old || !replacement)
+      throw new MachineCliError(
+        'supersede requires two visible machine IDs; names are not accepted',
+      )
+    if (old.id === replacement.id)
+      throw new MachineCliError('replacement must be a different machine')
     const supersede = client.machines.supersede
     if (!supersede) throw new MachineCliError('machine supersession is unavailable')
     // On the sync write entry point (POD-6417). LEGACY(remove-after: 2027-03):
@@ -276,7 +378,12 @@ export async function runMachineCli(
       action: 'supersede this machine',
       legacy: async () => await supersede.mutate(input),
     })
-    return json ? JSON.stringify({ command: 'machines supersede', ok: true, data: { machineId: old.id, supersededBy: replacement.id } })
+    return json
+      ? JSON.stringify({
+          command: 'machines supersede',
+          ok: true,
+          data: { machineId: old.id, supersededBy: replacement.id },
+        })
       : `Superseded ${old.name} (${old.id}) by ${replacement.name} (${replacement.id}). Old grants and queued work cancelled.`
   }
 
@@ -290,7 +397,8 @@ export async function runMachineCli(
       action: 'adopt this machine',
       legacy: async () => await adopt.mutate(input),
     })
-    return json ? JSON.stringify({ command: 'machines adopt', ok: true, data: { machineId: machine.id } })
+    return json
+      ? JSON.stringify({ command: 'machines adopt', ok: true, data: { machineId: machine.id } })
       : `Adopted ${machine.name} (${machine.id})${args[2] ? ` for ${args[2]}` : ''}.`
   }
 
@@ -374,4 +482,40 @@ export async function machineCliMain(argv: string[]): Promise<void> {
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error))
   }
+}
+
+function installDescription(agent: AgentInventory): string {
+  const managed = agent.install?.managed
+  const own =
+    agent.install?.external ??
+    (!managed && agent.installed ? { version: agent.version } : undefined)
+  const lines = [`${agent.kind}:`]
+  const policy = (HARNESS_VERSION_POLICIES as Record<string, HarnessVersionPolicy>)[agent.kind]
+  const tooOld = own?.version && policy && gateHarnessVersion(policy, own.version) === 'too-old'
+  if (own)
+    lines.push(
+      `  ${own.version ?? 'Version unknown'} · your install${tooOld ? ' · too old for Podium' : ''}`,
+    )
+  if (managed)
+    lines.push(
+      `  ${managed.active?.version ?? 'No usable release'} · ${managed.vendorUpdated ? 'installed by Podium · vendor updates' : `managed by Podium${managed.paused ? ' · updates paused' : ''}`}${managed.lastCheckAt ? ` · checked ${managed.lastCheckAt}` : ''}`,
+    )
+  if (managed?.previousVersion) lines.push(`  Can go back to ${managed.previousVersion}`)
+  if (managed && agent.management?.updateNotice) lines.push(`  ${agent.management.updateNotice}`)
+  for (const prerequisite of agent.missingPrerequisites ?? [])
+    lines.push(`  ${prerequisite.message}`)
+  if (managed?.latest) lines.push(`  Latest stable seen: ${managed.latest}`)
+  if (agent.install?.ledgerRebuilt)
+    lines.push('  Podium rebuilt its install ledger from the release folders.')
+  if (managed?.installing) lines.push(`  Installing ${managed.installing.version ?? ''}…`)
+  if (managed?.removingAt) lines.push('  Removal waits for running sessions; homes kept.')
+  if (managed && own && agent.management && !agent.management.homeVariable)
+    lines.push('  Both installs are sharing one folder.')
+  if (!managed && !own)
+    lines.push(
+      agent.installed === null ? '  Installation unknown; check again.' : '  Not installed',
+    )
+  if (agent.management?.reason) lines.push(`  ${agent.management.reason}`)
+  if (managed?.lastError) lines.push(`  ${managed.lastError.message}`)
+  return lines.join('\n')
 }

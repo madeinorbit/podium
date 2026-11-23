@@ -28,7 +28,7 @@ import { claudeConversationFile } from './conversation-file.js'
 import { claudeCredentials } from './credentials.js'
 import { claudeCodeDescriptor } from './descriptor.js'
 import { createClaudeCodeConversationProvider } from './discovery.js'
-import { claudeCodeInstall } from './install.js'
+import { claudeCodeInstall, claudeCodeManagedInstall } from './install.js'
 import {
   claudeCodeInstrumentation,
   configureClaudeTranscriptClassifier,
@@ -96,11 +96,15 @@ export const claudeCodeManifest: AgentManifest = {
     // A daemon started inside Claude carries another conversation's identity.
     // Passing it on makes the child subordinate itself to that session and
     // disables transcript saving — also Podium's state/history channel.
+    // `CLAUDE_CODE_REMOTE` likewise: with it set, Claude Code writes a key or
+    // token it read from a pipe to a file for its commands (measured in
+    // 2.1.330, POD-7378), which is exactly what the pipe keeps from happening.
     removeInherited: [
       'CLAUDE_CODE_CHILD_SESSION',
       'CLAUDE_CODE_SESSION_ID',
       'CLAUDE_CODE_ENTRYPOINT',
       'CLAUDE_CODE_EXECPATH',
+      'CLAUDE_CODE_REMOTE',
     ],
     // Not an `instanceHome`: SETTING `CLAUDE_CONFIG_DIR` moves `.claude.json`
     // (identity, onboarding) out of the home root, where Podium's credential
@@ -151,17 +155,53 @@ export const claudeCodeManifest: AgentManifest = {
     // in your environment" modal, whose one-time approval is then remembered per
     // key in `.claude.json` — after which the switch is permanently silent.
     foreignCredentialEnv: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'],
+    // A passed-in key or token goes in on an inherited pipe on Linux
+    // (POD-7378, measured on 2.1.323 and 2.1.330): Claude Code reads the
+    // descriptor the variable names to its end, once, at start, and removes
+    // the variable from the commands it runs. It reads it through
+    // `/proc/self/fd`, so only on Linux; elsewhere the secret goes in the
+    // variable, with the scrub switch below. An EMPTY token on the pipe makes
+    // Claude Code fall back to a login stored in its home, so the start
+    // refuses an empty secret.
     accepts: [
-      { type: 'anthropic.api-key', deliver: { kind: 'env', variable: 'ANTHROPIC_API_KEY' } },
+      {
+        type: 'anthropic.api-key',
+        deliver: { kind: 'env', variable: 'ANTHROPIC_API_KEY' },
+        pipe: { variable: 'CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR', platforms: ['linux'] },
+      },
       {
         type: 'anthropic.claude-token',
         deliver: { kind: 'env', variable: 'CLAUDE_CODE_OAUTH_TOKEN' },
+        pipe: { variable: 'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR', platforms: ['linux'] },
       },
       { type: 'anthropic.claude-login', deliver: { kind: 'home' } },
     ],
     // Claude Code's documented switch: scrub Anthropic and cloud-provider
-    // credentials from the environment of the commands it runs.
-    hideFromCommands: { env: { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' } },
+    // credentials from the environment of the commands it runs. Set only for
+    // a secret delivered in a variable, so not on Linux, where both lines
+    // use the pipe (POD-7378).
+    //
+    // On Linux the switch also runs every command in a bubblewrap sandbox, and
+    // Claude exits at start when it finds no `bwrap` ("bubblewrap is required
+    // for subprocess env scrubbing and isolation", measured on 2.1.311 and
+    // 2.1.329, POD-7375). With bwrap found it creates empty mount points on
+    // every start: dotfiles in HOME, package and `.env` files in the working
+    // directory, and a block appended to `.git/info/exclude`. No vendor setting
+    // keeps the scrub and skips them. Both lines use the pipe on Linux, so the
+    // bubblewrap requirement below is never checked there today; it stays
+    // declared for a Linux start that delivers in a variable again.
+    hideFromCommands: {
+      env: { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' },
+      requires: [
+        {
+          executable: 'bwrap',
+          package: 'bubblewrap',
+          platforms: ['linux'],
+          missing:
+            'Claude Code needs bubblewrap (bwrap) on this machine to keep a credential Podium passes in out of the commands it runs, and none was found on PATH. Install the bubblewrap package (for example: sudo apt-get install bubblewrap), then start the session again.',
+        },
+      ],
+    },
     // What a started session is on, in Claude Code's own words (credential
     // management §9 "Launching"): the same command as the login probe.
     authStatusProbe: {
@@ -205,6 +245,7 @@ export const claudeCodeManifest: AgentManifest = {
   credentials: supported(claudeCredentials),
   usage: supported(claudeUsage),
   install: supported(claudeCodeInstall),
+  managedInstall: supported(claudeCodeManagedInstall),
 
   posture: claudeCodePosture,
   launch(opts) {
@@ -390,8 +431,8 @@ export const claudeCodeManifest: AgentManifest = {
       if (!path) throw new Error('Claude transcript not found')
       return { path }
     },
-    ...claudeConversationFile,
   }),
+  conversationFile: supported(claudeConversationFile),
 
   // Claude Code's own domains: only the OAuth authorize path is a login; every
   // other claude.ai/console.anthropic.com URL the CLI opens (artifacts, docs,

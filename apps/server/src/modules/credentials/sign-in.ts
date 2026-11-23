@@ -35,7 +35,7 @@ import {
   type SessionId,
   type UserId,
 } from '@podium/model'
-import { CAP_HARNESS_HOMES, type HomeHarness, homeIdFor } from '@podium/protocol'
+import { type HomeHarness, homeCapabilities, homeIdFor } from '@podium/protocol'
 import type { SessionStore } from '../../store'
 import { type CredentialRecord, newCredentialId } from '../../store/credentials'
 import { ACCESS_REFUSAL_MESSAGES, type AccessRefusal } from './access'
@@ -356,7 +356,9 @@ export class HomeSignInService {
         (await store.credentials.isMachineAllowed(existing.id, i.machineId)))
     if (!allowed) throw refused('machine-not-allowed')
     if (!this.deps.daemon.isOnline(i.machineId)) throw refused('machine-offline')
-    if (!this.deps.daemon.supports(i.machineId, CAP_HARNESS_HOMES)) throw refused('daemon-too-old')
+    if (!homeCapabilities(harness).every((cap) => this.deps.daemon.supports(i.machineId, cap))) {
+      throw refused('daemon-too-old')
+    }
     const agent = machine.inventory?.agents.find((a) => a.kind === harness)
     if (agent && agent.installed === false) {
       throw new SignInRefused(

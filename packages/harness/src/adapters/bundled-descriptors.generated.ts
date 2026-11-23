@@ -247,7 +247,14 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
         ],
         "liveMerge": "live-wins-when-non-empty"
       },
-      "accepts": []
+      "accepts": [
+        {
+          "type": "xai.grok-login",
+          "deliver": {
+            "kind": "home"
+          }
+        }
+      ]
     },
     {
       "schemaVersion": 1,

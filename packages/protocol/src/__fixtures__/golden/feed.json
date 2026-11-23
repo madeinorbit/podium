@@ -589,7 +589,7 @@
             "value": {
               "id": "changes[0].value.id",
               "podiumId": "changes[0].value.podiumId",
-              "agentKind": "shell",
+              "agentKind": "antigravity",
               "title": "changes[0].value.title",
               "name": "changes[0].value.name",
               "summary": "changes[0].value.summary",
@@ -616,7 +616,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"shell\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"createdAt\":\"changes[0].value.createdAt\",\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"last\":true,\"totalRows\":7,\"countsByEntity\":{\"countsByEntity.key\":7}}"
+      "encoded": "{\"type\":\"feedBootstrap\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"antigravity\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"createdAt\":\"changes[0].value.createdAt\",\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"last\":true,\"totalRows\":7,\"countsByEntity\":{\"countsByEntity.key\":7}}"
     },
     {
       "schema": "FeedBootstrapMessage",
@@ -1670,7 +1670,7 @@
         "value": {
           "id": "value.id",
           "podiumId": "value.podiumId",
-          "agentKind": "shell",
+          "agentKind": "antigravity",
           "title": "value.title",
           "name": "value.name",
           "summary": "value.summary",
@@ -1690,7 +1690,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"podiumId\":\"value.podiumId\",\"agentKind\":\"shell\",\"title\":\"value.title\",\"name\":\"value.name\",\"summary\":\"value.summary\",\"projectPath\":\"value.projectPath\",\"parentConversationId\":\"value.parentConversationId\",\"createdAt\":\"value.createdAt\",\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"providerId\":\"value.providerId\"},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
+      "encoded": "{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"entityId\",\"op\":\"evict\",\"value\":{\"id\":\"value.id\",\"podiumId\":\"value.podiumId\",\"agentKind\":\"antigravity\",\"title\":\"value.title\",\"name\":\"value.name\",\"summary\":\"value.summary\",\"projectPath\":\"value.projectPath\",\"parentConversationId\":\"value.parentConversationId\",\"createdAt\":\"value.createdAt\",\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"providerId\":\"value.providerId\"},\"originId\":\"originId\",\"causationId\":\"causationId\",\"mutationId\":\"mutationId\"}"
     },
     {
       "schema": "FeedChange",
@@ -2708,7 +2708,7 @@
             "value": {
               "id": "changes[0].value.id",
               "podiumId": "changes[0].value.podiumId",
-              "agentKind": "shell",
+              "agentKind": "antigravity",
               "title": "changes[0].value.title",
               "name": "changes[0].value.name",
               "summary": "changes[0].value.summary",
@@ -2731,7 +2731,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"shell\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"createdAt\":\"changes[0].value.createdAt\",\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"access\":true}"
+      "encoded": "{\"type\":\"feedDelta\",\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"fromSeq\":7,\"seq\":7,\"minAvailableSeq\":7,\"changes\":[{\"seq\":7,\"entity\":\"conversation\",\"entityId\":\"changes[0].entityId\",\"op\":\"evict\",\"value\":{\"id\":\"changes[0].value.id\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"antigravity\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"createdAt\":\"changes[0].value.createdAt\",\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"},\"originId\":\"changes[0].originId\",\"causationId\":\"changes[0].causationId\",\"mutationId\":\"changes[0].mutationId\"}],\"access\":true}"
     },
     {
       "schema": "FeedDeltaMessage",

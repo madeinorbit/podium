@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { testHarnessContext } from '../../driver/testing/harness-context.js'
 import { declaredValue } from '../../manifest.js'
+import { harnessSupportsCredentialPropagation } from '../../registry.js'
 import { piManifest } from './index.js'
 
 const piContext = testHarnessContext({ kind: 'pi' })
@@ -175,5 +176,45 @@ describe('pi manifest', () => {
     expect(declaredValue(piManifest.inventory.loginIdentity)?.(home)?.fingerprint).not.toBe(
       identity?.fingerprint,
     )
+  })
+  it('declares auth.json for its home variable, follows PI_CODING_AGENT_DIR, and never copies it', async () => {
+    const credentials = declaredValue(piManifest.credentials)
+    expect(credentials?.files).toEqual([
+      expect.objectContaining({
+        kind: 'pi',
+        dirName: '.pi/agent',
+        fileName: 'auth.json',
+        homeEnvVar: 'PI_CODING_AGENT_DIR',
+        propagatable: false,
+      }),
+    ])
+    expect(credentials?.files[0]?.validate('{"openai":{"type":"api_key","key":"k"}}')).toBe(true)
+    expect(credentials?.files[0]?.validate('{"empty":{}}')).toBe(false)
+    expect(credentials?.files[0]?.validate('not json')).toBe(false)
+
+    // A login in a moved agent folder is read there, not in ~/.pi/agent.
+    const home = await mkdtemp(join(tmpdir(), 'podium-pi-moved-'))
+    const moved = join(home, 'podium-home')
+    await mkdir(moved, { recursive: true })
+    await writeFile(join(moved, 'auth.json'), '{"anthropic":{"type":"api_key","key":"k"}}')
+    const env = { PI_CODING_AGENT_DIR: moved }
+    expect(piManifest.inventory.detectLogin(home, {})).toEqual({ state: 'unknown' })
+    expect(piManifest.inventory.detectLogin(home, env)).toMatchObject({
+      state: 'in',
+      account: 'anthropic',
+    })
+    expect(declaredValue(piManifest.inventory.loginIdentity)?.(home, env)?.providerAccountId).toBe(
+      'anthropic',
+    )
+    expect(declaredValue(piManifest.inventory.portableCredential)).toBeUndefined()
+    expect(harnessSupportsCredentialPropagation('pi')).toBe(false)
+  })
+
+  it('accepts passed-in provider keys only: no Pi login reaches a home of its own', () => {
+    expect(piManifest.inventory.accepts.map((line) => line.deliver.kind)).toEqual([
+      'env',
+      'env',
+      'env',
+    ])
   })
 })

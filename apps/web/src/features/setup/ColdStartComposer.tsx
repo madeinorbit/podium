@@ -324,7 +324,7 @@ export function ColdStartComposer({
   const [busy, setBusy] = useState(false)
   const runtimeDriversEnabled = useFeature('runtime-drivers')
   const HEADED_DRIVER = 'headed'
-  const [driverChoice, setDriverChoice] = useState(HEADED_DRIVER)
+  const [pickedDriverId, setPickedDriverId] = useState<string>()
   // Durable launch failures belong to the draft, not component lifetime. The
   // recovery composer can mount one microtask before the outcome writes its
   // error; reading the subscribed draft lets that late value appear. Local
@@ -418,6 +418,20 @@ export function ColdStartComposer({
   // What the selected machine reported for this harness; `undefined` until the
   // list arrives, or if it never does. See `draftForReportedModels`.
   const reportedModels = useModelCatalog(selectedMachine?.id)[agent]
+  const availableHeadedDriver = runtimeDriversEnabled
+    ? terminalRuntimeDriver(selectedMachine, agent)
+    : undefined
+  const availableHeadlessDrivers =
+    runtimeDriversEnabled && selectedMachine
+      ? headlessRuntimeDrivers(selectedMachine, agent).filter(
+          (driver) => agentLoginCondition(selectedMachine, driver.harness) !== 'logged-out',
+        )
+      : []
+  // The default follows inventory updates until the person picks a driver.
+  const driverChoice = runtimeDriversEnabled
+    ? (pickedDriverId ?? availableHeadlessDrivers[0]?.id ?? HEADED_DRIVER)
+    : HEADED_DRIVER
+  const headedLaunch = driverChoice === HEADED_DRIVER
   /**
    * SIGNED OUT IS NOT A DEAD END FOR A HEADED LAUNCH (POD-3911).
    *
@@ -427,31 +441,13 @@ export function ColdStartComposer({
    * headless driver has no screen to sign in on, so it stays refused; the
    * headless driver list already drops signed-out drivers.
    */
-  const headedLaunch = !runtimeDriversEnabled || driverChoice === HEADED_DRIVER
   const ready = agentCanLaunch(readiness, { headed: headedLaunch })
   const signInFirst = ready && readiness.state === 'logged-out'
-  const availableHeadedDriver = runtimeDriversEnabled
-    ? terminalRuntimeDriver(selectedMachine, agent)
-    : undefined
-  const availableHeadlessDrivers = headlessRuntimeDrivers(selectedMachine, agent).filter(
-    (driver) =>
-      selectedMachine !== undefined &&
-      agentLoginCondition(selectedMachine, driver.harness) !== 'logged-out',
-  )
-  const selectedHeadlessDriver =
-    runtimeDriversEnabled && driverChoice !== HEADED_DRIVER
-      ? availableHeadlessDrivers.find((driver) => driver.id === driverChoice)
-      : undefined
-  const driverUnavailable =
-    runtimeDriversEnabled && driverChoice !== HEADED_DRIVER && selectedHeadlessDriver === undefined
-  // An explicit headless pick rides `requestedDriverId`; the headed choice
-  // sends NOTHING — omission already means the manifest's terminal driver,
-  // which the daemon binds unconditionally (the NewPanelMenu sibling got
-  // this right). The deleted wire field must stay deleted: a spread of a
-  // conditional object is not excess-property-checked, so a wrong name here
-  // compiles while `createDraftAgent` silently drops it.
-  const requestedDriverId =
-    runtimeDriversEnabled && driverChoice !== HEADED_DRIVER ? selectedHeadlessDriver?.id : undefined
+  // Omitting the override lets the daemon bind the harness's terminal driver.
+  const requestedDriverId = headedLaunch
+    ? undefined
+    : availableHeadlessDrivers.find((driver) => driver.id === driverChoice)?.id
+  const driverUnavailable = !headedLaunch && requestedDriverId === undefined
   // THE CREDENTIAL (credential management §9): the default for this harness,
   // or what the person picked for this harness on this machine. Sent as shown;
   // nothing is sent until the list has loaded, and the server applies the default.
@@ -686,7 +682,7 @@ export function ColdStartComposer({
    * mission with a brief, and inventing a title for it out of nothing is how the
    * column fills with `Untitled task`.
    */
-  const startCli = (): void => {
+  const startWithoutPrompt = (): void => {
     if (busy || !selectedRepo || !selectedCheckout || !selectedMachine || machineDenied || !ready)
       return
     const machineId = asMachineId(selectedMachine.id)
@@ -711,18 +707,9 @@ export function ColdStartComposer({
     setDraft({ ...draft, title: '' })
     setSelectedIssueId(issueId)
     setSelectedWorktree(selectedCheckout.path)
-    // LAUNCHING WITH NOTHING WRITTEN ASKS FOR THE CLI, so the panel opens on it
-    // (POD-1669). Nothing else about this session says so: `effectivePanelMode`
-    // would hand it whatever the operator's `startScreen`/per-device default
-    // says, and on a chat-first setup that is a conversation view over a harness
-    // the operator asked to see raw. Written BEFORE the pane is pointed at it,
-    // which is the order that matters: `usePanelSurface` materializes its
-    // derived fallback only while the per-session mode is still undefined, so a
-    // value already sitting here is left alone rather than raced.
-    //
-    // Per-session only. `pickMode` is what writes the per-DEVICE default, and
-    // this is not the operator picking a surface for every session to come.
-    setPanelMode(sessionId, 'native')
+    // A promptless headed launch opens its terminal (POD-1669). Set the new
+    // session's surface before opening its pane so it wins over startScreen.
+    setPanelMode(sessionId, headedLaunch ? 'native' : 'chat')
     setPane('A', sessionId)
     setView('workspace')
   }
@@ -942,7 +929,7 @@ export function ColdStartComposer({
     // The new task gets the room, as it did when New task folded the deck.
     uiState.set(SUPERAGENT_MODE_KEY, 'folded')
     if (draft.pendingIssueId || hasPrompt) void start()
-    else startCli()
+    else startWithoutPrompt()
     onLaunched?.()
   }
 
@@ -1116,7 +1103,7 @@ export function ColdStartComposer({
                   selectedValue={agent}
                   onSelect={(nextAgent) => {
                     const kind = issueAgentKind(nextAgent) ?? agent
-                    if (kind !== agent) setDriverChoice(HEADED_DRIVER)
+                    if (kind !== agent) setPickedDriverId(undefined)
                     setDraft(
                       withoutCreateReservation({
                         ...draft,
@@ -1210,7 +1197,7 @@ export function ColdStartComposer({
                   ]}
                   selectedValue={driverChoice}
                   placeholder="Choose a driver…"
-                  onSelect={setDriverChoice}
+                  onSelect={setPickedDriverId}
                 />
               ) : null}
               {driverUnavailable && (

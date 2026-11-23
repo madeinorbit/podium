@@ -79,3 +79,13 @@ test('only a connected machine on a plain link reads as unencrypted', () => {
   }
   expect(new SettingsMachine(machine({ linkKind: 'plain', online: false })).unencrypted).toBe(false)
 })
+
+test('uninstall needs manage, an online machine, and a machine that does not run the server', () => {
+  expect(new SettingsMachine(machine()).canUninstall).toBe(true)
+  expect(new SettingsMachine(machine({ online: false })).canUninstall).toBe(false)
+  expect(new SettingsMachine(machine({ transferable: false })).canUninstall).toBe(false)
+  expect(new SettingsMachine(machine({ hostsServer: true })).canUninstall).toBe(false)
+  expect(new SettingsMachine(machine({ serviceAssignment: { server: true } })).canUninstall).toBe(
+    false,
+  )
+})

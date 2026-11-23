@@ -220,6 +220,35 @@ const EXPECTED: Record<LaunchMode, Record<'supervised' | 'autonomous', Expected>
 }
 
 describe('codexPosture', () => {
+  it.each([
+    'terminal',
+    'engine',
+    'turn',
+    'client',
+  ] as const)('managed %s launches hide the update prompt and keep the daemon defaults', (mode) => {
+    const external = request(mode, SUPERVISED)
+    const managed: PostureRequest = {
+      ...external,
+      context: {
+        ...external.context,
+        installation: { ...external.context.installation, provenance: 'managed' },
+      },
+    }
+    const before = codexPosture(BUILDER[mode], external)
+    const after = applyTerms(BUILDER[mode], launchTerms(codexManifest, managed))
+    expect(after.launch.args.filter((arg) => arg === QUIET[1])).toHaveLength(1)
+    // External terminal/client already quiet this menu. Engine/turn keep
+    // their previous behavior on the person's own installation.
+    expect(before.launch.args.filter((arg) => arg === QUIET[1])).toHaveLength(
+      mode === 'terminal' || mode === 'client' ? 1 : 0,
+    )
+    expect(after.launch.env).toEqual(before.launch.env)
+    expect(after.applied.homeEdits).toEqual(before.homeEdits)
+    expect(after.launch.args).not.toContain('--no-daemon')
+    expect(after.launch.args).not.toContain('--stdio')
+    expect(after.launch.args.join(' ')).not.toContain('autoUpdateEnabled')
+  })
+
   for (const mode of LAUNCH_MODES) {
     for (const level of ['supervised', 'autonomous'] as const) {
       it(`${mode} / ${level}`, () => {

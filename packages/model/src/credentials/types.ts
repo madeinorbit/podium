@@ -20,6 +20,7 @@ export const CREDENTIAL_TYPE_IDS = [
   'openai.chatgpt-login',
   'openai.chatgpt-plan',
   'openrouter.api-key',
+  'xai.grok-login',
   'google.api-key',
   'google.antigravity-login',
 ] as const
@@ -135,5 +136,14 @@ export const CREDENTIAL_TYPES: Readonly<Record<CredentialTypeId, CredentialTypeS
     obtain: ['paste'],
     sharing: 'free',
     revocation: 'none',
+  },
+  'xai.grok-login': {
+    id: 'xai.grok-login',
+    provider: 'xai',
+    title: 'Grok login',
+    store: 'home',
+    obtain: ['harness-sign-in', 'found-on-machine'],
+    sharing: 'warn',
+    revocation: 'sign-out',
   },
 }

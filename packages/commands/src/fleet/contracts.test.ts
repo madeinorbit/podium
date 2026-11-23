@@ -36,6 +36,7 @@ const DECLARED: readonly FleetContractName[] = [
   'machines.adopt',
   'machines.supersede',
   'machines.revoke',
+  'machines.uninstall',
   'machines.moveServer',
   'machines.pairingCode',
   'repos.add',
@@ -140,6 +141,7 @@ describe('the fleet contracts', () => {
       'machines.supersede': 'machine',
       'machines.unshare': 'machine',
       'machines.revoke': 'machine',
+      'machines.uninstall': 'machine',
       'machines.moveServer': 'machine',
       'machines.pairingCode': 'pairing-token',
       'repos.add': 'repo-prefix',
@@ -202,6 +204,7 @@ describe('the fleet contracts', () => {
       'machines.supersede': 'manage',
       'machines.unshare': 'manage',
       'machines.revoke': 'manage',
+      'machines.uninstall': 'manage',
       // No machine exists yet, so there is no machine to hold a verb against.
       'machines.pairingCode': null,
       'repos.add': 'manage',
@@ -231,7 +234,10 @@ describe('the fleet contracts', () => {
       if (!errs.callerSuppliedTargetId) continue
       expect([name, errs.distinguishesUnauthorizedFromUnreachable]).toEqual([
         name,
-        contract.policy.machineVerb === 'use' || name === 'machines.moveServer',
+        contract.policy.machineVerb === 'use' ||
+          // Both reach a machine the caller may manage and say when it is offline.
+          name === 'machines.moveServer' ||
+          name === 'machines.uninstall',
       ])
       expect([name, errs.invisibleFailsAs]).toEqual([name, 'nonexistent'])
     }
@@ -266,6 +272,7 @@ describe('the fleet contracts', () => {
       'machines.supersede': 'hub',
       'machines.unshare': 'hub',
       'machines.revoke': 'hub',
+      'machines.uninstall': 'hub',
       'machines.pairingCode': 'hub',
       'repos.add': 'core',
       'repos.addMany': 'core',

@@ -53,6 +53,8 @@ describe('podiumGrantsFor', () => {
   })
 })
 
+const NO_SESSION = { noSession: 'a posture test serves no session' } as const
+
 describe('prepareLaunch', () => {
   const trust: HomeEdit = {
     kind: 'json-key',
@@ -102,7 +104,11 @@ describe('prepareLaunch', () => {
     }
     const file = { path: '/run/s/settings.json', contents: '{}' }
     const io = ports(failing)
-    const applied = await prepareLaunch({ files: [file], terms: terms([trust]) }, io.ports)
+    const applied = await prepareLaunch(
+      { files: [file], terms: terms([trust]) },
+      io.ports,
+      NO_SESSION,
+    )
     expect(io.written).toEqual([file])
     expect(applied.requestedMode).toBe('auto')
     expect(applied.homeEdits).toEqual([trust])
@@ -126,7 +132,11 @@ describe('prepareLaunch', () => {
       createFileExclusive: async () => false,
       log: () => {},
     }
-    const applied = await prepareLaunch({ files: [], terms: terms([trust]) }, ports(working).ports)
+    const applied = await prepareLaunch(
+      { files: [], terms: terms([trust]) },
+      ports(working).ports,
+      NO_SESSION,
+    )
     expect(applied.unmet).toEqual([
       { requirement: 'quiet-start', reason: 'no switch for the update menu' },
     ])

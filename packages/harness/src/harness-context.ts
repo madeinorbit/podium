@@ -51,8 +51,17 @@ export function harnessContext(
   snapshot: HarnessExecutableSnapshot,
   kind: BuiltinHarnessKind,
   home: string,
+  /**
+   * Which side the context is for (managed installs §4.2); the binary follows
+   * the home. `person` (the default): the person's own harness folder, which
+   * gets the person's install and never Podium's. `podium`: a context the
+   * caller moves into a home Podium made ({@link withHarnessHome}), which
+   * gets Podium's install when there is one, else the person's. A managed
+   * installation left in the person's folder is refused at the child env.
+   */
+  side: HarnessHomeSide = 'person',
 ): HarnessContext {
-  const installation = harnessInstallation(snapshot, kind)
+  const installation = harnessInstallation(snapshot, kind, side)
   const account = harnessAccount(kind, home, snapshot.commandEnvironment.env)
   return Object.freeze({
     installation,
@@ -63,26 +72,82 @@ export function harnessContext(
 }
 
 /**
+ * Which side of the machine a harness runs on (managed installs §4.2):
+ * `person`, the person's own harness folder; `podium`, a home Podium made (the
+ * Podium home or a sign-in folder).
+ */
+export type HarnessHomeSide = 'person' | 'podium'
+
+/**
  * The machine half of {@link harnessContext}: the installation the snapshot
- * verified for `kind`, for a caller that binds a command but reads no account
- * folder (a headless turn's argv, a version probe). Throws when `kind` is not
- * installed: never a basename on the daemon's PATH.
+ * verified for `kind` on one side, for a caller that binds a command but reads
+ * no account folder (a headless turn's argv, a version probe).
+ *
+ * `person` (the default) is the person's own install and nothing else: a
+ * managed binary never runs in the person's folder (M9). `podium` is Podium's
+ * install when the snapshot has one, else the person's.
+ *
+ * Throws when that side has no install: never a basename on the daemon's PATH.
  */
 export function harnessInstallation(
   snapshot: HarnessExecutableSnapshot,
   kind: BuiltinHarnessKind,
+  side: HarnessHomeSide = 'person',
 ): HarnessInstallation {
-  const executable = snapshot.executables.get(kind)
-  if (!executable) {
+  const installation = harnessInstallationFor(snapshot, kind, side)
+  if (!installation) {
     throw new Error(
-      `harness ${kind} is not installed in command-environment generation ${snapshot.commandEnvironment.generation}`,
+      side === 'person' && snapshot.managed?.has(kind)
+        ? `harness ${kind} has only Podium's install in command-environment generation ${snapshot.commandEnvironment.generation}, which never runs in your own ${kind} folder`
+        : `harness ${kind} is not installed in command-environment generation ${snapshot.commandEnvironment.generation}`,
     )
   }
+  return installation
+}
+
+/** {@link harnessInstallation}, or undefined when that side has no install. */
+export function harnessInstallationFor(
+  snapshot: HarnessExecutableSnapshot,
+  kind: BuiltinHarnessKind,
+  side: HarnessHomeSide = 'person',
+): HarnessInstallation | undefined {
+  const managed = side === 'podium' ? snapshot.managed?.get(kind) : undefined
+  const executable = managed ?? snapshot.executables.get(kind)
+  if (!executable) return undefined
   return Object.freeze({
     kind,
     executable: executable.path,
     version: executable.version ?? '',
     generation: snapshot.commandEnvironment.generation,
+    provenance: managed ? 'managed' : 'external',
+    ...(managed?.release !== undefined ? { release: managed.release } : {}),
+    ...(managed?.vendorUpdated ? { vendorUpdated: true } : {}),
+  })
+}
+
+/**
+ * The installation an executable path the snapshot verified belongs to, with
+ * its provenance: a managed release folder's executable is `managed`, anything
+ * else `external`. For a session that pinned its executable by path.
+ */
+export function installationAtPath(
+  snapshot: HarnessExecutableSnapshot,
+  kind: BuiltinHarnessKind,
+  executable: string,
+): HarnessInstallation {
+  const managed = snapshot.managed?.get(kind)
+  const external = snapshot.executables.get(kind)
+  const match = managed?.path === executable ? managed : undefined
+  return Object.freeze({
+    kind,
+    executable,
+    // A pinned path that is not the managed release keeps the person's
+    // install's version, as a pinned path always has.
+    version: (match ?? external)?.version ?? '',
+    generation: snapshot.commandEnvironment.generation,
+    provenance: match ? 'managed' : 'external',
+    ...(match?.release !== undefined ? { release: match.release } : {}),
+    ...(match?.vendorUpdated ? { vendorUpdated: true } : {}),
   })
 }
 
@@ -104,11 +169,13 @@ export function harnessDriverContext(
   kind: BuiltinHarnessKind,
   home: string,
   driverId: string,
+  /** As for {@link harnessContext}. */
+  side: HarnessHomeSide = 'person',
 ): HarnessContext {
   const binary = serverDriverExecutable(driverId)
   const manifest = manifestFor(kind)
   if (!binary || !manifest || manifest.inventory.executable.names.includes(binary)) {
-    return harnessContext(snapshot, kind, home)
+    return harnessContext(snapshot, kind, home, side)
   }
   const environment = snapshot.commandEnvironment
   const executable = environment.resolve(binary)
@@ -124,7 +191,32 @@ export function harnessDriverContext(
       executable,
       version: '',
       generation: environment.generation,
+      // Found on the command path, as the inventory's alternative probe
+      // finds it: the person's.
+      provenance: 'external' as const,
     }),
+    home: account.home,
+    env: account.env,
+    roots: account.roots,
+  })
+}
+
+/**
+ * The context for an installation that is already known, never looked up in
+ * the snapshot: a session's recorded install (managed installs §6.2), so a
+ * daemon that restarted names the binary that really runs, even when the
+ * inventory now holds a newer release of it or none. The account half is
+ * {@link harnessContext}'s over the snapshot's command environment, so the
+ * folders are the ones a fresh context names.
+ */
+export function harnessContextOn(
+  snapshot: Pick<HarnessExecutableSnapshot, 'commandEnvironment'>,
+  installation: HarnessInstallation,
+  home: string,
+): HarnessContext {
+  const account = harnessAccount(installation.kind, home, snapshot.commandEnvironment.env)
+  return Object.freeze({
+    installation: Object.freeze({ ...installation }),
     home: account.home,
     env: account.env,
     roots: account.roots,
@@ -287,6 +379,17 @@ export function harnessChildEnv(
   layers: HarnessChildEnvLayers,
 ): HarnessChildEnv {
   const kind = context.installation.kind
+  if (
+    context.installation.provenance === 'managed' &&
+    harnessHomeVariable(kind) &&
+    !context.harnessHome
+  ) {
+    // Managed installs M9: a binary Podium installed never runs in the
+    // person's own harness folder.
+    throw new Error(
+      `Podium's install of ${kind} (${context.installation.executable}) runs only in a home Podium made, never in your own ${kind} folder`,
+    )
+  }
   const manifest = manifestFor(kind)
   const sessionEnv = layers.sessionEnv ?? {}
   const strip = [

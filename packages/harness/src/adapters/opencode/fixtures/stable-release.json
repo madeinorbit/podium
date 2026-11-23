@@ -1,0 +1,68 @@
+{
+  "tag_name": "v1.19.6",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-17T07:21:32Z",
+  "assets": [
+    {
+      "name": "opencode-darwin-arm64.zip",
+      "browser_download_url": "https://github.com/anomalyco/opencode/releases/download/v1.19.6/opencode-darwin-arm64.zip",
+      "digest": "sha256:c0be3f34dde2fdcb31b25120f303c6ed5b69b828f16e5e0fbecff21a882adda1"
+    },
+    {
+      "name": "opencode-darwin-x64-baseline.zip",
+      "browser_download_url": "https://github.com/anomalyco/opencode/releases/download/v1.19.6/opencode-darwin-x64-baseline.zip",
+      "digest": "sha256:5f08d3f7d7555fdef8025f57aef89c5bc2448460827d4e225f815a308ce6976b"
+    },
+    {
+      "name": "opencode-darwin-x64.zip",
+      "browser_download_url": "https://github.com/anomalyco/opencode/releases/download/v1.19.6/opencode-darwin-x64.zip",
+      "digest": "sha256:39aabb10005059f80f007a119a33405dcd46325300993eb6cbcc961c7243dd31"
+    },
+    {
+      "name": "opencode-linux-arm64-musl.tar.gz",
+      "browser_download_url": "https://github.com/anomalyco/opencode/releases/download/v1.19.6/opencode-linux-arm64-musl.tar.gz",
+      "digest": "sha256:45407388777dfc1894591c9727c169f202ad92c75757038950630a0fbb12ca97"
+    },
+    {
+      "name": "opencode-linux-arm64.tar.gz",
+      "browser_download_url": "https://github.com/anomalyco/opencode/releases/download/v1.19.6/opencode-linux-arm64.tar.gz",
+      "digest": "sha256:5b68c1f4c5e75b4134e664cc8f36d634d64208d4fcfe5bcf3b48bab699c2dbac"
+    },
+    {
+      "name": "opencode-linux-x64-baseline-musl.tar.gz",
+      "browser_download_url": "https://github.com/anomalyco/opencode/releases/download/v1.19.6/opencode-linux-x64-baseline-musl.tar.gz",
+      "digest": "sha256:bc6b0d702163d859161ee8e43ea3f16d1bd43b305ac7ce17742eb01ba72489f3"
+    },
+    {
+      "name": "opencode-linux-x64-baseline.tar.gz",
+      "browser_download_url": "https://github.com/anomalyco/opencode/releases/download/v1.19.6/opencode-linux-x64-baseline.tar.gz",
+      "digest": "sha256:8443113b3f3dfebf8b0fa91c4377e5519a62b9231732d9344a5df001e4a852b3"
+    },
+    {
+      "name": "opencode-linux-x64-musl.tar.gz",
+      "browser_download_url": "https://github.com/anomalyco/opencode/releases/download/v1.19.6/opencode-linux-x64-musl.tar.gz",
+      "digest": "sha256:2a22da39d0b69681272f4daeb51316244eda5c3d606d9e507d61bbf5c1b868a2"
+    },
+    {
+      "name": "opencode-linux-x64.tar.gz",
+      "browser_download_url": "https://github.com/anomalyco/opencode/releases/download/v1.19.6/opencode-linux-x64.tar.gz",
+      "digest": "sha256:47734e08968b30cc22a0bffb6d9feeed76ad4aa743213a12122040392d09a057"
+    },
+    {
+      "name": "opencode-windows-arm64.zip",
+      "browser_download_url": "https://github.com/anomalyco/opencode/releases/download/v1.19.6/opencode-windows-arm64.zip",
+      "digest": "sha256:dc72cf0cc9d5b434607e83efc4d172b19020bbc749842681fa195a4c051a4deb"
+    },
+    {
+      "name": "opencode-windows-x64-baseline.zip",
+      "browser_download_url": "https://github.com/anomalyco/opencode/releases/download/v1.19.6/opencode-windows-x64-baseline.zip",
+      "digest": "sha256:d4fc63f09bd14ee2308c05d34c231a8d09c3e945fd2e86ef4ea1a41b31dd1830"
+    },
+    {
+      "name": "opencode-windows-x64.zip",
+      "browser_download_url": "https://github.com/anomalyco/opencode/releases/download/v1.19.6/opencode-windows-x64.zip",
+      "digest": "sha256:fa31c9ec0bac7611ab12699ef8e2fc4c173fb95ac977b09b189b255b8f559bcc"
+    }
+  ]
+}

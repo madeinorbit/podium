@@ -7,6 +7,11 @@
  * harness's own login, the default checked.
  */
 
+import {
+  type AcceptLine,
+  initialCredential,
+  sessionCredentialChoices,
+} from '@podium/client-graph/session-credential-facts'
 import type { AgentKind, CredentialId, MachineId } from '@podium/model'
 import type { JSX, ReactNode } from 'react'
 import {
@@ -16,11 +21,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { MENU_SECTION } from '@/lib/menu-surface'
 import { CredentialMenuItems } from './CredentialMenuItems'
-import {
-  type AcceptLine,
-  initialCredential,
-  sessionCredentialChoices,
-} from './session-credential-facts'
 import { useSessionCredentials } from './use-session-credentials'
 
 export function NewSessionCredentialSection({

@@ -63,6 +63,52 @@ const TERMINAL_MODE_REASON =
   "unmeasured: Cursor's mode flags were not run in its terminal UI (no signed-in Cursor account was available to the spike), so it starts in the mode its own settings choose"
 
 describe('cursorPosture', () => {
+  it.each(
+    LAUNCH_MODES,
+  )('%s: a vendor-updated managed release launches without the unsupported guard', (mode) => {
+    const externalRequest = request(mode, SUPERVISED)
+    const context = testHarnessContext({ kind: 'cursor', provenance: 'managed', release: 1 })
+    const vendorRequest: PostureRequest = {
+      ...externalRequest,
+      context: { ...context, installation: { ...context.installation, vendorUpdated: true } },
+    }
+    expect(cursorPosture(BUILDER[mode], vendorRequest)).toEqual(
+      cursorPosture(BUILDER[mode], externalRequest),
+    )
+  })
+
+  it.each(LAUNCH_MODES)('%s: only managed installations disable the vendor updater', (mode) => {
+    for (const posture of [SUPERVISED, AUTONOMOUS]) {
+      const externalRequest = request(mode, posture)
+      const managedRequest: PostureRequest = {
+        ...externalRequest,
+        context: testHarnessContext({
+          kind: 'cursor',
+          version: '2026.11.19-f005e9d',
+          provenance: 'managed',
+          release: 1,
+        }),
+      }
+      const external = cursorPosture(BUILDER[mode], externalRequest)
+      const managed = cursorPosture(BUILDER[mode], managedRequest)
+      expect(external.launch.args).not.toContain('--disable-auto-update')
+      expect(managed.launch.args.filter((arg) => arg === '--disable-auto-update')).toHaveLength(1)
+      expect({
+        ...managed,
+        launch: {
+          ...managed.launch,
+          args: managed.launch.args.filter((arg) => arg !== '--disable-auto-update'),
+        },
+      }).toEqual(external)
+      if (mode === 'turn' || mode === 'engine')
+        expect(managed.launch.args.at(-1)).toBe(BUILDER[mode].args.at(-1))
+      else expect(managed.launch.args.slice(0, -1)).toEqual(BUILDER[mode].args)
+      expect(() =>
+        applyTerms(BUILDER[mode], launchTerms(cursorManifest, managedRequest)),
+      ).not.toThrow()
+    }
+  })
+
   it('turn / supervised: --trust before the prompt; the allowlist mode needs no flag', () => {
     const out = cursorPosture(BUILDER.turn, request('turn', SUPERVISED))
     expect(out.launch).toEqual({

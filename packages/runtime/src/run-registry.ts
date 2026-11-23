@@ -107,6 +107,29 @@ export function removeRecord(role: RunRole): void {
   rmSync(recordPath(role), { force: true })
 }
 
+/**
+ * `<stateDir>/desktop-supervised`: present while the desktop app was the last to
+ * start this instance's backend. Unlike a run record it outlives the process, so
+ * a quit app still counts: it starts the instance again on its next launch.
+ * `podium uninstall` reads it to send the person to the app's own uninstall.
+ */
+export function desktopSupervisionMarkerPath(): string {
+  return join(stateDir(), 'desktop-supervised')
+}
+
+/** Write the marker under the desktop app (`PODIUM_DESKTOP_SUPERVISED=1`), remove it otherwise. */
+export function recordDesktopSupervision(env: NodeJS.ProcessEnv = process.env): void {
+  const path = desktopSupervisionMarkerPath()
+  if (env.PODIUM_DESKTOP_SUPERVISED === '1') {
+    if (!existsSync(path)) writeFileSync(path, 'The Podium desktop app runs this instance.\n')
+  } else rmSync(path, { force: true })
+}
+
+/** Whether the desktop app runs this instance: this process is its child, or it last started it. */
+export function desktopSupervisesInstance(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.PODIUM_DESKTOP_SUPERVISED === '1' || existsSync(desktopSupervisionMarkerPath())
+}
+
 /** Signal function shape (injectable for tests): mirrors `process.kill`. */
 export type KillFn = (pid: number, signal?: number | string) => void
 
@@ -297,6 +320,11 @@ export async function registerProcess(
     ...(port ? { port } : {}),
     ...(mode ? { mode } : {}),
   })
+  try {
+    recordDesktopSupervision()
+  } catch {
+    // Best-effort: only `podium uninstall` reads it, and a failed write is no reason not to run.
+  }
 
   let cleaned = false
   const cleanup = (): void => {

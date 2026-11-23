@@ -181,6 +181,7 @@ export {
   machineSupersedeInput,
   machineTransferOwnershipContract,
   machineTransferOwnershipInput,
+  machineUninstallContract,
   machineUnshareContract,
   machineUnshareInput,
   repoAddContract,
@@ -213,6 +214,10 @@ export {
   type PolicyResource,
   type PolicyScope,
 } from './framework'
+export {
+  harnessInstallActionContract,
+  harnessInstallActionInput,
+} from './harness-installs/contracts'
 export {
   HOST_CONTRACT_NAMES,
   HOST_CONTRACTS,

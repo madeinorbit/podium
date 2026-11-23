@@ -1256,7 +1256,7 @@
         "value": {
           "id": "value.id",
           "podiumId": "value.podiumId",
-          "agentKind": "shell",
+          "agentKind": "antigravity",
           "title": "value.title",
           "name": "value.name",
           "summary": "value.summary",
@@ -1273,7 +1273,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"seq\":7,\"entity\":\"conversation\",\"id\":\"id\",\"op\":\"remove\",\"value\":{\"id\":\"value.id\",\"podiumId\":\"value.podiumId\",\"agentKind\":\"shell\",\"title\":\"value.title\",\"name\":\"value.name\",\"summary\":\"value.summary\",\"projectPath\":\"value.projectPath\",\"parentConversationId\":\"value.parentConversationId\",\"createdAt\":\"value.createdAt\",\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"providerId\":\"value.providerId\"}}"
+      "encoded": "{\"seq\":7,\"entity\":\"conversation\",\"id\":\"id\",\"op\":\"remove\",\"value\":{\"id\":\"value.id\",\"podiumId\":\"value.podiumId\",\"agentKind\":\"antigravity\",\"title\":\"value.title\",\"name\":\"value.name\",\"summary\":\"value.summary\",\"projectPath\":\"value.projectPath\",\"parentConversationId\":\"value.parentConversationId\",\"createdAt\":\"value.createdAt\",\"resume\":{\"kind\":\"value.resume.kind\",\"value\":\"value.resume.value\"},\"providerId\":\"value.providerId\"}}"
     },
     {
       "schema": "MetadataChange",
@@ -2225,7 +2225,7 @@
             "value": {
               "id": "changes[0].value.id",
               "podiumId": "changes[0].value.podiumId",
-              "agentKind": "shell",
+              "agentKind": "antigravity",
               "title": "changes[0].value.title",
               "name": "changes[0].value.name",
               "summary": "changes[0].value.summary",
@@ -2247,7 +2247,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"metadataDelta\",\"seq\":7,\"fromExclusive\":7,\"changes\":[{\"seq\":7,\"entity\":\"conversation\",\"id\":\"changes[0].id\",\"op\":\"remove\",\"value\":{\"id\":\"changes[0].value.id\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"shell\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"createdAt\":\"changes[0].value.createdAt\",\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"}}],\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"minAvailableSeq\":7}"
+      "encoded": "{\"type\":\"metadataDelta\",\"seq\":7,\"fromExclusive\":7,\"changes\":[{\"seq\":7,\"entity\":\"conversation\",\"id\":\"changes[0].id\",\"op\":\"remove\",\"value\":{\"id\":\"changes[0].value.id\",\"podiumId\":\"changes[0].value.podiumId\",\"agentKind\":\"antigravity\",\"title\":\"changes[0].value.title\",\"name\":\"changes[0].value.name\",\"summary\":\"changes[0].value.summary\",\"projectPath\":\"changes[0].value.projectPath\",\"parentConversationId\":\"changes[0].value.parentConversationId\",\"createdAt\":\"changes[0].value.createdAt\",\"resume\":{\"kind\":\"changes[0].value.resume.kind\",\"value\":\"changes[0].value.resume.value\"},\"providerId\":\"changes[0].value.providerId\"}}],\"feedId\":\"feedId\",\"epoch\":\"epoch\",\"minAvailableSeq\":7}"
     },
     {
       "schema": "MetadataDeltaMessage",

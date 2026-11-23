@@ -424,8 +424,8 @@ function useNotificationPermission() {
 /**
  * WHICH NOTICES REACH YOUR PHONE (POD-6881, spec §13). Every notice shows in
  * the tray; these choose which kinds are also pushed through Telegram and
- * ntfy above. A mention and a credential that needs attention are on by
- * default.
+ * ntfy above. A mention, a credential that needs attention and a harness
+ * Podium installed that stopped updating are on by default.
  */
 const NOTICE_PUSH_ROWS = [
   {
@@ -442,6 +442,11 @@ const NOTICE_PUSH_ROWS = [
     key: 'credentialShared',
     label: 'Credentials shared with you',
     description: 'Someone gave you use of one of their credentials.',
+  },
+  {
+    key: 'harnessInstalls',
+    label: 'Harnesses Podium installed',
+    description: 'Updates of a harness on one of your machines have failed for three days.',
   },
 ] as const
 

@@ -3,6 +3,17 @@
 /** The measured files a second Codex login shares with the person's default. */
 export const codexHomeSharing = ['codex', ['config.toml', 'AGENTS.md', 'skills']] as const
 
+/**
+ * What filling the Podium home copies from the person's Codex folder
+ * (managed installs §4.5): instructions, skills and custom prompts (Codex's
+ * commands), and of `config.toml` only its `[mcp_servers.*]` tables. Never the
+ * login, hooks, trust, update settings or conversations.
+ */
+export const codexPodiumHomeFill = [
+  'codex',
+  { entries: ['AGENTS.md', 'skills', 'prompts'], configTables: ['mcp_servers'] },
+] as const
+
 /** A process and its command line, as `ps` prints it. */
 export interface RunningProcess {
   pid: number
@@ -10,7 +21,11 @@ export interface RunningProcess {
 }
 
 export interface CodexHomeStopPorts {
-  codexExecutable(): string | undefined
+  /**
+   * The Codex that belongs to `home` (managed installs §6.1): Podium's install
+   * when there is one, else the person's. Undefined when neither is installed.
+   */
+  codexExecutable(home: { harness: string; dir: string }): string | undefined
   commandEnv(): Readonly<Record<string, string>>
   run(command: string, args: readonly string[], env: Record<string, string>): Promise<void>
   listProcesses(): Promise<RunningProcess[]>
@@ -27,7 +42,7 @@ export async function stopCodexHome(
   ports: CodexHomeStopPorts,
 ): Promise<void> {
   if (home.harness !== 'codex') return
-  const codex = ports.codexExecutable()
+  const codex = ports.codexExecutable(home)
   if (codex) {
     try {
       await ports.run(codex, ['app-server', 'daemon', 'stop'], {

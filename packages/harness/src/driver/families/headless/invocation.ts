@@ -15,7 +15,7 @@
 import { randomUUID } from 'node:crypto'
 import type { HarnessAgent } from '@podium/model'
 import { type BoundCommand, harnessCommand } from '../../../bound-command.js'
-import { harnessInstallation } from '../../../harness-context.js'
+import { harnessInstallation, installationAtPath } from '../../../harness-context.js'
 import type { HarnessInstallation } from '../../../harness-context-types.js'
 import type { ResolvedHarnessInventory } from '../../../inventory/build-inventory.js'
 import { agentLaunchTerms, type LaunchPosture } from '../../../launch-terms.js'
@@ -82,12 +82,7 @@ export function headlessInstallation(
   snapshot: ResolvedHarnessInventory,
 ): HarnessInstallation {
   if (spec.executablePath !== undefined) {
-    return Object.freeze({
-      kind: spec.agent,
-      executable: spec.executablePath,
-      version: snapshot.executables.get(spec.agent)?.version ?? '',
-      generation: snapshot.commandEnvironment.generation,
-    })
+    return installationAtPath(snapshot, spec.agent, spec.executablePath)
   }
   return harnessInstallation(snapshot, spec.agent)
 }
