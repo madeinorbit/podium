@@ -4607,6 +4607,7 @@
         "src/test-support/upgraded-customer-instance.ts",
         "src/test-support/workspace-binding.ts",
         "src/test-support/workspace-scope-check.ts",
+        "src/test-support/workspace-stores.ts",
         "src/test-support/write-test-backup.ts",
         "src/title-filter.ts",
         "src/trpc.test.ts",
