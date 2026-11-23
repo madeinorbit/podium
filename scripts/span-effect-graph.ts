@@ -626,6 +626,14 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: 'Resolves an in-process promise that hands the key to the next waiter; nothing outside the process can see it.',
   },
+  'packages/sync/src/replica/side-state.ts#SideStateHook.read': {
+    kind: 'contained',
+    why: 'The side-state guard (POD-7454): checks whether a side-state read runs inside a MobX derivation, then warns, records or throws in process; production installs none. It reads and writes nothing outside the process.',
+  },
+  'packages/sync/src/replica/side-state.ts#SideStateHook.signalled': {
+    kind: 'contained',
+    why: "The side-state guard's reviewed-read wrapper: runs its callback with the current derivation marked as covered, in process. The callback's own body is walked where it is declared.",
+  },
   'packages/sync/src/adapters/indexeddb/idb.ts#IdbKeyRangeLike.bound': {
     kind: 'contained',
     why: 'Builds an IndexedDB key range value (the marker rows of one principal, POD-7086) for a delete staged in the same native transaction; constructing it reads and writes nothing.',
