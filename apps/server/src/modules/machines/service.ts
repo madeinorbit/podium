@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { gateHarnessVersion, HARNESS_VERSION_POLICIES } from '@podium/harness/browser'
+import {
+  bundledDescriptorFor,
+  gateHarnessVersion,
+  HARNESS_VERSION_POLICIES,
+} from '@podium/harness/browser'
 import { createLogger, describeError } from '@podium/logger'
 import type { DaemonReadiness, SessionId } from '@podium/model'
 import {
@@ -1697,11 +1701,31 @@ export class MachinesService {
         throw new Error(
           machineRejectionMessage(machine.name, 'agents-unavailable', `run ${agentKind}`),
         )
-      case 'harness-missing':
+      case 'harness-missing': {
+        const label =
+          this.harnessDescriptorsFor(machineId)?.find((descriptor) => descriptor.kind === agentKind)
+            ?.label ??
+          bundledDescriptorFor(agentKind)?.label ??
+          agentKind
+        const harness = machine.inventory?.agents.find((agent) => agent.kind === agentKind)
+        const blockers = [
+          ...(harness?.management?.installable === false
+            ? [
+                harness.management.reason?.trim() ||
+                  'Installation through Podium is not supported on this machine.',
+              ]
+            : []),
+          ...(harness?.missingPrerequisites?.map((prerequisite) => prerequisite.message) ?? []),
+        ]
+        const guidance =
+          blockers.length > 0
+            ? `Podium can't install it here. ${blockers.join(' ')}`
+            : `Install it from Set up agents… in any harness menu, or in Settings › Machines › ${machine.name}.`
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',
-          message: `${agentKind} is not installed on machine '${machine.name}'`,
+          message: `${label} isn't installed on machine '${machine.name}'. ${guidance}`,
         })
+      }
       default: {
         const exhaustive: never = rejection
         throw new Error(`machine '${machine.name}' cannot run ${agentKind}: ${String(exhaustive)}`)
