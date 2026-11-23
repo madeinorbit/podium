@@ -177,9 +177,9 @@ const asksOfSession = prepared((db, t) =>
     .where(
       inWorkspace(t.concertmasterEntries, sessionIs(t), isNotNull(t.concertmasterEntries.number)),
     )
-    // Every row here has a number; the order says so for Postgres, whose
-    // descending order would otherwise put a NULL first.
-    .orderBy(sql`${t.concertmasterEntries.number} DESC NULLS LAST`)
+    // The predicate excludes NULLs. DESC NULLS FIRST matches a backward scan
+    // of the (workspace_id, session_id, number) unique index on Postgres.
+    .orderBy(sql`${t.concertmasterEntries.number} DESC NULLS FIRST`)
     .limit(sql.placeholder('limit'))
     .prepare(),
 )

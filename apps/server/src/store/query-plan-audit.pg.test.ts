@@ -1867,6 +1867,17 @@ describe.runIf(ENGINE === 'pg')('every Postgres query is served by an index (POD
     }
   })
 
+  it('reads numbered Concertmaster asks through the unique index without sorting', () => {
+    const asks = audited.filter(
+      (entry) => entry.key === 'apps/server/src/store/concertmaster.ts:asksOfSession',
+    )
+    expect(asks).toHaveLength(1)
+    for (const entry of asks) {
+      expect(indexesInPlan(entry.plan)).toContain('concertmaster_entries_ask_number')
+      expect(entry.findings, entry.sql).toEqual([])
+    }
+  })
+
   it('reads every asking collection shape through idx_sessions_asking', () => {
     const asking = audited.filter(
       (entry) =>
