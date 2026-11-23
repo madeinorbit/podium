@@ -2070,6 +2070,7 @@ CREATE INDEX "idx_podium_events_kind" ON "podium_events" ("workspace_id","kind")
 CREATE INDEX "idx_podium_events_subject" ON "podium_events" ("workspace_id","subject");--> statement-breakpoint
 CREATE INDEX "idx_podium_events_kind_subject_ts" ON "podium_events" ("workspace_id","kind","subject","ts");--> statement-breakpoint
 CREATE INDEX "idx_podium_events_kind_subject_id" ON "podium_events" ("workspace_id","kind","subject","id");--> statement-breakpoint
+CREATE INDEX "idx_podium_events_ts" ON "podium_events" ("workspace_id","ts","id");--> statement-breakpoint
 CREATE INDEX "queued_messages_session" ON "queued_messages" ("workspace_id","session_id","queue_order");--> statement-breakpoint
 CREATE INDEX "idx_quota_windows_series" ON "quota_windows" ("workspace_id","account_key","window_key","resets_at_ms");--> statement-breakpoint
 CREATE INDEX "idx_quota_windows_owner" ON "quota_windows" ("workspace_id","owner_user_id","account_key","window_key","resets_at_ms");--> statement-breakpoint

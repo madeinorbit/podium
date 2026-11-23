@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "4adefcc7-2f6c-4cf2-8e7f-70d84d51a2df",
+  "id": "2915c4fc-974a-4109-8b5b-e33f1aadd261",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
@@ -22175,6 +22175,41 @@
       "method": "btree",
       "concurrently": false,
       "name": "idx_podium_events_kind_subject_id",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "podium_events"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "ts",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "idx_podium_events_ts",
       "entityType": "indexes",
       "schema": "public",
       "table": "podium_events"

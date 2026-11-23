@@ -1841,6 +1841,10 @@ export const podiumEvents = sqliteTable(
       table.subject,
       table.id,
     ),
+    // POD-7435: retention's age path, oldest first. Ids do not follow ts: a
+    // historical transcript replay appends old timestamps under new ids, so the
+    // age cutoff needs its own ordered range, apart from the row cap's id range.
+    index('idx_podium_events_ts').on(table.workspaceId, table.ts, table.id),
   ],
 )
 

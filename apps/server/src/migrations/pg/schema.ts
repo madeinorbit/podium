@@ -2158,6 +2158,7 @@ export const podiumEvents = pgTable(
       table.subject,
       table.id,
     ),
+    index('idx_podium_events_ts').on(table.workspaceId, table.ts, table.id),
   ],
 )
 
