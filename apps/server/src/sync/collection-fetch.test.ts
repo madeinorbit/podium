@@ -93,9 +93,26 @@ const TREE = [
     updatedAt: ago(20),
   },
   { id: 'iss_grand', seq: 3, parentId: 'iss_child', stage: 'backlog', updatedAt: ago(8) },
-  { id: 'iss_prop', seq: 4, parentId: null, stage: 'proposed', updatedAt: ago(2) },
+  // Superseded by the root (POD-7582: issueProjection.supersededBy).
+  {
+    id: 'iss_prop',
+    seq: 4,
+    parentId: null,
+    stage: 'proposed',
+    supersededBy: 'iss_root',
+    updatedAt: ago(2),
+  },
   { id: 'iss_arch', seq: 5, parentId: null, stage: 'review', archived: true, updatedAt: ago(3) },
-  { id: 'iss_lone', seq: 6, parentId: null, stage: 'backlog', updatedAt: ago(60) },
+  // Started by the owner's session: execution-private, so another person's copy
+  // carries no starter, and issueProjection.startedBy must not answer it to them.
+  {
+    id: 'iss_lone',
+    seq: 6,
+    parentId: null,
+    stage: 'backlog',
+    startedBySession: 's-live',
+    updatedAt: ago(60),
+  },
   // Closed 15 days ago, held by nothing but "recent": a browser's, not a phone's.
   {
     id: 'iss_month',
@@ -103,6 +120,7 @@ const TREE = [
     parentId: null,
     stage: 'done',
     closedReason: 'done',
+    duplicateOf: 'iss_root',
     updatedAt: ago(15),
   },
 ] as const
@@ -167,7 +185,12 @@ const SESSIONS: readonly PlantedSession[] = [
     row: { status: 'exited', lastActiveAt: ago(70) },
     rawAgentState: '{"phase":"needs_user"}',
   },
-  { id: 's-bob', owner: 'b', row: { status: 'live', issueId: 'iss_root' as IssueId } },
+  // Born under the root: session.bornOf answers it to its owner only.
+  {
+    id: 's-bob',
+    owner: 'b',
+    row: { status: 'live', issueId: 'iss_root' as IssueId, refIssueId: 'iss_root' as IssueId },
+  },
   {
     id: 's-bob-old',
     owner: 'b',
@@ -523,6 +546,15 @@ describe('every declared collection answers its rule (acceptance 1)', () => {
     expect(owner.get('session')?.has('s-bob')).toBe(false)
     expect(owner.get('automationRun')?.size).toBe(3)
     expect(owner.get('issueDep')?.size).toBe(1)
+    // The new keyed collections each have a member to find (POD-7582); the
+    // starter of iss_lone reaches only the owner of its session.
+    expect(owner.get('issueProjection')?.get('iss_lone')?.['startedBySession']).toBe('s-live')
+    expect(worlds.get(BOB)!.get('issueProjection')?.get('iss_lone')).not.toHaveProperty(
+      'startedBySession',
+    )
+    expect(owner.get('issueProjection')?.get('iss_prop')?.['supersededBy']).toBe('iss_root')
+    expect(owner.get('issueProjection')?.get('iss_month')?.['duplicateOf']).toBe('iss_root')
+    expect(worlds.get(BOB)!.get('session')?.get('s-bob')?.['refIssueId']).toBe('iss_root')
     expect(worlds.get(BOB)!.get('automationRun')?.size).toBe(2)
   })
 

@@ -41,6 +41,8 @@ import {
   clausesOf,
   type FieldTest,
   fieldOfPath,
+  ISSUE_EXECUTION_PRIVATE_FIELDS,
+  isParam,
   matchesWhere,
   pathsRead,
   type RecordDeclaration,
@@ -216,6 +218,21 @@ export class CollectionAnswer {
   /** Answer one instance and everything it comes with. */
   async *instance(instance: ResolvedInstance): AsyncGenerator<FetchOutput> {
     const { rule, part } = instance
+    if (!(await this.mayName(instance))) {
+      // Complete and empty: the device holds the answer, and it reveals nothing.
+      yield {
+        type: 'complete',
+        instances: [
+          {
+            collection: rule.collection.id,
+            ...(Object.keys(instance.args).length === 0 ? {} : { args: instance.args }),
+            part,
+            ...(rule.via === undefined ? {} : { via: rule.via }),
+          },
+        ],
+      }
+      return
+    }
     if (part === 'stub') {
       yield* this.stubs(instance)
       return
@@ -271,6 +288,40 @@ export class CollectionAnswer {
     yield* this.closure(arrived)
   }
 
+  /**
+   * POD-7582: whether the viewer may ask this instance. A rule that tests a
+   * field the viewer's copy of an issue hides (its execution-private
+   * pointers: the session that started it, its checkout, machine and
+   * coordinator) answers only a viewer who may see the record its argument
+   * names. Anyone else gets no members, so the answer cannot reveal which
+   * issues point there; shaping alone would hide the field but not the
+   * membership. A test of such a field that names no record (a path, an
+   * empty test) is never answered.
+   */
+  private async mayName(instance: ResolvedInstance): Promise<boolean> {
+    const { rule } = instance
+    if (rule.where === undefined || rule.kind !== 'issueProjection') return true
+    const links: Readonly<Record<string, { readonly to: string }>> =
+      recordOf(rule.kind)?.links ?? {}
+    const hidden: ReadonlySet<string> = new Set(ISSUE_EXECUTION_PRIVATE_FIELDS)
+    const args = this.args(instance)
+    for (const clause of clausesOf(rule.where))
+      for (const [path, test] of Object.entries(clause)) {
+        const field = fieldOfPath(path)
+        if (!hidden.has(field)) continue
+        const to = links[field]?.to
+        const named =
+          typeof test === 'object' && test !== null && 'eq' in test && isParam(test.eq)
+            ? args[test.eq.param]
+            : undefined
+        if (to === undefined || typeof named !== 'string') return false
+        const ref: EntityRef = { entity: to as MetadataEntityKind, entityId: named }
+        const policy = await this.prepared([ref])
+        if (!policy.decide(this.ports.principal, ref).visible) return false
+      }
+    return true
+  }
+
   /** The arguments a statement binds: the instance's and the policy's. */
   private args(instance: { args: CollectionArgs }): RuleArgs {
     return { ...this.ports.policyArgs, ...instance.args } as RuleArgs
@@ -322,15 +373,25 @@ export class CollectionAnswer {
     if (held.length === 0) return []
     const entity = kind as MetadataEntityKind
     const policy = await this.prepared(held.map((record) => ({ entity, entityId: record.id })))
+    // The fields the rule reads, and its test as the viewer's copy is checked
+    // (POD-7582): a record whose shaping changes a field the rule reads is
+    // kept only while the rule still holds for what the viewer receives.
+    const fields = where === undefined ? [] : [...new Set(pathsRead(where).map(fieldOfPath))]
+    const asReceived = where === undefined ? undefined : checkableWhere(where)
     const out: Visible[] = []
     for (const record of held) {
       const ref: EntityRef = { entity, entityId: record.id }
       if (!policy.decide(this.ports.principal, ref).visible) continue
-      out.push({
-        id: record.id,
-        built: record.value as Readonly<Record<string, unknown>>,
-        shaped: shapedValue(policy, this.ports.principal, ref, record.value),
-      })
+      const built = record.value as Readonly<Record<string, unknown>>
+      const shaped = shapedValue(policy, this.ports.principal, ref, record.value)
+      const received = shaped as Readonly<Record<string, unknown>>
+      if (
+        asReceived !== undefined &&
+        fields.some((field) => received[field] !== built[field]) &&
+        !matchesWhere(asReceived, received, { now: this.ports.now, args: this.args(instance) })
+      )
+        continue
+      out.push({ id: record.id, built, shaped })
     }
     return out
   }
