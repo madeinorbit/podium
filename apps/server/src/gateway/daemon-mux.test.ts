@@ -315,17 +315,24 @@ describe('machine scope and the writer class', () => {
         // The eleven harness install replies (managed installs §8, POD-7283).
         'harnessInstallResult',
         'runtimeContextReadResult',
+        // Cancel-install (POD-7283) answers the same authenticated request path.
+        'harnessCancelInstallResult',
       ]),
     )
-    // The context read reply uses this same authenticated correlator.
-    expect(rpcFrames.length).toBe(61)
+    // 62 includes the cancel-install reply added in 8583965993. It was already
+    // routed through toRpc; the count missed it when that branch was merged.
+    expect(rpcFrames.length).toBe(62)
     expect(rpcFrames).not.toContain('runtimeDraftResult')
     for (const type of rpcFrames) {
       const { ports, calls } = fakePorts()
-      muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))
-      const rpcCall = calls.find((c) => c.port === 'rpc')
+      const frame = sampleFrame(type)
+      muxWith(ports).routeDaemonFrame(PRINCIPAL, frame)
+      const rpcCalls = calls.filter((c) => c.port === 'rpc')
+      expect(rpcCalls, `'${type}' must settle exactly once`).toHaveLength(1)
+      const rpcCall = rpcCalls[0]
       expect(rpcCall?.method, `'${type}' did not reach the correlator`).toBe('settleDaemonReply')
       expect(rpcCall?.args[0]).toBe(PRINCIPAL.machine)
+      expect(rpcCall?.args[1]).toBe(frame)
     }
   })
 
