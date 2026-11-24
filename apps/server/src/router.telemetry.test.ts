@@ -11,11 +11,11 @@ import { join } from 'node:path'
 import { loadConfig, saveConfig } from '@podium/runtime/config'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resolvePrincipal } from './command-principal'
-
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { OPERATOR } from './test-support/capabilities'
 
 async function makeCaller(telemetry?: { emitter: { buildUsageReport: () => unknown } }) {
@@ -27,7 +27,9 @@ async function makeCaller(telemetry?: { emitter: { buildUsageReport: () => unkno
     repos,
     superagent,
     capability: OPERATOR,
-    principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+    principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+      parentSessionOf: () => undefined,
+    }),
     ...(telemetry ? { telemetry: telemetry as never } : {}),
   })
 }
