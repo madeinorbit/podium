@@ -1644,6 +1644,11 @@ class SqliteCacheStore implements ReplicaCacheStore {
     return this.store.metaOf(this.principal).loadingSince
   }
 
+  readRescopePending(): boolean {
+    this.store.guardReadable()
+    return this.store.metaOf(this.principal).rescopePending
+  }
+
   readDiskIndex(): DiskIndexReader {
     this.store.guardReadable()
     return this.store.indexOf(this.principal)

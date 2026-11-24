@@ -321,6 +321,8 @@ export interface CacheMeta {
   readonly instances: ReadonlyMap<string, InstanceRecord>
   readonly policy: CachePolicy | null
   readonly loadingSince: number | null
+  /** POD-7552 — a rescope whose load has not begun; see `CacheMutation.rescopePending`. */
+  readonly rescopePending: boolean
 }
 
 export const EMPTY_CACHE_META: CacheMeta = Object.freeze({
@@ -329,12 +331,14 @@ export const EMPTY_CACHE_META: CacheMeta = Object.freeze({
   instances: new Map<string, InstanceRecord>(),
   policy: null,
   loadingSince: null,
+  rescopePending: false,
 })
 
 /** The metadata keys every adapter stores, namespaced per principal by its own key. */
 export const CURSOR_META_KEY = 'cursor'
 export const POLICY_META_KEY = 'policy'
 export const LOADING_SINCE_META_KEY = 'loading-since'
+export const RESCOPE_PENDING_META_KEY = 'rescope-pending'
 /** Markers are one metadata row each, under this prefix. */
 export const INSTANCE_META_PREFIX = 'instance\u0000'
 /** The first key past every marker: `[prefix, end)` is the marker range. */
@@ -428,7 +432,16 @@ export function nextCacheMeta(
         : { kind: 'put', key: LOADING_SINCE_META_KEY, value: loadingSince },
     )
   }
-  return { meta: { cursor, instances, policy, loadingSince }, writes }
+  let rescopePending = meta.rescopePending
+  if (mutation.rescopePending !== undefined && mutation.rescopePending !== rescopePending) {
+    rescopePending = mutation.rescopePending
+    writes.push(
+      rescopePending
+        ? { kind: 'put', key: RESCOPE_PENDING_META_KEY, value: true }
+        : { kind: 'delete', key: RESCOPE_PENDING_META_KEY },
+    )
+  }
+  return { meta: { cursor, instances, policy, loadingSince, rescopePending }, writes }
 }
 
 const isCursor = (value: unknown): value is ScopedCacheCursor => {
@@ -480,11 +493,14 @@ export function decodeCacheMeta(
   const listed = new Map<string, InstanceRecord>()
   let policy: CachePolicy | null = null
   let loadingSince: number | null = null
+  let rescopePending = false
   for (const { key, value } of rows) {
     if (key === CURSOR_META_KEY) cursor = isCursor(value) ? value : null
     else if (key === POLICY_META_KEY) policy = isPolicy(value) ? value : null
     else if (key === LOADING_SINCE_META_KEY)
       loadingSince = typeof value === 'number' && Number.isSafeInteger(value) ? value : 0
+    // Any value: a pending rescope this build cannot read is still a rescope to run.
+    else if (key === RESCOPE_PENDING_META_KEY) rescopePending = true
     else if (key.startsWith(INSTANCE_META_PREFIX) && isInstance(value)) {
       // POD-7159: the instance's disk-index state rides beside the marker (`_s`).
       const { _s: _state, ...marker } = value as InstanceRecord & { readonly _s?: unknown }
@@ -494,7 +510,7 @@ export function decodeCacheMeta(
     }
   }
   listedOfPlain.set(instances, listed)
-  return { cursor, instances, policy, loadingSince }
+  return { cursor, instances, policy, loadingSince, rescopePending }
 }
 
 // ---------------------------------------------------------------------------

@@ -190,6 +190,12 @@ export interface BootstrapChunk {
   readonly complete?: readonly CompleteMarker[]
   /** The serving app policy (`syncMeta.policy`), on the answer's first chunk. */
   readonly policy?: CachePolicy
+  /**
+   * POD-7552 — on a full load's first chunk: the viewer's access moved after
+   * the cursor the load was asked `since`, or the server cannot tell. The load
+   * is then a rescope: what the device shows may no longer be the viewer's.
+   */
+  readonly accessMoved?: true
   readonly last: boolean
   /** Transfer header metadata, certified when the last chunk arrives. */
   readonly kindTokens: KindTokens

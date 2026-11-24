@@ -1583,8 +1583,9 @@ describe('the optimistic-overlay reducer seam', () => {
     )
     // The load's first chunk commits on its own (POD-7086); it cannot count as
     // part of the end of the load, which carries the frames and retirements.
+    // The other is the rescope's pending mark, durable until its load begins (POD-7552).
     expect(h.store.cache.readLoadingSince()).toBe(10)
-    expect(h.store.transactions - beforeRecovery).toBe(1)
+    expect(h.store.transactions - beforeRecovery).toBe(2)
     const beforeInstall = h.store.transactions
     channel.push(bootstrapChunk(10, [], true))
     await h.replica.settled()

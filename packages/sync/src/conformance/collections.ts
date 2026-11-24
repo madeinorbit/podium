@@ -3372,6 +3372,211 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         release()
       })
 
+      /**
+       * POD-7552 — the load after a gap asks `since` the cursor the device held,
+       * and the first chunk says whether the viewer's access moved after it. Held
+       * at that first chunk, the answer shows what the screen did in between.
+       */
+      async function gapLoadPausedAtFirstChunk(accessMoved: boolean) {
+        const server = world()
+        const booted = await boot(instantiation, server)
+        const { replica } = booted
+        const release = replica.hold(tree('A1'))
+        await replica.load([tree('A1')])
+        await replica.settled()
+        const held = replica.cursor as Cursor
+        replica.disconnect()
+        // The viewer loses D3 while the device is offline, past the log's retention.
+        server.drop(ISSUE, 'D3', 'evict')
+        server.minAvailableSeq = server.head
+        if (accessMoved) server.accessMovedAt = server.head
+        const original = server.bootstrap.bind(server)
+        const first = barrier()
+        const resume = barrier()
+        server.bootstrap = (signal, view, since) => {
+          const answer = original(signal, view, since)
+          return (async function* () {
+            let chunks = 0
+            for await (const chunk of answer) {
+              yield chunk
+              chunks += 1
+              if (chunks === 1) {
+                first.release()
+                await resume.promise
+              }
+            }
+          })()
+        }
+        replica.connect()
+        await first.promise
+        await ticks()
+        return { ...booted, server, held, release, resume }
+      }
+
+      it("a load after a gap in which the viewer's access moved withdraws the held screens at its first chunk (POD-7552)", async () => {
+        const { cache, replica, server, held, release, resume } =
+          await gapLoadPausedAtFirstChunk(true)
+        expect(server.sinces.at(-1)).toEqual(held)
+        // The screen stops vouching for what it showed now, not once its reload answers.
+        expect(replica.isComplete(tree('A1'))).toBeUndefined()
+        expect(marked(cache, tree('A1'))).toBe(false)
+        resume.release()
+        for (let round = 0; round < 3; round += 1) {
+          await replica.settled()
+          await ticks()
+        }
+        await replica.settled()
+        expect(replica.posture).toBe('live')
+        expect(cache.read(ISSUE, 'D3')).toBeUndefined()
+        expect(cache.readDiskIndex().record(keyOf(ISSUE, 'D3'))?.level).not.toBe('main')
+        expectMarkersTrue(cache, server)
+        release()
+      })
+
+      it("a load after a gap in which the viewer's access did not move keeps the held screens, stale, past its first chunk (POD-7552)", async () => {
+        const { cache, replica, server, held, release, resume } =
+          await gapLoadPausedAtFirstChunk(false)
+        expect(server.sinces.at(-1)).toEqual(held)
+        expect(replica.isComplete(tree('A1'))).toBeDefined()
+        expect(replica.instanceStale(tree('A1'))).toBe(true)
+        resume.release()
+        for (let round = 0; round < 3; round += 1) {
+          await replica.settled()
+          await ticks()
+        }
+        await replica.settled()
+        expect(replica.posture).toBe('live')
+        expect(replica.isComplete(tree('A1'))).toBeDefined()
+        expectMarkersTrue(cache, server)
+        release()
+      })
+
+      it('a refused heal the server answers as a rescope runs one: the held screens are withdrawn (POD-7552)', async () => {
+        const server = world()
+        const { cache, replica, events } = await boot(instantiation, server)
+        const release = replica.hold(tree('A1'))
+        await replica.load([tree('A1')])
+        await replica.settled()
+        replica.disconnect()
+        server.drop(ISSUE, 'D3', 'evict')
+        const changesRange = server.changesRange.bind(server)
+        server.changesRange = async () => ({ kind: 'bootstrap-required', reason: 'rescope' })
+        const gate = barrier()
+        server.gate = gate.promise
+        const seen = events.length
+        replica.connect()
+        await ticks()
+        await ticks()
+        expect(replica.isComplete(tree('A1'))).toBeUndefined()
+        expect(events.slice(seen).some((e) => e.type === 'heal' && e.cause === 'rescope')).toBe(
+          true,
+        )
+        server.changesRange = changesRange
+        server.gate = undefined
+        gate.release()
+        for (let round = 0; round < 3; round += 1) {
+          await replica.settled()
+          await ticks()
+        }
+        await replica.settled()
+        expect(replica.posture).toBe('live')
+        expect(cache.read(ISSUE, 'D3')).toBeUndefined()
+        expectMarkersTrue(cache, server)
+        release()
+      })
+
+      it('a full load for another cause while a rescope is pending is the rescope: it withdraws the held screens at its first chunk (POD-7552)', async () => {
+        const server = world()
+        const booted = await boot(instantiation, server)
+        const { cache, replica } = booted
+        const release = replica.hold(tree('A1'))
+        const bootstrap = server.bootstrap.bind(server)
+        server.bootstrap = () =>
+          (async function* () {
+            yield* []
+            throw new Error('the server is restarting')
+          })()
+        await replica.receive({ kind: 'rescope', feedId: server.feedId, epoch: server.epoch })
+        await settleFully(booted)
+        expect(cache.readRescopePending()).toBe(true)
+        // The screen asks again and gets its tree, as of now.
+        await replica.load([tree('A1')])
+        await settleFully(booted)
+        expect(replica.isComplete(tree('A1'))).toBeDefined()
+        // Shed load: a resync, which on its own keeps the held tree on screen, stale.
+        const first = barrier()
+        const resume = barrier()
+        server.bootstrap = (signal, view, since) => {
+          const answer = bootstrap(signal, view, since)
+          return (async function* () {
+            let chunks = 0
+            for await (const chunk of answer) {
+              yield chunk
+              chunks += 1
+              if (chunks === 1) {
+                first.release()
+                await resume.promise
+              }
+            }
+          })()
+        }
+        replica.requestRebootstrap('shed-load')
+        await first.promise
+        await ticks()
+        expect(replica.isComplete(tree('A1'))).toBeUndefined()
+        expect(cache.readRescopePending()).toBe(false)
+        resume.release()
+        await settleFully(booted)
+        expect(replica.posture).toBe('live')
+        expectMarkersTrue(cache, server)
+        release()
+      })
+
+      it('a rescope whose load never began survives a restart and the next heal, then runs (POD-7538 P1, POD-7552)', async () => {
+        const server = world()
+        const storage = await instantiation.open()
+        const first = await boot(instantiation, server, storage)
+        const bootstrap = server.bootstrap.bind(server)
+        server.bootstrap = () =>
+          (async function* () {
+            yield* []
+            throw new Error('the server is restarting')
+          })()
+        await first.replica.receive({ kind: 'rescope', feedId: server.feedId, epoch: server.epoch })
+        await settleFully(first)
+        // Every attempt failed before its first chunk: stale, no load under way, the rescope kept.
+        expect(first.replica.posture).toBe('stale')
+        expect(first.cache.readLoadingSince()).toBeNull()
+        expect(first.cache.readRescopePending()).toBe(true)
+        // The app restarts; the server is back and the cursor is in its retention.
+        server.bootstrap = bootstrap
+        const fullLoads = server.bootstraps
+        server.put(ISSUE, 'A3', issue('A3', { stage: 'planning' }))
+        const restarted = kernelOver(storage, server)
+        expect(restarted.cache.readRescopePending()).toBe(true)
+        restarted.replica.connect()
+        await settleFully(restarted)
+        // The heal brought the rows current; the rescope's load ran after it, whole.
+        expect(restarted.replica.posture).toBe('live')
+        expect(server.bootstraps).toBe(fullLoads + 1)
+        expect(
+          restarted.events.some((event) => event.type === 'heal' && event.cause === 'rescope'),
+        ).toBe(true)
+        expect(restarted.cache.readRescopePending()).toBe(false)
+        expect(restarted.cache.read(ISSUE, 'A3')).toBeDefined()
+        for (const spec of [LIVE, SIDEBAR, STUBS]) {
+          expect(marked(restarted.cache, spec), instanceKey(spec)).toBe(true)
+          expect(markedStale(restarted.cache, spec), instanceKey(spec)).toBe(false)
+        }
+        expectMarkersTrue(restarted.cache, server)
+        // Done once: the next heal is an ordinary one.
+        const loads = server.bootstraps
+        restarted.replica.disconnect()
+        restarted.replica.connect()
+        await settleFully(restarted)
+        expect(server.bootstraps).toBe(loads)
+      })
+
       it('a gap removes a row of an instance only on disk that the reload confirms is gone, and the reload drops what left it', async () => {
         const server = world()
         const booted = await boot(instantiation, server)

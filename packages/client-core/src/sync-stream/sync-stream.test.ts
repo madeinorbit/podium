@@ -71,7 +71,8 @@ it('a changed kind on a device with no policy reloads through the first download
   })
   new FeedSink({ replica }).kindTokens(kindTokens)
   await replica.settled()
-  expect(requests).toEqual(['/sync/bootstrap'])
+  // POD-7552: asked since the cursor it held, so the server can say whether its access moved.
+  expect(requests).toEqual(['/sync/bootstrap?sinceFeedId=feed-1&sinceEpoch=epoch-1&since=5'])
   expect(cache.readCursor()).toEqual({ ...cursor, seq: 10 })
   expect(cache.readKindTokens()).toEqual(kindTokens)
   expect(cache.readLoadingSince()).toBeNull()
@@ -192,6 +193,20 @@ describe('HTTP sources', () => {
     expect(source.deps.onChunk).toHaveBeenCalledWith(1, encoder.encode(JSON.stringify(chunk)).length)
     expect(source.fetch).toHaveBeenCalledWith('https://example.test/sync/bootstrap', expect.objectContaining({ credentials: 'omit', headers: expect.objectContaining({ Authorization: 'Bearer test', 'Podium-Sync-Client': expect.any(String) }) }))
     await iterator.return(undefined)
+  })
+  it('asks a first download since the cursor it held, and marks only the first chunk when the access moved (POD-7552)', async () => {
+    const moved = sources(() => {
+      const reply = response([meta, chunk, complete])
+      reply.headers.set('Podium-Sync-Access-Moved', '1')
+      return reply
+    })
+    const chunks = await collect(moved.bootstrap.bootstrap(undefined, undefined, cursor))
+    expect(moved.fetch).toHaveBeenCalledWith('https://example.test/sync/bootstrap?sinceFeedId=feed-1&sinceEpoch=epoch-1&since=5', expect.anything())
+    expect(chunks.map(c => c.accessMoved)).toEqual([true, undefined])
+    const unmoved = sources(() => response([meta, chunk, complete]))
+    const plain = await collect(unmoved.bootstrap.bootstrap())
+    expect(unmoved.fetch).toHaveBeenCalledWith('https://example.test/sync/bootstrap', expect.anything())
+    expect(plain.map(c => c.accessMoved)).toEqual([undefined, undefined])
   })
   it('does not install a truncated snapshot or one with trailing records', async () => {
     for (const values of [[meta, chunk], [meta, chunk, complete, chunk]]) {

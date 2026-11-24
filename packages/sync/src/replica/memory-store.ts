@@ -198,6 +198,11 @@ class InMemoryCache implements ReplicaCacheStore {
     return this.meta.loadingSince
   }
 
+  readRescopePending(): boolean {
+    this.guard()
+    return this.meta.rescopePending
+  }
+
   readDiskIndex(): DiskIndexReader {
     this.guard()
     return this.index

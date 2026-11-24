@@ -461,6 +461,13 @@ export class Replica implements DeviceCollectionReads {
   private startedLoad: number | undefined
   /** POD-7538 — the walk that only replaces stale policy markers after a heal: a partial load. */
   private markerWalk: number | undefined
+  /**
+   * POD-7552 — the cursor of what the device held before the full load under
+   * way, which the load is asked `since`: the server says whether the viewer's
+   * access moved after it. Taken when a gap begins a load, kept while one is
+   * under way, so a restarted attempt still asks from before the gap.
+   */
+  private loadSince: Cursor | null = null
   /** POD-7560 — the wait before a marker walk that did not finish runs again, and its timer. */
   private markerRetryMs = MARKER_RETRY_MS
   private markerRetryCancel: (() => void) | undefined
@@ -1312,6 +1319,10 @@ export class Replica implements DeviceCollectionReads {
         if (range.reason === 'feed-identity-mismatch') {
           this.note('D7-4-EPOCH')
           this.rebootstrap('epoch-mismatch', false, range.reason)
+        } else if (range.reason === 'rescope') {
+          // POD-7552: the viewer's access moved in the gap the log cannot bridge.
+          this.note('D14-RESCOPE')
+          this.rebootstrap('rescope', false, range.reason)
         } else {
           this.note('D7-2-COMPACTED')
           this.rebootstrap('compacted', false, range.reason)
@@ -1386,7 +1397,10 @@ export class Replica implements DeviceCollectionReads {
       // A first download or reload the app closed early resumes at the first
       // collection without a marker (POD-7048); otherwise fetch what a held
       // record comes with that an interrupted answer did not bring.
-      if (this.store.readLoadingSince() !== null) this.rebootstrap('resume')
+      // POD-7552 (POD-7538 P1): a rescope whose load never began runs now,
+      // ahead of an older load it replaces whole.
+      if (this.store.readRescopePending()) this.rebootstrap('rescope')
+      else if (this.store.readLoadingSince() !== null) this.rebootstrap('resume')
       else {
         this.checkKindAdvertisement()
         this.requestMissingComesWith()
@@ -1525,9 +1539,21 @@ export class Replica implements DeviceCollectionReads {
       // Clearing eagerly while an older span is still staged would let its
       // publication restore the old markers behind this recovery.
       try {
-        if (cause !== 'resume' && cause !== 'markers' && this.store.readInstances().size > 0) {
-          this.store.applyAtomic({ operations: [], instances: this.gapMarkers(cause) })
-          this.emit({ type: 'markers' })
+        if (cause !== 'resume' && cause !== 'markers' && this.store.readLoadingSince() === null)
+          this.loadSince = this.cursorValue
+        const markers =
+          cause !== 'resume' && cause !== 'markers' && this.store.readInstances().size > 0
+        // POD-7552: a rescope is durable until its load begins. A heal that
+        // brings the rows current in between does not sweep what the viewer
+        // lost; only this load does.
+        const pending = cause === 'rescope' && this.store.readRescopePending() === false
+        if (markers || pending) {
+          this.store.applyAtomic({
+            operations: [],
+            ...(markers ? { instances: this.gapMarkers(cause) } : {}),
+            ...(pending ? { rescopePending: true } : {}),
+          })
+          if (markers) this.emit({ type: 'markers' })
         }
       } catch (error) {
         // An unreadable corruption walk must consume its bounded attempt budget,
@@ -1695,7 +1721,11 @@ export class Replica implements DeviceCollectionReads {
     const priorOffer = this.pendingKindAdvertisement
     const source =
       missing === undefined
-        ? this.authority.bootstrap(signal, this.viewRequests?.())
+        ? this.authority.bootstrap(
+            signal,
+            this.viewRequests?.(),
+            (cause === 'rescope' ? null : (this.loadSince ?? this.cursorValue)) ?? undefined,
+          )
         : // A method of the authority: called on it, so a class source keeps its `this`.
           (this.authority as Required<Pick<AuthorityReadPort, 'collections'>>).collections(
             missing,
@@ -1756,8 +1786,18 @@ export class Replica implements DeviceCollectionReads {
             !sameKindTokens(chunk.kindTokens, head.kindTokens))
         )
           throw new ReloadSourceChanged(chunk)
+        const firstChunk = head === undefined
         head = chunk
         this.validateChunk(chunk)
+        // POD-7552: the viewer's access moved in the gap, or a rescope is still
+        // pending: whichever full load runs is the rescope.
+        if (
+          full &&
+          firstChunk &&
+          cause !== 'rescope' &&
+          (chunk.accessMoved === true || this.store.readRescopePending())
+        )
+          this.accessMovedInGap()
         if (!full) {
           const cursor = this.cursorValue
           if (
@@ -1806,6 +1846,20 @@ export class Replica implements DeviceCollectionReads {
   }
 
   /**
+   * POD-7552 — the load after a gap learned, with its first chunk, that the
+   * viewer's access moved inside the gap (or the server cannot tell). It goes
+   * on as a rescope: the screens a gap kept on screen, stale, stop vouching
+   * for what they showed now, not once their reloads answer, and the load's
+   * sweep removes what the viewer lost.
+   */
+  private accessMovedInGap(): void {
+    this.deferredPages.clear()
+    if (this.store.readInstances().size === 0) return
+    this.store.applyAtomic({ operations: [], instances: this.gapMarkers('rescope') })
+    this.emit({ type: 'markers' })
+  }
+
+  /**
    * POD-7538 — a gap whose load never began (every attempt failed before its
    * first chunk) left the policy's markers stale. A heal then bridged the
    * feed, so the rows are current: a partial load of just those instances
@@ -1822,6 +1876,8 @@ export class Replica implements DeviceCollectionReads {
       this.store.readLoadingSince() !== null ||
       this.store.readPolicy() === null ||
       this.cursorValue === null ||
+      // POD-7552: a pending rescope's load replaces every marker.
+      this.store.readRescopePending() ||
       this.missingPolicyInstances().length === 0 ||
       // POD-7560: only a full load could answer; the next advertisement repairs it.
       this.onlyFullLoad()
@@ -2290,6 +2346,8 @@ export class Replica implements DeviceCollectionReads {
             cacheGeneration: newCacheGeneration(),
             loadingSince: at,
             policy: chunk.policy ?? null,
+            // POD-7552: the load has begun; from here `loadingSince` carries it.
+            ...(this.store.readRescopePending() ? { rescopePending: false } : {}),
           }
         : {}),
     }

@@ -189,6 +189,13 @@ export interface CacheMutation extends SnapshotVersions {
    * it yet. Null when the load has finished and swept them.
    */
   readonly loadingSince?: number | null
+  /**
+   * POD-7552 — the viewer's rights changed and the rescope's load has not
+   * begun. Durable, so a heal or a restart cannot lose it: a heal brings the
+   * rows current, but only the rescope's load sweeps what the viewer lost.
+   * Cleared by the first chunk of a full load.
+   */
+  readonly rescopePending?: boolean
 }
 
 export interface SnapshotVersions {
@@ -260,6 +267,8 @@ export interface ReplicaCacheStore {
   readPolicy(): CachePolicy | null
   /** The feed number of a load still under way; null when none is. */
   readLoadingSince(): number | null
+  /** POD-7552 — a rescope is pending whose load has not begun (`CacheMutation.rescopePending`). */
+  readRescopePending(): boolean
   /**
    * Records with their main part, IN MEMORY (POD-7159). An issue held only as
    * its stub is NOT here, so a reader written for whole records never sees a
@@ -381,8 +390,16 @@ export interface AuthorityReadPort {
    * ADR 2 D6 / Amendment 1 D15 — the principal's slice, chunked and paced.
    * Pacing lives on the authority side of this port (D6: "the bootstrap must
    * never own the loop"); the Replica just consumes chunks as they arrive.
+   *
+   * `since` (POD-7552) is the cursor of what the device held before this
+   * load. The first chunk carries `accessMoved` when the viewer's access moved
+   * after it. A source that cannot ask leaves it out, and the load is no rescope.
    */
-  bootstrap(signal?: AbortSignal, view?: readonly InstanceRequest[]): AsyncIterable<BootstrapChunk>
+  bootstrap(
+    signal?: AbortSignal,
+    view?: readonly InstanceRequest[],
+    since?: Cursor,
+  ): AsyncIterable<BootstrapChunk>
   /**
    * POD-7085's one fetch route: the named instances, answered as of one feed
    * number, records and stubs in chunks and a marker per instance. The last

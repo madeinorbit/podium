@@ -2,6 +2,8 @@ import {
   CLIENT_TYPE_HEADER,
   type ClientType,
   type CollectionInstance,
+  SYNC_ACCESS_MOVED_HEADER,
+  SYNC_BOOTSTRAP_SINCE_PARAMS,
   SYNC_CONTENT_TYPE,
   SyncBootstrapRequired,
   type SyncMeta,
@@ -207,6 +209,16 @@ export function bootstrapViewQuery(
   return query
 }
 
+/** POD-7552 — the cursor the device held before a full load, as the bootstrap's query. */
+export function bootstrapSinceQuery(since: Cursor | undefined): string | undefined {
+  if (since === undefined) return undefined
+  return new URLSearchParams({
+    [SYNC_BOOTSTRAP_SINCE_PARAMS.feedId]: since.feedId,
+    [SYNC_BOOTSTRAP_SINCE_PARAMS.epoch]: since.epoch,
+    [SYNC_BOOTSTRAP_SINCE_PARAMS.seq]: String(since.seq),
+  }).toString()
+}
+
 /** One fetch per attempt; the replica owns the bounded restart ladder. */
 export class HttpBootstrapSource {
   /** One id per replica, kept across its retries. The server cancels an older
@@ -221,9 +233,12 @@ export class HttpBootstrapSource {
   async *bootstrap(
     signal?: AbortSignal,
     view?: readonly InstanceRequest[],
+    since?: Cursor,
   ): AsyncGenerator<BootstrapChunk> {
-    const query = bootstrapViewQuery(view)
-    const path = query === undefined ? '/sync/bootstrap' : `/sync/bootstrap?${query}`
+    const query = [bootstrapViewQuery(view), bootstrapSinceQuery(since)]
+      .filter((part) => part !== undefined)
+      .join('&')
+    const path = query === '' ? '/sync/bootstrap' : `/sync/bootstrap?${query}`
     yield* this.answer('bootstrap', path, signal, undefined)
   }
 
@@ -265,6 +280,13 @@ export class HttpBootstrapSource {
       }
       let meta: SyncMeta | undefined
       let policy: CachePolicy | undefined
+      // POD-7552: rides on the first chunk the Replica sees, as the policy does.
+      let accessMoved = response.headers.get(SYNC_ACCESS_MOVED_HEADER) === '1'
+      const firstOnly = (): { accessMoved?: true } => {
+        if (!accessMoved) return {}
+        accessMoved = false
+        return { accessMoved: true }
+      }
       for await (const record of records(
         response,
         this.deps,
@@ -280,18 +302,25 @@ export class HttpBootstrapSource {
         } else if (record.type === 'feedBootstrap') {
           const chunk = toBootstrapChunk(record, meta!.kindTokens)
           // The policy rides on the first chunk the Replica sees.
-          yield { ...chunk, last: false, ...(policy === undefined ? {} : { policy }) }
+          yield {
+            ...chunk,
+            last: false,
+            ...(policy === undefined ? {} : { policy }),
+            ...firstOnly(),
+          }
           policy = undefined
         } else if (record.type === 'feedStubs') {
           yield {
             ...toStubChunk(record, meta!.kindTokens),
             ...(policy === undefined ? {} : { policy }),
+            ...firstOnly(),
           }
           policy = undefined
         } else if (record.type === 'collectionComplete') {
           yield {
             ...toMarkerChunk(record, meta!.kindTokens),
             ...(policy === undefined ? {} : { policy }),
+            ...firstOnly(),
           }
           policy = undefined
         } else if (record.type === 'syncComplete' && meta) {
@@ -306,6 +335,7 @@ export class HttpBootstrapSource {
             last: true,
             kindTokens: meta.kindTokens,
             ...(policy === undefined ? {} : { policy }),
+            ...firstOnly(),
           }
         }
       }

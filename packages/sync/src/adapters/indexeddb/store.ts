@@ -2050,6 +2050,7 @@ export class IndexedDbSyncStore {
       instances: [{ kind: 'dropAll' }],
       policy: null,
       loadingSince: null,
+      rescopePending: false,
     })
     for (const write of reset.writes) if (write.kind === 'delete') writes.push(write)
     this.stageMetaWrites(draft, principal, writes)
@@ -2140,6 +2141,11 @@ class IndexedDbCacheStore implements ReplicaCacheStore {
   readLoadingSince(): number | null {
     this.store.guardReadable()
     return this.store.metaOf(this.principal).loadingSince
+  }
+
+  readRescopePending(): boolean {
+    this.store.guardReadable()
+    return this.store.metaOf(this.principal).rescopePending
   }
 
   readDiskIndex(): DiskIndexReader {

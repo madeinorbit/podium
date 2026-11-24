@@ -112,6 +112,13 @@ export class CollectionServer implements AuthorityReadPort {
   kindTokens: Readonly<Record<string, string>> = {}
   /** Every first download asked for. */
   bootstraps = 0
+  /**
+   * POD-7552 — the feed number of the viewer's last access move. A first
+   * download asked `since` a cursor below it says so on its first chunk.
+   */
+  accessMovedAt: number | undefined
+  /** The `since` of every first download asked for, in order. */
+  readonly sinces: (Cursor | undefined)[] = []
   /** Every collection fetch asked for, in order. */
   readonly fetches: InstanceRequest[][] = []
   /** Answer collection fetches as of this feed number instead of the head. */
@@ -218,9 +225,17 @@ export class CollectionServer implements AuthorityReadPort {
   bootstrap(
     _signal?: AbortSignal,
     view?: readonly InstanceRequest[],
+    since?: Cursor,
   ): AsyncIterable<BootstrapChunk> {
     this.bootstraps += 1
     this.views.push([...(view ?? [])])
+    this.sinces.push(since)
+    const accessMoved =
+      since !== undefined &&
+      this.accessMovedAt !== undefined &&
+      since.feedId === this.feedId &&
+      since.epoch === this.epoch &&
+      since.seq < this.accessMovedAt
     const instances: InstanceSpec[] = []
     const hasViewStep = this.policy.steps.some((step) => step.step === 'view')
     this.policy.steps.forEach((step, at) => {
@@ -229,7 +244,7 @@ export class CollectionServer implements AuthorityReadPort {
         instances.push({ collection, part: COLLECTIONS.get(collection)?.part ?? 'main' })
       if (!hasViewStep && at === 0) instances.push(...(view ?? []))
     })
-    return this.answer(instances, this.head, true)
+    return this.answer(instances, this.head, true, accessMoved)
   }
 
   collections(instances: readonly InstanceRequest[]): AsyncIterable<BootstrapChunk> {
@@ -287,6 +302,7 @@ export class CollectionServer implements AuthorityReadPort {
     instances: readonly InstanceSpec[],
     at: number,
     first: boolean,
+    accessMoved = false,
   ): AsyncIterable<BootstrapChunk> {
     const chunks: BootstrapChunk[] = []
     const base = {
@@ -359,7 +375,12 @@ export class CollectionServer implements AuthorityReadPort {
       }
     }
     chunks.push({ ...base, changes: [], last: true })
-    if (first) chunks[0] = { ...chunks[0]!, policy: this.policy }
+    if (first)
+      chunks[0] = {
+        ...chunks[0]!,
+        policy: this.policy,
+        ...(accessMoved ? { accessMoved: true as const } : {}),
+      }
     const server = this
     const gate = this.gate
     return (async function* () {

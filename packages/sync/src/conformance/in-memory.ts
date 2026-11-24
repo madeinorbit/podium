@@ -93,6 +93,9 @@ class GatedCache implements ReplicaCacheStore {
   readLoadingSince(): number | null {
     return this.inner.readLoadingSince()
   }
+  readRescopePending(): boolean {
+    return this.inner.readRescopePending()
+  }
   readEntities(): readonly EntityRecord[] {
     return this.inner.readEntities()
   }
