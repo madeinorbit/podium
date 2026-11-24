@@ -547,20 +547,26 @@ const PropertyRelationRow = observer(function PropertyRelationRow({
         >
           <Text style={styles.kvLabel}>{section}</Text>
           <StageGlyph stage={target.stage} size={size(12)} />
-          <Text numberOfLines={1} style={styles.relValue}>
-            <Text style={styles.linkRef}>{`${issueDisplayRef(target)}  `}</Text>
-            {title}
-          </Text>
+          {/* The box takes the width that is left, so the text truncates; a
+              Text that is itself the flexible item measured wider on iOS 27. */}
+          <View style={styles.relValueBox}>
+            <Text numberOfLines={1} style={styles.relValue}>
+              <Text style={styles.linkRef}>{`${issueDisplayRef(target)}  `}</Text>
+              {title}
+            </Text>
+          </View>
         </PressableScale>
       ) : (
         <View style={styles.relOpen}>
           <Text style={styles.kvLabel}>{section}</Text>
-          <Text
-            numberOfLines={1}
-            style={[styles.relValue, edge.render === 'opaque' ? styles.opaque : styles.inert]}
-          >
-            {edge.render === 'opaque' ? 'no access' : 'Loading'}
-          </Text>
+          <View style={styles.relValueBox}>
+            <Text
+              numberOfLines={1}
+              style={[styles.relValue, edge.render === 'opaque' ? styles.opaque : styles.inert]}
+            >
+              {edge.render === 'opaque' ? 'no access' : 'Loading'}
+            </Text>
+          </View>
         </View>
       )}
       <PressableScale
@@ -657,10 +663,9 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: color.hairline,
   },
+  relValueBox: { flex: 1, minWidth: 0 },
   relValue: {
     ...sans(400),
-    flex: 1,
-    minWidth: 0,
     textAlign: 'right',
     color: color.textDim,
     fontSize: font.small,
