@@ -2,22 +2,22 @@
 
 exports[`opens corpus missions with the bundle's answers at 1x with cold crews: views, folds, search, archive > mission screen answers at 1x with cold crews 1`] = `
 {
-  "bytes": 812700,
-  "sha256": "41713bb3c35bc8e1f42d67a51c50e1aff08bc137e833b28211965d7b78f9448a",
+  "bytes": 807651,
+  "sha256": "cd2ee7734172ec37bc6630b868b97bf61f8f02b3028e20bae9e9d2ac7819114a",
 }
 `;
 
 exports[`opens corpus missions with the bundle's answers at 1x: views, folds, search, archive > mission screen answers at 1x 1`] = `
 {
-  "bytes": 1449982,
-  "sha256": "0ead9eb60aec02d3c241d538b8a85c31ca387fa63bfb90747981d0fce54cd272",
+  "bytes": 1436860,
+  "sha256": "fc8c0c19615f4a9f56235acd34e09c5a0dcf73f240bd0f8662ad2fec2ca1a6e4",
 }
 `;
 
 exports[`opens corpus missions with the bundle's answers at 4x: views, folds, search, archive > mission screen answers at 4x 1`] = `
 {
-  "bytes": 969837,
-  "sha256": "10d68096977fa7221d92a2efe445ddae93001838e2dc9287a418ac8671b32f48",
+  "bytes": 956121,
+  "sha256": "e2f7ab90f6f9ec66c7f70186e0fcd2c293192c35c32736918e05a153dbfdbc65",
 }
 `;
 
