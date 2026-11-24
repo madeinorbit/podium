@@ -107,7 +107,7 @@ export class RepoRegistry {
     // sits at the WRITE rather than in each handler: a filtered dropdown does
     // nothing for a stale tab, a direct RPC call or a CLI, and a per-handler
     // guard is one someone can forget to copy.
-    await this.sessionReg.modules.machines.requireRepoHostStructure(mid)
+    await this.sessionReg.modules.machines.requireRepoHostStructure(mid, p)
     // Inspect only this root on its machine, before the insert. An offline or
     // failing daemon leaves a path-fallback id for a later checkout scan to upgrade.
     // The structural gate above permits offline machines: don't wait for their RPC timeout.
@@ -152,7 +152,7 @@ export class RepoRegistry {
     if (!isAbsoluteMachinePath(p)) throw new Error(`repo path must be absolute: ${p}`)
     // Same gate as `add` — a clone lands a repo on a machine just as much as a
     // registration does, and this is the second write path (POD-2700).
-    await this.sessionReg.modules.machines.requireRepoHostStructure(machineId)
+    await this.sessionReg.modules.machines.requireRepoHostStructure(machineId, p)
     await this.commitRepoWrite(
       this.serverWriter,
       async () => await this.store.repos.addRepo(p, machineId, originUrl),

@@ -14,6 +14,7 @@ import {
   asUserId,
   HOST_REPOS,
   type Inventory,
+  isMachinePathForOs,
   isMachinePathWithinRoot,
   type MachineAccessWire,
   type MachineComponent,
@@ -1917,12 +1918,25 @@ export class MachinesService {
    * checks. Everything that then ACTS on the repo still goes through the live
    * check in {@link requireMachineForRepo}.
    */
-  async requireRepoHostStructure(machineId: MachineId): Promise<void> {
+  async requireRepoHostStructure(machineId: MachineId, repoPath?: string): Promise<void> {
     const machine = (await this.listMachines()).find((candidate) => candidate.id === machineId)
     if (!machine) throw new Error(`unknown machine '${machineId}'`)
     const rejection = structuralEligibility(machine, HOST_REPOS)
-    if (rejection === undefined) return
-    throw new Error(machineRejectionMessage(machine.name, rejection, 'host repositories'))
+    if (rejection !== undefined)
+      throw new Error(machineRejectionMessage(machine.name, rejection, 'host repositories'))
+    // POD-7501: the path helpers take a path's syntax from its spelling. A POSIX
+    // spelling on a Windows machine keeps `\` literal in every server check while
+    // the machine treats it as a separator, so `x\..\..` would pass them as one
+    // name. A machine that has not reported its OS yet is not judged here; the
+    // daemon's realpath check still holds the root inside the repository.
+    const os = machine.inventory?.os
+    if (repoPath !== undefined && os !== undefined && !isMachinePathForOs(repoPath, os)) {
+      throw new Error(
+        os === 'win32'
+          ? `repo path must be a Windows path (C:\\… or \\\\server\\share\\…) on ${machine.name}: ${repoPath}`
+          : `repo path must be a POSIX path starting with / on ${machine.name}: ${repoPath}`,
+      )
+    }
   }
 
   /**
