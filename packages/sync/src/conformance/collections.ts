@@ -3532,6 +3532,30 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         release()
       })
 
+      it('a frame of another feed identity withdraws the held screens at once, as a rescope does (POD-7552)', async () => {
+        const server = world()
+        const booted = await boot(instantiation, server)
+        const { cache, replica } = booted
+        const release = replica.hold(tree('A1'))
+        await replica.load([tree('A1')])
+        await settleFully(booted)
+        const gate = barrier()
+        server.gate = gate.promise
+        server.put(ISSUE, 'A3', issue('A3'))
+        // The server was restored: its feed has another epoch.
+        const cursor = replica.cursor as Cursor
+        await replica.receive({ ...server.frameSince(cursor.seq), epoch: 'restored' })
+        await ticks()
+        expect(replica.isComplete(tree('A1'))).toBeUndefined()
+        expect(marked(cache, tree('A1'))).toBe(false)
+        server.gate = undefined
+        gate.release()
+        await settleFully(booted)
+        expect(replica.posture).toBe('live')
+        expectMarkersTrue(cache, server)
+        release()
+      })
+
       it('a rescope whose load never began survives a restart and the next heal, then runs (POD-7538 P1, POD-7552)', async () => {
         const server = world()
         const storage = await instantiation.open()

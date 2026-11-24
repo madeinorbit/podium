@@ -233,6 +233,13 @@ export type AuthorityClock = () => number
 export interface AccessMoveLogPort {
   /** Raise each human's last move to the seq given; never lower it. */
   recordAccessMoves(moves: ReadonlyMap<string, number>): Promise<void>
+  /**
+   * Whether a visibility edge on a change of this kind moves anyone's access.
+   * An edge can stand for a re-delivery that decides nothing (the server's
+   * issue edges, since POD-6288); such a kind is not recorded. Absent, every
+   * edge is a move.
+   */
+  movesAccess?(entity: string): boolean
 }
 
 /**
@@ -263,6 +270,13 @@ export interface AuthorityPort {
    * negotiable at any step.
    */
   commit<T>(op: AuthorityCommit<T>): Promise<AuthorityCommitOutcome<T>>
+
+  /**
+   * Resolves once every delivery pass queued so far has run (POD-7552: the
+   * passes that record access moves). Optional: a port with no queue has
+   * nothing to wait for.
+   */
+  settled?(): Promise<void>
 
   /**
    * Catch-up read, FOR ONE PRINCIPAL. `null` means "I cannot serve you a delta —

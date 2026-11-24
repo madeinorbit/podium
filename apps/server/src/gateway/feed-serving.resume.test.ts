@@ -21,11 +21,13 @@
  * answer — is exercised separately and must produce the world.
  */
 
+import { asUserId } from '@podium/model'
 import type { FeedCursorField, ServerMessage } from '@podium/protocol'
-import { CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { asCapabilityRef, asDeviceId, CLIENT_WIRE_VERSION, type Principal } from '@podium/protocol'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { testLedgerWriter } from '@podium/sync/testing'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { memberFacts } from '../store/fixtures/test-support'
 import { feedTestPlumbing } from './feed-test-plumbing'
 import type { EdgePeer } from './wire-feed-edge'
 
@@ -233,6 +235,84 @@ describe('a cursor the log cannot serve is refused, and the refusal requests HTT
     expect((await reconnect(compacted, { ...compacted.held, seq: 3 })).types()).toEqual([
       'feedResyncRequired',
     ])
+  })
+
+  // POD-7552 review F1: a role change carries no visibility edge; the member write records it.
+  it("answers a demoted admin's refused reconnect as a rescope", async () => {
+    let floor = 0
+    const ctx = await servedOnce({ retention: { minAvailableSeq: () => floor } })
+    const facts = memberFacts(ctx.p.store)
+    // Member writes change synced rows, so they run inside a change-log commit.
+    const inCommit = async (write: () => Promise<void>) => {
+      await testLedgerWriter(ctx.p.ledger).commit({ write })
+    }
+    const id = asUserId('u-demoted')
+    await inCommit(() =>
+      facts.create({
+        id,
+        displayName: 'Demoted',
+        role: 'admin',
+        createdAt: '2026-11-01T00:00:00.000Z',
+        disabledAt: null,
+      }),
+    )
+    await commit(ctx.p, 'before-demotion')
+    const before = await ctx.p.authority.cursor()
+    await inCommit(() => facts.setRole(id, 'member'))
+    await commit(ctx.p, 'after-demotion')
+    const after = await ctx.p.authority.cursor()
+    // Past retention from here on: every cursor below the head is refused.
+    floor = after + 10
+    const principal: Principal = {
+      kind: 'user',
+      user: id,
+      device: asDeviceId('dev:demoted'),
+      capability: asCapabilityRef('cap:demoted'),
+    }
+    const at = async (seq: number): Promise<Peer> => {
+      const peer = new Peer(`demoted-${seq}`)
+      ctx.p.serving.renegotiate(peer, principal, ctx.p.routingPrincipal(peer.id, id, 'member'), {
+        ...ctx.held,
+        seq,
+      })
+      await ctx.p.serving.admissionSettled()
+      return peer
+    }
+    expect((await at(before)).types()).toEqual(['feedRescope'])
+    expect((await at(after)).types()).toEqual(['feedResyncRequired'])
+  })
+
+  // POD-7552 review F4: a failed read must not fail the admission; it answers as moved.
+  it('answers a refused cursor as a rescope when the access-move log cannot be read', async () => {
+    const compacted = await servedOnce({ retention: { minAvailableSeq: () => 5 } })
+    for (let i = 3; i <= 6; i += 1) await commit(compacted.p, `s${i}`)
+    vi.spyOn(compacted.p.store.sync, 'accessMovedAfter').mockRejectedValue(new Error('disk I/O'))
+    const peer = await reconnect(compacted, { ...compacted.held, seq: 2 })
+    expect(peer.types()).toEqual(['feedRescope'])
+  })
+
+  // POD-7552 review F3: the pass that records a move runs after its commit.
+  it('waits for queued delivery passes before reading the log, and answers as moved past the bound', async () => {
+    const compacted = await servedOnce({ retention: { minAvailableSeq: () => 5 } })
+    for (let i = 3; i <= 6; i += 1) await commit(compacted.p, `s${i}`)
+    const order: string[] = []
+    const settled = vi.spyOn(compacted.p.authority, 'settled').mockImplementation(async () => {
+      order.push('settled')
+    })
+    const read = vi.spyOn(compacted.p.store.sync, 'accessMovedAfter')
+    read.mockImplementation(async () => {
+      order.push('read')
+      return false
+    })
+    expect((await reconnect(compacted, { ...compacted.held, seq: 2 })).types()).toEqual([
+      'feedResyncRequired',
+    ])
+    expect(order).toEqual(['settled', 'read'])
+    // A pass that does not finish within the bound: the server cannot tell.
+    settled.mockImplementation(() => new Promise<void>(() => {}))
+    const late = await reconnect(compacted, { ...compacted.held, seq: 1 })
+    expect(late.types()).toEqual(['feedRescope'])
+    expect(order).toEqual(['settled', 'read'])
   })
 
   it('keeps the other refusals a resync, whatever the access-move log says', async () => {

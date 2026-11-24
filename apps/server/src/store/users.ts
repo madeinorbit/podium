@@ -177,6 +177,30 @@ const bumpAuthzGeneration = prepared((db, t) =>
     .prepare(),
 )
 
+/**
+ * POD-7552 — a member's authority changed (a role change, a disable, a
+ * removal): their access moved. Recorded at the feed's next number, so a
+ * device whose cursor is the current head counts as from before the change.
+ * No visibility edge carries this move, so the Authority's delivery pass
+ * cannot record it; this runs in the change's own transaction instead.
+ */
+const recordMemberAccessMove = prepared((db, t) =>
+  db
+    .insert(t.syncAccessMoves)
+    .values({
+      workspaceId: WORKSPACE,
+      humanId: sql.placeholder('id'),
+      seq: sql`coalesce((select ${t.syncFeed.headSeq} from ${t.syncFeed} where ${t.syncFeed.workspaceId} = ${WORKSPACE}), 0) + 1`,
+    })
+    .onConflictDoUpdate({
+      target: [t.syncAccessMoves.workspaceId, t.syncAccessMoves.humanId],
+      set: {
+        seq: sql`case when ${t.syncAccessMoves.seq} > excluded.seq then ${t.syncAccessMoves.seq} else excluded.seq end`,
+      },
+    })
+    .prepare(),
+)
+
 /** Another enabled admin than `id`: a demotion must not leave the instance without one. */
 const stampMemberVersion = prepared((db, t) =>
   db
@@ -414,6 +438,7 @@ export class UsersRepository {
     })
     this.accountsWritten()
     if (!row) return undefined
+    await recordMemberAccessMove(this.db).run({ id: userId })
     const role = row.disabledAt === null ? (parseRole(row.role) ?? null) : null
     const change: MemberAccessChange = {
       memberId: userId,

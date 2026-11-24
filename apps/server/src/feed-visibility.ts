@@ -215,6 +215,19 @@ export interface FeedVisibility {
   readonly mayReadIssue: (userId: UserId, issueId: IssueId) => Promise<boolean>
 }
 
+/**
+ * POD-7552 — whether a visibility edge on a change of this kind is an ACCESS
+ * MOVE for its audience, the fact the access-move log keeps. An issue edge is
+ * not: every member reads every task (POD-6288, `mayReadIssue` below), so an
+ * issue's grant audience is inert history and the edge only re-delivers the
+ * issue's companions. Recorded, every write to a once-shared issue would turn
+ * its grantees' next refused reconnect into a rescope. The ship order, machine
+ * and machine-access edges do move what their audience may read.
+ */
+export function edgeMovesAccess(entity: string): boolean {
+  return entity !== 'issueProjection'
+}
+
 export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   const { store } = deps
 

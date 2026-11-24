@@ -1333,6 +1333,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: "the replica's own overlay bookkeeping, retired inside its own span",
   },
+  'packages/sync/src/authority/ports.ts#AccessMoveLogPort.movesAccess': {
+    kind: 'contained',
+    why: "a predicate over a change's entity kind (POD-7552): whether a visibility edge on it moves anyone's access. The server's implementation is a pure comparison (`edgeMovesAccess`); it reads nothing, writes nothing, and nothing outside the process can tell it was called.",
+  },
   'packages/sync/src/authority/ports.ts#AuthorityClock.AuthorityClock': {
     kind: 'contained',
     why: 'a clock read',

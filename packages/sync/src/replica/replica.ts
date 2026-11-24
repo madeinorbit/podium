@@ -1504,7 +1504,12 @@ export class Replica implements DeviceCollectionReads {
     const generation = this.walkGeneration
     this.markerWalk = cause === 'markers' ? generation : undefined
     // POD-7560: rights changed, or the cache went: no page waits on a reload any more.
-    if (cause === 'rescope' || cause === 'local-corruption' || cause === 'schema-version')
+    if (
+      cause === 'rescope' ||
+      cause === 'epoch-mismatch' ||
+      cause === 'local-corruption' ||
+      cause === 'schema-version'
+    )
       this.deferredPages.clear()
     // ONE recovery path owns invalidation for every rung. Ordinary walks keep
     // the old slice visible, but it must no longer certify absent personal rows.
@@ -1590,7 +1595,9 @@ export class Replica implements DeviceCollectionReads {
     const disk = this.store.readDiskIndex()
     const instances = this.store.readInstances()
     const ops: InstanceOperation[] = []
-    const keepInMemory = cause !== 'rescope'
+    // POD-7552: another feed identity (a restored or re-minted server) cannot say
+    // what the viewer may see now either: like a rescope, nothing in memory vouches.
+    const keepInMemory = cause !== 'rescope' && cause !== 'epoch-mismatch'
     const policy = new Set(policyInstances(this.store.readPolicy()).map(instanceKey))
     let dropped = 0
     for (const [key, marker] of instances) {

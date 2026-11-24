@@ -61,6 +61,24 @@ const MIN_RESUME_WIRE_VERSION = 2
 /** POD-7552 — the reason a refused resume is answered as a rescope. */
 export const ACCESS_MOVED_IN_GAP = 'access-moved-in-gap'
 
+/** POD-7552 — how long a refusal waits for queued delivery passes to record their moves. */
+export const ACCESS_MOVE_SETTLE_MS = 1_000
+
+/** Whether the Authority's queued delivery passes finish within `ms` (true when it has no queue). */
+async function settledWithin(authority: AuthorityPort, ms: number): Promise<boolean> {
+  if (authority.settled === undefined) return true
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), ms)
+    timer.unref?.()
+  })
+  try {
+    return await Promise.race([authority.settled().then(() => true as const), late])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /** One admitted client, as this module needs it. */
 export interface FeedPeer extends EdgePeer {
   readonly syncHttp?: boolean
@@ -388,7 +406,20 @@ export class FeedServing {
     const port = this.deps.accessMoves
     const human = humanOf(principal)
     if (port === undefined || human === null) return false
-    return await port.accessMovedAfter(String(human), seq)
+    try {
+      // The pass that records a move runs after its commit, so a move the
+      // caller's cursor read already counts may still be queued. Wait for the
+      // passes queued so far, briefly: past the bound the server cannot tell.
+      if (!(await settledWithin(this.deps.authority, ACCESS_MOVE_SETTLE_MS))) {
+        log.warn('access moves still being recorded; answering as moved', { seq })
+        return true
+      }
+      return await port.accessMovedAfter(String(human), seq)
+    } catch (error) {
+      // Fail toward the rescope: a lost answer must not keep revoked screens.
+      log.warn('reading the access-move log failed; answering as moved', { seq, error })
+      return true
+    }
   }
 
   /**

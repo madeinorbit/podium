@@ -586,6 +586,43 @@ export class Authority implements AuthorityPort {
   private broadcastTail: Promise<void> = Promise.resolve()
 
   /**
+   * POD-7552 — every human a visibility edge of this batch names, at the seq of
+   * the latest change that named them. From the PREPARED batch, which every
+   * principal's delivery shares, not from the subscribers: a human with no
+   * device connected is the one a later resume needs it for. A failed write
+   * is logged and does not hold the delivery back; the rows are durable, and
+   * a device within retention still learns of the move from them.
+   */
+  private async recordAccessMoves(
+    changes: readonly SequencedChange[],
+    prepared: PreparedBatch,
+  ): Promise<void> {
+    const port = this.deps.accessMoves
+    if (port === undefined) return
+    const moves = new Map<string, number>()
+    for (const [index, edge] of prepared.edges.entries()) {
+      if (edge === null || edge === undefined) continue
+      const change = changes[index]
+      if (change === undefined || port.movesAccess?.(change.entity) === false) continue
+      const seq = change.seq
+      for (const human of edge.audience) {
+        const key = String(human)
+        moves.set(key, Math.max(moves.get(key) ?? 0, seq))
+      }
+    }
+    if (moves.size === 0) return
+    try {
+      await port.recordAccessMoves(moves)
+    } catch (err) {
+      log.error('recording the access moves of a batch failed', {
+        throughSeq: changes[changes.length - 1]?.seq,
+        humans: moves.size,
+        err,
+      })
+    }
+  }
+
+  /**
    * Deliver a batch to every subscriber, in APPEND ORDER, even under reentrancy.
    *
    * THE BUG THIS SHAPE EXISTS TO PREVENT, which a naive loop reintroduces and no
@@ -612,42 +649,6 @@ export class Authority implements AuthorityPort {
    * Preparation itself remains outside that isolation: unresolved rights fail
    * the whole pass closed instead of leaking a row to any subscriber.
    */
-  /**
-   * POD-7552 — every human a visibility edge of this batch names, at the seq of
-   * the latest change that named them. From the PREPARED batch, which every
-   * principal's delivery shares, not from the subscribers: a human with no
-   * device connected is the one a later resume needs it for. A failed write
-   * is logged and does not hold the delivery back; the rows are durable, and
-   * a device within retention still learns of the move from them.
-   */
-  private async recordAccessMoves(
-    changes: readonly SequencedChange[],
-    prepared: PreparedBatch,
-  ): Promise<void> {
-    const port = this.deps.accessMoves
-    if (port === undefined) return
-    const moves = new Map<string, number>()
-    for (const [index, edge] of prepared.edges.entries()) {
-      if (edge === null || edge === undefined) continue
-      const seq = changes[index]?.seq
-      if (seq === undefined) continue
-      for (const human of edge.audience) {
-        const key = String(human)
-        moves.set(key, Math.max(moves.get(key) ?? 0, seq))
-      }
-    }
-    if (moves.size === 0) return
-    try {
-      await port.recordAccessMoves(moves)
-    } catch (err) {
-      log.error('recording the access moves of a batch failed', {
-        throughSeq: changes[changes.length - 1]?.seq,
-        humans: moves.size,
-        err,
-      })
-    }
-  }
-
   private async broadcast(changes: readonly SequencedChange[]): Promise<void> {
     const delivery = this.broadcastTail.then(async () => {
       // The head and visibility snapshot belong to THIS pass. Preparation is an

@@ -250,9 +250,8 @@ const RENAME = 21
 // its reference columns, so a priority edit rebuilds none of them: 66 -> 57.
 // The authority now marks the transaction's pre-existing capture before applying
 // the command (captureMark, POD-7100): one scalar read, not another grant read.
-// POD-7552: a write to a shared issue moves its audience's access (the issue's
-// visibility edge), so the delivery records each grantee's last access move:
-// one upsert, at either size: 58 -> 59.
-const ISSUE_UPDATE = 59
+// POD-7552: an issue's visibility edge is no access move (POD-6288), so a write to a
+// shared issue records none: still 58.
+const ISSUE_UPDATE = 58
 // POD-6920: derived change capture: 24 -> 17.
 const OBSERVATION = 17

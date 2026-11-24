@@ -95,7 +95,7 @@ import {
 import { LifecyclePort } from './composition/lifecycle-port'
 import { composeReactions, REACTIONS, type ReactionDefinition } from './composition/reactions'
 import { getFeatureStates, isFeatureEnabled, serverFeatureFacts } from './features'
-import { makeFeedVisibility } from './feed-visibility'
+import { edgeMovesAccess, makeFeedVisibility } from './feed-visibility'
 import { ClientMux } from './gateway/client-mux'
 import { ClientRegistry } from './gateway/client-registry'
 import { DaemonLinks } from './gateway/daemon-link-kind'
@@ -1324,7 +1324,10 @@ export class SessionRegistry {
       listenerPrincipal: CHANGE_LOG_OBSERVER,
       repo: this.store.sync,
       // POD-7552: each human's last access move, kept past the log's retention.
-      accessMoves: this.store.sync,
+      accessMoves: {
+        recordAccessMoves: async (moves) => await this.store.sync.recordAccessMoves(moves),
+        movesAccess: edgeMovesAccess,
+      },
       now: () => this.now(),
       transact: async (fn) => await this.store.transact(fn),
       // Subscriber delivery waits for the OUTERMOST commit, not for the nested

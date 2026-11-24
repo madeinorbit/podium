@@ -155,6 +155,16 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
       if (!worker) throw new SyncWorkerError('unavailable')
       const { feedId, epoch } = await deps.serving.identity()
       if (signal.aborted) throw new SyncWorkerError('cancelled')
+      // POD-7552: the device reloads over what it held at `since`. When the viewer's
+      // access moved after it, the device must drop what it shows at once. Read
+      // before the transfer starts, so nothing here can strand a running transfer;
+      // a failed read answers as moved (FeedServing.accessMovedAfter).
+      const accessMoved =
+        since !== undefined &&
+        since.feedId === feedId &&
+        since.epoch === epoch &&
+        (await deps.serving.accessMovedAfter(principal, since.seq))
+      if (signal.aborted) throw new SyncWorkerError('cancelled')
       const transfer = worker.bootstrap(
         {
           transferId,
@@ -182,13 +192,6 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
         release()
         logSyncTransfer(metrics)
       })
-      // POD-7552: the device reloads over what it held at `since`. When the viewer's
-      // access moved after it, the device must drop what it shows at once.
-      const accessMoved =
-        since !== undefined &&
-        since.feedId === feedId &&
-        since.epoch === epoch &&
-        (await deps.serving.accessMovedAfter(principal, since.seq))
       await transfer.meta // Worker acknowledgement precedes HTTP 200.
       const headers = syncResponseHeaders(coding)
       headers.set('Podium-Transfer-Id', transferId)

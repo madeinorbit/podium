@@ -539,6 +539,19 @@ describe("each human's last access move is recorded (POD-7552)", () => {
     expect(order).toEqual(['recorded', 'delivered', 'delivered'])
   })
 
+  it("skips the edges of a kind the port says moves nobody's access", async () => {
+    const recorded: [string, number][][] = []
+    const { authority, tables } = build(32, memoryStore(), {
+      recordAccessMoves: async (moves) => {
+        recorded.push([...moves].sort())
+      },
+      movesAccess: (entity) => entity !== 'session',
+    })
+    tables.edge(ref('inert'), ['ada'], [])
+    await authority.save([upsert('inert', {})])
+    expect(recorded).toEqual([])
+  })
+
   it('a failed record does not hold the delivery back', async () => {
     const { authority, tables } = build(32, memoryStore(), {
       recordAccessMoves: async () => {

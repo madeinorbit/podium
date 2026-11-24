@@ -266,6 +266,10 @@ describe('bootstrap since (POD-7552)', () => {
     expect(moved.status).toBe(200)
     expect(moved.headers.get('podium-sync-access-moved')).toBe('1')
     expect(f.accessMoved).toHaveBeenLastCalledWith(DEVICE_GRADE_PRINCIPAL, 6)
+    // Read before the transfer starts, so a failure cannot strand a running one (review F4).
+    expect(f.accessMoved.mock.invocationCallOrder[0]).toBeLessThan(
+      f.bootstrap.mock.invocationCallOrder[0] ?? 0,
+    )
     const unmoved = await bootstrapAt(f, '?sinceFeedId=f&sinceEpoch=e&since=7')
     expect(unmoved.status).toBe(200)
     expect(unmoved.headers.get('podium-sync-access-moved')).toBeNull()
