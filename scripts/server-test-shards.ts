@@ -57,6 +57,8 @@
  *
  *   bun scripts/server-test-shards.ts --write
  */
+
+import { execFileSync } from 'node:child_process'
 import {
   existsSync,
   mkdirSync,
@@ -365,6 +367,42 @@ export function scansRepositorySource(root: string, relativePath: string): boole
  */
 const PATH_LITERAL = /['"`]((?:apps|packages|scripts|docs|tooling|tests)\/[\w./-]+)['"`]/g
 
+/**
+ * Paths git tracks under `root`, files and every directory that holds one. A path literal
+ * counts only when it names one of these: build output and other ignored files (a built
+ * `apps/web/dist`, a cache) exist on some machines and not others, and must not change
+ * the derived plan, or the drift check passes on one host and fails on the next.
+ */
+const trackedPathsByRoot = new Map<string, Set<string> | null>()
+/** Null outside a git checkout (test fixtures): then existence alone decides. */
+function trackedPaths(root: string): Set<string> | null {
+  const cached = trackedPathsByRoot.get(root)
+  if (cached !== undefined) return cached
+  let listed: string
+  try {
+    listed = execFileSync('git', ['-C', root, 'ls-files', '-z'], {
+      encoding: 'utf8',
+      maxBuffer: 256 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+  } catch {
+    trackedPathsByRoot.set(root, null)
+    return null
+  }
+  const paths = new Set<string>()
+  for (const file of listed.split('\0')) {
+    if (!file) continue
+    paths.add(file)
+    for (let slash = file.lastIndexOf('/'); slash > 0; slash = file.lastIndexOf('/', slash - 1)) {
+      const dir = file.slice(0, slash)
+      if (paths.has(dir)) break
+      paths.add(dir)
+    }
+  }
+  trackedPathsByRoot.set(root, paths)
+  return paths
+}
+
 export function referencedRepositoryPaths(root: string, relativePath: string): string[] {
   let source: string
   try {
@@ -378,6 +416,8 @@ export function referencedRepositoryPaths(root: string, relativePath: string): s
   for (const match of source.matchAll(PATH_LITERAL)) {
     const absolute = join(root, match[1] as string)
     if (!existsSync(absolute)) continue
+    const tracked = trackedPaths(root)
+    if (tracked && !tracked.has(relative(root, absolute))) continue
     // Directory literals may already end in '/'; normalize before adding the glob suffix.
     const candidate = relative(root, absolute)
     found.add(statSync(absolute).isDirectory() ? `${candidate}/**` : candidate)

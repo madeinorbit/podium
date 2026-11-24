@@ -177,6 +177,33 @@ describe('server test cache shards', () => {
     expect(overrides['kept.test.ts']).toBe(engines.beyondStoreShard['kept.test.ts'])
   })
 
+  it('ignores a literal naming build output git does not track [POD-6951]', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'podium-server-shard-tracked-'))
+    try {
+      const git = (...args: string[]) =>
+        spawnSync('git', ['-C', fixture, ...args], { encoding: 'utf8' })
+      git('init', '-q')
+      mkdirSync(join(fixture, 'apps/web/src'), { recursive: true })
+      writeFileSync(join(fixture, 'apps/web/src/main.ts'), 'export {}\n')
+      // Present only where a web build ran; ignored, so absent from fresh checkouts.
+      mkdirSync(join(fixture, 'apps/web/dist'), { recursive: true })
+      writeFileSync(join(fixture, 'apps/web/dist/index.html'), '<html></html>\n')
+      writeFileSync(join(fixture, '.gitignore'), 'apps/web/dist/\n')
+      const file = 'apps/server/src/build-output.test.ts'
+      mkdirSync(join(fixture, 'apps/server/src'), { recursive: true })
+      writeFileSync(
+        join(fixture, file),
+        ['apps/web/dist', 'apps/web/src/main.ts']
+          .map((path) => `readFileSync(${JSON.stringify(path)})`)
+          .join('\n'),
+      )
+      git('add', '-A')
+      expect(referencedRepositoryPaths(fixture, file)).toEqual(['apps/web/src/main.ts'])
+    } finally {
+      rmSync(fixture, { recursive: true, force: true })
+    }
+  })
+
   it.each(['', '/', '//'])('normalizes directory literals ending in %j [POD-6380]', (suffix) => {
     const fixture = mkdtempSync(join(tmpdir(), 'podium-server-shard-inputs-'))
     try {
