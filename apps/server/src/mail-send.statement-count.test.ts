@@ -53,6 +53,7 @@ interface Fixture {
   superagent: SuperagentService
   call: ReturnType<typeof appRouter.createCaller>
   replies: Map<string, (reply: RelayResult) => void>
+  finishActivityTicks(): Promise<void>
 }
 
 async function settle(reg: SessionRegistry): Promise<void> {
@@ -71,6 +72,20 @@ async function settle(reg: SessionRegistry): Promise<void> {
 async function fixture(size: number, issueMail = true): Promise<Fixture> {
   const store = await openTestStore(':memory:')
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  // Retain each timer's complete flush so a counted window cannot end halfway
+  // through its scan/write/commit footprint, or inherit one started during setup.
+  const activityTicks = new Set<Promise<void>>()
+  const flushActivity = reg.modules.sessions.flushActivity.bind(reg.modules.sessions)
+  vi.spyOn(reg.modules.sessions, 'flushActivity').mockImplementation(() => {
+    const tick = flushActivity().finally(() => {
+      activityTicks.delete(tick)
+    })
+    activityTicks.add(tick)
+    return tick
+  })
+  const finishActivityTicks = async () => {
+    while (activityTicks.size > 0) await Promise.all(activityTicks)
+  }
   const replies = new Map<string, (reply: RelayResult) => void>()
   await attachHostDaemon(
     reg,
@@ -130,7 +145,18 @@ async function fixture(size: number, issueMail = true): Promise<Fixture> {
     await settle(reg)
     if (((await store.sync.queuedMessageCounts([target])).get(target) ?? 0) === 0) break
   }
-  return { store, reg, issueId: issue.id, sender, target, others, superagent, call, replies }
+  return {
+    store,
+    reg,
+    issueId: issue.id,
+    sender,
+    target,
+    others,
+    superagent,
+    call,
+    replies,
+    finishActivityTicks,
+  }
 }
 
 let relayed = 0
@@ -191,7 +217,11 @@ const plantPerSession = (f: Fixture): (() => void) => {
   return () => spy.mockRestore()
 }
 
-describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 and 150)', () => {
+// These are work budgets, not latency budgets: each case also builds hundreds of
+// sessions and messages before counting. That setup takes 15–22 seconds on a shared
+// SQLite VM; retain the PG lane's 90-second allowance and give SQLite 60 seconds.
+const fixtureTimeout = testStoreEngine() === 'pg' ? 90_000 : 60_000
+describe('mail send: pinned statement counts', { timeout: fixtureTimeout }, () => {
   // A send to a session on an issue also queues a delivery pass for the
   // issue's held mail. These pins hold that mail out (the earlier mail went to
   // the session); the "holds mail" pins below count it in.
@@ -270,7 +300,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
       trpcToSession,
       pinnedCountFor({ sqlite: 135, pg: 140, reason: pgPublicationReason }, testStoreEngine()),
     )
-  }, 60_000)
+  })
 
   // The pass attempts every held message, and each attempt read the issue's
   // members and its sender's machine ownership on its own: 100 statements
@@ -378,13 +408,23 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
       return
     }
     // The independent 12-second activity tick can land during the slower PG
-    // fixture. Pin every call family, not an aggregate that conflates that tick
-    // with mail. One tick may scan, then upsert activity and drain capture in its
-    // own transaction; every other statement and transaction remains accounted for.
+    // fixture. Pin every call family, not an aggregate that conflates ticks with
+    // mail. Count complete ticks, however many elapsed time permits: a clean tick
+    // scans once; a dirty tick also upserts activity and drains capture in its own
+    // transaction. Every other statement and transaction remains accounted for.
     const counts = await measureAtSizes({
       ...relayToSession,
       count: async (f, run) => {
-        const trips = await countRoundTrips(f.store, run)
+        await f.finishActivityTicks()
+        const trips = await countRoundTrips(f.store, async () => {
+          const result = await run()
+          // Exercise multiple complete ticks on every run without waiting for
+          // wall-clock timers. Timer-started flushes are retained and awaited too.
+          await f.reg.modules.sessions.flushActivity()
+          await f.reg.modules.sessions.flushActivity()
+          await f.finishActivityTicks()
+          return result
+        })
         return { result: trips.result, statements: trips.roundTrips, byQuery: trips.byCall }
       },
     })
@@ -397,7 +437,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
       )
       const activityWrites =
         calls(/^statement \(write\): with "__capture_w" as \(insert into "sessions"/) - 1
-      expect(activityScans, detail).toBeLessThanOrEqual(1)
+      expect(activityScans, detail).toBeGreaterThanOrEqual(2)
       expect(activityWrites, detail).toBeGreaterThanOrEqual(0)
       expect(activityWrites, detail).toBeLessThanOrEqual(activityScans)
       const families: Record<string, number> = {}
@@ -415,14 +455,14 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
       expect(calls(/^statement \(write\): delete from "sync_capture"/), detail).toBe(
         7 + activityWrites,
       )
-      // Publication costs are fixed at both sizes, independently of that tick.
+      // Publication costs are fixed at both sizes, independently of the ticks.
       expect(
         calls(/^statement \(root\): select "head_seq", "floor_seq" from "sync_feed"/),
         detail,
       ).toBe(3)
       expect(calls(/^statement \(root\): select "target"\."column1"/), detail).toBe(2)
     }
-  }, 60_000)
+  })
 
   it('through the agent relay, to its own issue', async () => {
     await expectConstantStatements(
