@@ -87,10 +87,11 @@ export function holdingInstanceOf(
     throw new Error(
       `${here}: ${record.kind} is the body of ${record.bodyOf}, not of ${source?.kind}`,
     )
-  const keyed = Object.values(record.collections).flatMap((collection) => {
+  const keyed: { collection: Collection; param: string }[] = []
+  for (const collection of Object.values(record.collections)) {
     const param = keyParam(collection, back.foreignKey)
-    return param === undefined ? [] : [{ collection, param }]
-  })
+    if (param !== undefined) keyed.push({ collection, param })
+  }
   const [only, ...others] = keyed
   if (only === undefined || others.length > 0)
     throw new Error(

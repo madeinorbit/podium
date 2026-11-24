@@ -34299,42 +34299,6 @@
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
-      "file": "packages/client-graph/src/mission-screen.ts",
-      "holder": "MissionScreen/rootBodyHeld/description",
-      "rule": "reader-summary",
-      "tokens": "90312119fcc0fce46640615cfe3a4fff0c27e8f0f641714d51a28a756e861634",
-      "gate": [],
-      "origin": [
-        "87de5dffe9bf19b844ef5e3610e2a824a73ea0dc7e3b37b471efd1ba5cbaf645"
-      ],
-      "fingerprint": "950d2c84b4b236224b02a6df1b998816d2f0ae76c109859a39df57dc0321503c",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-7088",
-      "trigger": "Opening a flight deck.",
-      "bound": "Constant: two addressed instances (the root's description and state line).",
-      "reason": "POD-7088: the deck asks for its root's body part when it opens; no member's body is read.",
-      "guard": "mission screen tests open a deck over a pool without a loader (held) and the startup check reads decks."
-    },
-    {
-      "file": "packages/client-graph/src/mission-screen.ts",
-      "holder": "MissionScreen/rootBodyHeld/state",
-      "rule": "reader-summary",
-      "tokens": "29a4528158b072d1685b7de017ea90f79405f2dadb78a24fdf45304fff707b53",
-      "gate": [],
-      "origin": [
-        "87de5dffe9bf19b844ef5e3610e2a824a73ea0dc7e3b37b471efd1ba5cbaf645"
-      ],
-      "fingerprint": "34010f576638bd1733e9505e76d056a0f0a093ef2127543aa4b3f7d902c3a115",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-7088",
-      "trigger": "Opening a flight deck.",
-      "bound": "Constant: two addressed instances (the root's description and state line).",
-      "reason": "POD-7088: the deck asks for its root's body part when it opens; no member's body is read.",
-      "guard": "mission screen tests open a deck over a pool without a loader (held) and the startup check reads decks."
-    },
-    {
       "file": "packages/client-graph/src/mission-view.ts",
       "holder": "readMissionActionInputs/anchorScope",
       "rule": "reader-summary",
@@ -37030,7 +36994,7 @@
       "file": "apps/mobile/src/screens/IssueScreen.tsx",
       "holder": "IssueContent/IssueContent/commands",
       "rule": "helper-consumer",
-      "tokens": "4e28f7e6e04e18b3f13e7d1d8219125c862a2f805a7cd2ca7250f3bf4a9d5743",
+      "tokens": "060e0c651f97d7112ff3586b80fc12ba3022557b101c1140f0acc7d6e75ae202",
       "gate": [],
       "origin": [
         "2da686ae13c8d602a2f6590aaa5f967dd5f4f634022be47a4f93180d9b8541cf",
@@ -37043,7 +37007,7 @@
         "d05c1e54e8eac028d5312ed64716bf92cfd5382d32a6f6292799a6ea5677ddac",
         "f54332cb25c02ffc0d4f9a7d3d69d15a6ba8995dc995a2f574baacfdf994dea4"
       ],
-      "fingerprint": "931399d562babf61260ba0803a4d52622f5e5679a0ce075aba85cac124f6aeae",
+      "fingerprint": "3b174c0674e2117d6dc8efb9315f6e685dc0ad1281fa47a307a8bfb4375f2a5f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-6707",
@@ -37666,7 +37630,7 @@
       "file": "apps/web/src/features/issues/IssuePage.tsx",
       "holder": "IssuePageBody/IssuePageBody/commands",
       "rule": "helper-consumer",
-      "tokens": "184184b3749ee98f315b41f717a025e95514a016a6e0df852535a6520ce4de18",
+      "tokens": "3b1722e604defcb07d64b99faec50da18e22fb9f4326589ed232ef217e770351",
       "gate": [],
       "origin": [
         "065bcb7b97b42e62e276753da085d0dc22aaaa706e1c704471f3b30c550b63cc",
@@ -37678,7 +37642,7 @@
         "c4ab2970a0486aa35db00be78aba17f88c686f202f55f2081dc1285c8d73e794",
         "ee384eff0df7def189a8cadac4d88b2c55618b5e7c740f67b74770681e3a5084"
       ],
-      "fingerprint": "1cf3b1cbc9487d5fc1515460b9960e7341385df65cc446e881a00adedfe47cbc",
+      "fingerprint": "99a2f256c87d8c26db637ecb9a34816be8ad2a5761a7a86780793f9e9bf1fe3b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-6707",
