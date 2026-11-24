@@ -1,4 +1,4 @@
-import { TranscriptLog } from '@podium/client-core/conversation'
+import { DraftStore, TranscriptLog } from '@podium/client-core/conversation'
 import { SocketHub, type WebSocketLike } from '@podium/client-core/socket-transport'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { isGone, LOADING } from '@podium/client-graph'
@@ -26,6 +26,9 @@ import { Profiler, type ProfilerOnRenderCallback, useMemo, useSyncExternalStore 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DockIssueProvider } from '@/features/issues/dock-issue'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
+import { navigateReload } from '@/lib/navigate'
+import { RELOAD_COMMIT_GRACE_MS, registerReloadPreparation } from '@/lib/reload-preparation'
+import { followNewWorker, resetTakeoverForTests } from '@/lib/update-takeover'
 import { FeedSink } from '../../../../packages/client-core/src/replica/feed/sink'
 import { treeOf } from '../../../../packages/client-graph/src/collections'
 import { attachMissionTestPreferences } from '../../../../packages/client-graph/src/mission-screen.test.fixture'
@@ -47,6 +50,11 @@ import { FoldedFlightDeckBar } from './FoldedFlightDeckBar'
 import { missionLegacyCountsFor, resetMissionLegacyCounts } from './mission-pane-perf'
 import { OperatorFocusProvider } from './operator-focus'
 import { poolBackedScreens } from './pool-screens'
+
+vi.mock('@/lib/navigate', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/navigate')>()),
+  navigateReload: vi.fn(),
+}))
 
 const state = vi.hoisted(() => ({
   pool: null as unknown,
@@ -826,6 +834,150 @@ it('keeps a loaded deck on screen, refreshing, while a refused resume loads agai
     await waitFor(() => expect(refresh()).toBe('here'))
   } finally {
     release?.()
+    hub.dispose()
+    current.unmount()
+    device.dispose()
+  }
+}, 15_000)
+
+/**
+ * THE UPDATE HANDOVER (POD-7539, fix 2 of POD-7531). During the dev.54 update
+ * the new worker took control of a desktop window with a loaded deck and the
+ * page reloaded on the spot, cold-starting into the skeleton. The old server
+ * goes away, its successor is slow to listen, and the new worker takes control
+ * meanwhile: the deck stays on screen, and the reload waits for the page to be
+ * hidden, after the composer's unsent text is saved.
+ */
+it('keeps a loaded deck through an update handover with a slow successor, and its unsent text', async () => {
+  const root = 'root'
+  const device = await openDevice({
+    world(server) {
+      server.put(ISSUE, root, issueValue(root, { title: 'Fixture mission' }))
+      server.put(
+        ISSUE,
+        'open-child',
+        issueValue('open-child', { parentId: root, title: 'Open fixture task' }),
+      )
+    },
+  })
+  pool.dispose()
+  pool = device.pool
+  state.pool = pool
+  state.navigation = createPoolNavigationProvider(pool)
+  state.selectedIssueId = root
+  attachMissionTestPreferences(pool)
+
+  let socket: WebSocketLike
+  let sockets = 0
+  const hub = new SocketHub({
+    url: 'ws://fixture.invalid',
+    makeSocket: () => {
+      sockets += 1
+      socket = {
+        onopen: null,
+        onclose: null,
+        onmessage: null,
+        send: () => {},
+        close: () => socket.onclose?.({ code: 1006, wasClean: false }),
+      }
+      return socket
+    },
+    feed: new FeedSink({ replica: device.replica }),
+  })
+  const open = () => {
+    hub.connectNow()
+    socket.onopen?.({})
+  }
+  // The composer's drafts, persisted the way the runtime's reload preparation does.
+  const stored = new Map<string, string>()
+  const drafts = new DraftStore({
+    storage: {
+      get: (key) => stored.get(key) ?? null,
+      set: (key, value) => {
+        if (value === null) stored.delete(key)
+        else stored.set(key, value)
+      },
+    },
+    hub,
+  })
+  const detachPreparation = registerReloadPreparation(async () => drafts.persist(true))
+  let visibility: DocumentVisibilityState = 'visible'
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    get: () => visibility,
+  })
+  vi.mocked(navigateReload).mockClear()
+  open()
+  const current = mount()
+  const pump = () =>
+    act(async () => {
+      await device.settle()
+      await vi.advanceTimersByTimeAsync(50)
+    })
+  const scroller = () => current.queryByTestId('flight-deck-scroller')
+  const rowsText = () => current.queryByTestId('flight-deck-rows')?.textContent ?? null
+  try {
+    await pump()
+    await waitFor(() => expect(scroller()).not.toBeNull())
+    await pump()
+    const loaded = scroller() as HTMLElement
+    loaded.scrollTop = 80
+    const rows = rowsText()
+    expect(rows).toContain('Open fixture task')
+
+    // The old server stops; the successor takes its time to listen.
+    await act(async () => {
+      socket.close()
+    })
+    const attempts = sockets
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000)
+    })
+    expect(sockets).toBeGreaterThan(attempts)
+
+    // The new worker takes control while the deck is in use.
+    let outcome: ReturnType<typeof followNewWorker> | undefined
+    act(() => {
+      outcome = followNewWorker('workbox-controlling')
+    })
+    expect(outcome).toBe('deferred')
+    drafts.set('session-1' as SessionId, 'a reply not sent yet')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000)
+    })
+    expect(navigateReload).not.toHaveBeenCalled()
+    expect(current.queryByTestId('flight-settling')).toBeNull()
+    expect(scroller()).toBe(loaded)
+    expect(loaded.scrollTop).toBe(80)
+    expect(rowsText()).toBe(rows)
+
+    // The successor answers: the same deck resumes in place.
+    act(() => open())
+    await pump()
+    await pump()
+    expect(device.replica.posture).toBe('live')
+    expect(scroller()).toBe(loaded)
+    expect(rowsText()).toBe(rows)
+    expect(navigateReload).not.toHaveBeenCalled()
+
+    // The last keystroke, inside the persist debounce, then the window is hidden.
+    drafts.set('session-1' as SessionId, 'a reply not sent yet, finished')
+    stored.clear()
+    await act(async () => {
+      visibility = 'hidden'
+      document.dispatchEvent(new Event('visibilitychange'))
+      await vi.waitFor(() => expect(navigateReload).toHaveBeenCalledOnce())
+    })
+    expect(vi.mocked(navigateReload).mock.calls[0]?.[0]).toBe('workbox-controlling')
+    expect([...stored.values()].join('')).toContain('a reply not sent yet, finished')
+  } finally {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RELOAD_COMMIT_GRACE_MS)
+    })
+    resetTakeoverForTests()
+    detachPreparation()
+    drafts.dispose()
+    Reflect.deleteProperty(document, 'visibilityState')
     hub.dispose()
     current.unmount()
     device.dispose()
