@@ -19,8 +19,12 @@ import type { AskQuestionAnswer } from '../components/AskQuestionCard'
 
 export type AnswerSessionReply = { ok: boolean; reason?: string }
 
+/** A card answer that goes to the live menu: everything but a written reply,
+ *  which the conversation sends to the asker instead. */
+export type MenuAnswer = Exclude<AskQuestionAnswer, { reply: unknown }>
+
 /** The card's answer as a live-menu answer: only what the server reads. */
-export function menuAnswer(answer: AskQuestionAnswer): SessionAnswer {
+export function menuAnswer(answer: MenuAnswer): SessionAnswer {
   const interactionId =
     answer.interactionId !== undefined ? { interactionId: answer.interactionId } : {}
   return 'skip' in answer

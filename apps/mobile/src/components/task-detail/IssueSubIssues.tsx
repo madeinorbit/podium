@@ -1,23 +1,51 @@
-import { childProgressOf } from '@podium/client-graph/lookup'
-import { useIssueOpening } from '../../client/issue-opening'
-import { issueObserver as observer } from '../../client/issue-observer'
-import { type PageIssue } from '@podium/client-graph/issue-page'
-import { isFinished } from '@podium/model/browser'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { confirmedWorkingAgentCountsByIssue, taskStateWord } from '@podium/client-core/values'
-
+import type { PageIssue } from '@podium/client-graph/issue-page'
+import { childProgressOf } from '@podium/client-graph/lookup'
+import { sidebarIssueProgress } from '@podium/client-graph/worklist/sidebar'
+import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import { useMemo, useState } from 'react'
-import { StyleSheet, Text, TextInput, View } from 'react-native'
+import { type ComponentProps, useState } from 'react'
+import { StyleSheet, TextInput, View } from 'react-native'
+import { issueObserver as observer } from '../../client/issue-observer'
+import { useIssueOpening } from '../../client/issue-opening'
+import { useMobilePool } from '../../client/mobile-pool'
 import type { IssueCommands } from '../../lib/issue-detail'
-import { alpha } from '../../theme/mix'
-import { color, font, mono, radius, sans, space } from '../../theme/theme'
+import { color, font, leading, radius, sans, space } from '../../theme/theme'
 import { Icon } from '../Icon'
-import { Plus } from '../icons'
+import { ChevronRight, Plus } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { StageGlyph } from '../StageGlyph'
 import { SectionHeading } from './chrome'
+import { DetailText as Text } from './DetailText'
+import { useDetailLayout } from './detail-type'
+
+/** FullDeck.buckets reads this same shared execution progress. */
+function useSubTaskCount(issue?: IssueViewModel) {
+  const pool = useMobilePool()
+  // A count over history answers LOADING until the stubs are complete.
+  if (!pool || !issue || !childProgressOf(issue)?.childCount) return undefined
+  const progress = sidebarIssueProgress(pool.issueObject(issue.id))
+  if (typeof progress === 'symbol') throw progress
+  return `${progress.done}/${progress.total}`
+}
+
+export const IssueSubIssuesSection = observer(function IssueSubIssuesSection(
+  props: ComponentProps<typeof IssueSubIssues>,
+) {
+  const views = useIssueOpening()
+  const count = useSubTaskCount(props.issue)
+  const rows = props.subIssues ?? views?.row(props.issue.id).children ?? []
+  if (typeof rows === 'symbol') throw rows
+  if (rows.length === 0) return null
+  return (
+    <View testID="issue-subtasks-section">
+      <SectionHeading label="Sub-tasks" count={count} />
+      <IssueSubIssues {...props} headless />
+    </View>
+  )
+})
 
 /**
  * The sub-task list [POD-724], kept flat in the shared slice order with an
@@ -48,8 +76,12 @@ export const IssueSubIssues = observer(function IssueSubIssues({
   now,
   onOpen,
   onStatus,
+  onAdd,
+  headless = false,
 }: {
   issue: IssueViewModel
+  /** Inside a fold whose header already names it. */
+  headless?: boolean
   subIssues?: IssueViewModel[]
   busy: boolean
   commands: IssueCommands
@@ -57,9 +89,13 @@ export const IssueSubIssues = observer(function IssueSubIssues({
   now?: number
   onOpen: (id: string) => void
   onStatus: (issue: IssueViewModel) => void
+  onAdd?: () => void
 }) {
+  const { accessorySize: size } = useDetailLayout()
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
+  const [all, setAll] = useState(false)
+  const count = useSubTaskCount(headless ? undefined : issue)
   const views = useIssueOpening()
   const rows = suppliedChildren ?? (views ? views.row(issue.id).children : [])
   if (typeof rows === 'symbol') throw rows
@@ -76,71 +112,74 @@ export const IssueSubIssues = observer(function IssueSubIssues({
   }
 
   return (
-    <View style={styles.section} testID="sub-issues">
-      <SectionHeading
-        label="Sub-tasks"
-        count={(() => {
-          const progress = childProgressOf(issue)
-          return progress && progress.childCount > 0
-            ? `${progress.childDoneCount}/${progress.childCount}`
-            : undefined
-        })()}
-      />
-      {subIssues.map((child) => (
-        <SubTaskRow
-          key={child.id}
-          child={child}
-          workingAgents={legacyWorkers?.get(child.id) ?? 0}
-          onOpen={onOpen}
-          onStatus={onStatus}
-          muted={isFinished(child)}
-        />
-      ))}
-      {subIssues.length === 0 ? (
-        <Text style={styles.empty}>No sub-tasks. Break the work down as it becomes clear.</Text>
-      ) : null}
-
-      {adding ? (
-        <View style={styles.addRow}>
-          <TextInput
-            value={title}
-            onChangeText={setTitle}
-            accessibilityLabel="Sub-task title"
-            placeholder="Sub-task title…"
-            placeholderTextColor={color.textMicro}
-            autoFocus
-            returnKeyType="done"
-            // Guard double-submit here rather than disabling the field, so rapid
-            // entry keeps flowing across creates.
-            onSubmitEditing={create}
-            style={styles.field}
+    <View style={headless ? undefined : styles.section} testID="sub-issues">
+      {headless ? null : <SectionHeading label="Sub-tasks" count={count} />}
+      <View style={styles.card} testID="sub-issues-card">
+        {(all ? subIssues : subIssues.slice(0, 4)).map((child, index) => (
+          <SubTaskRow
+            key={child.id}
+            child={child}
+            first={index === 0}
+            workingAgents={legacyWorkers?.get(child.id) ?? 0}
+            onOpen={onOpen}
+            onStatus={onStatus}
+            muted={isFinished(child)}
           />
+        ))}
+        {!all && subIssues.length > 4 ? (
           <PressableScale
             accessibilityRole="button"
-            accessibilityLabel="Add sub-task"
-            accessibilityState={{ disabled: busy || title.trim().length === 0 }}
-            disabled={busy || title.trim().length === 0}
-            onPress={create}
-            style={({ pressed }) => [
-              styles.addBtn,
-              (busy || title.trim().length === 0) && styles.muted,
-              pressed && styles.muted,
-            ]}
+            accessibilityLabel="See all sub-tasks"
+            onPress={() => setAll(true)}
+            style={styles.addChip}
           >
-            <Text style={styles.addBtnText}>Add</Text>
+            <Text style={styles.addChipText}>See all {subIssues.length} sub-tasks</Text>
           </PressableScale>
-        </View>
-      ) : (
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel="Add a sub-task"
-          onPress={() => setAdding(true)}
-          style={({ pressed }) => [styles.addChip, pressed && styles.rowPressed]}
-        >
-          <Icon as={Plus} size={14} color={color.textDim} />
-          <Text style={styles.addChipText}>Add sub-task</Text>
-        </PressableScale>
-      )}
+        ) : null}
+        {subIssues.length === 0 ? <Text style={styles.empty}>No sub-tasks yet.</Text> : null}
+
+        {adding ? (
+          <View style={styles.addRow}>
+            <TextInput
+              value={title}
+              onChangeText={setTitle}
+              accessibilityLabel="Sub-task title"
+              placeholder="Sub-task title…"
+              placeholderTextColor={color.textMicro}
+              autoFocus
+              returnKeyType="done"
+              // Guard double-submit here rather than disabling the field, so rapid
+              // entry keeps flowing across creates.
+              onSubmitEditing={create}
+              style={styles.field}
+            />
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel="Add sub-task"
+              accessibilityState={{ disabled: busy || title.trim().length === 0 }}
+              disabled={busy || title.trim().length === 0}
+              onPress={create}
+              style={({ pressed }) => [
+                styles.addBtn,
+                (busy || title.trim().length === 0) && styles.muted,
+                pressed && styles.muted,
+              ]}
+            >
+              <Text style={styles.addBtnText}>Add</Text>
+            </PressableScale>
+          </View>
+        ) : (
+          <PressableScale
+            accessibilityRole="button"
+            accessibilityLabel="Add a sub-task"
+            onPress={() => (onAdd ? onAdd() : setAdding(true))}
+            style={({ pressed }) => [styles.addChip, pressed && styles.rowPressed]}
+          >
+            <Icon as={Plus} size={size(14)} color={color.textDim} />
+            <Text style={styles.addChipText}>Add sub-task</Text>
+          </PressableScale>
+        )}
+      </View>
     </View>
   )
 })
@@ -149,16 +188,20 @@ export const IssueSubIssues = observer(function IssueSubIssues({
 const SubTaskRow = observer(function SubTaskRow({
   child,
   workingAgents,
+  first,
   onOpen,
   onStatus,
   muted,
 }: {
   child: IssueViewModel
   workingAgents: number
+  first: boolean
   onOpen: (id: string) => void
   onStatus: (issue: IssueViewModel) => void
   muted?: boolean
 }) {
+  const { size, accessorySize, accessibility } = useDetailLayout()
+  const statusWidth = space.md + accessorySize(14) + space.sm
   const count =
     'confirmedWorkingAgents' in child ? (child as PageIssue).confirmedWorkingAgents : workingAgents
   const state = taskStateWord(child, count)
@@ -172,15 +215,20 @@ const SubTaskRow = observer(function SubTaskRow({
           : color.textFaint
   return (
     <View style={[styles.row, (muted || child.archived) && styles.rowMuted]}>
+      {first ? null : <View style={[styles.separator, { left: statusWidth }]} />}
       <PressableScale
         accessibilityRole="button"
         accessibilityLabel={`Change status for ${issueDisplayRef(child)}`}
         accessibilityHint="Opens the status picker"
         onPress={() => onStatus(child)}
-        hitSlop={4}
-        style={({ pressed }) => [styles.statusButton, pressed && styles.rowPressed]}
+        hitSlop={space.sm}
+        style={({ pressed }) => [
+          styles.statusButton,
+          { width: statusWidth, height: size(leading(font.body)) + space.xl },
+          pressed && styles.rowPressed,
+        ]}
       >
-        <StageGlyph stage={child.stage} size={14} ground={color.bg} />
+        <StageGlyph stage={child.stage} size={accessorySize(18)} ground={color.groupedCard} />
       </PressableScale>
       <PressableScale
         accessibilityRole="button"
@@ -189,129 +237,107 @@ const SubTaskRow = observer(function SubTaskRow({
         scaleTo={0.995}
         style={({ pressed }) => [styles.rowBody, pressed && styles.rowPressed]}
       >
-        <Text style={styles.ref}>{issueDisplayRef(child)}</Text>
-        <Text style={styles.title} numberOfLines={1}>
-          {'authoredTitle' in child ? (child as PageIssue).authoredTitle : child.title}
-        </Text>
-        {child.archived ? <Text style={styles.archived}>ARCHIVED</Text> : null}
-        {state ? <Text style={[styles.state, { color: stateTint }]}>{state.text}</Text> : null}
+        <View style={styles.main}>
+          <Text lineBreakStrategyIOS="standard" style={styles.title}>
+            {'authoredTitle' in child ? (child as PageIssue).authoredTitle : child.title}
+          </Text>
+          <View style={styles.meta}>
+            <Text style={styles.ref}>{issueDisplayRef(child)}</Text>
+            {child.archived ? <Text style={styles.archived}>Archived</Text> : null}
+            {state ? <Text style={[styles.state, { color: stateTint }]}>{state.text}</Text> : null}
+          </View>
+        </View>
+        {!accessibility ? (
+          <View style={{ height: size(leading(font.body)), justifyContent: 'center' }}>
+            <Icon as={ChevronRight} size={accessorySize(14)} color={color.textFaint} />
+          </View>
+        ) : null}
       </PressableScale>
     </View>
   )
 })
 
 const styles = StyleSheet.create({
-  section: {
-    paddingBottom: space.xl,
+  section: {},
+  card: {
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
+    overflow: 'hidden',
+    backgroundColor: color.groupedCard,
   },
-  row: {
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: -space.sm,
-    borderRadius: radius.md,
+  row: { minHeight: 44, flexDirection: 'row', alignItems: 'stretch' },
+  separator: {
+    position: 'absolute',
+    top: 0,
+    left: 44,
+    right: 0,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: color.hairline,
   },
   statusButton: {
-    width: 44,
+    width: 34,
     minHeight: 44,
+    paddingLeft: space.xs,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radius.md,
   },
   rowBody: {
     minHeight: 44,
     flex: 1,
     minWidth: 0,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: space.sm,
-    paddingRight: space.sm,
-    borderRadius: radius.md,
+    paddingRight: space.md,
+    paddingVertical: space.md,
   },
-  rowMuted: {
-    opacity: 0.62,
-  },
-  rowPressed: {
-    backgroundColor: alpha(color.surface, 0.8),
-  },
-  ref: {
-    ...mono(400),
-    width: 58,
-    color: color.textFaint,
-    fontSize: 10,
-  },
-  title: {
-    ...sans(400),
-    flex: 1,
-    minWidth: 0,
-    color: color.body,
-    fontSize: font.tiny,
-  },
-  archived: {
-    ...mono(500),
-    color: color.textMicro,
-    fontSize: 9,
-    letterSpacing: 0.5,
-  },
-  state: {
-    ...mono(400),
-    fontSize: 9.5,
-  },
-  empty: {
-    ...sans(400),
-    color: color.textFaint,
-    fontSize: font.tiny,
-    paddingVertical: space.xs,
-  },
+  main: { flex: 1, minWidth: 0, gap: space.xs },
+  meta: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  rowMuted: { opacity: 0.72 },
+  rowPressed: { backgroundColor: color.surfacePressed },
+  ref: { ...sans(400), color: color.textDim, fontSize: font.tiny },
+  title: { ...sans(400), color: color.text, fontSize: font.body, lineHeight: leading(font.body) },
+  archived: { ...sans(400), color: color.textDim, fontSize: font.tiny },
+  state: { ...sans(400), fontSize: font.tiny },
+  empty: { ...sans(400), color: color.textDim, fontSize: font.small, padding: space.md },
   addRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: space.sm,
-    marginTop: space.sm,
+    padding: space.md,
   },
   field: {
     ...sans(400),
-    flex: 1,
-    minHeight: 40,
+    flexGrow: 1,
+    minWidth: 120,
+    minHeight: 44,
     color: color.text,
-    fontSize: font.small,
+    fontSize: font.body,
     backgroundColor: color.bgSunken,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.borderStrong,
+    borderRadius: radius.control,
     paddingHorizontal: space.md,
+    paddingVertical: space.sm,
   },
   addBtn: {
-    minHeight: 40,
+    minHeight: 44,
     justifyContent: 'center',
     paddingHorizontal: space.lg,
-    borderRadius: radius.md,
-    backgroundColor: color.elevated,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
+    paddingVertical: space.sm,
+    borderRadius: radius.control,
+    backgroundColor: color.tertiaryFill,
   },
-  muted: {
-    opacity: 0.5,
-  },
-  addBtnText: {
-    ...sans(600),
-    color: color.body,
-    fontSize: font.small,
-  },
+  muted: { opacity: 0.5 },
+  addBtnText: { ...sans(600), color: color.accentTint, fontSize: font.body },
   addChip: {
-    minHeight: 40,
-    alignSelf: 'flex-start',
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    marginTop: space.xs,
-    paddingHorizontal: space.sm,
-    marginLeft: -space.sm,
-    borderRadius: radius.md,
+    gap: space.sm,
+    paddingHorizontal: space.md,
+    paddingVertical: space.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.hairline,
   },
-  addChipText: {
-    ...sans(500),
-    color: color.textDim,
-    fontSize: font.tiny,
-  },
+  addChipText: { ...sans(400), color: color.accentTint, fontSize: font.body, flexShrink: 1 },
 })

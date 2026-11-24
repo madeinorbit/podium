@@ -17,24 +17,11 @@ const startIssueSession = vi.hoisted(() =>
 )
 // My coding default is my synced settings record (POD-6673).
 vi.mock('../client/my-preferences', () => ({ useMyCodingHarness: () => 'codex' }))
-vi.mock('../client/hooks', () => ({
-  useTrpc: () => api,
-  useStoreActions: () => ({ startIssueSession }),
-}))
-vi.mock('@podium/client-core/react', () => ({
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<typeof import('@podium/client-core/react')>()),
   useCommands: () => ({ sessions: { startIssueSession } }),
 }))
-vi.mock('./BottomSheet', () => ({
-  BottomSheet: ({
-    children,
-    footer,
-    visible,
-  }: {
-    children: ReactNode
-    footer: ReactNode
-    visible: boolean
-  }) => (visible ? createElement('div', null, children, footer) : null),
-}))
+vi.mock('../client/hooks', () => ({ useTrpc: () => api }))
 vi.mock('./PressableScale', () => ({
   PressableScale: ({
     children,
@@ -78,6 +65,33 @@ vi.mock('./LaunchConfigurationFields', () => ({
 }))
 
 import { ConfiguredIssueLaunchSheet } from './ConfiguredIssueLaunchSheet'
+
+it('starts proposed work through the shared launch path after saving the native sheet draft', async () => {
+  const record = observable({
+    id: 'iss_proposed',
+    title: 'Proposed task',
+    prefix: 'POD',
+    seq: 3,
+    repoPath: '/repo',
+    defaultAgent: 'codex',
+    defaultModel: 'auto',
+    defaultEffort: 'auto',
+    machineId: null,
+  })
+  const close = vi.fn()
+  render(<ConfiguredIssueLaunchSheet issue={record as never} onClose={close} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Choose high' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Start agent' }))
+  // One record starts it: upstream's default mode begins a never-started issue.
+  await waitFor(() =>
+    expect(startIssueSession).toHaveBeenCalledExactlyOnceWith({ issueId: record.id }),
+  )
+  expect(api.issues.start.mutate).not.toHaveBeenCalled()
+  expect(api.issues.update.mutate.mock.invocationCallOrder[0]).toBeLessThan(
+    startIssueSession.mock.invocationCallOrder[0]!,
+  )
+  expect(close).toHaveBeenCalledOnce()
+})
 
 afterEach(() => {
   cleanup()

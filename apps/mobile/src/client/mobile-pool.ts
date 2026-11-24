@@ -15,6 +15,8 @@ import {
   SUPERAGENT_ENTITIES,
   SUPERAGENT_SOURCE_KEY,
 } from '@podium/client-graph/superagent'
+import { startupTiming } from '../lib/startup-timing'
+import { afterFirstRoute } from './first-route'
 import { useProjectionFocus } from './projection-focus'
 
 export interface MobilePool {
@@ -24,17 +26,22 @@ export interface MobilePool {
 /** One host per app load; a principal rebuild retains its normal teardown. */
 export function createMobilePool(dev: boolean): MobilePool {
   const host = createPoolHost({
+    start: () => {
+      startupTiming.mark('pool.attach.start')
+    },
     screens: [
       navigationPoolScreen,
       {
         id: 'mobile-screens',
         async attach(runtime, pool) {
+          startupTiming.mark('pool.created')
           const [{ attachMobileScreens }, { attachIssuePageSource }] = await Promise.all([
             import('@podium/client-graph/mobile-screens'),
             import('@podium/client-graph/issue-page-source'),
           ])
           await attachMobileScreens(pool, runtime)
           attachIssuePageSource(pool, { replica: runtime.replica })
+          startupTiming.mark('pool.screens.attached')
         },
       },
       {
@@ -42,8 +49,13 @@ export function createMobilePool(dev: boolean): MobilePool {
         async attach(runtime, pool) {
           // POD-5423: the Work screen draws the worklist's lanes; hold them
           // filed from the attachment, before the lazy imports below.
+          startupTiming.mark('pool.worklist.start')
           const release = pool.worklist.retain()
+          startupTiming.mark('pool.worklist.end')
           try {
+            // New Task's launch data is not on the first screen: it waits for
+            // the first route's layout, off the launch path (POD-2666).
+            await afterFirstRoute()
             const [{ CommandLaunchSource }, { commandLaunchViews }] = await Promise.all([
               import('@podium/client-graph/command-launch-source'),
               import('@podium/client-graph/command-launch-views'),
@@ -69,6 +81,9 @@ export function createMobilePool(dev: boolean): MobilePool {
           settings: true,
         }),
         async attach(runtime, pool) {
+          // Settings, superagent, notices, inbox and session context draw no
+          // part of the first screen: they attach after its layout (POD-2666).
+          await afterFirstRoute()
           const {
             createMobileSettingsSource,
             MOBILE_SETTINGS_SOURCE_KEY,

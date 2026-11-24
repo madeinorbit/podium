@@ -1,0 +1,125 @@
+import {
+  type ArtifactId,
+  asArtifactId,
+  type IssuePanelArtifact,
+  type SessionOffer,
+} from '@podium/model'
+import { describe, expect, it } from 'vitest'
+import { LOADING } from '../loading'
+import type { IssueWithBodies } from '../replica'
+import { resolveOfferArtifacts } from './offer-artifacts'
+
+// Offer→artifact resolution [POD-120]: agent-curated paths resolve against the
+// issue panel's artifact list (newest entry wins, unresolved silently dropped);
+// an offer naming none falls back to artifacts newer than the user's last input.
+
+const art = (path: string, addedAt: string, artifactId?: ArtifactId): IssuePanelArtifact => ({
+  path,
+  addedAt,
+  ...(artifactId ? { artifactId } : {}),
+})
+
+const issueWith = (artifacts: IssuePanelArtifact[]): IssueWithBodies =>
+  ({ id: 'iss_1', panel: { todos: [], artifacts, deferred: [] } }) as unknown as IssueWithBodies
+
+const offerWith = (artifacts?: string[]): SessionOffer => ({
+  message: 'm',
+  actions: [],
+  ...(artifacts ? { artifacts } : {}),
+  createdAt: '2026-07-21T10:00:00.000Z',
+})
+
+describe('resolveOfferArtifacts [POD-120]', () => {
+  it('resolves curated paths in offer order, dropping unresolved ones', () => {
+    const a = art('e2e/before.png', '2026-07-21T09:00:00.000Z')
+    const b = art('e2e/after.png', '2026-07-21T09:30:00.000Z')
+    const out = resolveOfferArtifacts({
+      offer: offerWith(['e2e/after.png', 'missing.png', 'e2e/before.png']),
+      issue: issueWith([a, b]),
+    })
+    expect(out).toEqual([b, a])
+  })
+
+  it('the newest re-added entry wins for a repeated path', () => {
+    const old = art('e2e/shot.png', '2026-07-21T08:00:00.000Z', asArtifactId('art_old'))
+    const fresh = art('e2e/shot.png', '2026-07-21T09:00:00.000Z', asArtifactId('art_new'))
+    const out = resolveOfferArtifacts({
+      offer: offerWith(['e2e/shot.png']),
+      issue: issueWith([old, fresh]),
+    })
+    expect(out).toEqual([fresh])
+  })
+
+  it('tolerates absolute↔worktree-relative mismatch at a / boundary only', () => {
+    const abs = art('/wt/e2e/shot.png', '2026-07-21T09:00:00.000Z')
+    expect(
+      resolveOfferArtifacts({ offer: offerWith(['e2e/shot.png']), issue: issueWith([abs]) }),
+    ).toEqual([abs])
+    // 'shot.png' ends 'e2e-shot.png' only without the boundary — no match.
+    const near = art('/wt/e2e-shot.png', '2026-07-21T09:00:00.000Z')
+    expect(
+      resolveOfferArtifacts({ offer: offerWith(['shot.png']), issue: issueWith([near]) }),
+    ).toEqual([])
+  })
+
+  it('deduplicates two curated paths resolving to one entry', () => {
+    const a = art('/wt/e2e/shot.png', '2026-07-21T09:00:00.000Z')
+    const out = resolveOfferArtifacts({
+      offer: offerWith(['/wt/e2e/shot.png', 'e2e/shot.png']),
+      issue: issueWith([a]),
+    })
+    expect(out).toEqual([a])
+  })
+
+  it('falls back to artifacts newer than the last human input, newest first, capped at 3', () => {
+    const stale = art('old.png', '2026-07-21T07:00:00.000Z')
+    const fresh = ['a.png', 'b.png', 'c.png', 'd.png'].map((p, i) =>
+      art(p, `2026-07-21T09:0${i}:00.000Z`),
+    )
+    const out = resolveOfferArtifacts({
+      offer: offerWith(),
+      issue: issueWith([stale, ...fresh]),
+      lastInputAt: '2026-07-21T08:00:00.000Z',
+    })
+    if (out === LOADING) throw new Error('a held panel resolves')
+    expect(out.map((a) => a.path)).toEqual(['d.png', 'c.png', 'b.png'])
+  })
+
+  it('no fallback without a last-input anchor or without an issue', () => {
+    const a = art('a.png', '2026-07-21T09:00:00.000Z')
+    expect(resolveOfferArtifacts({ offer: offerWith(), issue: issueWith([a]) })).toEqual([])
+    expect(
+      resolveOfferArtifacts({
+        offer: offerWith(['a.png']),
+        issue: undefined,
+        lastInputAt: '2026-07-21T08:00:00.000Z',
+      }),
+    ).toEqual([])
+  })
+})
+
+it('matches curated Windows artifact paths across absolute and relative spellings', () => {
+  const artifact = {
+    path: 'C:\\repo\\shots\\final.png',
+    addedAt: '2026-07-21T09:00:00.000Z',
+  } as IssuePanelArtifact
+  const issue = { panel: { artifacts: [artifact] } } as IssueWithBodies
+  const offer = { artifacts: ['shots/final.png', 'c:/repo/shots/final.png'] } as SessionOffer
+  expect(resolveOfferArtifacts({ issue, offer })).toEqual([artifact])
+})
+
+it('excludes human uploads from fallback but honors explicitly curated uploads', () => {
+  const upload = {
+    ...art('human.png', '2026-07-21T09:30:00.000Z'),
+    chatUploadId: 'upload',
+  } as IssuePanelArtifact
+  const evidence = art('agent.png', '2026-07-21T09:00:00.000Z')
+  const args = { issue: issueWith([evidence, upload]), lastInputAt: '2026-07-21T08:00:00.000Z' }
+  expect(resolveOfferArtifacts({ ...args, offer: offerWith() })).toEqual([evidence])
+  expect(resolveOfferArtifacts({ ...args, offer: offerWith(['human.png']) })).toEqual([upload])
+})
+
+it('answers LOADING while the issue panel body is still loading', () => {
+  const issue = { id: 'iss_1', panel: LOADING } as unknown as IssueWithBodies
+  expect(resolveOfferArtifacts({ issue, offer: offerWith(['a.png']) })).toBe(LOADING)
+})

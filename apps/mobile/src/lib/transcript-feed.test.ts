@@ -57,6 +57,17 @@ describe('mobile transcript feed', () => {
     expect(model.latestAssistantKey).toBe('a2')
   })
 
+  it('gives an ask with no structured input its own row instead of a tool fold', () => {
+    const model = buildMobileTranscript([
+      item('a1', 'assistant', 'Checking.'),
+      item('t1', 'tool', '', { toolName: 'mcp__codex__ask_user', toolTitle: 'Which branch?' }),
+      item('t2', 'tool', '', { toolName: 'ExitPlanMode', toolResult: 'approved' }),
+      item('t3', 'tool', '', { toolName: 'Read', toolInput: 'a.ts', toolResult: 'ok' }),
+    ])
+
+    expect(model.rows.map((row) => row.kind)).toEqual(['prose', 'asked', 'asked', 'tools'])
+  })
+
   it('publishes the last rendered assistant key while skipping blank and interrupt rows', () => {
     const items = [
       item('a1', 'assistant', 'Prose'),
@@ -117,7 +128,7 @@ describe('mobile transcript feed', () => {
     expect(hidden.positionOfKey('a1')).toBe(1)
     const askBlock = model.rows[1]!.blockIndices[0]!
     expect(hidden.rowsForBlock(askBlock)).toEqual([])
-    const receipt = buildMobileTranscript([{ ...ask, toolResult: 'Done' }], {
+    const receipt = buildMobileTranscript([{ ...ask, toolResult: 'You selected "Done"' }], {
       hiddenQuestionId: 'ask',
     })
     expect(receipt.rows[0]?.kind).toBe('receipt')
@@ -130,7 +141,7 @@ describe('mobile transcript feed', () => {
     expect(duplicate.positionOfKey('same')).toBe(0)
   })
 
-  it('maps every envelope row sharing a match and selects its first row when wrapping', () => {
+  it('maps matching note bursts to one fold and wraps to its row', () => {
     const model = buildMobileTranscript([
       item(
         'batch',
@@ -141,19 +152,19 @@ describe('mobile transcript feed', () => {
     ])
     const answer = matchMobileTranscript(model, 'needle')
     expect(answer.matches).toEqual([0, 1])
-    expect([...answer.matchingRows]).toEqual([0, 1, 2])
+    expect([...answer.matchingRows]).toEqual([0, 1])
     expect(model.positionOfKey('batch:message:msg_a')).toBe(0)
-    expect(model.positionOfKey('batch:message:msg_b')).toBe(1)
-    expect(model.positionOfKey('answer')).toBe(2)
-    expect(model.rowsForBlock(0)).toEqual([0, 1])
-    expect(model.rowsForBlock(1)).toEqual([2])
+    expect(model.rows[0]?.envelopes?.map((envelope) => envelope.id)).toEqual(['msg_a', 'msg_b'])
+    expect(model.positionOfKey('answer')).toBe(1)
+    expect(model.rowsForBlock(0)).toEqual([0])
+    expect(model.rowsForBlock(1)).toEqual([1])
     expect(model.rowsForBlock(100)).toEqual([])
     expect(positionMobileTranscriptSearch(answer, 0)).toMatchObject({
       activeRow: 0,
       position: 1,
       total: 2,
     })
-    expect(positionMobileTranscriptSearch(answer, -1)).toMatchObject({ activeRow: 2, position: 2 })
+    expect(positionMobileTranscriptSearch(answer, -1)).toMatchObject({ activeRow: 1, position: 2 })
     expect(positionMobileTranscriptSearch(answer, 2)).toMatchObject({ activeRow: 0, position: 1 })
     const noRows = matchMobileTranscript({ ...model, rows: [] }, 'needle')
     expect(positionMobileTranscriptSearch(noRows, 0)).toMatchObject({

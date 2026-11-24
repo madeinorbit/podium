@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadConfig, saveConfig } from '@podium/runtime/config'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -17,7 +17,11 @@ import { appRouter } from './router'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { OPERATOR, permissiveFixturePrincipal } from './test-support/capabilities'
 
-async function makeCaller(telemetry?: { emitter: { buildUsageReport: () => unknown } }) {
+type TestEmitter = {
+  buildUsageReport: () => unknown
+  recordGithubStar?: (event: string, surface: string) => void
+}
+async function makeCaller(telemetry?: { emitter: TestEmitter }) {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
@@ -35,8 +39,8 @@ async function makeCaller(telemetry?: { emitter: { buildUsageReport: () => unkno
 
 // Commands and reads in one test address one instance, not independent in-memory stores.
 let harness: ReturnType<typeof makeCaller> | undefined
-function caller(telemetry?: { emitter: { buildUsageReport: () => unknown } }) {
-  harness ??= makeCaller(telemetry)
+function caller(telemetry?: { emitter: TestEmitter }) {
+  if (!harness) harness = makeCaller(telemetry)
   return harness
 }
 
@@ -117,4 +121,15 @@ describe('telemetry.preview', () => {
   it('is null with no emitter (nothing real to show yet)', async () => {
     expect(await (await caller()).telemetry.preview()).toBeNull()
   })
+})
+
+it('routes the registered GitHub star command through tRPC to the existing emitter', async () => {
+  const recordGithubStar = vi.fn()
+  const api = await caller({ emitter: { buildUsageReport: () => null, recordGithubStar } })
+  expect(
+    await api.telemetry.recordGithubStar({ event: 'shown', surface: 'finished_task' }),
+  ).toEqual({ ok: true })
+  expect(recordGithubStar).toHaveBeenCalledWith('shown', 'finished_task')
+  await api.telemetry.recordGithubStar({ event: 'clicked', surface: 'new_prompt' })
+  expect(recordGithubStar).toHaveBeenCalledWith('clicked', 'new_prompt')
 })

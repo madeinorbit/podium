@@ -280,6 +280,7 @@ const issueProjection = defineRecord({
     'repoId',
     'seq',
     // State
+    'type',
     'stage',
     'closedReason',
     'archived',

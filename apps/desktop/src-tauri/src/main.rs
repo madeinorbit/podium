@@ -9,6 +9,8 @@ mod bootstrap;
 #[cfg(target_os = "macos")]
 mod fullscreen_escape;
 mod handoff;
+#[cfg(target_os = "linux")]
+mod linux_backend;
 mod logging;
 mod payload_startup;
 mod relaunch;
@@ -1686,12 +1688,13 @@ fn grant_transfer_remote_capabilities(app: &AppHandle, server_url: &str) -> Resu
 }
 
 fn main() {
-    // FIRST STATEMENT IN THE PROCESS, and that placement is the point: the panic
-    // hook installed here is what turns a panic during plugin registration or
-    // window setup — the failures that leave a user with a shell that never
-    // appeared — into a durable record instead of a line on a stderr nobody is
-    // reading. build.rs stamps the merged Tauri config's app version, so the
-    // first log and panic have app.package_info()'s version before the app exists.
+    #[cfg(target_os = "linux")]
+    linux_backend::configure();
+
+    // Record panics before plugin registration or window setup, including failures
+    // that leave the shell unable to open. build.rs stamps the merged Tauri config's
+    // app version, so logs and panics have app.package_info()'s version before the
+    // app exists.
     logging::init();
     let native_open_queue = Arc::new(NativeOpenQueue::default());
     let mut builder = tauri::Builder::default();

@@ -216,12 +216,59 @@ describe('capacityView', () => {
       nowMs: NOW,
     })
     expect(view.tone).toBe('ok')
-    expect(view.headline).toBe('Room to run')
+    // Not "Room to run" while a pool is out [POD-2385]: the headline names it.
+    expect(view.headline).toBe('Grok is out')
     expect(view.quota?.agentName).toBe('Codex')
     expect(view.detail).toContain('Codex, with the most room, has used 0%')
     // The spent pool is not silenced — it just does not get to be the answer.
     expect(view.spentPools.map((p) => p.agentName)).toEqual(['Grok'])
     expect(view.caveat).toContain('Grok is out')
+  })
+
+  it('never reads "Room to run" while any launchable pool is out', () => {
+    const one = capacityView({
+      machines: [
+        fleet([
+          ['claude-code', [window({ usedPercent: 40 })]],
+          ['codex', [window({ key: 'wk', label: 'Weekly', usedPercent: 100 })]],
+        ]),
+      ],
+      hosts: [host(1)],
+      loadPerCore: 1.5,
+      nowMs: NOW,
+    })
+    expect(one.tone).toBe('ok')
+    expect(one.headline).toBe('Codex is out')
+    expect(one.quota?.agentName).toBe('Claude Code')
+
+    const two = capacityView({
+      machines: [
+        fleet([
+          ['claude-code', [window({ usedPercent: 10 })]],
+          ['codex', [window({ key: 'wk', label: 'Weekly', usedPercent: 100 })]],
+          ['grok', [window({ key: 'wk', label: 'Weekly', usedPercent: 95 })]],
+        ]),
+      ],
+      hosts: [host(1)],
+      loadPerCore: 1.5,
+      nowMs: NOW,
+    })
+    expect(two.headline).toBe('Codex is out')
+    expect(two.caveat).toContain('Codex is out')
+
+    // A spent MODEL-scoped window costs that model, not the harness (POD-271).
+    const model = capacityView({
+      machines: [
+        machine([
+          window({ usedPercent: 30 }),
+          window({ key: 'opus', label: 'Opus', usedPercent: 100, scopeModel: 'Opus' }),
+        ]),
+      ],
+      hosts: [host(1)],
+      loadPerCore: 1.5,
+      nowMs: NOW,
+    })
+    expect(model.headline).toBe('Room to run')
   })
 
   it('still reports no room when every pool is spent', () => {
@@ -237,9 +284,8 @@ describe('capacityView', () => {
       nowMs: NOW,
     })
     expect(view.headline).toBe('No room to start')
-    // Nothing to caveat: the sentence already speaks for the roomiest pool,
-    // and it is spent too.
-    expect(view.caveat).toBeNull()
+    // The roomiest pool has little launch headroom; Grok is literally exhausted.
+    expect(view.caveat).toContain('Grok is out')
   })
 
   it('reads a window that resets days out in days, not as a wall clock', () => {
@@ -280,5 +326,44 @@ describe('capacityView', () => {
     expect(view.load).toBeNull()
     // Not "Room to run": with no readings that would be a claim, not an answer.
     expect(view.headline).toBe('Nothing to report')
+  })
+})
+
+describe('account exhaustion', () => {
+  const account = (email: string, used: number, agent: Harness = 'codex') => {
+    const reading = machine([window({ usedPercent: used })], agent)
+    reading.agents[0]!.account.email = email
+    return reading
+  }
+  const read = (machines: MachineQuotaWire[]) =>
+    capacityView({ machines, hosts: [], loadPerCore: null, nowMs: NOW })
+
+  it('counts exhausted accounts, not providers, and deduplicates shared logins', () => {
+    const exhausted = account('first@example.com', 100)
+    const view = read([
+      exhausted,
+      exhausted,
+      account('second@example.com', 100),
+      account('healthy@example.com', 20, 'claude-code'),
+    ])
+    expect(view.headline).toBe('2 accounts out')
+    expect(view.spentPools).toHaveLength(2)
+  })
+
+  it('does not call a provider out while another account has room', () => {
+    const view = read([account('first@example.com', 100), account('second@example.com', 20)])
+    expect(view.headline).toBe('One Codex account is out')
+    expect(view.caveat).toContain('One Codex account is out')
+    expect(view.tone).toBe('ok')
+  })
+
+  it('keeps launch headroom distinct from literal exhaustion', () => {
+    expect(read([account('first@example.com', 95)]).headline).toBe('No room to start')
+    expect(read([account('first@example.com', 95)]).spentPools).toHaveLength(0)
+    const healthy = account('second@example.com', 20)
+    expect(read([account('first@example.com', 95), healthy]).headline).toBe('Room to run')
+    expect(read([account('first@example.com', 100), healthy]).headline).toBe(
+      'One Codex account is out',
+    )
   })
 })

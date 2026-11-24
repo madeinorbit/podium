@@ -1,12 +1,6 @@
 import { useHttpOrigin, useRequestClient, useUi } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import {
-  isCodexAsyncQuestion,
-  isPendingAskQuestion,
-  matchesQuestionInteraction,
-  type SuperThreadRef,
-} from '@podium/client-core/values'
-import { codexQuestionReplyText, parseCodexQuestionReplies } from '@podium/harness/browser'
+import { matchesQuestionInteraction, type SuperThreadRef } from '@podium/client-core/values'
 import { isMachineOfflineForLiveTerminal, type SessionId } from '@podium/model/browser'
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -218,33 +212,10 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
   const answerAsk = useCallback(
     async (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => {
       if ('reply' in answer) {
-        const block = presentation.block(answer.reply.itemId)
-        if (
-          !block ||
-          !isCodexAsyncQuestion(block.item) ||
-          !isPendingAskQuestion(block) ||
-          !presentation.isPendingAsk(answer.reply.itemId) ||
-          block.item.toolInputJson !== answer.reply.question ||
-          view.headless ||
-          !view.composer.sendable ||
-          !view.composer.deliverable
-        )
+        if (view.headless || !view.composer.sendable || !view.composer.deliverable)
           throw new Error('The question changed; wait for the current question.')
-        // A remounted card must not create a second reply while the original is
-        // queued or waiting for its receipt. Retry and retract belong to its bubble.
-        if (
-          sends.pending.some((turn) =>
-            parseCodexQuestionReplies(turn.wire)?.some(
-              (reply) => reply.callId === block.item.toolUseId,
-            ),
-          )
-        )
-          return
         scroll.pinToBottom()
-        await sends.submit({
-          text: codexQuestionReplyText(answer.reply.text) ?? answer.reply.text,
-          wire: answer.reply.text,
-        })
+        await conversation.replyToAsyncQuestion(answer.reply)
         return
       }
       const question = view.question
@@ -268,7 +239,7 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
       )
       if (!sent.ok) throw new Error(sent.reason ?? 'answer not delivered')
     },
-    [view, presentation, answerSession, sessionId, sends, scroll.pinToBottom],
+    [view, conversation, answerSession, sessionId, scroll.pinToBottom],
   )
   const activeRow = presentation.search.activeRow
   const activeMatch = presentation.search.activeMatch

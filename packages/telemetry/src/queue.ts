@@ -25,6 +25,7 @@ import {
   TelemetryFeature as TelemetryFeatureSchema,
   type TelemetryReport,
   TelemetryReport as TelemetryReportSchema,
+  TelemetryStarSurface as TelemetryStarSurfaceSchema,
 } from './schema'
 
 /** At one report a day, 32 is a month of offline backlog — far past the point
@@ -70,6 +71,13 @@ export const TelemetryWindow = z
     nextFlushAt: z.number().int().nonnegative(),
     sessions: z.record(AgentKind, z.number().int().nonnegative()),
     features: z.array(TelemetryFeatureSchema),
+    githubStar: z
+      .object({
+        shown: z.record(TelemetryStarSurfaceSchema, z.number().int().nonnegative()),
+        clicked: z.record(TelemetryStarSurfaceSchema, z.number().int().nonnegative()),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
 export type TelemetryWindow = z.infer<typeof TelemetryWindow>

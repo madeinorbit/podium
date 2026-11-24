@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  EMPTY_FIRST_TASK_DRAFT,
-  readFirstTaskDraft,
-} from './first-task-draft'
+import { EMPTY_FIRST_TASK_DRAFT, readFirstTaskDraft } from './first-task-draft'
 
 describe('first-task activation draft', () => {
   it('falls back safely when the checkpoint is absent or corrupt', () => {
@@ -38,6 +35,7 @@ describe('first-task activation draft', () => {
       createMutationId: '',
       startMutationId: '',
       attachmentPaths: [],
+      attachments: [],
       launchError: '',
     })
   })

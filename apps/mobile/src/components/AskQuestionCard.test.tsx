@@ -4,10 +4,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // This lane does not run testing-library's auto-cleanup, so an earlier render
 // would otherwise still be in the document when the next test queries it.
+const dimensions = vi.hoisted(() => ({ fontScale: 1 }))
 afterEach(() => {
   cleanup()
-  vi.useRealTimers()
+  dimensions.fontScale = 1
 })
+vi.mock('react-native', async (original) => ({
+  ...(await original<object>()),
+  useWindowDimensions: () => ({ width: 402, height: 874, scale: 1, ...dimensions }),
+}))
 
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
@@ -28,44 +33,106 @@ const single = ask([
 ])
 
 describe('AskQuestionCard', () => {
-  it('shares the asked-age timer and drops invalid or missing timestamps', () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(100_000)
-    const stamp = new Date(50_000).toISOString()
-    const view = render(
-      <>
-        <AskQuestionCard item={single} live presentation="band" askedAt={stamp} />
-        <AskQuestionCard item={single} live presentation="band" askedAt={stamp} />
-      </>,
-    )
-    expect(vi.getTimerCount()).toBe(1)
-    view.rerender(<AskQuestionCard item={single} live presentation="band" askedAt="invalid" />)
-    expect(vi.getTimerCount()).toBe(0)
-    expect(screen.queryByText(/asked /)).toBeNull()
-    view.rerender(<AskQuestionCard item={single} live presentation="band" />)
-    expect(vi.getTimerCount()).toBe(0)
+  it('focuses the custom answer on Pencil and keeps it outside the native options scroller', () => {
+    render(<AskQuestionCard item={single} live presentation="band" />)
+    fireEvent.click(screen.getByLabelText('Write a different answer'))
+    const input = screen.getByLabelText('Type your own answer')
+    expect(document.activeElement).toBe(input)
+    expect(screen.getByTestId('ask-question-scroll').contains(input)).toBe(false)
+    fireEvent.change(input, { target: { value: 'DuckDB' } })
+    expect(
+      screen.getByTestId('ask-question-scroll').contains(screen.getByLabelText('Send answer')),
+    ).toBe(false)
   })
 
-  it('keeps the asked-age answer at twenty-second precision', () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(100_000)
-    const view = render(
+  it('stacks full question options at accessibility sizes without fixed text line boxes', () => {
+    dimensions.fontScale = 2
+    const label = 'Staged 10% rollout with an extended observation period'
+    render(
       <AskQuestionCard
-        item={single}
+        item={ask([
+          {
+            question: 'Which rollout plan should we use for the new offer card?',
+            options: [{ label }],
+          },
+        ])}
         live
         presentation="band"
-        askedAt={new Date(50_000).toISOString()}
       />,
     )
-    expect(screen.getByText('asked now')).toBeTruthy()
-    act(() => vi.advanceTimersByTime(19_999))
-    expect(screen.getByText('asked now')).toBeTruthy()
-    act(() => vi.advanceTimersByTime(1))
-    expect(screen.getByText('asked 1m ago')).toBeTruthy()
-    view.unmount()
-    expect(vi.getTimerCount()).toBe(0)
+    const option = screen.getByLabelText(label)
+    if (!option.parentElement) throw new Error('Missing options column')
+    expect(getComputedStyle(option.parentElement).flexDirection).toBe('column')
+    expect(option.textContent).toBe(label)
+    expect((option.firstElementChild as HTMLElement).style.lineHeight).toBe('')
+    expect(
+      getComputedStyle(screen.getByText('Which rollout plan should we use for the new offer card?'))
+        .maxWidth,
+    ).toBe('100%')
   })
-
+  it('retires a recorded failure as read-only history after an earlier request acknowledgement', async () => {
+    const onAnswer = vi.fn(async () => {})
+    const view = render(<AskQuestionCard item={single} live onAnswer={onAnswer} />)
+    fireEvent.click(screen.getByLabelText('SQLite'))
+    await screen.findByText('Answer sent')
+    view.rerender(
+      <AskQuestionCard
+        item={{ ...single, toolResult: 'Error: answer could not be delivered' }}
+        live
+        onAnswer={onAnswer}
+      />,
+    )
+    expect(screen.getByText('Error: answer could not be delivered')).toBeTruthy()
+    expect(screen.queryByText('Answer sent')).toBeNull()
+    expect(screen.getByText('Not answered')).toBeTruthy()
+    expect(screen.queryByLabelText('Postgres')).toBeNull()
+    expect(onAnswer).toHaveBeenCalledTimes(1)
+  })
+  it('retains its focused custom-answer field when opening the keyboard compacts the band', () => {
+    const view = render(<AskQuestionCard item={single} live presentation="band" />)
+    fireEvent.click(screen.getByLabelText('Write a different answer'))
+    const input = screen.getByLabelText('Type your own answer')
+    act(() => input.focus())
+    fireEvent.change(input, { target: { value: 'DuckDB' } })
+    view.rerender(<AskQuestionCard item={single} live presentation="band" compact />)
+    expect(screen.getByLabelText('Type your own answer')).toBe(input)
+    expect(document.activeElement).toBe(input)
+    expect((input as HTMLInputElement).value).toBe('DuckDB')
+    expect(screen.queryByTestId('ask-question-compact')).toBeNull()
+    // Dismissing iOS's keyboard can retain TextInput focus. Reopening it must
+    // not depend on a second focus event before the keyboard frame event.
+    view.rerender(<AskQuestionCard item={single} live presentation="band" compact={false} />)
+    view.rerender(<AskQuestionCard item={single} live presentation="band" compact />)
+    expect(screen.getByLabelText('Type your own answer')).toBe(input)
+    expect(document.activeElement).toBe(input)
+  })
+  it('keeps a tall question scrollable and long options free to wrap', () => {
+    const label = 'A much longer option label that needs several lines at Accessibility Medium.'
+    render(
+      <AskQuestionCard
+        item={ask([{ question: 'Which database?\n'.repeat(12), options: [{ label }] }])}
+        live
+        presentation="band"
+      />,
+    )
+    const scroll = screen.getByTestId('ask-question-scroll')
+    expect(Number.parseFloat(scroll.style.maxHeight)).toBeGreaterThan(100)
+    expect(Number.parseFloat(scroll.style.maxHeight)).toBeLessThanOrEqual(420)
+    const option = screen.getByLabelText(label)
+    expect(option.textContent).toBe(label)
+    expect(option.querySelector('div')?.style.webkitLineClamp ?? '').toBe('')
+  })
+  it('compacts while typing, expands on Show, and resets when the keyboard closes', () => {
+    const view = render(<AskQuestionCard item={single} live presentation="band" compact />)
+    expect(screen.getByTestId('ask-question-compact')).toBeTruthy()
+    expect(screen.queryByLabelText('SQLite')).toBeNull()
+    fireEvent.click(screen.getByLabelText('Show question'))
+    expect(screen.getByLabelText('SQLite')).toBeTruthy()
+    view.rerender(<AskQuestionCard item={single} live presentation="band" compact={false} />)
+    expect(screen.getByLabelText('SQLite')).toBeTruthy()
+    view.rerender(<AskQuestionCard item={single} live presentation="band" compact />)
+    expect(screen.queryByLabelText('SQLite')).toBeNull()
+  })
   it('submits a tapped option as a 1-based digit', async () => {
     const onAnswer = vi.fn(async () => {})
     render(<AskQuestionCard item={single} live onAnswer={onAnswer} />)
@@ -179,6 +246,34 @@ it('submits the identity and content captured by the rendered card', async () =>
       interactionId: 'ask:rendered',
       question: single.toolInputJson,
       choices: [{ optionIndices: [2] }],
+    }),
+  )
+})
+
+it('keeps long pinned options readable and retains the custom-answer path', async () => {
+  const label = 'Keep the wordmark and place the longer description underneath it'
+  const onAnswer = vi.fn(async () => {})
+  render(
+    <AskQuestionCard
+      item={ask([
+        { question: 'Which wordmark should stay?', options: [{ label }, { label: 'None' }] },
+      ])}
+      presentation="band"
+      live
+      onAnswer={onAnswer}
+    />,
+  )
+  const option = screen.getByLabelText(label)
+  expect(option.textContent).toBe(label)
+  expect(screen.queryByText('CLAUDE IS ASKING')).toBeNull()
+  fireEvent.click(screen.getByLabelText('Write a different answer'))
+  fireEvent.change(screen.getByLabelText('Type your own answer'), {
+    target: { value: 'Use the small mark' },
+  })
+  fireEvent.click(screen.getByLabelText('Send answer'))
+  await waitFor(() =>
+    expect(onAnswer).toHaveBeenCalledWith({
+      choices: [{ freeText: 'Use the small mark', otherIndex: 3 }],
     }),
   )
 })

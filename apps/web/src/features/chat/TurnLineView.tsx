@@ -75,7 +75,7 @@ function Clock({
 }) {
   const at = start ? Date.parse(start) : Number.NaN
   const known = Number.isFinite(at)
-  const now = useAgeNow(at, 0, live && known)
+  const now = useAgeNow(at, 0, live && known, 3_600_000)
   const elapsed = live && known ? Math.max(0, now - at) : duration
   return elapsed === undefined ? null : (
     <span className="tl-timer" aria-hidden={live || undefined}>

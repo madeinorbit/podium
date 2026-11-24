@@ -1,5 +1,7 @@
-import type { SessionView } from './session-values'
 import { idleVerdictNeedsHuman, type WorkState } from '@podium/model'
+import type { SessionView } from './session-values'
+
+export { cardAge, cardAgeNextChangeAt, relativeTime, relativeTimeNextChangeAt } from './age'
 
 /**
  * The home board's attention triage. The whole point of the product: the user
@@ -190,17 +192,4 @@ export function kanbanColumns(
   }
   for (const lane of lanes) lane.sessions.sort(compareRecency)
   return lanes
-}
-
-/** "just now" / "5m ago" / "3h ago" / "2d ago" — coarse on purpose. */
-export function relativeTime(iso: string, now: number): string {
-  const t = Date.parse(iso)
-  if (Number.isNaN(t)) return ''
-  const s = Math.max(0, Math.round((now - t) / 1000))
-  if (s < 60) return 'just now'
-  const m = Math.round(s / 60)
-  if (m < 60) return `${m}m ago`
-  const h = Math.round(m / 60)
-  if (h < 24) return `${h}h ago`
-  return `${Math.round(h / 24)}d ago`
 }

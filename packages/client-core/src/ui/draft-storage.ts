@@ -1,11 +1,13 @@
 /** Existing device drafts and the one-time input handoff to UiPersistence. */
 import { action, observable } from 'mobx'
+import { interruptFirstTaskDraftUploads } from '../first-task-draft'
 import {
   LEGACY_UI_KEYS,
   LEGACY_UI_MAP_PREFIXES,
   LEGACY_UI_PREFIXES,
   type UiState,
 } from '../replica/contract'
+import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '../ui-state'
 import type { DeviceStorage } from './device-storage'
 
 export { DEVICE_DRAFT_KEYS } from './draft-keys'
@@ -66,6 +68,19 @@ export function openLegacyDeviceKeys(device: DeviceStorage): LegacyDeviceKeys {
       } catch {}
     }
   } catch {}
+  // Recover only on a native cold open, after legacy keys have reached this
+  // store: an upload the last run left unfinished becomes a removable failure.
+  // Web tabs share storage with owners whose uploads may still be live.
+  const draft = values[FIRST_TASK_ACTIVATION_DRAFT_KEY] ?? null
+  const recovered = device.recoverInterruptedDraftUploads
+    ? interruptFirstTaskDraftUploads(draft)
+    : null
+  if (recovered !== null && recovered !== draft) {
+    values[FIRST_TASK_ACTIVATION_DRAFT_KEY] = recovered
+    try {
+      device.storage.setItem(storageKey, JSON.stringify(values))
+    } catch {}
+  }
   const entries = observable.map(Object.entries(values))
   const listeners = new Set<(keys: ReadonlySet<string>) => void>()
   return {

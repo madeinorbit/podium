@@ -127,3 +127,19 @@ export function noticeContinuity(pool: MobxPool) {
   // Unsent writes are a LiveStore condition (POD-5798).
   return { outboxSize: pool.live?.outbox.pending ?? 0, deadLetters: recovery && recovery !== LOADING ? recovery.deadLetters.length : 0, pending: recovery === LOADING ? 1 : 0 }
 }
+
+/** Row-local delivery attention over the existing session index, never the full log.
+ * A confirmed failure takes precedence over an uncertain delivery. */
+export function noticeSessionDeliveryAttention(pool: MobxPool, sessionId: string): 'failed' | 'unknown' | undefined {
+  const index = omitGone(pool.row('noticeSession', sessionId))
+  if (!index || index === LOADING) return undefined
+  let attention: 'unknown' | undefined
+  for (const id of index.messages) {
+    const message = omitGone(pool.model('messageRecord', id))
+    if (!message || message === LOADING || message.noticeDismissedAt) continue
+    if (!isMessageRecordAttention(message.status)) continue
+    if (message.status !== 'unknown') return 'failed'
+    attention = 'unknown'
+  }
+  return attention
+}

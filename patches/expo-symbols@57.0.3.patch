@@ -1,0 +1,21 @@
+diff --git a/ios/SymbolView.swift b/ios/SymbolView.swift
+--- a/ios/SymbolView.swift
++++ b/ios/SymbolView.swift
+@@ -55,10 +55,13 @@
+     imageView.contentMode = imageContentMode
+     imageView.preferredSymbolConfiguration = getSymbolConfig()
+
+-    if let tint {
+-      if symbolType != .hierarchical {
+-        imageView.image = image.withTintColor(tint, renderingMode: .alwaysOriginal)
+-      }
++    if symbolType == .monochrome {
++      // Keep semantic UIColor providers on the view. Baking the tint into an
++      // always-original image freezes it until React sends another prop update.
++      imageView.image = image.withRenderingMode(.alwaysTemplate)
++      imageView.tintColor = tint
++    } else if let tint, symbolType != .hierarchical {
++      imageView.image = image.withTintColor(tint, renderingMode: .alwaysOriginal)
+     }
+
+     // Effects need to be added last

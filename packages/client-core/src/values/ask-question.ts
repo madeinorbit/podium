@@ -1,7 +1,8 @@
 import { CODEX_ASYNC_QUESTION_TOOL } from '@podium/harness/browser'
 import type { AgentInterview, TranscriptItem } from '@podium/model'
-import type { PendingInteractionWire, QuestionAsk } from '@podium/protocol'
+import { hasTranscriptCard, type PendingInteractionWire, type QuestionAsk } from '@podium/protocol'
 import type { SessionView } from '../session-values'
+import { toolVerdict } from './chat'
 
 /** One option of an AskUserQuestion question. */
 export interface AskOption {
@@ -89,9 +90,7 @@ export function isAskUserQuestion(item: TranscriptItem): boolean {
 
 /** Includes async interviews without adding them to native-menu-only readers. */
 export function isInterviewQuestion(item: TranscriptItem): boolean {
-  return (
-    isAskUserQuestion(item) || (isCodexAsyncQuestion(item) && Boolean(item.toolInputJson))
-  )
+  return isAskUserQuestion(item) || (isCodexAsyncQuestion(item) && Boolean(item.toolInputJson))
 }
 
 export function isCodexAsyncQuestion(item: TranscriptItem): boolean {
@@ -104,7 +103,7 @@ export function askQuestionResult(block: {
   result?: string
 }): string | undefined {
   const result = block.result ?? block.item.toolResult
-  if (isCodexAsyncQuestion(block.item) && result) {
+  if (result && isCodexAsyncQuestion(block.item)) {
     try {
       if (JSON.parse(result)?.accepted === true) return undefined
     } catch {
@@ -118,10 +117,115 @@ export function isPendingAskQuestion(block: { item: TranscriptItem; result?: str
   return isInterviewQuestion(block.item) && askQuestionResult(block) === undefined
 }
 
+const ANSWER_PAIR = /("(?:\\[\s\S]|[^"\\])+")\s*=\s*("(?:\\[\s\S]|[^"\\])+")/
+
+/** A tool finishing is not evidence that the human answered it. */
+export function askQuestionOutcome(block: {
+  item: TranscriptItem
+  result?: string
+}): 'pending' | 'answered' | 'skipped' | 'failed' | 'unknown' {
+  const result = askQuestionResult(block)
+  if (result === undefined) return 'pending'
+  if (toolVerdict(result, block.item.toolEffects) === 'err') return 'failed'
+  const text = result.trim()
+  if (!text || /^\[(?:Tool call interrupted|Request interrupted)/i.test(text)) return 'unknown'
+  if (/^User (?:has )?(?:declined|skipped)\b/i.test(text)) return 'skipped'
+  if (
+    ANSWER_PAIR.test(text) ||
+    /^(?:You (?:selected|answered|picked)|User selected)\s+\S/i.test(text)
+  )
+    return 'answered'
+  if (
+    parseAskQuestions(block.item.toolInputJson).some((question) =>
+      question.options.some((option) => option.label === text),
+    )
+  )
+    return 'answered'
+  try {
+    const answers: unknown = JSON.parse(text)
+    if (isCodexAsyncQuestion(block.item)) {
+      if (
+        Array.isArray(answers) &&
+        answers.length > 0 &&
+        answers.every((answer) => typeof answer?.answer === 'string' && answer.answer.trim() !== '')
+      )
+        return 'answered'
+    }
+    if (answers && typeof answers === 'object' && !Array.isArray(answers)) {
+      const payload = answers as Record<string, unknown>
+      if (payload.error) return 'failed'
+      if (payload.answers && typeof payload.answers === 'object') {
+        const values = Object.values(payload.answers)
+        if (
+          values.length > 0 &&
+          values.every((value) => {
+            if (typeof value === 'string') return value.trim() !== ''
+            const choices =
+              value && typeof value === 'object'
+                ? (value as { answers?: unknown }).answers
+                : undefined
+            return (
+              Array.isArray(choices) &&
+              choices.length > 0 &&
+              choices.every((choice) => typeof choice === 'string' && choice.trim() !== '')
+            )
+          })
+        )
+          return 'answered'
+      }
+    }
+  } catch {
+    /* Unrecognized results remain unresolved. */
+  }
+  return 'unknown'
+}
+
+/** The first question's classified answer, without the native result's narration. */
+export function askQuestionAnswerText(block: {
+  item: TranscriptItem
+  result?: string
+}): string | undefined {
+  if (askQuestionOutcome(block) !== 'answered') return undefined
+  const text = askQuestionResult(block)?.trim() ?? ''
+  const first = parseAskQuestions(block.item.toolInputJson)[0]
+  const unquote = (quoted: string): string => {
+    try {
+      return JSON.parse(quoted) as string
+    } catch {
+      return quoted.slice(1, -1)
+    }
+  }
+  for (const pair of text.matchAll(new RegExp(ANSWER_PAIR.source, 'g'))) {
+    if (!first || unquote(pair[1] ?? '') === first.question) return unquote(pair[2] ?? '')
+  }
+  try {
+    const result = JSON.parse(text)
+    if (isCodexAsyncQuestion(block.item) && Array.isArray(result)) return result[0]?.answer
+    const answers = result?.answers
+    if (answers && typeof answers === 'object') {
+      const answer = answers[first?.question ?? ''] ?? Object.values(answers)[0]
+      if (typeof answer === 'string') return answer
+      if (Array.isArray(answer?.answers)) return answer.answers.join(', ')
+    }
+  } catch {
+    // Native menus also report plain option labels and short answer sentences.
+  }
+  const picked = first?.options.filter((option) => isChosenOption(text, option.label))
+  if (picked?.length) return picked.map((option) => option.label).join(', ')
+  if (first?.options.some((option) => option.label === text)) return text
+  const phrase = /^(?:You (?:selected|answered|picked)|User selected)\s+([\s\S]+)$/i
+    .exec(text)?.[1]
+    ?.trim()
+  if (!phrase) return undefined
+  const quoted = /^("(?:\\[\s\S]|[^"\\])+")[.!]?$/.exec(phrase)?.[1]
+  return quoted ? unquote(quoted) : phrase
+}
+
 /** Answers ride the existing text-message route, never Claude's menu keystrokes. */
 export function codexAsyncQuestionReply(item: TranscriptItem, choices: AskAnswerChoice[]): string {
   const questions = parseAskQuestions(item.toolInputJson)
-  if (!isCodexAsyncQuestion(item) ||
+  if (
+    !isCodexAsyncQuestion(item) ||
     !item.toolUseId ||
     questions.length === 0 ||
     choices.length !== questions.length
@@ -152,7 +256,7 @@ export function latestPendingQuestion(items: TranscriptItem[]): TranscriptItem |
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i]
     if (!item || !isAskUserQuestion(item)) continue
-    return item.toolResult ? null : item
+    return item.toolResult === undefined ? item : null
   }
   return null
 }
@@ -185,17 +289,25 @@ export function pendingAskFromState(
   status: SessionView['status'] | undefined,
   phase: string | undefined,
   transcriptHasPending: boolean,
+  interaction?: PendingInteractionWire,
 ): { item: TranscriptItem } | null {
   if (transcriptHasPending) return null
   if (status !== 'live' && status !== 'starting') return null
-  if (phase !== 'needs_user' || need?.kind !== 'question') return null
-  const questions = need.interview?.questions ?? []
+  const native =
+    interaction?.kind === 'question' &&
+    interaction.status === 'asked' &&
+    hasTranscriptCard(interaction)
+      ? (interaction.payload as QuestionAsk).questions
+      : undefined
+  const questions = native?.length
+    ? native
+    : phase === 'needs_user' && need?.kind === 'question'
+      ? (need.interview?.questions ?? [])
+      : []
   if (questions.length === 0) return null
   return {
     item: {
-      // Stable across re-renders (and across restatements of the same wait) so
-      // the card keeps its React identity and the operator's half-made
-      // selection survives the next state tick.
+      // Stable across restatements so a half-made selection survives a state tick.
       id: PENDING_ASK_ITEM_ID,
       role: 'tool',
       text: '',
@@ -213,7 +325,7 @@ export const PENDING_ASK_ITEM_ID = 'pending-ask-from-state'
  *  `"<label>"`. `answer` is the tool result text (callers resolve it — a paired
  *  ChatBlock.result, or a bare TranscriptItem.toolResult). */
 export function isChosenOption(answer: string, label: string): boolean {
-  return answer.includes(`"${label}"`)
+  return answer.includes(`"${label}"`) || answer.includes(JSON.stringify(label))
 }
 
 /** A transcript card may lag the aggregate. Never attach a replacement ID to
@@ -222,16 +334,27 @@ export function matchesQuestionInteraction(row: PendingInteractionWire, raw: str
   if (row.kind !== 'question' || row.status !== 'asked') return false
   const shown = parseAskQuestions(raw)
   const current = (row.payload as QuestionAsk).questions
-  return shown.length > 0 && shown.length === current.length && shown.every((question, index) => {
-    const expected = current[index]
-    return expected !== undefined && question.question === expected.question &&
-      Boolean(question.multiSelect) === expected.multiSelect &&
-      isPreviewLayout(question) === expected.previewLayout &&
-      question.options.length === expected.options.length && question.options.every((option, optionIndex) => {
-        const target = expected.options[optionIndex]
-        return target !== undefined && option.label === target.label &&
-          (option.description ?? '') === (target.description ?? '') &&
-          (option.preview ?? '') === (target.preview ?? '')
-      })
-  })
+  return (
+    shown.length > 0 &&
+    shown.length === current.length &&
+    shown.every((question, index) => {
+      const expected = current[index]
+      return (
+        expected !== undefined &&
+        question.question === expected.question &&
+        Boolean(question.multiSelect) === expected.multiSelect &&
+        isPreviewLayout(question) === expected.previewLayout &&
+        question.options.length === expected.options.length &&
+        question.options.every((option, optionIndex) => {
+          const target = expected.options[optionIndex]
+          return (
+            target !== undefined &&
+            option.label === target.label &&
+            (option.description ?? '') === (target.description ?? '') &&
+            (option.preview ?? '') === (target.preview ?? '')
+          )
+        })
+      )
+    })
+  )
 }

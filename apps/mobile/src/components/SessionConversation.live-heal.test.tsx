@@ -1,4 +1,9 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import {
+  createMemoryTranscriptBackend,
+  createStoreTranscriptCache,
+  createTranscriptStore,
+} from '@podium/client-core/transcript-store'
 /**
  * THE PHONE'S TRANSCRIPT DOES NOT WAIT FOR A RELOAD [POD-4643].
  *
@@ -18,6 +23,7 @@ import type { TranscriptItem } from '@podium/model'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { type ReactNode, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createMobileTestReplica } from '../client/test-replica'
 import { renderWithMobileStore } from '../client/test-support'
 
 afterEach(cleanup)
@@ -157,10 +163,103 @@ async function mount(initial?: TranscriptItem[]) {
     setViewSession(next)
   }
   await screen.findByText(initial?.at(-1)?.text ?? 'What is 7 times 7?')
-  return io
+  return { ...io, emit: view.emit }
 }
 
 describe('phone transcript over a live stream that went quiet', () => {
+  it('clears Updating on the first cold-start window when cached rows and count are identical', async () => {
+    const session = { ...working, status: 'hibernated' } as SessionView
+    const io = authority()
+    // The cached rows live in upstream's per-user transcript store.
+    const store = createTranscriptStore({ backend: createMemoryTranscriptBackend() })
+    const transcripts = createStoreTranscriptCache(store, { settleMs: 0 })
+    transcripts.write(session.sessionId, () => io.written)
+    transcripts.flush()
+    await store.settled()
+    const replica = createMobileTestReplica({ transcripts })
+    replica.applySnapshot('sessions', [session])
+    replica.finishBootstrap()
+    type Page = Awaited<ReturnType<typeof io.transcriptRead>>
+    // Every read the window issues waits for the authority's one answer.
+    const pending: ((page: Page) => void)[] = []
+    let answered: Page | undefined
+    const resolve = (page: Page) => {
+      answered = page
+      for (const accept of pending.splice(0)) accept(page)
+    }
+    await renderWithMobileStore(<SessionConversation session={session} issue={undefined} />, {
+      replica,
+      api: {
+        sessions: {
+          transcriptRead: {
+            query: () =>
+              answered
+                ? Promise.resolve(answered)
+                : new Promise<Page>((accept) => {
+                    pending.push(accept)
+                  }),
+          },
+        },
+      },
+    })
+    await screen.findByText('Checking transcript…')
+    expect(screen.getByText('What is 7 times 7?')).toBeTruthy()
+    await act(async () =>
+      resolve({ items: [...io.written], head: 'c1', tail: 'c3', hasMore: false }),
+    )
+    await waitFor(() => {
+      expect(screen.queryByText('Updating transcript…')).toBeNull()
+      expect(screen.queryByText('Checking transcript…')).toBeNull()
+    })
+    expect(screen.getByText('What is 7 times 7?')).toBeTruthy()
+  })
+
+  it.each([
+    'unchanged',
+    'replaced',
+    'failed',
+  ] as const)('settles the shared transcript status after a %s reconnect read with the same row count', async (result) => {
+    const io = await mount()
+    type Page = Awaited<ReturnType<typeof io.transcriptRead>>
+    let resolve!: (page: Page) => void
+    let reject!: (error: Error) => void
+    io.transcriptRead.mockImplementationOnce(
+      () =>
+        new Promise<Page>((accept, refuse) => {
+          resolve = accept
+          reject = refuse
+        }),
+    )
+    act(() => {
+      io.emit('connectionHealth', { status: 'down' })
+      io.emit('connectionHealth', { status: 'ok' })
+    })
+    await screen.findByText('Checking transcript…')
+    const items = io.written.map((item, index) =>
+      result === 'replaced' && index === io.written.length - 1
+        ? { ...item, text: 'Updated existing answer' }
+        : item,
+    )
+    await act(async () => {
+      if (result === 'failed') reject(new Error('isolated transcript read unavailable'))
+      else
+        resolve({
+          items,
+          head: items[0]?.cursor,
+          tail: items.at(-1)?.cursor,
+          hasMore: false,
+        })
+    })
+    if (result === 'failed') await screen.findByText('Saved transcript copy')
+    await waitFor(() => {
+      expect(screen.queryByText('Updating transcript…')).toBeNull()
+      expect(screen.queryByText('Checking transcript…')).toBeNull()
+    })
+    expect(
+      screen.getByText(result === 'replaced' ? 'Updated existing answer' : 'What is 7 times 7?'),
+    ).toBeTruthy()
+  })
+
   it('retains find history before a match moves the viewport, then resumes the newest window', async () => {
     const initial = Array.from({ length: 180 }, (_, index) =>
       entry(`i${index}`, `c${index}`, 'assistant', `Message ${index}`),

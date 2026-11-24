@@ -5,8 +5,9 @@ export interface MobileTasksOptions {
   showDone: boolean
   expanded: readonly string[]
   filter: BoardFilter
-  ordering: IssuesOrdering
-  showAgentTasks: boolean
+  /** Omit display options to follow the shared issues.display preference. */
+  ordering?: IssuesOrdering
+  showAgentTasks?: boolean
 }
 export interface MobileScreenRows {
   mobileScreenReader: ReturnType<typeof import('./mobile-screens').createMobileScreenReader>
@@ -24,3 +25,13 @@ export const MOBILE_TASK_STAGES: readonly IssueBoardStage[] = [
   'proposed',
   'done',
 ]
+/** Stages the phone board opens folded until the operator unfolds them: it
+ * leads with live work, and Proposed is a screening queue, not a list. */
+export const MOBILE_TASK_FOLDED_BY_DEFAULT: Readonly<Record<IssueBoardStage, boolean>> = {
+  in_progress: false,
+  review: false,
+  planning: false,
+  backlog: true,
+  proposed: true,
+  done: true,
+}

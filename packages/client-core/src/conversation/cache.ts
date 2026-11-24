@@ -12,6 +12,8 @@ export interface ConversationCacheOptions {
 interface Entry {
   conversation: ConversationService
   refs: number
+  /** Whether a chat lease has started this owner's transcript. */
+  activated?: boolean
 }
 
 /** Principal-scoped, ref-counted ownership of live and warm conversations. */
@@ -23,12 +25,23 @@ export class ConversationCache {
 
   constructor(private readonly options: ConversationCacheOptions) {}
 
-  acquire(sessionId: SessionId): { conversation: ConversationService; release: () => void } {
+  acquire(
+    sessionId: SessionId,
+    options: { activateTranscript?: boolean } = {},
+  ): { conversation: ConversationService; release: () => void } {
     if (this.disposed) throw new Error('The conversation owner has been disposed')
     let entry = this.entries.get(sessionId)
     if (!entry) {
       entry = { conversation: this.options.create(sessionId), refs: 0 }
       this.entries.set(sessionId, entry)
+    }
+    // Offer summaries share sending without opening history. A later chat
+    // lease activates this same owner once; a summary never deactivates live
+    // chat, and a second chat lease does not start it again.
+    if (options.activateTranscript === false) {
+      if (!entry.activated) entry.conversation.sends.start()
+    } else if (!entry.activated) {
+      entry.activated = true
       void entry.conversation.start()
     }
     this.warm.delete(sessionId)

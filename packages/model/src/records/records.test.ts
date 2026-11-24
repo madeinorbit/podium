@@ -64,6 +64,7 @@ describe('the record declarations', () => {
         'id',
         'repoId',
         'seq',
+        'type',
         'stage',
         'closedReason',
         'archived',

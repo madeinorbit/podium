@@ -22,6 +22,7 @@ import {
   matchesQuestionInteraction,
   OPTIMISTIC_SEND_CEILING_MS,
   pendingAskFromState,
+  principalShortName,
   type SessionTransition,
   sessionTransitionLabel,
 } from '@podium/client-core/values'
@@ -35,10 +36,9 @@ import {
   type MessageDeliveryStatus,
 } from '@podium/model'
 import * as Haptics from 'expo-haptics'
-import { action, observable, reaction, when } from 'mobx'
 import { observer } from 'mobx-react-lite'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { AppState, Pressable, StyleSheet, Text, View } from 'react-native'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AppState, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
 import { useMobilePool } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
@@ -61,9 +61,12 @@ import { MobileConversation } from '../lib/mobile-conversation'
 import { color, font, leading, sans, space } from '../theme/theme'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
 import { Composer } from './Composer'
+import { ComposerModelLabel } from './ComposerModelLabel'
+import { ComposerReplyHeader } from './ComposerReplyHeader'
 import { PhoneInstallCurrentHarness } from './InstallCurrentHarness'
 import { BootstrapCrossfade, TranscriptSkeleton } from './LaunchPlaceholders'
 import { PendingInteractionBand } from './PendingInteractionBand'
+import { PressableScale } from './PressableScale'
 import { PullToRefreshBoundary } from './PullToRefreshBoundary'
 import { type LocalPendingTurn, pendingTurnOf } from './pending-delivery'
 import { SessionActionCard } from './SessionActionCard'
@@ -132,6 +135,7 @@ const SessionComposer = observer(function SessionComposer({
   onRestingHeight,
   turnActive,
   canInterrupt,
+  maxLines,
 }: {
   conversation: MobileChatViewModel
   placeholder: string
@@ -144,6 +148,7 @@ const SessionComposer = observer(function SessionComposer({
   onRestingHeight?: (height: number) => void
   turnActive: boolean
   canInterrupt: boolean
+  maxLines?: number
 }) {
   const draft = conversation.draft
   const setDraft = useCallback(
@@ -152,25 +157,44 @@ const SessionComposer = observer(function SessionComposer({
     },
     [conversation],
   )
+  // Stop leaves the composer as it is (POD-2423). The words already reached
+  // the agent, and the bubble says "interrupted"; putting them back in the
+  // field made a delivered prompt look unsent and invited a second copy.
   const handleStop = useCallback(() => {
-    void conversation.interrupt(conversation.draft)
+    void conversation.interrupt(conversation.draft, { restore: false })
   }, [conversation])
   const onStop = turnActive && canInterrupt ? handleStop : undefined
   // A Stop on its way, read from its record (POD-6397), on every device.
   const interrupting = conversation.session?.interrupting === true
+  // REPLY TO THE ASKER (C3, board ChatReply): while a reply is open the words
+  // go to the agent that asked over messages.reply, never into the prompt, and
+  // the attach control steps aside because a note carries text only.
+  const reply = conversation.reply
+  const replying = reply.active
+  const asker = principalShortName(reply.target?.from ?? '')
+  const sendReply = useCallback(
+    (text: string) => {
+      void reply.send(text)
+    },
+    [reply],
+  )
   return (
     <Composer
-      placeholder={placeholder}
-      onSend={onSend}
+      placeholder={replying ? `Reply to ${asker}` : placeholder}
+      onSend={replying ? sendReply : onSend}
       value={draft}
       onChangeText={setDraft}
-      caption={interrupting ? 'Interrupting…' : caption}
-      captionTone={interrupting ? 'working' : captionTone}
-      sendDisabled={sendDisabled}
+      caption={replying ? reply.error : interrupting ? 'Interrupting…' : caption}
+      captionTone={replying ? 'attention' : interrupting ? 'working' : captionTone}
+      sendDisabled={replying ? reply.sending : sendDisabled}
       draftInsertion={draftInsertion}
-      attachments={attachments}
+      attachments={replying ? undefined : attachments}
       onRestingHeight={onRestingHeight}
-      onStop={onStop}
+      onStop={replying ? undefined : onStop}
+      header={replying ? <ComposerReplyHeader asker={asker} onCancel={reply.cancel} /> : undefined}
+      leading={<ComposerModelLabel session={conversation.session} />}
+      stackLeadingAtLargeText
+      maxLines={maxLines}
     />
   )
 })
@@ -195,6 +219,30 @@ const SessionComposer = observer(function SessionComposer({
 export function SessionConversation(
   props: Omit<Parameters<typeof SessionConversationBody>[0], 'model' | 'pool'>,
 ) {
+  const pool = useMobilePool()
+  const view = useSessionConversation(props)
+  return view ? (
+    <SessionConversationBody
+      {...props}
+      pool={pool}
+      session={view.session ?? props.session}
+      model={view}
+    />
+  ) : (
+    // Acquisition runs in a layout effect. The body decides whether history is
+    // cold; painting a skeleton here would flash even for a warm conversation.
+    <View style={styles.flex} />
+  )
+}
+
+/** Both task offers and chat acquire the same owner-cached conversation. */
+export function useSessionConversation(props: {
+  session: SessionView | SessionModel
+  initialPendingText?: string
+  deferInitialTranscript?: boolean
+  activateTranscript?: boolean
+  enabled?: boolean
+}) {
   const owner = useClientRuntime<MobileTrpc>()
   const requestClient = useRequestClient<MobileTrpc>()
   const conversationSends = useChatSends()
@@ -203,18 +251,14 @@ export function SessionConversation(
   const pool = useMobilePool()
   const sessionId = props.session.sessionId
   const readiness = useSessionConversationPorts(sessionId)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: ports stay bound to this pool and session; readiness only gates acquisition.
   const ports = useMemo(
     () => (pool ? mobileConversationPorts(pool, sessionId) : readiness),
     [pool, sessionId],
   )
-  const recognized = useMemo(() => observable.box(!props.deferInitialTranscript), [sessionId])
-  useLayoutEffect(
-    () => action(() => recognized.set(!props.deferInitialTranscript))(),
-    [recognized, props.deferInitialTranscript],
-  )
   const model = useConversation(
     sessionId,
-    (drafts) =>
+    () =>
       new MobileConversation(
         {
           sessionId,
@@ -237,27 +281,9 @@ export function SessionConversation(
             initialLimit: 80,
             pageLimit: 80,
             source: {
-              read: (request) =>
-                when(() => recognized.get()).then(() =>
-                  requestClient.sessions.transcriptRead.query(request),
-                ),
-              subscribe: (id, since, listener) => {
-                let off = () => {}
-                const stop = reaction(
-                  () => recognized.get(),
-                  (ready) => {
-                    off()
-                    off = ready
-                      ? owner.services.connection.hub.subscribeTranscript(id, since, listener)
-                      : () => {}
-                  },
-                  { fireImmediately: true },
-                )
-                return () => {
-                  stop()
-                  off()
-                }
-              },
+              read: (request) => requestClient.sessions.transcriptRead.query(request),
+              subscribe: (id, since, listener) =>
+                owner.services.connection.hub.subscribeTranscript(id, since, listener),
             },
             ...(owner.replica.transcripts ? { cache: owner.replica.transcripts } : {}),
           },
@@ -284,7 +310,9 @@ export function SessionConversation(
                       at: Date.now(),
                       state: 'sent' as const,
                       kind: 'message' as const,
-                      reconcile: 'next-user-item' as const,
+                      reconcile: props.session.headless
+                        ? ('next-user-item' as const)
+                        : ('initial-prompt' as const),
                     },
                   ]
                 : []),
@@ -366,23 +394,35 @@ export function SessionConversation(
         },
         { hidePendingQuestion: true },
       ),
-    { warmLimit: PHONE_WARM_CONVERSATIONS, enabled: pool !== null && readiness.ready },
+    {
+      warmLimit: PHONE_WARM_CONVERSATIONS,
+      enabled: props.enabled !== false && pool !== null && readiness.ready,
+      // A failed draft can unmount before recognition and retry with the same
+      // warm service. Defer its activation, never its source on a screen's flag.
+      activateTranscript: !props.deferInitialTranscript && props.activateTranscript !== false,
+    },
   )
+  // The reply to an agent's question goes to the asker over the existing
+  // messages.show/reply calls, exactly as the web composer sends it (POD-2380).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the cached service and its pool retain their original mutation owner.
   const view = useMemo(
-    () => (model && pool ? new MobileChatViewModel(model, pool) : undefined),
+    () =>
+      model && pool
+        ? new MobileChatViewModel(
+            model,
+            pool,
+            undefined,
+            {
+              show: (id) => requestClient.messages.show.query({ id }),
+              reply: (id, body) => requestClient.messages.reply.mutate({ id, body }),
+            },
+            (id) => currentMessageRecord(pool, owner.replica, id),
+          )
+        : undefined,
     [model, pool],
   )
   useEffect(() => view?.open(), [view])
-  return view ? (
-    <SessionConversationBody
-      {...props}
-      pool={pool}
-      session={view.session ?? props.session}
-      model={view}
-    />
-  ) : (
-    <TranscriptSkeleton />
-  )
+  return view
 }
 
 const SessionConversationBody = observer(function SessionConversationBody({
@@ -394,6 +434,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
   findRequest = 0,
   initialPendingText,
   onInitialPendingSettled,
+  topInset = 0,
 }: {
   pool: ReturnType<typeof useMobilePool>
   session: SessionView | SessionModel
@@ -411,6 +452,8 @@ const SessionConversationBody = observer(function SessionConversationBody({
   onInitialPendingSettled?: () => void
   /** Wait until the authority recognizes a client-minted session id. */
   deferInitialTranscript?: boolean
+  /** Height of the native header over the feed: content rests below it. */
+  topInset?: number
 }) {
   const requestClient = useRequestClient<MobileTrpc>()
   const replica = useReplica()
@@ -479,6 +522,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const transcript = model
   const conversation = model
   const loaded = transcript.initialLoaded
+  const freshness = transcript.freshness
   const itemCount = transcript.ids.length
   const pendingTurns = useMemo<LocalPendingTurn[]>(
     () => conversation.bubbles.map(pendingTurnOf),
@@ -490,13 +534,29 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const attachments = useComposerAttachments(sessionId)
   const [draftInsertion, setDraftInsertion] = useState<{ id: number; text: string } | null>(null)
   const insertionSeq = useRef(0)
-  // What the feed owes the floating composer. Only ever the RESTING height, so
-  // growing the field does not relayout the transcript under the operator.
-  const [composerHeight, setComposerHeight] = useState(0)
+  // After the first measurement, only resting composer heights move the feed,
+  // so growing the field does not relayout the transcript under the operator.
+  // Mount native content only once its first layout can pay for the composer.
+  // Updating a zero inset later leaves short FlatList footers under the dock.
+  const [composerHeight, setComposerHeight] = useState<number | null>(null)
+  const [offlineBannerHeight, setOfflineBannerHeight] = useState(0)
+  const transcriptTopInset = topInset + (offlineMachineName ? offlineBannerHeight : 0)
+  const transcriptLayout = useRef(false)
   const [askHeight, setAskHeight] = useState(0)
+  /** Bumped by a send so the feed lands on the new bubble, the same request
+   *  the Superagent thread makes; the list owns how it gets there. */
+  const [pinRequest, setPinRequest] = useState(0)
+  // What actually floats over the feed's bottom edge right now: the band, the
+  // ask card and the composer at its CURRENT (grown) height. Only the Newest
+  // button rides on it, so a growing draft lifts the button without moving
+  // the transcript.
+  const [floatingHeight, setFloatingHeight] = useState(0)
+  const [viewportHeight, setViewportHeight] = useState(0)
+  // A reconnect may replace rows or return an identical window. Neither
+  // changes its count, but both finish the shared rendering transition.
   useEffect(() => {
-    transcript.markRendered()
-  }, [itemCount, transcript])
+    if (freshness === 'rendering') transcript.markRendered()
+  }, [freshness, transcript])
   const pendingSeed = conversation.pending.some((turn) => turn.id === 'pending-first-turn')
   useEffect(() => {
     if (initialPendingText) pendingSeedSession.current = sessionId
@@ -528,6 +588,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
       const paths = attached.flatMap((file) => (file.path ? [file.path] : []))
       const refs = attached.flatMap((file) => (!file.path && file.ref ? [file.ref] : []))
       const wire = paths.length > 0 ? `${paths.join('\n')}\n${trimmed}` : trimmed
+      setPinRequest((count) => count + 1)
       void conversation.submit({
         text: trimmed,
         wire,
@@ -551,6 +612,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
 
   const retry = useCallback(
     (turn: PendingTurn) => {
+      setPinRequest((count) => count + 1)
       void conversation.retry(turn.id)
     },
     [conversation],
@@ -577,11 +639,11 @@ const SessionConversationBody = observer(function SessionConversationBody({
 
   const transcriptStatus = transcript.offlineAsOf
     ? `Offline transcript copy · as of ${new Date(transcript.offlineAsOf).toLocaleString()}`
-    : transcript.freshness === 'saved'
+    : freshness === 'saved'
       ? 'Saved transcript copy'
-      : transcript.freshness === 'checking'
+      : freshness === 'checking'
         ? 'Checking transcript…'
-        : transcript.freshness === 'rendering'
+        : freshness === 'rendering'
           ? 'Updating transcript…'
           : null
 
@@ -615,12 +677,16 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const activity = resumeTimedOut ? null : conversation.activity
   // A newly spawned process is working before its first agent-state frame.
   const warming = !resumeTimedOut && (session.status === 'starting' || activity?.tone === 'working')
-  // A parked or ended session is present but has no process. It gets the
-  // recovery banner; when there is also no conversation to show, the banner is
-  // the WHOLE screen rather than a header over an empty transcript [POD-1758].
+  // Lifecycle recovery lives at the transcript's end. Sessions without a transcript
+  // retain the full recovery pane [POD-1758].
   const hasTranscript = session.transcriptAvailable ?? defaultChatCapable(session.agentKind)
   const composer = conversation.composer
   const readOnly = session.status === 'hibernated' || session.status === 'exited'
+  const composerHidden = session.status === 'exited' || (readOnly && !hasTranscript)
+  if (composerHidden || Platform.OS === 'web' || composerHeight !== null)
+    transcriptLayout.current = true
+  // Resuming an exited session adds its composer without remounting the feed.
+  const transcriptLayoutReady = transcriptLayout.current
   /**
    * THE STOP CONTROL, ON THE DESKTOP'S TERMS [POD-4645]. Drawn while a turn is
    * running as far as this phone can tell — the agent is computing, or a send
@@ -639,21 +705,17 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const composerCaption = conversation.interruptError
     ? `Not stopped: ${conversation.interruptError}`
     : transcriptStatus
-  // A question Claude Code has not written into its transcript yet: the hook
-  // channel carries it from the moment the dialog opens, the transcript only
-  // once the call resolves (POD-1273). The transcript stays the better source
-  // the instant it has one, so this is consulted only while it has none.
+  const transcriptQuestion = transcript.pendingQuestion
   const need = conversation.session?.agentNeed
   const phase = conversation.session?.agentPhase
-  const transcriptQuestion = transcript.pendingQuestion
   const pendingAsk = useMemo(
     () =>
-      pendingAskFromState(need, session.status, phase, transcriptQuestion !== null)?.item ?? null,
-    [transcriptQuestion, need, phase, session.status],
+      pendingAskFromState(need, session.status, phase, transcriptQuestion !== null, currentQuestion)
+        ?.item ?? null,
+    [need, session.status, phase, transcriptQuestion, currentQuestion],
   )
   const pendingQuestion = transcriptQuestion ?? pendingAsk
-  const askAnswerable =
-    pendingAsk !== null || session.status === 'live' || session.status === 'starting'
+  const askAnswerable = session.status === 'live' || session.status === 'starting'
   const pendingAskedAt = pendingQuestion?.ts ?? conversation.session?.agentSince
   useEffect(() => {
     if (!pendingQuestion) setAskHeight(0)
@@ -661,6 +723,12 @@ const SessionConversationBody = observer(function SessionConversationBody({
 
   const answerAsk = useCallback(
     async (answer: AskQuestionAnswer) => {
+      if ('reply' in answer) {
+        if (!composer.sendable || !composer.deliverable)
+          throw new Error('The question is not available to answer.')
+        await conversation.replyToAsyncQuestion(answer.reply)
+        return
+      }
       if (
         currentQuestion &&
         (answer.interactionId !== currentQuestion.id ||
@@ -673,7 +741,14 @@ const SessionConversationBody = observer(function SessionConversationBody({
       const sent = await answerSession(sessionId, menuAnswer(answer))
       if (!sent.ok) throw new Error(sent.reason ?? 'answer not delivered')
     },
-    [sessionId, currentQuestion, answerSession],
+    [
+      sessionId,
+      currentQuestion,
+      answerSession,
+      conversation,
+      composer.sendable,
+      composer.deliverable,
+    ],
   )
 
   /**
@@ -715,21 +790,30 @@ const SessionConversationBody = observer(function SessionConversationBody({
     () => ({
       label:
         activity?.label ?? (conversation.session?.agentPhase === 'idle' ? 'Idle' : session.status),
-      tone: (activity?.tone === 'attention' ? 'attention' : activity ? 'working' : 'idle') as
-        | 'working'
-        | 'attention'
-        | 'idle',
-      since: conversation.session?.agentSince,
+      tone:
+        activity?.tone === 'working' || activity?.tone === 'attention' || activity?.tone === 'error'
+          ? activity.tone
+          : ('idle' as const),
+      // A fresh send has no turn clock yet. Interrupted turns are settled.
+      since:
+        activity?.transient === 'just-sent' || activity?.label === 'interrupted'
+          ? undefined
+          : conversation.session?.agentSince,
     }),
     [activity, conversation.session?.agentPhase, conversation.session?.agentSince, session.status],
   )
   const streamingActive = activity?.tone === 'working'
   const emptyState = useMemo(
     () =>
-      loaded && itemCount === 0 && pendingTurns.length === 0 && !offer && !pendingQuestion ? (
+      loaded &&
+      !readOnly &&
+      itemCount === 0 &&
+      pendingTurns.length === 0 &&
+      !offer &&
+      !pendingQuestion ? (
         <EmptyTranscript warming={warming} />
       ) : undefined,
-    [loaded, itemCount, pendingTurns.length, offer, pendingQuestion, warming],
+    [loaded, readOnly, itemCount, pendingTurns.length, offer, pendingQuestion, warming],
   )
   const footerNode = useMemo(
     () =>
@@ -750,8 +834,13 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const captionTone = conversation.interruptError ? 'attention' : 'working'
 
   return (
-    <View style={styles.flex}>
-      {!resumeFailed && (
+    <View
+      testID="conversation-viewport"
+      collapsable={false}
+      style={styles.flex}
+      onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
+    >
+      {!hasTranscript && !resumeFailed ? (
         <MobileSessionLifecycle
           installRecovery={<PhoneInstallCurrentHarness sessionId={session.sessionId} />}
           session={session}
@@ -759,7 +848,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
           onResume={store.resurrectSession}
           onRemove={store.killSession}
         />
-      )}
+      ) : null}
       {conversation.session ? (
         <MobileInterruptStuck
           session={conversation.session}
@@ -776,62 +865,127 @@ const SessionConversationBody = observer(function SessionConversationBody({
           onHibernate={(id) => void store.hibernateSession(id)}
         />
       )}
-      {offlineMachineName ? (
-        <View
-          style={styles.offlineBanner}
-          testID="machine-offline-banner"
-          accessibilityRole="alert"
-        >
-          <Text style={styles.offlineText}>
-            {`machine '${offlineMachineName}' is offline — showing last known transcript.`}
-          </Text>
-        </View>
-      ) : null}
       {readOnly && !hasTranscript ? null : (
-        <BootstrapCrossfade resolved={loaded || itemCount > 0} placeholder={<TranscriptSkeleton />}>
-          <PullToRefreshBoundary
-            connected={connected}
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-          >
-            <TranscriptList
-              transcript={transcript}
-              presentation={model.presentation}
-              transcriptQuestion={transcriptQuestion}
-              live={session.status === 'live'}
-              assetContext={assetContext}
-              pendingTurns={pendingTurns}
-              hidePendingQuestion
-              findRequest={findRequest}
-              onRetryPending={retry}
-              onDiscardPending={discard}
-              onSendAgainPending={sendAgain}
-              onRetractPending={retractPending}
-              onQuote={quoteIntoDraft}
-              bottomInset={composerHeight + askHeight + keyboardLift}
-              streaming={streamingActive}
-              tail={tailState}
-              refreshControl={refreshControl}
-              refreshAccessibilityProps={refreshAccessibilityProps}
-              emptyComponent={emptyState}
-              onAnswer={answerAsk}
-              answerInteractionId={currentQuestion?.id}
-              onLoadOlder={loadOlder}
-              moreAbove={transcript.hasMoreOlder}
-              loadingOlder={transcript.loadingOlder}
-              onFollowChange={followTranscript}
-              find={model.find}
-              onSearchChange={searchTranscript}
-              onRefPress={setRequestedRef}
-              footer={footerNode}
-            />
-          </PullToRefreshBoundary>
+        <BootstrapCrossfade
+          // Cached history is ready before the composer reports its height.
+          // Keep that layout gate on the list alone, never on the skeleton.
+          resolved={loaded || itemCount > 0 || pendingTurns.length > 0}
+          placeholder={
+            // While stored history is still being read, hold a blank frame:
+            // a cached chat never shows the opening skeleton.
+            transcript.storedSettled ? (
+              <TranscriptSkeleton
+                topInset={transcriptTopInset}
+                bottomInset={composerHidden ? 0 : (composerHeight ?? 0) + askHeight + keyboardLift}
+              />
+            ) : (
+              <View style={styles.storedPending} />
+            )
+          }
+        >
+          {transcriptLayoutReady ? (
+            <PullToRefreshBoundary
+              connected={connected}
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+            >
+              <TranscriptList
+                transcript={transcript}
+                presentation={model.presentation}
+                transcriptQuestion={transcriptQuestion}
+                live={session.status === 'live'}
+                assetContext={assetContext}
+                pendingTurns={pendingTurns}
+                pinRequest={pinRequest}
+                hidePendingQuestion={!composerHidden}
+                findRequest={findRequest}
+                onRetryPending={retry}
+                onDiscardPending={discard}
+                onSendAgainPending={sendAgain}
+                onRetractPending={retractPending}
+                onQuote={composerHidden ? undefined : quoteIntoDraft}
+                mailReply={model.reply}
+                bottomInset={composerHidden ? 0 : (composerHeight ?? 0) + askHeight + keyboardLift}
+                overlayInset={
+                  composerHidden
+                    ? 0
+                    : floatingHeight > 0
+                      ? floatingHeight + keyboardLift
+                      : undefined
+                }
+                topInset={transcriptTopInset}
+                streaming={streamingActive}
+                tail={tailState}
+                refreshControl={refreshControl}
+                refreshAccessibilityProps={refreshAccessibilityProps}
+                emptyComponent={emptyState}
+                onAnswer={answerAsk}
+                answerInteractionId={currentQuestion?.id}
+                onLoadOlder={loadOlder}
+                moreAbove={transcript.hasMoreOlder}
+                loadingOlder={transcript.loadingOlder}
+                onFollowChange={followTranscript}
+                find={model.find}
+                onSearchChange={searchTranscript}
+                onRefPress={setRequestedRef}
+                footer={
+                  readOnly && !resumeFailed ? (
+                    <>
+                      {footerNode}
+                      <MobileSessionLifecycle
+                        installRecovery={
+                          <PhoneInstallCurrentHarness sessionId={session.sessionId} />
+                        }
+                        session={session}
+                        hasTranscript={hasTranscript}
+                        onResume={store.resurrectSession}
+                        onRemove={store.killSession}
+                      />
+                    </>
+                  ) : (
+                    footerNode
+                  )
+                }
+              />
+            </PullToRefreshBoundary>
+          ) : null}
         </BootstrapCrossfade>
       )}
+      {/* The transcript must be the first native descendant. An in-flow banner
+          before it makes the stack's scroll-view finder stop at the banner. */}
+      {offlineMachineName ? (
+        <View
+          style={[styles.offlineLayer, { top: topInset }]}
+          onLayout={(event) => setOfflineBannerHeight(event.nativeEvent.layout.height)}
+        >
+          <View
+            style={styles.offlineBanner}
+            testID="machine-offline-banner"
+            accessibilityRole="alert"
+          >
+            <Text style={styles.offlineText}>
+              {`machine '${offlineMachineName}' is offline — showing last known transcript.`}
+            </Text>
+          </View>
+        </View>
+      ) : null}
       {/* The composer floats OVER the feed rather than ending it [POD-502]. The
           feed pays for it with the composer's own resting height. */}
-      {readOnly && !hasTranscript ? null : (
-        <View style={[styles.composerLayer, { bottom: keyboardLift }]} pointerEvents="box-none">
+      {composerHidden ? null : (
+        <View
+          testID="conversation-composer-layer"
+          style={[
+            styles.composerLayer,
+            {
+              bottom: keyboardLift,
+              maxHeight: viewportHeight
+                ? Math.max(0, viewportHeight - topInset - keyboardLift)
+                : undefined,
+            },
+          ]}
+          pointerEvents="box-none"
+          onLayout={(event) => setFloatingHeight(event.nativeEvent.layout.height)}
+        >
           {/* THE BLOCKED-SESSION BAND (POD-2414) — above the ask card, because
               the kinds it renders are the ones nothing else on this screen can
               show, and a session blocked on one of them has nothing else to
@@ -849,13 +1003,20 @@ const SessionConversationBody = observer(function SessionConversationBody({
                 live={askAnswerable}
                 onAnswer={answerAsk}
                 presentation="band"
+                compact={keyboardLift > 0}
                 {...(pendingAskedAt ? { askedAt: pendingAskedAt } : {})}
               />
             </View>
           ) : null}
           <SessionComposer
             conversation={model}
-            placeholder={resumeTimedOut ? 'Message the agent…' : composer.placeholder}
+            placeholder={
+              resumeTimedOut
+                ? 'Message the agent…'
+                : session.status === 'hibernated'
+                  ? 'Message to wake it'
+                  : composer.placeholder
+            }
             onSend={send}
             caption={composerCaption}
             captionTone={captionTone}
@@ -865,6 +1026,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
             onRestingHeight={setComposerHeight}
             turnActive={turnActive}
             canInterrupt={conversation.canInterrupt}
+            maxLines={pendingQuestion && keyboardLift > 0 ? 3 : undefined}
           />
         </View>
       )}
@@ -879,8 +1041,17 @@ const SessionConversationBody = observer(function SessionConversationBody({
 })
 
 const styles = StyleSheet.create({
+  storedPending: { flex: 1 },
   flex: {
     flex: 1,
+    minHeight: 0,
+  },
+  offlineLayer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 1,
+    backgroundColor: color.bg,
   },
   /**
    * THE OFFLINE-MACHINE BANNER (this issue) — the phone's copy of the
@@ -938,7 +1109,9 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
   askLayer: {
-    backgroundColor: color.engraved,
+    backgroundColor: color.bg,
+    flexShrink: 1,
+    minHeight: 0,
   },
   /** Claims the feed remainder so the floating composer stays anchored. */
   empty: {

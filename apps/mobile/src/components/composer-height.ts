@@ -23,8 +23,11 @@ export const COMPOSER_MAX_LINES = 6
 
 export const COMPOSER_MIN_HEIGHT = COMPOSER_LINE
 
-export function composerMaxHeight(line: number = COMPOSER_LINE): number {
-  return composerLine(line) * COMPOSER_MAX_LINES
+export function composerMaxHeight(
+  line: number = COMPOSER_LINE,
+  maxLines = COMPOSER_MAX_LINES,
+): number {
+  return composerLine(line) * Math.max(1, Math.min(COMPOSER_MAX_LINES, maxLines))
 }
 
 /**
@@ -37,10 +40,11 @@ export function composerMaxHeight(line: number = COMPOSER_LINE): number {
 export function composerFieldHeight(
   measured: number | null | undefined,
   line: number = COMPOSER_LINE,
+  maxLines = COMPOSER_MAX_LINES,
 ): number {
   const min = composerLine(line)
   if (measured == null || !Number.isFinite(measured) || measured <= 0) return min
-  return Math.min(Math.max(Math.round(measured), min), composerMaxHeight(line))
+  return Math.min(Math.max(Math.round(measured), min), composerMaxHeight(line, maxLines))
 }
 
 /**
@@ -63,8 +67,9 @@ export function composerAtRest(
 export function composerScrolls(
   measured: number | null | undefined,
   line: number = COMPOSER_LINE,
+  maxLines = COMPOSER_MAX_LINES,
 ): boolean {
-  return composerFieldHeight(measured, line) >= composerMaxHeight(line)
+  return composerFieldHeight(measured, line, maxLines) >= composerMaxHeight(line, maxLines)
 }
 
 /**

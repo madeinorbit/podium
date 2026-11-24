@@ -7,7 +7,7 @@ import { memoryStorage, type StorageApi } from '../replica/contract'
 import type { VisibilitySource } from '../runtime-root/connection/visibility'
 import type { SocketHub } from '../socket-transport'
 import { createMemoryRouterWindow, createRouter, UI_STATE_KEYS } from '../ui-state'
-import { allTabIds, emptyWorkspace, focusPane, openTab, splitPane, tabIdFor } from '../values'
+import { allTabIds, emptyWorkspace, focusPane, openTab, rememberedTab, splitPane, tabIdFor } from '../values'
 import type { DeviceStorage } from './device-storage'
 import { openLegacyDeviceKeys } from './draft-storage'
 import { UiPersistence } from './persistence'
@@ -458,5 +458,29 @@ describe('device UiStore', () => {
     second.persistence.erase()
     await second.persistence.flush()
     expect(backing.has(`${prefix}.ui.v1`)).toBe(false)
+  })
+})
+
+describe('rememberWorkspaceTab records a seat without navigating (POD-2432)', () => {
+  it('writes the named workspace only, leaving the one on screen and its panes alone', () => {
+    const { ui } = setup()
+    const onScreen = ui.workspaces.none
+    ui.rememberWorkspaceTab('mission:root-1', 'sess-b')
+    ui.rememberWorkspaceTab('mission:root-1', 'sess-c')
+    expect(rememberedTab(ui.workspaces['mission:root-1'])).toBe('sess-c')
+
+    // Back to a seat already in the strip: it is re-activated, not duplicated.
+    ui.rememberWorkspaceTab('mission:root-1', 'sess-b')
+    expect(rememberedTab(ui.workspaces['mission:root-1'])).toBe('sess-b')
+    expect(allTabIds(ui.workspaces['mission:root-1']!)).toEqual(['sess-b', 'sess-c'])
+    expect(ui.workspaces.none).toBe(onScreen)
+  })
+
+  it('publishes nothing when the seat is already the remembered one', () => {
+    const { ui } = setup()
+    ui.rememberWorkspaceTab('mission:root-1', 'sess-b')
+    const before = ui.workspaces
+    ui.rememberWorkspaceTab('mission:root-1', 'sess-b')
+    expect(ui.workspaces).toBe(before)
   })
 })

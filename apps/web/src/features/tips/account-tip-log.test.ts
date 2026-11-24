@@ -120,13 +120,39 @@ it('re-enabling restores one-time tips and the phone promo across devices, with 
   const reload = f.device()
   expect(reload.rendered.ready).toBe(true)
   expect(reload.rendered.enabled).toBe(true)
-  expect(reload.rendered.seen).toEqual(ACCOUNT_TIP_IDS.map(() => false))
+  expect(reload.rendered.seen).toEqual(ACCOUNT_TIP_IDS.map((id) => id === 'github-star'))
   expect(reload.layout.get('mobile.promoDismissed')).toBeUndefined()
   undo?.()
   expect(reload.rendered.enabled).toBe(false)
   expect(reload.rendered.seen).toEqual(ACCOUNT_TIP_IDS.map(() => true))
   expect(reload.layout.get('mobile.promoDismissed')).toBe('true')
   expect(f.data.get('tips.seen.first-prompt')).toBe(AT)
+})
+
+it.each([
+  'finished',
+  'dismissed',
+] as const)('remembers the GitHub ask after %s across devices, reloads and tip resets', (outcome) => {
+  const f = account(),
+    a = f.device(),
+    b = f.device()
+  a.log.record('github-star', outcome)
+  expect(b.log.isSeen('github-star')).toBe(true)
+  a.log.setEnabled(false)
+  const undo = b.log.setEnabled(true)
+  expect(f.device().log.isSeen('github-star')).toBe(true)
+  undo?.()
+  expect(b.log.isSeen('github-star')).toBe(true)
+  expect(f.data.get('tips.seen.github-star')).toBe(AT)
+})
+
+it('Undo of re-enabling tips cannot unspend a GitHub ask shown in the meantime', () => {
+  const f = account({ 'tips.enabled': 'false' }),
+    d = f.device()
+  const undo = d.log.setEnabled(true)
+  d.log.record('github-star', 'finished')
+  undo?.()
+  expect(d.log.isSeen('github-star')).toBe(true)
 })
 
 it('retires with the account pool even when rows arrive after teardown', () => {

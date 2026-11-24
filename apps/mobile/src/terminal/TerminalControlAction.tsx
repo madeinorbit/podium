@@ -1,6 +1,6 @@
-import { Maximize2, Smartphone } from '../components/icons'
 import { Icon } from '../components/Icon'
-import { HeaderButton } from '../components/Screen'
+import { Maximize2, Smartphone } from '../components/icons'
+import { HeaderButton, type ScreenMenuItem } from '../components/Screen'
 import { color } from '../theme/theme'
 import { type TerminalControlState, terminalControlCopy } from './terminal-control'
 
@@ -30,4 +30,13 @@ export function TerminalControlAction({ control }: { control: TerminalControlSta
       />
     </HeaderButton>
   )
+}
+
+/** The same takeover action inside the native console menu. */
+export function terminalControlMenuItem(control: TerminalControlState): ScreenMenuItem {
+  return {
+    label: terminalControlCopy(control).label,
+    icon: control.role === 'controller' ? Smartphone : Maximize2,
+    onPress: control.takeControl,
+  }
 }

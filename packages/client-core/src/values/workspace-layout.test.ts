@@ -14,6 +14,7 @@ import {
   paneOfTab,
   promoteTab,
   pruneWorkspace,
+  rememberedTab,
   resizeSplit,
   serializeWorkspaces,
   splitPane,
@@ -609,5 +610,22 @@ describe('a whole session of edits keeps the layout valid', () => {
     ws = step(ws, (w) => closeTab(w, 's4'))
     ws = step(ws, (w) => closeTab(w, 's2'))
     expect(allTabIds(ws)).toEqual([])
+  })
+})
+
+describe('rememberedTab — the tab a task last showed (POD-2432)', () => {
+  it('is the focused pane active tab, across a split', () => {
+    let ws = openTab(emptyWorkspace('mission:r'), 's-a', { permanent: true })
+    expect(rememberedTab(ws)).toBe('s-a')
+    ws = splitPane(ws, ws.focusedPaneId, 'row')
+    ws = openTab(ws, 's-b', { permanent: true })
+    expect(rememberedTab(ws)).toBe('s-b')
+    ws = activateTab(ws, 's-a')
+    expect(rememberedTab(ws)).toBe('s-a')
+  })
+
+  it('is null for a task never opened on this device', () => {
+    expect(rememberedTab(undefined)).toBeNull()
+    expect(rememberedTab(emptyWorkspace('mission:r'))).toBeNull()
   })
 })

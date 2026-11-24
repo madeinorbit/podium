@@ -1,5 +1,4 @@
 import type { PodiumTarget } from '@podium/protocol'
-import { useRouter } from 'expo-router'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { AccessibilityInfo, Platform, StyleSheet, Text } from 'react-native'
 import { useAuthStatus } from '../client/auth-context'
@@ -15,6 +14,8 @@ import { useServerProfile } from '../client/server-profile-context'
 import { usePoolLinkData } from '../client/use-pool-links'
 import { MOBILE_HOME } from '../lib/navigation'
 import { setActivePodiumOrigin, setPodiumTargetActivator } from '../lib/podium-link'
+import { consoleRoute, consoleSessionTarget } from '../navigation/console-route'
+import { useRootScreenRouter } from '../navigation/use-root-screen-router'
 
 /**
  * Makes Podium addresses live on the phone (POD-1606). Mounted once inside the
@@ -31,7 +32,7 @@ import { setActivePodiumOrigin, setPodiumTargetActivator } from '../lib/podium-l
  * rows — resolving `POD-1606` is a live-data question.
  */
 export function PodiumLinkHost() {
-  const router = useRouter()
+  const router = useRootScreenRouter()
   const httpOrigin = useHttpOrigin()
   const authStatus = useAuthStatus()
   const { profile, profiles, activation } = useServerProfile()
@@ -49,7 +50,8 @@ export function PodiumLinkHost() {
           : null,
     [pending.request],
   )
-  const data = usePoolLinkData(target)
+  const lookupTarget = useMemo(() => (target && consoleSessionTarget(target)) ?? target, [target])
+  const data = usePoolLinkData(lookupTarget)
   const { sessions, booting } = data
   const [handoffStatus, setHandoffStatus] = useState('')
 
@@ -67,10 +69,10 @@ export function PodiumLinkHost() {
         // asynchronous read cannot navigate or fall back against that owner.
         if (!active) return true
         if (!route) return false
-        router.push(route as never)
+        router.push(consoleRoute(route, target) as never)
         return true
       }
-      const route = data.resolveRoute(target)
+      const route = data.resolveRoute(consoleSessionTarget(target) ?? target)
       return route instanceof Promise ? route.then(open) : open(route)
     })
     return () => {
@@ -142,7 +144,9 @@ export function PodiumLinkHost() {
     setHandoffStatus(
       decision.target.kind === 'issue' ? 'Opening the task.' : 'Opening the session.',
     )
-    router.replace(route as never)
+    // Preserve the current tab or detail as the back destination. The root
+    // layout's anchor also supplies the tabs if this opens a fresh stack.
+    router.push(consoleRoute(route, decision.target) as never, { withAnchor: true })
   }, [activation, authStatus, booting, data.route, pending, profile.id, profiles, router, sessions])
 
   return handoffStatus ? (

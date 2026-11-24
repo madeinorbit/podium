@@ -4,15 +4,17 @@ import { LOADING } from '@podium/client-graph/loading'
 import { isPendingSync, isUpstreamStale, isViaHub } from '@podium/model'
 import { isClosed } from '@podium/model/browser'
 import { useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import { issueObserver as observer } from '../../client/issue-observer'
 import { useIssueOpening } from '../../client/issue-opening'
 import { useAgeNow } from '../../lib/clock-hooks'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { alpha } from '../../theme/mix'
-import { color, font, leading, mono, radius, sans, space, tracking } from '../../theme/theme'
-import { RichMarkdown } from '../RichMarkdown'
-import { Disclosure, InlineEditable, SectionHeading } from './chrome'
+import { color, font, leading, radius, sans, space, tracking } from '../../theme/theme'
+import { PressableScale } from '../PressableScale'
+import { RichMarkdown, RichMarkdownPreview } from '../RichMarkdown'
+import { Disclosure, InlineEditable } from './chrome'
+import { DetailText as Text } from './DetailText'
 
 /**
  * The task's own text [POD-724]: the inline-editable title, the status strip, the
@@ -43,23 +45,41 @@ export const IssueTitle = observer(function IssueTitle({
       placeholder="Untitled task"
       ariaLabel="Task title"
       busy={busy}
-      multiline={false}
       onCommit={commands.commitTitle}
       textStyle={styles.title}
+      dynamicTypeRamp="title2"
     />
   )
 })
 
-export const StatusStrip = observer(function StatusStrip({ issue }: { issue: IssueWithBodies }) {
-  const now = useAgeNow(Math.max(Date.parse(issue.createdAt), Date.parse(issue.updatedAt)))
-  const created = relativeTime(issue.createdAt, now)
-  const updated = relativeTime(issue.updatedAt, now)
+export const StatusStrip = observer(function StatusStrip({
+  issue,
+  exceptionsOnly = false,
+}: {
+  issue: IssueWithBodies
+  /** Drop the created/updated recency when the header pills already say it. */
+  exceptionsOnly?: boolean
+}) {
+  const createdNow = useAgeNow(issue.createdAt, 0, !exceptionsOnly)
+  const updatedNow = useAgeNow(issue.updatedAt, 0, !exceptionsOnly)
+  const created = relativeTime(issue.createdAt, createdNow)
+  const updated = relativeTime(issue.updatedAt, updatedNow)
   const facts = [
-    ...(isClosed(issue) ? [`Closed · ${issue.closedReason}`] : []),
-    ...(created ? [`created ${created}`] : []),
-    ...(updated ? [`updated ${updated}`] : []),
+    // The header's stage pill already says Closed when the strip rides under it.
+    ...(isClosed(issue) && !exceptionsOnly ? [`Closed · ${issue.closedReason}`] : []),
+    ...(created && !exceptionsOnly ? [`created ${created}`] : []),
+    ...(updated && !exceptionsOnly ? [`updated ${updated}`] : []),
   ]
   const hub = isViaHub(issue)
+  const exceptions =
+    facts.length > 0 ||
+    issue.isDraftVessel ||
+    issue.pinned ||
+    issue.archived ||
+    issue.intentOrigin === 'agent' ||
+    issue.audience === 'agent' ||
+    hub
+  if (!exceptions) return null
   return (
     <View style={styles.strip}>
       {facts.length > 0 ? <Text style={styles.stripText}>{facts.join(' · ')}</Text> : null}
@@ -116,7 +136,7 @@ export const IssueDescription = observer(function IssueDescription({
   commands: IssueCommands
 }) {
   return (
-    <View style={styles.section}>
+    <View>
       <InlineEditable
         value={issue.description === LOADING ? '' : issue.description} // POD-7555: LOADING reads as empty on the phone
         placeholder="Add a description…"
@@ -131,24 +151,52 @@ export const IssueDescription = observer(function IssueDescription({
   )
 })
 
+export const IssueDescriptionPreview = observer(function IssueDescriptionPreview(
+  props: Parameters<typeof IssueDescription>[0],
+) {
+  const [open, setOpen] = useState(false)
+  const description = props.issue.description === LOADING ? '' : props.issue.description // POD-7555: LOADING reads as empty on the phone
+  return (
+    <View style={styles.descriptionPreview} testID="issue-description-section">
+      <Text style={styles.previewLabel}>Description</Text>
+      {open || !description.trim() ? (
+        <IssueDescription {...props} />
+      ) : (
+        <RichMarkdownPreview text={description} />
+      )}
+      {description.trim() ? (
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={open ? 'Less description' : 'More description'}
+          accessibilityState={{ expanded: open }}
+          aria-expanded={open}
+          onPress={() => setOpen((value) => !value)}
+          style={styles.previewMore}
+        >
+          <Text style={styles.previewMoreText}>{open ? 'Less' : 'More'}</Text>
+        </PressableScale>
+      ) : null}
+    </View>
+  )
+})
+
 /** The agent brief, folded by default — it is long, and it is written FOR an
  *  agent. It sits between two things a human reads, so it stays a hairline and a
  *  label until asked for. */
 export const IssueBrief = observer(function IssueBrief({ issue }: { issue: IssueWithBodies }) {
   const [open, setOpen] = useState(false)
   if (!issue.brief || issue.brief === LOADING) return null // POD-7555: LOADING reads as empty on the phone
+  // A fold among folds now: no section gap of its own.
   return (
-    <View style={styles.section}>
+    <View>
       <Disclosure
         label="Brief"
-        hint="written for the agent"
+        hint="Instructions for the agent"
         open={open}
         onToggle={() => setOpen((v) => !v)}
         testID="issue-brief"
       >
-        <Text style={styles.brief} selectable>
-          {issue.brief}
-        </Text>
+        <RichMarkdown text={issue.brief} />
       </Disclosure>
     </View>
   )
@@ -179,8 +227,7 @@ export const LongFormFields = observer(function LongFormFields({
   return (
     <View testID="long-form-fields">
       {filled.map(({ field, label }) => (
-        <View key={field} style={styles.section}>
-          <SectionHeading label={label} />
+        <LongFormDisclosure key={field} label={label}>
           <InlineEditable
             value={issue[field] ?? ''}
             placeholder={`Add ${label.toLowerCase()}…`}
@@ -189,15 +236,28 @@ export const LongFormFields = observer(function LongFormFields({
             onCommit={(value) => commands.commitLongForm(field, value)}
             render={(text) => <RichMarkdown text={text} />}
           />
-        </View>
+        </LongFormDisclosure>
       ))}
     </View>
   )
 })
 
+function LongFormDisclosure({ label, children }: { label: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <Disclosure label={label} open={open} onToggle={() => setOpen((value) => !value)}>
+      {children}
+    </Disclosure>
+  )
+}
+
 const styles = StyleSheet.create({
+  descriptionPreview: { paddingHorizontal: 20, paddingTop: 12, gap: 8 },
+  previewLabel: { ...sans(400), fontSize: font.tiny, color: color.textDim },
+  previewMore: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
+  previewMoreText: { ...sans(400), fontSize: font.body, color: color.accentTint },
   title: {
-    ...sans(600),
+    ...sans(700),
     color: color.text,
     fontSize: font.title,
     lineHeight: leading(font.title),
@@ -207,35 +267,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 6,
-    paddingTop: space.xs,
-    paddingBottom: space.lg,
+    gap: space.sm,
   },
   stripText: {
-    ...mono(400),
-    color: color.textFaint,
-    fontSize: font.micro,
+    ...sans(400),
+    color: color.textDim,
+    fontSize: font.tiny,
   },
   chip: {
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: radius.xs,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.xs,
+    borderRadius: radius.control,
     backgroundColor: color.idleSoft,
   },
   chipText: {
-    ...mono(500),
-    color: color.textDim,
-    fontSize: 9.5,
-    letterSpacing: 0.3,
-  },
-  section: {
-    paddingBottom: space.xl,
-  },
-  brief: {
     ...sans(400),
     color: color.textDim,
-    fontSize: font.small,
-    lineHeight: leading(font.small, 'prose'),
-    paddingTop: space.xs,
+    fontSize: font.tiny,
   },
 })

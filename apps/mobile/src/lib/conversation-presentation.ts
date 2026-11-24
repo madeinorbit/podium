@@ -1,6 +1,7 @@
 import type { TranscriptActivityRun, TranscriptGraph } from '@podium/client-core/conversation'
 import { type ChatRow, isAskUserQuestion } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
+import type { TranscriptItem } from '@podium/model'
 import { action, actionBound, compareShallow, observable, observableRef } from 'mobx'
 import {
   appendedTranscriptArrivals,
@@ -60,6 +61,13 @@ export class MobileConversationPresentation {
   row(key: string): RetainedMobileTranscriptRow | undefined {
     const owner = this.owners.get(key)
     return owner === undefined ? undefined : this.rowsFor(owner.id)[owner.ordinal]
+  }
+
+  /** Address source metadata without demanding an offscreen presentation row. */
+  sourceItem(key: string): TranscriptItem | undefined {
+    const owner = this.owners.get(key)
+    const row = owner === undefined ? undefined : this.graph.structuralRow(owner.id)
+    return row?.kind === 'tools' ? row.blocks[0]?.item : row?.block.item
   }
 
   /** A complete reader for semantic oracles; the viewport consumes keys. */

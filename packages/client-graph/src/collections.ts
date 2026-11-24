@@ -43,6 +43,7 @@ export interface IssueStub {
   readonly id: string
   readonly repoId?: string | null
   readonly seq?: number
+  readonly type?: string
   readonly stage?: string
   readonly closedReason?: string | null
   readonly archived?: boolean

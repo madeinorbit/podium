@@ -238,3 +238,119 @@ describe('phone Work list desktop parity', () => {
     }
   })
 })
+
+describe('phone Work list folds and child search (data plan W4, W7)', () => {
+  it('folds projects with nothing open into one quiet group in unfiltered Open', () => {
+    const { phone } = fixture()
+    expect(phone.quietSections.map((section) => section.label)).toEqual(['empty'])
+    expect(phone.activeSections.map((section) => section.label)).not.toContain('empty')
+    expect(phone.activeSections.length + phone.quietSections.length).toBe(phone.sections.length)
+    expect(phone.quietExpanded).toBe(false)
+    phone.toggleQuiet()
+    expect(phone.quietExpanded).toBe(true)
+  })
+
+  it('has no quiet group while searching or outside Open', () => {
+    const { phone } = fixture()
+    phone.setQuery('reconnect')
+    expect(phone.quietSections).toEqual([])
+    phone.setQuery('')
+    phone.setLane('snoozed')
+    expect(phone.quietSections).toEqual([])
+    expect(phone.activeSections).toBe(phone.sections)
+  })
+
+  it('finds a top-level task through a sub-task title and names the hit', () => {
+    const { pool, phone } = fixture()
+    runInAction(() =>
+      pool.apply({
+        type: 'update',
+        rows: [task('kid', { parentId: 'live', seq: 77, title: 'Hidden lever' })] as never,
+      }),
+    )
+    phone.setQuery('hidden lever')
+    expect(rows(phone)).toContain('live')
+    expect(phone.childHit('live')).toBe('kid')
+    phone.setQuery('reconnect')
+    expect(phone.childHit('live')).toBeNull()
+    phone.setQuery('')
+    expect(phone.childHit('live')).toBeNull()
+  })
+
+  it('never matches a deleted sub-task', () => {
+    const { pool, phone } = fixture()
+    runInAction(() =>
+      pool.apply({
+        type: 'update',
+        rows: [
+          task('gone-kid', { parentId: 'live', seq: 78, title: 'Hidden lever', deletedAt: stamp }),
+        ] as never,
+      }),
+    )
+    phone.setQuery('hidden lever')
+    expect(phone.childHit('live')).toBeNull()
+    expect(rows(phone)).not.toContain('live')
+  })
+})
+
+it('uses the board title/ref matcher for both roots and children, retaining status search', () => {
+  const { pool, phone } = fixture()
+  pool.apply({
+    type: 'update',
+    rows: [
+      { kind: 'repo', id: 'alpha', value: { id: 'alpha', path: '/code/alpha', prefix: 'POD' } },
+      { kind: 'repo', id: 'beta', value: { id: 'beta', path: '/code/beta', prefix: 'POD' } },
+      task('live', { seq: 123, title: 'Root title' }),
+      task('kid', {
+        seq: 123,
+        displayRef: 'POD-123',
+        title: 'Child title',
+        parentId: 'beta-live',
+        repoId: 'beta',
+        repoPath: '/code/beta',
+      }),
+    ] as never,
+  })
+  for (const query of ['pod 123', 'POD-123', '#123', '123']) {
+    phone.setQuery(query)
+    expect(rows(phone)).toContain('live')
+    expect(rows(phone)).toContain('beta-live')
+    expect(phone.childHit('beta-live')).toBe('kid')
+    expect(rows(phone)).not.toContain('pinned-ask')
+  }
+  phone.setQuery('root title')
+  expect(rows(phone)).toContain('live')
+  phone.setQuery('child title')
+  expect(rows(phone)).toContain('beta-live')
+  phone.setQuery('needs review')
+  expect(rows(phone)).toContain('pinned-ask')
+})
+
+it('uses the same bounded native viewport for Work project rows in both directions', () => {
+  const { pool, phone } = fixture()
+  pool.apply({
+    type: 'update',
+    rows: Array.from({ length: 200 }, (_, i) => task(`many-${i}`, { seq: 100 + i })) as never,
+  })
+  const section = phone.sections.find((section) => section.ids.includes('many-0'))!
+  const window = section.window
+  // The top window renders before native cells report appearing.
+  expect(window.visibleRows).toEqual(section.ids.slice(0, 40))
+  window.appear(section.ids[0]!)
+  expect(window.visibleRows).toHaveLength(40)
+  const first = section.ids[0]!
+  const later = section.ids[150]!
+  window.appear(later)
+  window.disappear(first)
+  expect(window.visibleRows).toHaveLength(40)
+  expect(window.visibleRows).toContain(later)
+  expect(window.visibleRows).not.toContain(first)
+  window.appear(first)
+  window.disappear(later)
+  expect(window.visibleRows).toContain(first)
+  expect(window.visibleRows).not.toContain(later)
+  // A hidden tab keeps the last window mounted for its return.
+  window.disappear(first)
+  expect(window.visibleRows).toHaveLength(40)
+  expect(window.visibleRows).toContain(first)
+})

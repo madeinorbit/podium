@@ -1,6 +1,6 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { isUnstartedSession, panelLabel } from '@podium/client-core/values'
-import type { AgentKind} from '@podium/model/browser'
+import { panelLabel, sessionDisplayName } from '@podium/client-core/values'
+import type { AgentKind } from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { SquareChevronRight } from 'lucide-react'
 import type React from 'react'
@@ -8,24 +8,7 @@ import type { JSX } from 'react'
 import { agentChipTint, agentGlyphTone, agentIconFor } from '@/lib/agent-tone'
 import { useHarnessDescriptors } from './use-harness-descriptors'
 
-/**
- * Strip a leading status/spinner glyph from a live terminal title. Claude Code
- * (and others) prefix the title with an animated marker — ✻ ✽ ✶ ● · … — that
- * churns every frame and just adds visual noise in the tab bar and sidebar. Only
- * leading "symbol" glyphs (and the bullet/middle-dot) are removed, so real titles
- * like `~/src/podium` or `[branch]` keep their leading punctuation.
- */
-export function normalizeTitle(title: string): string {
-  return title.replace(/^[\p{So}\p{Sk}·•\s]+/u, '').trim()
-}
-
-/** The display name for a session anywhere in the UI: user-set name beats the
- *  live title; a still-unstarted session reads "New session" (its kind already
- *  rides on the adjacent icon) rather than echoing the harness's boot title. */
-export function sessionDisplayName(session: SessionView): string {
-  if (isUnstartedSession(session)) return 'New session'
-  return session.name?.trim() || normalizeTitle(session.title) || 'untitled'
-}
+export { normalizeTitle, sessionDisplayName } from '@podium/client-core/values'
 
 /**
  * Inline rename field for a session name — drop it in place of the label while
@@ -107,7 +90,11 @@ export function KindIcon({
   // Chip/fleet tints carry their own text tone (Claude is white-on-clay; Grok
   // is the light mark). A second glyph class would fight that. Standalone
   // marks still take the rest-state tone.
-  const tone = dimmed ? 'text-muted-foreground/70' : chip || compact ? '' : agentGlyphTone(kind, served)
+  const tone = dimmed
+    ? 'text-muted-foreground/70'
+    : chip || compact
+      ? ''
+      : agentGlyphTone(kind, served)
   if (chip || compact) {
     // Per-kind tinted tile (POD-293 / POD-912): Claude is opaque clay, Grok is
     // the light mark, other harnesses a quiet navy — solid fills so the chip

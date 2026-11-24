@@ -3,7 +3,7 @@ import type { TranscriptItem } from '@podium/model'
 import { observable, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
 import { MobileConversationPresentation } from './conversation-presentation'
-import { buildMobileTranscript, shapeMobileChatRow, searchMobileTranscript } from './transcript-feed'
+import { buildMobileTranscript, searchMobileTranscript, shapeMobileChatRow } from './transcript-feed'
 
 const item = (id: string, role: TranscriptItem['role'], text = '', extra: Partial<TranscriptItem> = {}): TranscriptItem =>
   ({ id, role, text, ...extra })
@@ -75,7 +75,7 @@ it('changes hidden question membership and skips blank/interrupt assistant facts
     expect(phone.positionOfKey('ask')).toBe(1)
     runInAction(() => {
       hidden.set('ask')
-      graph.apply({ changed: [{ ...ask, toolResult: 'Chosen' }] })
+      graph.apply({ changed: [{ ...ask, toolResult: 'You selected "Chosen"' }] })
       phone.apply(graph.rowPublication)
     })
     expect(phone.row('ask')?.kind).toBe('receipt')

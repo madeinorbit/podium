@@ -20,7 +20,7 @@
       "userInterfaceStyle": "automatic",
       "bundleIdentifier": "dev.podium.mobile",
       "appleTeamId": "Z5A2ZC8STN",
-      "buildNumber": "14",
+      "buildNumber": "28",
       "supportsTablet": false,
       "infoPlist": {
         "UIUserInterfaceStyle": "Automatic",
@@ -63,6 +63,7 @@
     },
     "plugins": [
       "./plugins/with-ios-release-contract",
+      "./plugins/with-patched-react-native",
       "./plugins/with-scene-lifecycle",
       "expo-router",
       [

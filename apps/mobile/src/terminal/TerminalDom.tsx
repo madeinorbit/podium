@@ -23,12 +23,9 @@ import type { DOMProps, JSONValue } from 'expo/build/dom/dom.types'
 import { useDOMImperativeHandle } from 'expo/dom'
 import type { Ref } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { TerminalKeyboardDismiss } from './TerminalKeyboardDismiss'
 import { LEGACY_MOBILE_KEYBOARD_THEME, MOBILE_APPEARANCE } from './terminal-appearance'
-import {
-  type TerminalControlView,
-  terminalControlCopy,
-  terminalControlView,
-} from './terminal-control'
+import { type TerminalControlView, terminalControlView } from './terminal-control'
 import {
   type BridgeConnectionState,
   createTerminalBridge,
@@ -64,7 +61,6 @@ interface TerminalDomProps extends TerminalDomActions {
 const TERMINAL_BG = '#0e0e12'
 const PAGE_BG = '#16171a' // theme.ts color.bg
 const STATUS_FG = '#a8adb6' // theme.ts color.textDim
-const CAPTION_FG = '#848a94' // theme.ts color.textFaint
 
 const PAGE_CSS = `
   html, body, #root { margin: 0; padding: 0; height: 100%; background: ${PAGE_BG}; }
@@ -168,8 +164,6 @@ export default function TerminalDom({
   }, [controlView, ready])
 
   const status = terminalStatusLine({ connected, spawnPending, ready, outputSeen })
-  const showCaption = connected && !spawnPending && ready
-  const caption = terminalControlCopy({ ...controlView, ready, takeControl: () => {} }).caption
 
   return (
     <div
@@ -184,9 +178,6 @@ export default function TerminalDom({
     >
       <style>{PAGE_CSS}</style>
       {status !== null ? <div style={statusStyle}>{status}</div> : null}
-      {/* Same one-line caption discipline as the web pane: appears with the
-          attach, then only ever changes its TEXT (POD-724). */}
-      {showCaption ? <div style={captionStyle}>{caption}</div> : null}
       <div
         ref={viewportRef}
         data-terminal-crop-viewport
@@ -198,6 +189,8 @@ export default function TerminalDom({
           overscrollBehavior: 'contain',
           WebkitOverflowScrolling: 'touch',
           background: TERMINAL_BG,
+          // The shared fit/crop policy subtracts the viewport's padding.
+          padding: '0 12px',
         }}
       >
         <div
@@ -210,6 +203,7 @@ export default function TerminalDom({
         toolbarRef={toolbarRef}
         ready={ready}
         theme={LEGACY_MOBILE_KEYBOARD_THEME}
+        trailingAction={<TerminalKeyboardDismiss containerRef={containerRef} />}
       />
     </div>
   )
@@ -221,14 +215,4 @@ const statusStyle = {
   color: STATUS_FG,
   fontSize: 15, // theme.ts font.small
   padding: 12,
-} as const
-
-// Chrome, not terminal output: sans and the micro step, so it reads as the app
-// talking about the grid rather than as another line printed into it.
-const captionStyle = {
-  fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-  fontWeight: 400,
-  color: CAPTION_FG,
-  fontSize: 11, // theme.ts font.micro
-  padding: '6px 12px', // theme.ts space.md horizontal
 } as const

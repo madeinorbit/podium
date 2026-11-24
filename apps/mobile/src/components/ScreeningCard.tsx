@@ -19,6 +19,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
+import { issueObserver } from '../client/issue-observer'
 import { useMyCodingHarness } from '../client/my-preferences'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { useAgeNow } from '../lib/clock-hooks'
@@ -37,7 +38,7 @@ import { IdSquare } from './IdSquare'
 import { PressableScale } from './PressableScale'
 import { Pill } from './ui'
 
-/** Horizontal travel that commits a swipe (a flick past it also commits). */
+/** Horizontal travel that skips the card (a flick past it also skips). */
 const COMMIT_PX = 96
 const FLICK_VELOCITY_X = 450
 const EXIT_Y = 40
@@ -47,34 +48,33 @@ function decisionHaptic() {
   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {})
 }
 
-export type ScreeningGesture = 'accepted' | 'declined' | 'skipped'
-
 /**
  * One proposal, as a decidable card [POD-277].
  *
  * Carries enough to decide cold — identity square, repo, age, title, type /
  * priority / blocker pills, the human summary, the agent brief, and the launch
- * facts a start would use (agent, model, branch base). Dragging right stamps
- * START in bisque (the one primary-action signal), left stamps WON'T
- * FIX in alert red; releasing past the commit line flies the card out and
- * reports the gesture. Every gesture has a button twin in the screen's action
- * row, so nothing here is reachable only by dragging.
+ * facts a start would use (agent, model, branch base). Dragging either way
+ * stamps SKIP; releasing past the line flies the card out and skips it, which
+ * leaves the proposal untouched. Start and Decline change the task, so they
+ * are only the screen's buttons: no swipe commits them [POD-2527].
  */
-export const ScreeningCard = observer(function ScreeningCard({
+export const ScreeningCard = issueObserver(function ScreeningCard({
   issue,
   repoName,
   parent,
-  onDecide,
+  onSkip,
   onOpen,
 }: {
   issue: IssueWithBodies
   repoName: string
   /** Resolved parent issue, when the proposal was filed under one. */
   parent?: IssueWithBodies | undefined
-  onDecide: (gesture: ScreeningGesture) => void
+  /** The card was swiped away: move on without touching the proposal. */
+  onSkip: () => void
   onOpen: () => void
 }) {
-  const { width } = useWindowDimensions()
+  const { width, fontScale } = useWindowDimensions()
+  const expanded = fontScale >= 1.6
   const codingHarness = useMyCodingHarness()
   const reduceMotion = useReduceMotion()
   const translateX = useSharedValue(0)
@@ -153,7 +153,6 @@ export const ScreeningCard = observer(function ScreeningCard({
 
       const direction = distanceCommits ? Math.sign(x) : Math.sign(event.velocityX)
       const exitVelocityX = direction * event.velocityX > 0 ? event.velocityX : 0
-      const gesture: ScreeningGesture = direction > 0 ? 'accepted' : 'declined'
       decided.set(true)
       scheduleOnRN(decisionHaptic)
 
@@ -163,7 +162,7 @@ export const ScreeningCard = observer(function ScreeningCard({
             0,
             { duration: 150, easing: EASE_OUT, reduceMotion: ReduceMotion.Never },
             (finished) => {
-              if (finished) scheduleOnRN(onDecide, gesture)
+              if (finished) scheduleOnRN(onSkip)
             },
           ),
         )
@@ -190,7 +189,7 @@ export const ScreeningCard = observer(function ScreeningCard({
             reduceMotion: ReduceMotion.System,
           },
           (finished) => {
-            if (finished) scheduleOnRN(onDecide, gesture)
+            if (finished) scheduleOnRN(onSkip)
           },
         ),
       )
@@ -212,10 +211,10 @@ export const ScreeningCard = observer(function ScreeningCard({
       },
     ],
   }))
-  const acceptStyle = useAnimatedStyle(() => ({
+  const skipRightStyle = useAnimatedStyle(() => ({
     opacity: interpolate(translateX.get(), [0, COMMIT_PX], [0, 1], Extrapolation.CLAMP),
   }))
-  const declineStyle = useAnimatedStyle(() => ({
+  const skipLeftStyle = useAnimatedStyle(() => ({
     opacity: interpolate(translateX.get(), [-COMMIT_PX, 0], [1, 0], Extrapolation.CLAMP),
   }))
   const blockers = issue.blockedByNotes.length
@@ -235,6 +234,7 @@ export const ScreeningCard = observer(function ScreeningCard({
         accessibilityLabel={`Proposal ${issue.displayRef ?? `#${issue.seq}`}: ${issue.title}`}
         style={[
           styles.card,
+          expanded && styles.growingCard,
           elevation.raised,
           { backgroundColor: color.surface, borderColor: color.border },
           cardStyle,
@@ -242,15 +242,15 @@ export const ScreeningCard = observer(function ScreeningCard({
       >
         <Animated.View
           pointerEvents="none"
-          style={[styles.stamp, styles.stampLeft, styles.stampAccept, acceptStyle]}
+          style={[styles.stamp, styles.stampLeft, styles.stampSkip, skipRightStyle]}
         >
-          <Text style={[styles.stampText, { color: color.accentTint }]}>START</Text>
+          <Text style={[styles.stampText, { color: color.textDim }]}>SKIP</Text>
         </Animated.View>
         <Animated.View
           pointerEvents="none"
-          style={[styles.stamp, styles.stampRight, styles.stampDecline, declineStyle]}
+          style={[styles.stamp, styles.stampRight, styles.stampSkip, skipLeftStyle]}
         >
-          <Text style={[styles.stampText, { color: color.dangerText }]}>WON'T FIX</Text>
+          <Text style={[styles.stampText, { color: color.textDim }]}>SKIP</Text>
         </Animated.View>
 
         <View style={styles.identity}>
@@ -289,7 +289,7 @@ export const ScreeningCard = observer(function ScreeningCard({
 
         <View style={styles.body}>
           {description ? (
-            <Text style={styles.description} numberOfLines={brief ? 5 : 9}>
+            <Text style={styles.description} numberOfLines={expanded ? undefined : brief ? 5 : 9}>
               {description}
             </Text>
           ) : (
@@ -326,6 +326,7 @@ export const ScreeningCard = observer(function ScreeningCard({
 })
 
 const styles = StyleSheet.create({
+  growingCard: { maxHeight: undefined },
   card: {
     // Content-sized: a proposal card is as tall as what it has to say, so a
     // one-line chore doesn't paint a screen of empty surface.
@@ -350,8 +351,7 @@ const styles = StyleSheet.create({
   },
   stampLeft: { left: space.md, transform: [{ rotate: '-11deg' }] },
   stampRight: { right: space.md, transform: [{ rotate: '11deg' }] },
-  stampAccept: { borderColor: color.accent, backgroundColor: color.accentSoft },
-  stampDecline: { borderColor: color.danger, backgroundColor: color.dangerSoft },
+  stampSkip: { borderColor: color.border, backgroundColor: color.surface },
   stampText: {
     ...mono(700),
     fontSize: font.heading,

@@ -129,6 +129,51 @@ describe('native transcript intent', () => {
     act(() => result.current.onScroll(motion(1399)))
     expect(mode).toHaveBeenLastCalledWith(true)
   })
+  it('hides Newest when a drag ends within reach of the bottom', () => {
+    const { result, mode } = setup()
+    act(() => {
+      result.current.release()
+      result.current.onScroll(motion(900))
+      result.current.onScroll(motion(1380))
+    })
+    expect(mode).toHaveBeenLastCalledWith(true)
+  })
+  it('stays at the bottom through the iOS rubber-band spring-back', () => {
+    const { result, mode } = setup()
+    act(() => {
+      result.current.release()
+      result.current.onScroll(motion(900))
+      result.current.onScroll(motion(1440))
+      result.current.onScroll(motion(1420))
+      result.current.onScroll(motion(1400))
+    })
+    expect(mode).toHaveBeenLastCalledWith(true)
+  })
+  it('still escapes on an upward drag that leaves the bottom', () => {
+    const { result, mode } = setup()
+    act(() => {
+      result.current.release()
+      result.current.onScroll(motion(1400))
+      result.current.onScroll(motion(1300))
+    })
+    expect(mode).toHaveBeenLastCalledWith(false)
+  })
+  it('rearms when a gesture settles near the bottom without a final downward event', () => {
+    const { result, mode } = setup()
+    act(() => {
+      result.current.release()
+      result.current.onScroll(motion(1300))
+    })
+    expect(mode).toHaveBeenLastCalledWith(false)
+    act(() => result.current.onScrollSettle(motion(1390)))
+    expect(mode).toHaveBeenLastCalledWith(true)
+    mode.mockClear()
+    act(() => {
+      result.current.release()
+      result.current.onScrollSettle(motion(1000))
+    })
+    expect(mode).toHaveBeenLastCalledWith(false)
+  })
   it('allows immediate escape after a jump', () => {
     const { result, mode, write } = setup()
     act(() => {

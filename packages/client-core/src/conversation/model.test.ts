@@ -6,16 +6,76 @@ import {
   fakeTranscriptCache,
   storedReadSettled,
 } from '@podium/client-core/test-support/transcript-cache'
+import { claudeRecordToItems } from '../../../harness/src/adapters/claude-code/transcript'
 import type { SocketHub } from '../socket-transport/socket-hub'
+import { DraftStore } from './draft-store'
 import {
   Conversation,
-  TURN_PREVIEW_STALE_MS,
   type ConversationOptions,
   type ConversationSession,
+  TURN_PREVIEW_STALE_MS,
 } from './model'
-import { DraftStore } from './draft-store'
 
 const sid = asSessionId('session')
+
+it.each([
+  '',
+  'Error: answer could not be delivered',
+  '[Tool call interrupted: its outcome is unknown.]',
+  'Unknown outcome',
+])('never revives paired native history after a later live question settles for %j', async (result) => {
+  const questions = {
+    questions: [{ question: 'New question?', options: [{ label: 'New choice' }] }],
+  }
+  const state = observable({ active: true })
+  const session = {
+    status: 'live',
+    get agentState() {
+      return {
+        phase: state.active ? 'needs_user' : 'working',
+        need: state.active ? { kind: 'question' as const, interview: questions } : undefined,
+      }
+    },
+  }
+  const mapCall = (id: string, input: unknown) =>
+    claudeRecordToItems({
+      type: 'assistant',
+      uuid: id,
+      message: { content: [{ type: 'tool_use', id: `${id}-use`, name: 'AskUserQuestion', input }] },
+    })
+  const mapResult = (id: string, content: string) =>
+    claudeRecordToItems({
+      type: 'user',
+      uuid: `${id}-result`,
+      message: { content: [{ type: 'tool_result', tool_use_id: `${id}-use`, content }] },
+    })
+  const history = [
+    ...mapCall('old', {
+      questions: [{ question: 'Old question?', options: [{ label: 'Old choice' }] }],
+    }),
+    ...mapResult('old', result),
+  ]
+  const f = fixture({ readSession: () => session })
+  try {
+    await f.conversation.start()
+    runInAction(() => f.conversation.transcript.merge(history, { reset: true }))
+    runInAction(() =>
+      f.conversation.transcript.merge([
+        ...mapCall('new', questions),
+        ...mapResult('new', 'User has answered your questions: "New question?"="New choice".'),
+      ]),
+    )
+    runInAction(() => {
+      state.active = false
+    })
+    expect(f.conversation.graph.pendingQuestionId).toBeUndefined()
+    expect(f.conversation.pendingQuestion).toBeNull()
+    expect(f.conversation.graph.block(history[0]!.id)?.result).toBe(result)
+  } finally {
+    f.dispose()
+  }
+})
+
 const row = (id: string, text = id): TranscriptItem => ({
   id,
   cursor: `c-${id}`,
@@ -115,6 +175,40 @@ function fixture(over: Partial<ConversationOptions> = {}) {
 afterEach(() => vi.useRealTimers())
 
 describe('Conversation real-time intake and ownership', () => {
+  it('uses the paired result to retire the pending question when the agent answers', async () => {
+    const f = fixture()
+    try {
+      await f.conversation.start()
+      const ask: TranscriptItem = {
+        id: 'ask',
+        role: 'tool',
+        text: '',
+        toolName: 'AskUserQuestion',
+        toolUseId: 'ask-use',
+        toolInputJson: JSON.stringify({
+          questions: [{ question: 'Pick a colour', options: [{ label: 'Red' }] }],
+        }),
+      }
+      f.delta([ask])
+      f.paint()
+      expect(f.conversation.pendingQuestion?.id).toBe('ask')
+      f.delta([
+        {
+          id: 'result',
+          role: 'tool',
+          text: '',
+          toolUseId: 'ask-use',
+          toolResult: 'You selected "Red"',
+        },
+        row('reply', 'You picked Red.'),
+      ])
+      f.paint()
+      expect(f.conversation.pendingQuestion).toBeNull()
+      expect(f.conversation.graph.block('ask')?.result).toContain('Red')
+    } finally {
+      f.dispose()
+    }
+  })
   it('publishes two deltas and a preview in one frame action, without waking the ids list', async () => {
     const f = fixture()
     await f.conversation.start()

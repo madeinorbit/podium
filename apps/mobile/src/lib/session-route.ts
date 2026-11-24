@@ -37,3 +37,8 @@ function safeSessionBackTarget(value: string): string | undefined {
     return undefined
   return value
 }
+
+/** The Start Agent form sheet for an existing task (chat and task page menus). */
+export function launchAgentHref(issueId: string) {
+  return `/launch/${encodeURIComponent(issueId)}` as const
+}

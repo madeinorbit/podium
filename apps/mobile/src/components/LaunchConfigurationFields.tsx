@@ -19,7 +19,7 @@ import {
 } from '@podium/model'
 import { observer } from 'mobx-react-lite'
 import { useLayoutEffect, useMemo, useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import type { MobileTrpc } from '../client/trpc'
 import { useAgentSetupPicker } from '../client/use-agent-setup-picker'
 import { useLaunchInputs } from '../client/use-launch-inputs'
@@ -35,35 +35,49 @@ import {
   selectLaunchMachine,
   selectLaunchModel,
 } from '../lib/launch-configuration'
-import { color, font, mono, radius, sans, space } from '../theme/theme'
+import { color } from '../theme/theme'
 import { ActionSheet } from './ActionSheet'
+import { AgentMark } from './AgentMark'
 import {
   installingAgentsHint,
   pickerHarnessStartable,
   SET_UP_AGENTS,
 } from './AgentSetupPickerEntry'
 import { PhoneAgentSetupSheet } from './AgentSetupSheet'
-import { NativePicker, type NativePickerOption } from './action-sheet-native'
+import type { NativePickerOption } from './action-sheet-spec'
+import { ComposeMenu } from './compose/ComposeMenu'
+import { Icon } from './Icon'
+import { InsetGroup, insetRow } from './InsetGroup'
 import { PressableScale } from './PressableScale'
 
-type Picker = 'agent' | 'model' | 'effort' | 'machine' | null
+type Picker = 'agent' | 'model' | 'effort' | 'machine'
+/** A picker value with the caption its native menu row shows beneath it. */
+type CaptionedOption = NativePickerOption & { caption?: string }
 
-/** Native Where/How controls shared by task creation and deferred task launch. */
+/** The Agent, Model, Effort and Machine rows of a deferred task launch, as one
+ * inset-grouped section of native pull-down menus. */
 export const LaunchConfigurationFields = observer(function LaunchConfigurationFields({
   repoPath,
   value,
   onChange,
   onPlan,
   allowInheritedAgent = false,
+  header,
 }: {
   repoPath: string
   value: LaunchConfiguration
   onChange: (value: LaunchConfiguration) => void
   onPlan?: (plan: LaunchPlan) => void
   allowInheritedAgent?: boolean
+  /** Section header above the rows: the task being launched. */
+  header?: string
 }) {
+  const { fontScale } = useWindowDimensions()
+  // Switch before the accessibility categories, as in the other native lists.
+  // Give long machine/model names the full row width and let every line grow.
+  const stacked = fontScale > 1.35
+  const rowStyle = [insetRow.row, stacked && styles.stackedRow]
   const store = useLaunchInputs(repoPath)
-  const [fallback, setFallback] = useState<Picker>(null)
   const [setupMachineId, setSetupMachineId] = useState<string | null>(null)
   const [chooseSetupMachine, setChooseSetupMachine] = useState(false)
   const repo = store.repo
@@ -135,13 +149,19 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
     catalogStatus,
     effective.agentKind,
   )
-  const displayedMachineOptions: NativePickerOption[] =
+  // Each machine carries its own caption in the menu: why it cannot take this
+  // launch, or that it can. Auto names what it will do.
+  const captionedMachineOptions: CaptionedOption[] = machineOptions.map((option) => ({
+    ...option,
+    caption: option.reason ?? (option.value === '' ? 'Any available machine' : 'Available'),
+  }))
+  const displayedMachineOptions: CaptionedOption[] =
     value.machineId && !machineOptions.some((option) => option.value === value.machineId)
       ? [
-          ...machineOptions,
+          ...captionedMachineOptions,
           { value: value.machineId, label: 'Unavailable machine', disabled: true },
         ]
-      : machineOptions
+      : captionedMachineOptions
   const targetMachines = value.machineId
     ? machines.filter((machine) => machine.id === value.machineId)
     : machines
@@ -152,7 +172,7 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
     if (setupMachines.length === 1) setSetupMachineId(setupMachines[0]!.id)
     else setChooseSetupMachine(true)
   }
-  const agentOptions: NativePickerOption[] = [
+  const agentOptions: CaptionedOption[] = [
     ...(allowInheritedAgent ? [{ value: '', label: 'Auto' }] : []),
     ...agentDescriptors(served).flatMap((descriptor) => {
       const kind = issueAgentKind(descriptor.kind)
@@ -162,7 +182,8 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
     }),
     {
       value: SET_UP_AGENTS,
-      label: `Set up agents…${setupHint ? ` · ${setupHint}` : ''}`,
+      label: 'Set up agents…',
+      ...(setupHint ? { caption: setupHint } : {}),
       disabled: setupMachines.length === 0,
     },
   ]
@@ -187,11 +208,12 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
     : []
 
   const rows: Array<{
-    key: Exclude<Picker, null>
+    key: Picker
     label: string
     selected: string
-    options: readonly NativePickerOption[]
+    options: readonly CaptionedOption[]
     valueLabel: string
+    agent?: string
     select: (selected: string) => void
   }> = [
     {
@@ -200,6 +222,7 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
       selected: effective.inheritAgent ? '' : effective.agentKind,
       options: agentOptions,
       valueLabel: effective.inheritAgent ? 'Auto' : issueAgentLabel(effective.agentKind, served),
+      ...(effective.inheritAgent ? {} : { agent: effective.agentKind }),
       select: (selected) => {
         if (selected === SET_UP_AGENTS) {
           openSetup()
@@ -242,45 +265,99 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
 
   return (
     <>
-      <View style={styles.group}>
-        {rows.map((row) =>
-          row.options.length === 0 ? (
+      <InsetGroup
+        header={header}
+        footer={
+          plan.refusal ? (
+            <Text accessibilityLiveRegion="polite" style={insetRow.footerError}>
+              {plan.refusal}
+            </Text>
+          ) : undefined
+        }
+      >
+        {rows.map((row) => {
+          // Inert values reserve the same scaled indicator as the menu rows, so
+          // Effort stays aligned even while its model's choices are unavailable.
+          // An inert row reads like a disabled SwiftUI menu picker: same chevron,
+          // value and chevron dimmed to tertiary, so it never looks tappable.
+          const inert = row.options.length === 0
+          const content = (
+            <>
+              <Text style={insetRow.label}>{row.label}</Text>
+              <View style={[insetRow.trail, stacked && styles.stackedTrail]}>
+                {row.agent ? (
+                  <AgentMark kind={row.agent} size={16 * fontScale} ink={color.textDim} />
+                ) : null}
+                <Text
+                  style={[insetRow.value, stacked && styles.stackedValue, inert && styles.inert]}
+                  numberOfLines={stacked ? undefined : 2}
+                >
+                  {row.valueLabel}
+                </Text>
+                <View style={inert ? styles.inertIndicator : undefined}>
+                  <Icon
+                    as="chevron.up.chevron.down"
+                    size={11 * fontScale}
+                    color={color.textFaint}
+                  />
+                </View>
+              </View>
+            </>
+          )
+          return inert ? (
             <View
               key={row.key}
+              accessible
               accessibilityLabel={`${row.label}, ${row.valueLabel}`}
-              style={styles.row}
+              accessibilityState={{ disabled: true }}
+              aria-disabled={true}
+              style={rowStyle}
             >
-              <Text style={styles.label}>{row.label}</Text>
-              <Text style={styles.value}>{row.valueLabel}</Text>
+              {content}
             </View>
           ) : (
-            <NativePicker
+            <ComposeMenu
               key={row.key}
               label={row.label}
-              options={row.options}
-              selected={row.selected}
-              onSelect={row.select}
-              onOpenFallback={() => setFallback(row.key)}
+              style={styles.menu}
+              items={row.options.map((option) => ({
+                id: option.value,
+                label: option.group ? `${option.group} · ${option.label}` : option.label,
+                ...(option.caption ? { subtitle: option.caption } : {}),
+                selected: option.value === SET_UP_AGENTS ? false : option.value === row.selected,
+                disabled: option.disabled,
+                onPress: () => row.select(option.value),
+              }))}
             >
-              {(onPress) => (
-                <PressableScale
-                  accessibilityRole="button"
-                  accessibilityLabel={`${row.label}, ${row.valueLabel}`}
-                  accessibilityHint="Opens a picker"
-                  onPress={onPress}
-                  style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-                >
-                  <Text style={styles.label}>{row.label}</Text>
-                  <Text style={styles.value} numberOfLines={1}>
-                    {row.valueLabel}
-                  </Text>
-                  <Text style={styles.chevron}>›</Text>
-                </PressableScale>
-              )}
-            </NativePicker>
-          ),
-        )}
-      </View>
+              {(onPress) => {
+                // The SwiftUI Menu owns iOS touches. An RN Pressable inside its
+                // label would compete for the responder, as in ComposeFieldRow.
+                return onPress ? (
+                  <PressableScale
+                    accessibilityRole="button"
+                    accessibilityLabel={`${row.label}, ${row.valueLabel}`}
+                    accessibilityHint="Opens a menu"
+                    onPress={onPress}
+                    style={({ pressed }) => [rowStyle, pressed && insetRow.pressed]}
+                  >
+                    {content}
+                  </PressableScale>
+                ) : (
+                  <View
+                    accessible
+                    accessibilityRole="button"
+                    accessibilityLabel={`${row.label}, ${row.valueLabel}`}
+                    accessibilityHint="Opens a menu"
+                    style={rowStyle}
+                  >
+                    {content}
+                  </View>
+                )
+              }}
+            </ComposeMenu>
+          )
+        })}
+      </InsetGroup>
       {setupMachineId ? (
         <PhoneAgentSetupSheet
           machineId={setupMachineId}
@@ -303,72 +380,15 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
           onClose={() => setChooseSetupMachine(false)}
         />
       ) : null}
-      {plan.refusal ? (
-        <Text accessibilityLiveRegion="polite" style={styles.refusal}>
-          {plan.refusal}
-        </Text>
-      ) : null}
-      {rows.map((row) =>
-        fallback === row.key ? (
-          <ActionSheet
-            key={row.key}
-            visible
-            title={row.label}
-            actions={row.options.map((option) => ({
-              label: option.label,
-              selected: option.value === SET_UP_AGENTS ? undefined : option.value === row.selected,
-              ...(option.value === SET_UP_AGENTS && setupHint ? { hint: setupHint } : {}),
-              disabled: option.disabled,
-              onPress: () => row.select(option.value),
-            }))}
-            onClose={() => setFallback((current) => (current === row.key ? null : current))}
-          />
-        ) : null,
-      )}
     </>
   )
 })
 
 const styles = StyleSheet.create({
-  group: {
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.surface,
-    overflow: 'hidden',
-  },
-  row: {
-    minHeight: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.md,
-    paddingHorizontal: space.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: color.hairline,
-  },
-  label: {
-    ...sans(500),
-    width: 68,
-    color: color.textFaint,
-    fontSize: font.tiny,
-  },
-  value: {
-    ...sans(500),
-    flex: 1,
-    color: color.body,
-    fontSize: font.small,
-    textAlign: 'right',
-  },
-  chevron: {
-    ...mono(400),
-    color: color.textMicro,
-    fontSize: font.body,
-  },
-  pressed: { opacity: 0.68 },
-  refusal: {
-    ...sans(400),
-    color: color.dangerText,
-    fontSize: font.tiny,
-    paddingTop: space.sm,
-  },
+  menu: { alignSelf: 'stretch', minHeight: 44 },
+  stackedRow: { flexDirection: 'column', alignItems: 'stretch', gap: 4 },
+  stackedTrail: { marginLeft: 0, alignSelf: 'stretch' },
+  stackedValue: { flex: 1, textAlign: 'left' },
+  inert: { color: color.textFaint },
+  inertIndicator: { opacity: 0.5 },
 })

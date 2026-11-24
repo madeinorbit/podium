@@ -501,6 +501,77 @@ describe('composer, queue, offer and activity', () => {
         }),
       ).toEqual({ label: 'Sending', tone: 'idle', transient: 'just-sent' })
     })
+
+    it('on the phone, keeps a fresh exited-session send waking, then gives a later exit precedence over its queue', () => {
+      const wakeRequestedAt = Date.parse('2026-11-13T06:00:10.000Z')
+      const before = session({
+        status: 'exited',
+        resumable: true,
+        queuedMessageCount: 1,
+        stoppedAt: '2026-11-13T06:00:00.000Z',
+      })
+      const input = {
+        session: before,
+        headless: false,
+        turnRunning: false,
+        justSent: true,
+        compact: false,
+        phoneWakeRequestedAt: wakeRequestedAt,
+      }
+      expect(chatActivityState(input)?.label).toBe('Waking the agent…')
+      expect(composerState(input).placeholder).toContain('Waking the agent')
+      const after = { ...before, stoppedAt: '2026-11-13T06:00:11.000Z', exitCode: 1 }
+      expect(chatActivityState({ ...input, session: after })).toBeNull()
+      expect(composerState({ ...input, session: after }).placeholder).toBe(
+        'Message the agent to resume it…',
+      )
+      expect(
+        chatActivityState({ ...input, session: after, phoneWakeRequestedAt: undefined }),
+      ).toBeNull()
+    })
+
+    it('on the phone, fails safe to exited recovery without authoritative message or stop timing', () => {
+      const input = {
+        session: session({ status: 'exited', resumable: true, queuedMessageCount: 2 }),
+        headless: false,
+        turnRunning: false,
+        justSent: true,
+        compact: false,
+        phoneWakeRequestedAt: undefined,
+      }
+      expect(chatActivityState(input)).toBeNull()
+      expect(composerState(input).placeholder).toBe('Message the agent to resume it…')
+    })
+
+    it('on the phone, lets a terminal provider failure end waking while its queue remains', () => {
+      const failed = session({
+        status: 'hibernated',
+        queuedMessageCount: 1,
+        agentState: {
+          phase: 'errored',
+          since: '2026-11-13T06:00:00Z',
+          error: { class: 'auth', retryable: false, detail: 'token expired' },
+        },
+      } as Partial<SessionView>)
+      const activity = chatActivityState({
+        session: failed,
+        headless: false,
+        turnRunning: false,
+        justSent: false,
+        phoneWakeRequestedAt: undefined,
+      })
+      expect(activity?.tone).toBe('error')
+      expect(activity?.label).not.toContain('Waking')
+      expect(
+        composerState({
+          session: failed,
+          headless: false,
+          turnRunning: false,
+          compact: false,
+          phoneWakeRequestedAt: undefined,
+        }).placeholder,
+      ).toContain('token expired')
+    })
   })
 
   it('hides the offer optimistically by createdAt, and always for headless', () => {

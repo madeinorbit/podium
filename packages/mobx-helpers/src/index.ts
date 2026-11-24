@@ -1,4 +1,5 @@
 export {
+  type AgeNextChange,
   type ClockWakeSource,
   clockStore,
   DeadlineClock,

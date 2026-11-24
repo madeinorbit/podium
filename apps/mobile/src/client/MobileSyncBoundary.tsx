@@ -1,11 +1,12 @@
 import { COLD_SYNC_STALL_MS, watchReplicaBoot } from '@podium/client-core/replica-assembly'
+import { startupTiming } from '../lib/startup-timing'
 
 export { COLD_SYNC_STALL_MS } from '@podium/client-core/replica-assembly'
 
 import { type ReactNode, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import { BootTroubleScreen } from '../components/BootTroubleScreen'
-import { color, font, mono, radius, space } from '../theme/theme'
+import { color } from '../theme/theme'
 import {
   LaunchReadyView,
   type LaunchSplashStatus,
@@ -17,6 +18,8 @@ import type {
   MobileSyncProgressStore,
   MobileSyncSnapshot,
 } from './mobile-sync-progress'
+import type { NativeConnectivity } from './native-connectivity'
+import { WorkspaceRefreshProvider } from './workspace-refresh'
 
 function coldLabel(phase: MobileSyncPhase): string {
   switch (phase) {
@@ -31,23 +34,7 @@ function coldLabel(phase: MobileSyncPhase): string {
   }
 }
 
-function warmLabel(phase: MobileSyncPhase): string {
-  switch (phase) {
-    case 'reconnecting':
-      return 'Reconnecting'
-    case 'downloading':
-      return 'Refreshing workspace'
-    case 'saving':
-      return 'Applying updates'
-    case 'offline':
-      return 'Offline — showing saved data'
-    default:
-      return 'Updating'
-  }
-}
-
 const count = (value: number): string => value.toLocaleString('en-US')
-export const WARM_SYNC_STATUS_DELAY_MS = 400
 
 function coldStatus(sync: MobileSyncSnapshot): LaunchSplashStatus | null {
   if (!sync.blocking) return null
@@ -86,16 +73,18 @@ function coldStatusSource(store: MobileSyncProgressStore): LaunchSplashStatusSou
 /**
  * Cold starts have no trustworthy content to operate on, so the launch surface
  * intentionally owns input until the first world is durable. Warm catch-up is
- * the opposite: cached content remains interactive and a non-intercepting
- * status capsule explains that fresher data is arriving.
+ * the opposite: cached content remains interactive, with refresh status in
+ * the native header subtitle and the list refresh control.
  */
 export function MobileSyncBoundary({
   store,
+  visibility,
   children,
   onRetry,
   stallAfterMs = COLD_SYNC_STALL_MS,
 }: {
   store: MobileSyncProgressStore
+  visibility?: NativeConnectivity['visibility'] | undefined
   children: ReactNode
   /** Reopens the principal-scoped replica after a terminal or stalled cold sync. */
   onRetry?: (() => void) | undefined
@@ -104,21 +93,8 @@ export function MobileSyncBoundary({
 }) {
   const sync = useSyncExternalStore(store.subscribe, store.getSnapshot)
   useLaunchSplashStatus(useMemo(() => coldStatusSource(store), [store]))
-  const warmStatusActive = !sync.blocking && sync.phase !== 'ready'
-  const activelySyncing = warmStatusActive && sync.phase !== 'offline'
-  const [showWarmStatus, setShowWarmStatus] = useState(false)
   const [coldStalled, setColdStalled] = useState(false)
 
-  useEffect(() => {
-    if (!warmStatusActive) {
-      setShowWarmStatus(false)
-      return
-    }
-    // Fast resumes should feel instant, not flash chrome. A catch-up long
-    // enough to be noticed gets a stable explanation after one short beat.
-    const id = setTimeout(() => setShowWarmStatus(true), WARM_SYNC_STATUS_DELAY_MS)
-    return () => clearTimeout(id)
-  }, [warmStatusActive])
   // biome-ignore lint/correctness/useExhaustiveDependencies: `sync.attempt` re-arms the stall timer for each new attempt
   useEffect(() => {
     setColdStalled(false)
@@ -155,43 +131,14 @@ export function MobileSyncBoundary({
   // parent LaunchBoundary consequently retains its one splash and its input
   // shield; no duplicate wordmark is mounted underneath it.
   if (sync.blocking) return null
+  startupTiming.mark('sync.boundary-open')
 
   return (
-    // `aria-busy` beside `accessibilityState`: react-native-web 0.21 reads only
-    // the former, so the web build announced no state at all. [POD-1664]
-    <View
-      style={styles.root}
-      accessibilityState={{ busy: activelySyncing }}
-      aria-busy={activelySyncing}
-    >
-      <View style={styles.content} testID="sync-content">
+    <WorkspaceRefreshProvider store={store.shared} visibility={visibility}>
+      <View style={styles.root} testID="sync-content">
         {children}
       </View>
-
-      {/* Mounted before its text changes so repeated polite announcements are
-          reliable. The visible capsule is hidden from accessibility below to
-          avoid announcing the same transient status twice. */}
-      <Text role="status" accessibilityLiveRegion="polite" style={styles.srStatus}>
-        {showWarmStatus && warmStatusActive ? `${warmLabel(sync.phase)}.` : ''}
-      </Text>
-
-      {warmStatusActive && showWarmStatus ? (
-        <View style={styles.statusHost} testID="warm-sync-status-host">
-          <View
-            accessible={false}
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            style={styles.status}
-            testID="warm-sync-status"
-          >
-            {sync.phase === 'offline' ? null : (
-              <ActivityIndicator size="small" color={color.workingText} />
-            )}
-            <Text style={styles.statusText}>{warmLabel(sync.phase)}</Text>
-          </View>
-        </View>
-      ) : null}
-    </View>
+    </WorkspaceRefreshProvider>
   )
 }
 
@@ -200,41 +147,5 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     backgroundColor: color.bg,
-  },
-  content: {
-    flex: 1,
-    minHeight: 0,
-  },
-  srStatus: {
-    position: 'absolute',
-    width: 1,
-    height: 1,
-    overflow: 'hidden',
-  },
-  statusHost: {
-    position: 'absolute',
-    top: space.sm,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    pointerEvents: 'none',
-  },
-  status: {
-    minHeight: 32,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    paddingHorizontal: space.md,
-    paddingVertical: 6,
-    borderRadius: radius.full,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.borderStrong,
-    backgroundColor: color.surfaceHigh,
-    boxShadow: '0 6px 20px rgba(0, 0, 0, 0.42)',
-  },
-  statusText: {
-    ...mono(600),
-    color: color.body,
-    fontSize: font.tiny,
   },
 })

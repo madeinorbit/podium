@@ -7,6 +7,10 @@ import { Icon } from './Icon'
 import { AlertTriangle, X } from './icons'
 import { PressableScale } from './PressableScale'
 
+// This root overlay is outside HeaderHeightContext. Leave the standard compact
+// bar's 44pt button row available even when the failed session is already gone.
+const NAVIGATION_CLEARANCE = 44
+
 /**
  * THE ONE PLACE A PHONE ERROR NOTICE IS SHOWN (POD-4662).
  *
@@ -32,7 +36,7 @@ export function ShellErrorBanner() {
   return (
     <View
       pointerEvents="box-none"
-      style={[styles.host, { paddingTop: (insets?.top ?? 0) + space.xs }]}
+      style={[styles.host, { paddingTop: (insets?.top ?? 0) + NAVIGATION_CLEARANCE + space.xs }]}
     >
       <View accessibilityRole="alert" style={styles.card} testID="shell-error-banner">
         <View style={styles.tint}>

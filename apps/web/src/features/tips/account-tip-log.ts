@@ -12,17 +12,18 @@ import { isGone } from '@podium/client-graph/lookup'
 import { lazy } from '@podium/mobx-helpers'
 import { action, observable } from 'mobx'
 import { useWorklistPool } from '@/app/store-worklist-pool'
-import { TIP_IDS, type TipId, type TipLog, type TipOutcome } from './types'
+import { ALL_TIP_IDS, TIP_IDS, type TipId, type TipLog, type TipOutcome } from './types'
 
-export const ACCOUNT_TIP_IDS = TIP_IDS
+export const ACCOUNT_TIP_IDS = ALL_TIP_IDS
 export type AccountTipLogContract = Omit<TipLog, 'setEnabled'> & {
   /** Re-enabling restores dismissed cards; the returned action restores their prior state. */
   setEnabled(on: boolean): (() => void) | undefined
 }
 
 const tipKey = (id: TipId): string => `${TIP_SEEN_KEY_PREFIX}${id}`
-const dismissedKeys = [...ACCOUNT_TIP_IDS.map(tipKey), MOBILE_PROMO_DISMISSED_KEY]
-const keys = [UI_STATE_KEYS.tipsEnabled, ...dismissedKeys]
+// Replaying onboarding must never reset the account's one GitHub ask.
+const dismissedKeys = [...TIP_IDS.map(tipKey), MOBILE_PROMO_DISMISSED_KEY]
+const keys = [UI_STATE_KEYS.tipsEnabled, ...dismissedKeys, tipKey('github-star')]
 
 /** Reads the shared preference rows, never a second copy of account state. */
 export class AccountTipLog implements AccountTipLogContract {
@@ -72,7 +73,9 @@ export class AccountTipLog implements AccountTipLogContract {
 
   @action setEnabled(on: boolean): (() => void) | undefined {
     if (!this.ready || on === this.enabled) return
-    const changedKeys = on ? keys : [UI_STATE_KEYS.tipsEnabled]
+    const changedKeys = on
+      ? [UI_STATE_KEYS.tipsEnabled, ...dismissedKeys]
+      : [UI_STATE_KEYS.tipsEnabled]
     const previous = changedKeys.map((key) => [key, this.value(key)] as const)
     if (on) for (const key of dismissedKeys) this.write(key, null)
     this.write(UI_STATE_KEYS.tipsEnabled, String(on))

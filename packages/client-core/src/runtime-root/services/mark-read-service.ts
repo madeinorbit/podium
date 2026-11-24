@@ -9,7 +9,7 @@ import {
   navigationSession,
   type ScreenState,
 } from '../../ui/state'
-import type { IssueVisitBaseline } from '../../ui/types'
+import type { IssueVisitBaseline, UserFocus } from '../../ui/types'
 import type { ConnectionService } from '../connection/connection-service'
 import { ServiceLifetime } from './lifetime'
 import { observeNavigation } from './observe-navigation'
@@ -23,6 +23,10 @@ export interface MarkReadPorts {
   connection?: Pick<ConnectionService, 'onVisibilityChange'>
   markSessionRead(id: SessionId, at: string): void | Promise<void>
   markIssueRead(id: IssueId, at: string): void | Promise<void>
+  /** Route-owned focus on a phone (POD-2451): only the task or session on the
+   *  top screen of a visible app is read. undefined keeps the desktop
+   *  workspace's focus; null means no task or session is on top. */
+  screenFocus?(): UserFocus | null | undefined
 }
 
 /** Owns read visits and all their timers. UiStore holds the visible baseline. */
@@ -36,7 +40,18 @@ export class MarkReadService {
     const reads = (kind: 'issue' | 'session') =>
       new ReadAcknowledgements({
         observe: (id, at) => this.provider.observeRead?.(kind, id, at) ?? true,
-        allowed: (id) => this.provider.automaticReadAllowed?.(kind, id) ?? true,
+        allowed: (id) => {
+          const focus = ports.screenFocus?.()
+          if (focus !== undefined) {
+            const state = ports.state()
+            const focusedId =
+              kind === 'issue'
+                ? foregroundIssue(state, focus)?.id
+                : focusedPaneSession(state, focus)
+            if (!this.isVisible() || focusedId !== id) return false
+          }
+          return this.provider.automaticReadAllowed?.(kind, id) ?? true
+        },
         leave: (id) => this.provider.leaveReadVisit?.(kind, id),
         save: (id, at) =>
           kind === 'issue'
@@ -56,9 +71,13 @@ export class MarkReadService {
         () => this.ports.state().navigation,
         () => {
           const state = this.ports.state()
-          const focused = state.view === 'workspace' ? focusedPaneSession(state) : null
+          const focus = this.ports.screenFocus?.()
+          const focused =
+            focus !== undefined || state.view === 'workspace'
+              ? focusedPaneSession(state, focus)
+              : null
           const session = focused ? state.navigation.session(focused) : undefined
-          const issue = foregroundIssue(state)
+          const issue = foregroundIssue(state, focus)
           return [
             state.view,
             focused,
@@ -110,7 +129,7 @@ export class MarkReadService {
    */
   updateIssueVisitBaseline(): void {
     const state = this.ports.state()
-    const issue = this.isVisible() ? foregroundIssue(state) : undefined
+    const issue = this.isVisible() ? foregroundIssue(state, this.ports.screenFocus?.()) : undefined
     if (!issue) {
       if (state.issueVisitBaseline !== null) this.ports.publishBaseline(null)
       return
@@ -123,11 +142,16 @@ export class MarkReadService {
     })
   }
 
-  /** Only the focused workspace pane has actually been viewed. Selection in
-   * a hidden workspace must never acknowledge its session's activity. */
+  /** Only the focused workspace pane (on a phone, the session on the top
+   * screen) has actually been viewed. Selection in a hidden workspace must
+   * never acknowledge its session's activity. */
   updateMarkReadTimer(): void {
     const st = this.ports.state()
-    const focusedId = this.isVisible() && st.view === 'workspace' ? focusedPaneSession(st) : null
+    const focus = this.ports.screenFocus?.()
+    const focusedId =
+      this.isVisible() && (focus !== undefined || st.view === 'workspace')
+        ? focusedPaneSession(st, focus)
+        : null
     const session = focusedId ? navigationSession(st, focusedId) : undefined
     this.sessionReads.update(
       session?.sessionId ?? null,
@@ -138,7 +162,7 @@ export class MarkReadService {
 
   updateIssueMarkReadTimer(): void {
     const st = this.ports.state()
-    const issue = this.isVisible() ? foregroundIssue(st) : undefined
+    const issue = this.isVisible() ? foregroundIssue(st, this.ports.screenFocus?.()) : undefined
     const activity = issue ? navigationActivityAt(st, issue) : undefined
     const cursor = issue ? navigationIssueReadAt(st, issue.id) : null
     this.issueReads.update(

@@ -1,14 +1,15 @@
-import type { MobileTrpc } from '../client/trpc'
 import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { pendingAskFromState, sessionCardModel } from '@podium/client-core/values'
 import { readPageIssue } from '@podium/client-graph/issue-page'
 import { LOADING } from '@podium/client-graph/loading'
+import { isGone } from '@podium/client-graph/lookup'
 import { useRouter } from 'expo-router'
 import { StyleSheet, Text, View } from 'react-native'
 import { issueObserver } from '../client/issue-observer'
 import { useMobilePool } from '../client/mobile-pool'
+import type { MobileTrpc } from '../client/trpc'
 import { usePendingQuestion } from '../hooks/usePendingQuestion'
 import { menuAnswer, useAnswerSession } from '../lib/answer-session'
 import { sessionHref } from '../lib/session-route'
@@ -72,6 +73,7 @@ const NeedsYouCard = issueObserver(function NeedsYouCard({
             item={pending}
             live
             onAnswer={async (answer) => {
+              if ('reply' in answer) throw new Error('This question requires a session chat.')
               // A `session.answer` record (POD-6415).
               const sent = await answerSession(session.sessionId, menuAnswer(answer))
               if (!sent.ok) throw new Error(sent.reason ?? 'answer not delivered')
@@ -105,7 +107,12 @@ export const InboxSessionRow = issueObserver(function InboxSessionRow({
   const pool = useMobilePool()
   const router = useRouter()
   if (!pool) return null
-  const session = pool.sessionObject(id) as unknown as SessionView
+  // LOADING suspends under issueObserver; a Gone session leaves the list
+  // instead of drawing a card of blank fields.
+  const lookup = pool.model('session', id)
+  if (lookup === LOADING) throw LOADING
+  if (isGone(lookup)) return null
+  const session = lookup as unknown as SessionView
   const issue = session.issueId ? readPageIssue(pool, session.issueId) : undefined
   if (issue === LOADING) throw LOADING
   if (needsYou) return <NeedsYouCard session={session} issue={issue} now={0} />

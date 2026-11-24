@@ -6961,6 +6961,10 @@ type Output_setup_provenance = (Partial<Record<"agentHome" | "agentRelayPort" | 
 type Output_telemetry_preview = (null) | ({
     arch: "arm64" | "other" | "x64";
     features: Partial<Record<"issues", boolean>>;
+    githubStar?: undefined | {
+        clicked: Partial<Record<"finished_task" | "new_prompt", number>>;
+        shown: Partial<Record<"finished_task" | "new_prompt", number>>;
+    };
     installAge: "0d" | "1-7d" | "31-90d" | "8-30d" | "90d+";
     installId: string;
     machines: "1" | "2-5" | "20+" | "6-20";
@@ -9561,6 +9565,16 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 [k: string]: unknown;
             } & {});
             output: Output_telemetry_preview;
+            meta: unknown;
+        }>;
+        "recordGithubStar": TRPC.TRPCMutationProcedure<{
+            input: {
+                event: "clicked" | "shown";
+                surface: "finished_task" | "new_prompt";
+            };
+            output: {
+                ok: true;
+            };
             meta: unknown;
         }>;
         "resetId": TRPC.TRPCMutationProcedure<{

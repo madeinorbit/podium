@@ -685,10 +685,20 @@ describe('a credential change does not trip the topology guard [POD-2766]', () =
     // The back-fill is not deleted, only scoped. A box that has never chosen a
     // mode is choosing everything now, and the web setup cannot self-daemonize —
     // recording the choice for the next `podium` invocation is the whole point.
-    await (await caller()).setup.complete({
-      publicUrl: 'https://box.ts.net',
-      acknowledgeNoPassword: true,
-    })
+    // The back-fill is `systemd` only on a headless Linux box (POD-5983), so pin
+    // that host shape rather than inherit whatever machine runs the test.
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+    Object.defineProperty(process, 'platform', { value: 'linux' })
+    vi.stubEnv('PODIUM_DESKTOP_SUPERVISED', '')
+    try {
+      await (await caller()).setup.complete({
+        publicUrl: 'https://box.ts.net',
+        acknowledgeNoPassword: true,
+      })
+    } finally {
+      Object.defineProperty(process, 'platform', platform)
+      vi.unstubAllEnvs()
+    }
     expect(loadConfig().persistence).toBe('systemd')
   })
 

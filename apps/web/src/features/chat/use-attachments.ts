@@ -1,6 +1,11 @@
+import {
+  type ComposerAttachment,
+  updateFirstTaskDraftAttachments,
+} from '@podium/client-core/first-task-draft'
+import type { UiState } from '@podium/client-core/ui-state'
 import type { MachineId, SessionId } from '@podium/model/browser'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { type SetStateAction, useCallback, useEffect, useRef, useState } from 'react'
 import { hasFileItems } from './transfer-items'
 
 /**
@@ -32,17 +37,10 @@ import { hasFileItems } from './transfer-items'
  * contract for why a known session ignores it.
  */
 
-export interface Attachment {
-  id: string
-  name: string
-  size?: number
+export interface Attachment extends ComposerAttachment {
   /** An object URL when the browser can render this file inline, otherwise ''
    *  — a document chip shows its name and nothing else. */
-  previewUrl: string
-  path?: string
-  ref?: RuntimeAttachmentRef
-  error?: string
-  state: 'uploading' | 'ready' | 'failed'
+  previewUri: string
   /** The picked bytes, kept so the upload can be REDONE against a different
    *  machine (POD-1203). The home composer's target is a dropdown the operator
    *  can still change after attaching, and an uploaded path is only valid on the
@@ -96,9 +94,31 @@ export function useAttachments(opts: {
   /** `issue`: the home composer's task, which does not exist yet. Its files
    *  are held on the server until `sessions.create` claims them. */
   destination?: 'session' | 'issue'
+  /** New Task owns these chips in its shared draft rather than this hook. */
+  draft?: { attachments: ComposerAttachment[]; uiState: Pick<UiState, 'get' | 'set'> }
 }): UseAttachmentsResult {
   const { sessionId, trpc, machineId, destination = 'session' } = opts
-  const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [localAttachments, setLocalAttachments] = useState<Attachment[]>([])
+  const attachments: Attachment[] = opts.draft?.attachments ?? localAttachments
+  const draftRef = useRef(opts.draft)
+  draftRef.current = opts.draft
+  const setAttachments = useCallback((change: SetStateAction<Attachment[]>) => {
+    const draft = draftRef.current
+    if (!draft) {
+      setLocalAttachments(change)
+      return
+    }
+    updateFirstTaskDraftAttachments(draft.uiState, (current) => {
+      const next = typeof change === 'function' ? change(current) : change
+      // File bytes belong to the active upload. The draft retains its result
+      // and the existing preview URL, so reopening never uploads those bytes again.
+      return next.map((attachment) => {
+        if (!attachment.file) return attachment
+        const { file: _file, ...chip } = attachment
+        return chip
+      })
+    })
+  }, [])
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -156,7 +176,7 @@ export function useAttachments(opts: {
         )
       }
     },
-    [destination, sessionId, trpc],
+    [destination, sessionId, trpc, setAttachments],
   )
 
   const processFiles = useCallback(
@@ -166,14 +186,14 @@ export function useAttachments(opts: {
         id: `att-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         name: f.name,
         size: f.size,
-        previewUrl: f.type.startsWith('image/') ? URL.createObjectURL(f) : '',
+        previewUri: f.type.startsWith('image/') ? URL.createObjectURL(f) : '',
         state: 'uploading' as const,
         file: f,
       }))
       setAttachments((prev) => [...prev, ...newAttachments])
       await Promise.all(newAttachments.map((att) => upload(att.id, att.file as File, machineId)))
     },
-    [machineId, upload],
+    [machineId, upload, setAttachments],
   )
 
   /**
@@ -206,7 +226,7 @@ export function useAttachments(opts: {
       ),
     )
     for (const a of again) void upload(a.id, a.file as File, machineId)
-  }, [destination, machineId, upload])
+  }, [destination, machineId, upload, setAttachments])
 
   const ready = useCallback(() => {
     const readyOnes = attachments.filter((a) => a.state === 'ready' && (!!a.ref || !!a.path))
@@ -214,11 +234,11 @@ export function useAttachments(opts: {
       paths: readyOnes.flatMap((a) => (a.path ? [a.path] : [])),
       legacyPaths: readyOnes.flatMap((a) => (!a.ref && a.path ? [a.path] : [])),
       refs: readyOnes.flatMap((a) => (a.ref ? [a.ref] : [])),
-      // The tag kind is what the transcript renders the chip as, and `previewUrl`
+      // The tag kind is what the transcript renders the chip as, and `previewUri`
       // is already the answer to "can this be shown as a picture?" — reuse it
       // rather than testing the mime a second time and getting a different answer.
       tags: readyOnes.map((a) => ({
-        kind: a.previewUrl ? ('image' as const) : ('file' as const),
+        kind: a.previewUri ? ('image' as const) : ('file' as const),
         label: a.name,
       })),
     }
@@ -232,12 +252,12 @@ export function useAttachments(opts: {
     processFiles,
     remove: useCallback(
       (id: string) => setAttachments((prev) => prev.filter((a) => a.id !== id)),
-      [],
+      [setAttachments],
     ),
-    clear: useCallback(() => setAttachments([]), []),
+    clear: useCallback(() => setAttachments([]), [setAttachments]),
     clearReady: useCallback(
       () => setAttachments((prev) => prev.filter((attachment) => attachment.state === 'failed')),
-      [],
+      [setAttachments],
     ),
     uploading: attachments.some((a) => a.state === 'uploading'),
     ready,

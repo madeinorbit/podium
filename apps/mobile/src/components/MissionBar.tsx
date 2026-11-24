@@ -1,126 +1,122 @@
-import { missionCrewLabel, missionProgressLabel } from '@podium/client-core/values'
 import type { FullDeck } from '@podium/client-graph/mission-full-deck'
 import { observer } from 'mobx-react-lite'
-import { StyleSheet, Text, View } from 'react-native'
-import { alpha } from '../theme/mix'
-import { color, font, leading, mono, sans, space } from '../theme/theme'
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { useLayoutMargin } from '../hooks/useLayoutMargin'
+import { color, font, leading, sans, space } from '../theme/theme'
+import { useLiveInk } from '../theme/use-live-ink'
 import { Icon } from './Icon'
-import { ChevronRight } from './icons'
+import type { AppIcon } from './icons'
+import { DeckGauge, type DeckVitals, DeckVitalsLine, deckVitals } from './MissionGauge'
 import { PressableScale } from './PressableScale'
-import { WorkingMark } from './WorkingMark'
 
-/** The collapsed mission reads the same accepted task counts as the full deck. */
+/** Reads as "a page opens from the right", the way Files and Notes show a trailing panel. */
+const OpensFromRight: AppIcon = {
+  ios: 'sidebar.right',
+  android: 'right_panel_open',
+  web: 'right_panel_open',
+}
+
+/** "8/14 · 1 needs you · 3 working · 2 up next", zero parts left out. */
+export function deckVitalsLabel(vitals: DeckVitals): string {
+  return [
+    `${vitals.done}/${vitals.total}`,
+    vitals.needsYou > 0 ? `${vitals.needsYou} needs you` : null,
+    vitals.working > 0 ? `${vitals.working} working` : null,
+    vitals.upNext > 0 ? `${vitals.upNext} up next` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+/**
+ * The flight deck's vital signs under the chat's nav bar: the counts line, the
+ * desktop's segmented gauge along the bottom edge, and a trailing panel symbol.
+ * A tap pages to the deck, which also sits one swipe to the right.
+ */
 export const MissionBar = observer(function MissionBar({
   full,
-  live,
-  working,
-  attention,
   onOpen,
 }: {
   full: FullDeck
-  live: number
-  working: number
-  attention: number
   onOpen: () => void
 }) {
-  const counts = full.ready ? full.buckets : null
-  const bands = counts
-    ? ([
-        ['done', 'done', counts.done, color.textDim],
-        ['working', 'working', counts.working, color.workingText],
-        ['waiting', 'waiting', counts.waiting, color.label],
-        ['todo', 'to do', counts.todo, color.border],
-      ] as const)
-    : []
-  const crew = missionCrewLabel(live, working)
-  const reading = counts ? missionProgressLabel(counts) : 'Task counts are loading'
+  const loadingInk = useLiveInk(color.textDim)
+  const { fontScale } = useWindowDimensions()
+  const layoutMargin = useLayoutMargin()
+  const vitals = deckVitals(full)
+  const reading = vitals ? deckVitalsLabel(vitals) : 'Task counts are loading'
   return (
     <PressableScale
       accessibilityRole="button"
-      accessibilityLabel={`Mission details, ${reading}${attention > 0 ? `, ${attention} asking` : ''}`}
-      accessibilityHint={`Agents: ${crew}`}
+      accessibilityLabel={`Flight deck, ${reading}`}
+      accessibilityHint="Opens the flight deck. You can also swipe left."
+      testID="mission-bar"
       onPress={onOpen}
-      scaleTo={0.995}
+      scaleTo={1}
       haptic={false}
-      style={({ pressed }) => [styles.bar, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.bar,
+        { paddingHorizontal: layoutMargin },
+        pressed && styles.pressed,
+      ]}
     >
       <View style={styles.counts}>
-        {bands
-          .filter(([, , count]) => count > 0)
-          .map(([state, word, count]) => (
-            <View key={state} style={styles.key}>
-              {state === 'working' && full.computing ? <WorkingMark size={11} /> : null}
-              <Text style={styles.caption}>
-                <Text style={[styles.number, state === 'working' && styles.working]}>{count}</Text>{' '}
-                {word}
-              </Text>
-            </View>
-          ))}
-        {counts?.total === 0 ? <Text style={styles.caption}>0 tasks</Text> : null}
-        {!counts ? <Text style={styles.caption}>Loading tasks…</Text> : null}
-        {attention > 0 ? <Text style={styles.ask}>{attention} asking</Text> : null}
+        {vitals ? (
+          // The native scroll edge binds to this 40pt strip. Drop lower-priority
+          // counts as type grows; the full reading remains in the button label.
+          <DeckVitalsLine
+            vitals={vitals}
+            numberOfLines={1}
+            maxFontSizeMultiplier={BAR_MAX_SCALE}
+            showUpNext={fontScale <= BAR_MAX_SCALE}
+            // The "1/3" leads at every size (POD-2666); the line truncates at
+            // its tail, so larger type drops the lower-priority counts first.
+            showProgress
+          />
+        ) : (
+          <Text
+            style={
+              loadingInk === color.textDim
+                ? styles.loading
+                : [styles.loading, { color: loadingInk }]
+            }
+            numberOfLines={1}
+            maxFontSizeMultiplier={BAR_MAX_SCALE}
+          >
+            Loading tasks…
+          </Text>
+        )}
       </View>
-      <Icon as={ChevronRight} size={16} color={color.textDim} />
-      <View style={styles.meter} aria-hidden>
-        {bands
-          .filter(([, , count]) => count > 0)
-          .map(([state, , count, tone]) => (
-            <View
-              key={state}
-              testID={`mission-bar-${state}`}
-              style={[styles.segment, { flexGrow: count, backgroundColor: tone }]}
-            />
-          ))}
-      </View>
+      <Icon as={OpensFromRight} size={16} color={color.textDim} />
+      {vitals ? (
+        <View style={styles.edge}>
+          <DeckGauge vitals={vitals} height={3} />
+        </View>
+      ) : null}
     </PressableScale>
   )
 })
 
+const BAR_MAX_SCALE = 1.35
+
 const styles = StyleSheet.create({
+  // Transparent over Glass: the chat scrolls under the bar and the nav bar's
+  // scroll edge effect, never under an opaque strip.
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.md,
-    minHeight: 44,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.sm,
-    backgroundColor: color.bar,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: color.hairlineBar,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: color.hairline,
+    gap: space.sm,
+    height: 40,
+    // Override the native press target floor so the scroll edge stays at 40pt.
+    minHeight: 40,
   },
-  pressed: { opacity: 0.85 },
-  counts: {
-    flex: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    columnGap: space.lg,
-    rowGap: space.xs,
-  },
-  key: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  caption: {
-    ...sans(),
+  pressed: { opacity: 0.6 },
+  counts: { flex: 1, minWidth: 0 },
+  loading: {
+    ...sans(400),
     color: color.textDim,
     fontSize: font.tiny,
     lineHeight: leading(font.tiny),
   },
-  number: { ...mono(600), color: color.body, fontVariant: ['tabular-nums'] },
-  working: { color: color.workingText },
-  ask: {
-    ...sans(600),
-    color: color.needsYouText,
-    fontSize: font.tiny,
-    lineHeight: leading(font.tiny),
-  },
-  meter: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    flexDirection: 'row',
-    height: 2,
-    backgroundColor: alpha(color.border, 0.6),
-  },
-  segment: { height: '100%', flexBasis: 0 },
+  edge: { position: 'absolute', left: 0, right: 0, bottom: 0 },
 })

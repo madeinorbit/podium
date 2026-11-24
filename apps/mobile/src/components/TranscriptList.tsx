@@ -1,19 +1,29 @@
-import type { TranscriptActivityRun, TranscriptLog } from '@podium/client-core/conversation'
-import { useActivityDisclosure } from '@podium/client-core/react'
+import {
+  conversationBubblePosition,
+  type TranscriptActivityRun,
+  type TranscriptLog,
+} from '@podium/client-core/conversation'
+import { useActivityDisclosure, useMailBody } from '@podium/client-core/react'
+import { dayKey, dayMarksByPosition } from '@podium/client-core/transcript-time'
 import {
   activitySingletonDisplay,
+  askQuestionAnswerText,
+  askQuestionOutcome,
   type ChatBlock,
-  failLine,
-  formatChurn,
+  formatClock,
+  isOperatorQuestion,
+  mcpLabel,
+  noteSubject,
   type ParsedEnvelope,
   pointerFallbackBody,
-  resultPreview,
+  principalShortName,
   toolBatchTitles,
-  toolExecutionSections,
+  toolCallPhrase,
+  toolRunElapsedMs,
   toolRunFailures,
-  toolVerdict,
 } from '@podium/client-core/values'
-import type { TranscriptItem } from '@podium/model'
+import type { MailReply } from '@podium/client-graph/mail-reply'
+import { machinePathBasename, type TranscriptItem } from '@podium/model'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
 import { untracked } from 'mobx'
@@ -31,9 +41,7 @@ import {
 } from 'react'
 import {
   Animated,
-  AppState,
   Platform,
-  Pressable,
   type RefreshControlProps,
   ScrollView,
   StyleSheet,
@@ -41,9 +49,10 @@ import {
   TextInput,
   View,
 } from 'react-native'
+import { useLayoutMargin } from '../hooks/useLayoutMargin'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import type { RefreshAccessibilityProps } from '../hooks/useRefreshableTab'
-import { useAgeNow } from '../lib/clock-hooks'
+import { useAgeNow, useClock } from '../lib/clock-hooks'
 import {
   type MobileConversationPresentation,
   MobileTranscriptSearch,
@@ -53,7 +62,6 @@ import {
   appendedTranscriptArrivals,
   buildMobileTranscript,
   envelopePrincipal,
-  isChosenOption,
   liveAssistantRow,
   type MobileTranscriptRow,
   machineContextLabel,
@@ -77,16 +85,33 @@ import {
 } from '../theme/theme'
 import { ActionSheet, type SheetAction } from './ActionSheet'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
+import { DeliveryFailureMark } from './DeliveryFailureMark'
 import { Icon } from './Icon'
-import { ChevronDown, ChevronRight, ChevronUp, X } from './icons'
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  FileText,
+  Layers,
+  Mail,
+  MessageCircleQuestion,
+  Square,
+  X,
+} from './icons'
+import { MessageMenu } from './MessageMenu'
+import type { MessageAction } from './message-menu.types'
+import { PendingDeliveryFailure } from './PendingDeliveryFailure'
 import { PendingFiles } from './PendingFiles'
 import { PressableScale } from './PressableScale'
 import { pendingFailure, pendingMetaLine } from './pending-delivery'
-import { RichMarkdown } from './RichMarkdown'
+import { RichMarkdown, RichMarkdownInline } from './RichMarkdown'
+import { SelectTextSheet } from './SelectTextSheet'
 import { SharedFiles } from './SharedFiles'
-import { ToolDescription } from './ToolDescription'
+import { StreamingCaret } from './StreamingCaret'
+import { ToolCallRow } from './ToolCallRow'
 import { TranscriptViewport } from './TranscriptViewport'
 import type { TranscriptViewportHandle } from './TranscriptViewport.types'
+import { ActivityLine } from './transcript-activity'
 import { WorkingMark } from './WorkingMark'
 
 /**
@@ -94,8 +119,8 @@ import { WorkingMark } from './WorkingMark'
  * lies flat on the chassis; the operator's turns are the only elevated surface.
  * They do NOT stick to the top (POD-338) — a phone viewport is too short to
  * spend a permanent band on a message you already read. Tool runs are muted mono
- * one-liners with per-call ✓/✕ verdicts; the final answer gets the page's only
- * accent (a keyline, not a box); an answered ask collapses to a one-line receipt.
+ * one-liners with per-call ✓/✕ verdicts; the final answer stands out by ink
+ * alone (POD-2076); an answered ask collapses to a one-line receipt.
  */
 interface PendingRow {
   key: string
@@ -109,11 +134,17 @@ interface PendingRow {
 
 type Row = MobileTranscriptRow | PendingRow
 
+type MessageMenuHandler = (text: string, action?: MessageAction, timeLabel?: string) => void
+
 /** A turn the operator just sent, painted before the server echoes it back —
  *  the phone twin of the desktop chat's optimistic bubble (POD-338). Without it
  *  a send into a parked session looks like nothing happened at all. */
 export interface PendingTurn {
   id: string
+  /** Existing send instant, so its day mark stays put when the echo arrives. */
+  at?: number
+  afterTranscriptId?: string | null
+  beforeTranscriptId?: string
   /** The PROSE, without the attachment paths that ride with it — the paths are
    *  rendered as files below, exactly as they will be once the server echoes
    *  this turn back. */
@@ -166,6 +197,14 @@ function shortTime(ts: string | undefined): string | undefined {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+/** Exact local instant for the message menu, formatted once for both hosts. */
+function messageTimeLabel(ts: string | undefined): string | undefined {
+  const date = ts ? new Date(ts) : undefined
+  return date && !Number.isNaN(date.getTime())
+    ? date.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'long' })
+    : undefined
+}
+
 function MessageText({
   text,
   style,
@@ -175,7 +214,16 @@ function MessageText({
   style: object
   onRefPress?: ((ref: string) => void) | undefined
 }) {
-  return <RichMarkdown text={text} textStyle={style} onRefPress={onRefPress} />
+  // iOS selection lives in the message menu's Select Text view; selectable
+  // paragraph text would raise a second system Copy bubble on long-press.
+  return (
+    <RichMarkdown
+      text={text}
+      textStyle={style}
+      onRefPress={onRefPress}
+      selectable={Platform.OS !== 'ios'}
+    />
+  )
 }
 
 function EnvelopePrincipalLabel({
@@ -202,43 +250,502 @@ function EnvelopePrincipalLabel({
   )
 }
 
-/** An inbox pointer (POD-2143) carries no body. This list shows every envelope
- *  open, so fetching one here would load it unasked; say where it went instead. */
+/** A folded pointer says where it went; its opened well loads the body by ID. */
 function envelopeText(envelope: ParsedEnvelope): string {
   return envelope.pointer ? pointerFallbackBody(envelope) : envelope.body
 }
 
-function EnvelopeRow({
-  envelope,
+/** A note's preview line: the body's first line, or what a pointer stands for. */
+function envelopeLine(envelope: ParsedEnvelope): string {
+  return noteSubject(envelopeText(envelope))
+}
+
+/** The murmur column's clock (board Chat): the shared `m:ss` motion clock,
+ *  or nothing when there is no duration to show. */
+export function murmurClock(ms: number | undefined): string | undefined {
+  if (ms === undefined || !Number.isFinite(ms) || ms < 0) return undefined
+  return formatClock(ms)
+}
+
+/**
+ * ONE MURMUR LINE (board Chat, POD-2380): a 14pt glyph, one line of tertiary
+ * text, and a mono clock at the trailing edge. Tool folds, notes from other
+ * agents and the live turn all speak at this volume so the agent's own prose
+ * stays the loudest thing in the feed.
+ */
+function MurmurLine({
+  glyph,
+  label,
+  clock,
+  tone = 'quiet',
+  expanded,
+  accessibilityLabel,
+  onPress,
+  children,
+}: {
+  glyph: ReactNode
+  label: ReactNode
+  clock?: ReactNode
+  tone?: 'quiet' | 'live' | 'failed'
+  expanded?: boolean
+  accessibilityLabel: string
+  onPress?: () => void
+  children?: ReactNode
+}) {
+  const line = (
+    <>
+      <View style={styles.murmurGlyph}>{glyph}</View>
+      <Text
+        style={[
+          styles.murmurText,
+          tone === 'live' && styles.murmurLive,
+          tone === 'failed' && styles.murmurFailed,
+        ]}
+        numberOfLines={1}
+      >
+        {label}
+      </Text>
+      {typeof clock === 'string' ? (
+        <Text style={[styles.murmurClock, tone === 'live' && styles.murmurLive]}>{clock}</Text>
+      ) : (
+        clock
+      )}
+    </>
+  )
+  const header = onPress ? (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ expanded: expanded === true }}
+      aria-expanded={expanded === true}
+      onPress={onPress}
+      scaleTo={0.99}
+      style={({ pressed }) => [styles.murmurLine, pressed && styles.murmurPressed]}
+    >
+      {line}
+    </PressableScale>
+  ) : (
+    <View style={styles.murmurLine} accessible accessibilityLabel={accessibilityLabel}>
+      {line}
+    </View>
+  )
+  return (
+    <View style={styles.murmur}>
+      {tone === 'live' ? (
+        <ActivityLine testID="transcript-live-line">{header}</ActivityLine>
+      ) : (
+        header
+      )}
+      {children ? <View style={styles.well}>{children}</View> : null}
+    </View>
+  )
+}
+
+const disclosureGlyph = (expanded: boolean) => (
+  <Icon as={expanded ? ChevronDown : ChevronRight} size={14} color={color.textMicro} />
+)
+
+/**
+ * AN ASK WITH NO STRUCTURED INPUT (desktop "Needs your input", POD-376): a
+ * Codex / MCP interview or a plan approval. A signal-tinted murmur names the
+ * tool and its title; the well holds what came back.
+ */
+function AskedMurmur({ item, result }: { item: TranscriptItem; result: string | undefined }) {
+  const [open, setOpen] = useState(false)
+  const plan = /(?:exit.*plan|plan.*approval|approve.*plan)/i.test(
+    `${item.toolName ?? ''} ${item.toolTitle ?? ''}`,
+  )
+  const lead = plan ? 'Plan ready · needs you' : 'Needs your input'
+  const tool = item.toolName ? (mcpLabel(item.toolName) ?? item.toolName) : 'a question'
+  const title = item.toolTitle ?? item.toolInput
+  const label = title ? `${lead} · ${title}` : `${lead} · ${tool}`
+  const body = result?.trim()
+  return (
+    <MurmurLine
+      glyph={
+        body ? (
+          <Icon as={open ? ChevronDown : ChevronRight} size={14} color={color.needsYouText} />
+        ) : (
+          <Icon as={MessageCircleQuestion} size={14} color={color.needsYouText} />
+        )
+      }
+      label={<Text style={styles.murmurAsked}>{label}</Text>}
+      clock={shortTime(item.ts)}
+      expanded={open}
+      accessibilityLabel={`${label}, ${tool}`}
+      onPress={body ? () => setOpen((value) => !value) : undefined}
+    >
+      {open && body ? (
+        <Text selectable style={styles.wellResult}>
+          {body}
+        </Text>
+      ) : null}
+    </MurmurLine>
+  )
+}
+
+/**
+ * SYSTEM ROWS AS MURMURS (desktop ChatBlockView): a compaction is one
+ * "Context compacted" line that opens its summary, an interrupt says who
+ * stopped the turn and when, and a file changed on disk names the file. Churn
+ * and anything else stay a quiet mono line (the board draws none of them).
+ */
+function SystemMurmur({
+  item,
+  quietText,
   onRefPress,
 }: {
-  envelope: ParsedEnvelope
-  onRefPress?: (ref: string) => void
+  item: TranscriptItem
+  quietText: string
+  onRefPress?: ((ref: string) => void) | undefined
 }) {
+  const [open, setOpen] = useState(false)
+  const clock = shortTime(item.ts)
+  if (item.event === 'interrupt') {
+    return (
+      <View testID="interrupted-row" style={styles.systemRow}>
+        <MurmurLine
+          glyph={<Icon as={Square} size={14} color={color.textMicro} />}
+          label="Interrupted by you"
+          clock={clock}
+          accessibilityLabel={`Interrupted by you${clock ? ` at ${clock}` : ''}`}
+        />
+      </View>
+    )
+  }
+  if (item.role === 'system' && item.systemKind === 'compaction') {
+    const summary = item.text.trim()
+    const label = summary
+      ? `Context compacted · ${open ? 'Hide' : 'Show'} summary`
+      : 'Context compacted'
+    return (
+      <MurmurLine
+        glyph={
+          summary ? disclosureGlyph(open) : <Icon as={Layers} size={14} color={color.textMicro} />
+        }
+        label={label}
+        clock={clock}
+        expanded={open}
+        accessibilityLabel={label}
+        onPress={summary ? () => setOpen((value) => !value) : undefined}
+      >
+        {open ? (
+          <RichMarkdown text={summary} textStyle={styles.wellProse} onRefPress={onRefPress} />
+        ) : null}
+      </MurmurLine>
+    )
+  }
+  if (item.role === 'system' && item.systemKind === 'file-changed') {
+    const path = item.toolPaths?.[0]
+    const label = `Changed on disk · ${path ? machinePathBasename(path) : 'a file'}`
+    return (
+      <MurmurLine
+        glyph={<Icon as={FileText} size={14} color={color.textMicro} />}
+        label={label}
+        clock={clock}
+        accessibilityLabel={label}
+      />
+    )
+  }
   return (
-    <View style={styles.envelope}>
-      <View style={styles.envelopeHeader}>
-        <Text style={styles.envelopeKind}>Internal</Text>
-        <Text style={styles.envelopeRoute} numberOfLines={1}>
-          <EnvelopePrincipalLabel label={envelope.from} onRefPress={onRefPress} />
-          {envelope.to ? (
-            <>
-              {' → '}
-              <EnvelopePrincipalLabel label={envelope.to} onRefPress={onRefPress} />
-            </>
-          ) : null}
-        </Text>
-        {envelope.question ? <Text style={styles.envelopeQuestion}>question</Text> : null}
-        {envelope.expectsReply ? <Text style={styles.envelopeReply}>reply requested</Text> : null}
-      </View>
-      {envelope.pointer === 'legacy' ? null : <Text style={styles.envelopeId}>{envelope.id}</Text>}
-      <View style={styles.envelopeBody}>
-        <RichMarkdown text={envelopeText(envelope)} onRefPress={onRefPress} />
-      </View>
-      {envelope.machineNote ? (
-        <Text style={styles.envelopeMachine}>{envelope.machineNote}</Text>
+    <View style={styles.systemRow}>
+      <Text style={styles.quiet} numberOfLines={2}>
+        {quietText}
+      </Text>
+    </View>
+  )
+}
+
+/** Each note menu owns the same body the reader sees, with its delivery time. */
+function NoteMessage({
+  messageId,
+  body,
+  ts,
+  onHold,
+  canQuote,
+  children,
+}: {
+  messageId: string
+  body: string
+  ts?: string
+  onHold?: MessageMenuHandler
+  canQuote: boolean
+  children: ReactNode
+}) {
+  if (!onHold) return <>{children}</>
+  const timeLabel = messageTimeLabel(ts)
+  return (
+    <MessageMenu
+      messageId={messageId}
+      text={body}
+      timeLabel={timeLabel}
+      canQuote={canQuote}
+      onAction={(text, action) => onHold(text, action, timeLabel)}
+    >
+      {children}
+    </MessageMenu>
+  )
+}
+
+/**
+ * A NOTE FROM ANOTHER AGENT, as a murmur (board Chat / ChatReply): who sent it
+ * and its first line, opened into the full note. A question addressed to the
+ * operator says so and opens with Reply and Quote; Reply turns the composer
+ * into a reply to the asker (the web's shared MailReply, POD-2289).
+ */
+const EnvelopeRow = observer(function EnvelopeRow({
+  envelope,
+  ts,
+  onRefPress,
+  mailReply,
+  onQuote,
+  onHold,
+}: {
+  envelope: ParsedEnvelope
+  onHold?: MessageMenuHandler
+  ts?: string | undefined
+  onRefPress?: (ref: string) => void
+  mailReply?: MailReply | undefined
+  onQuote?: ((text: string) => void) | undefined
+}) {
+  const ask = isOperatorQuestion(envelope)
+  const [open, setOpen] = useState(false)
+  const answered = ask && mailReply?.message(envelope.id)?.answered === true
+  useEffect(() => {
+    if (ask && open) void mailReply?.load(envelope.id).catch(() => {})
+  }, [ask, open, mailReply, envelope.id])
+  const principal = envelopePrincipal(envelope.from)
+  const who = principal.ref ?? principalShortName(envelope.from)
+  const summary = ask
+    ? answered
+      ? 'asked you a question · answered'
+      : 'asked you a question'
+    : envelopeLine(envelope)
+  const content = (
+    <MurmurLine
+      glyph={ask ? disclosureGlyph(open) : <Icon as={Mail} size={14} color={color.textMicro} />}
+      label={
+        <>
+          <Text style={styles.murmurStrong}>{who}</Text>{' '}
+          {ask ? summary : <RichMarkdownInline text={summary} onRefPress={onRefPress} />}
+        </>
+      }
+      clock={shortTime(ts)}
+      expanded={open}
+      accessibilityLabel={`${open ? 'Close' : 'Open'} note from ${who}: ${summary}`}
+      onPress={() => setOpen((value) => !value)}
+    >
+      {open ? (
+        <OpenedEnvelope
+          envelope={envelope}
+          ts={ts}
+          onHold={onHold}
+          onRefPress={onRefPress}
+          mailReply={mailReply}
+          onQuote={onQuote}
+        />
+      ) : null}
+    </MurmurLine>
+  )
+  return envelope.pointer ? (
+    content
+  ) : (
+    <NoteMessage
+      messageId={envelope.id}
+      body={envelope.body}
+      ts={ts}
+      onHold={onHold}
+      canQuote={onQuote !== undefined}
+    >
+      {content}
+    </NoteMessage>
+  )
+})
+
+function PointerEnvelope({
+  envelope,
+  ...props
+}: {
+  envelope: ParsedEnvelope
+  ts?: string
+  onHold?: MessageMenuHandler
+  onRefPress?: (ref: string) => void
+  mailReply?: MailReply
+  onQuote?: (text: string) => void
+}) {
+  const mail = useMailBody(envelope.id)
+  if (mail.status === 'ready')
+    return <EnvelopeContents envelope={envelope} body={mail.body} {...props} />
+  return (
+    <View style={{ gap: space.sm }}>
+      <Text style={styles.wellProse}>
+        {mail.status === 'loading'
+          ? 'Loading…'
+          : mail.status === 'denied'
+            ? "You can't view this message. Only its sender, recipients and an admin can open it."
+            : 'Could not load this message.'}
+      </Text>
+      {mail.status === 'error' ? (
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel="Retry loading note"
+          onPress={mail.retry}
+          style={styles.wellButton}
+        >
+          <Text style={styles.wellButtonText}>Retry</Text>
+        </PressableScale>
       ) : null}
     </View>
+  )
+}
+
+function OpenedEnvelope(props: {
+  envelope: ParsedEnvelope
+  ts?: string
+  onHold?: MessageMenuHandler
+  onRefPress?: (ref: string) => void
+  mailReply?: MailReply
+  onQuote?: (text: string) => void
+}) {
+  return props.envelope.pointer === 'by-id' ? (
+    <PointerEnvelope {...props} />
+  ) : (
+    <EnvelopeContents {...props} body={envelopeText(props.envelope)} />
+  )
+}
+
+const EnvelopeContents = observer(function EnvelopeContents({
+  envelope,
+  body,
+  onRefPress,
+  mailReply,
+  onQuote,
+  ts,
+  onHold,
+}: {
+  envelope: ParsedEnvelope
+  body: string
+  ts?: string
+  onHold?: MessageMenuHandler
+  onRefPress?: (ref: string) => void
+  mailReply?: MailReply
+  onQuote?: (text: string) => void
+}) {
+  const who = envelopePrincipal(envelope.from).ref ?? principalShortName(envelope.from)
+  const ask = isOperatorQuestion(envelope)
+  const answered = ask && mailReply?.message(envelope.id)?.answered === true
+  const replying = mailReply?.active === true && mailReply.target?.id === envelope.id
+  const prose = (
+    <RichMarkdown
+      text={body}
+      textStyle={styles.wellProse}
+      onRefPress={onRefPress}
+      selectable={Platform.OS !== 'ios'}
+    />
+  )
+  return (
+    <>
+      {envelope.pointer === 'by-id' ? (
+        <NoteMessage
+          messageId={envelope.id}
+          body={body}
+          ts={ts}
+          onHold={onHold}
+          canQuote={onQuote !== undefined}
+        >
+          {prose}
+        </NoteMessage>
+      ) : (
+        prose
+      )}
+      {envelope.to ? (
+        <Text style={styles.wellMeta} numberOfLines={1}>
+          <EnvelopePrincipalLabel label={envelope.from} onRefPress={onRefPress} />
+          {' → '}
+          <EnvelopePrincipalLabel label={envelope.to} onRefPress={onRefPress} />
+          {envelope.expectsReply ? ' · reply requested' : null}
+        </Text>
+      ) : null}
+      {ask && (mailReply || onQuote) ? (
+        <View style={styles.wellActions}>
+          {mailReply && !answered ? (
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel={`Reply to ${who}`}
+              accessibilityState={{ selected: replying }}
+              aria-selected={replying}
+              onPress={() => mailReply.start(envelope)}
+              style={({ pressed }) => [styles.wellButton, pressed && styles.murmurPressed]}
+            >
+              <Text style={styles.wellButtonText}>{replying ? 'Replying' : 'Reply'}</Text>
+            </PressableScale>
+          ) : null}
+          {onQuote ? (
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel="Quote in your message"
+              onPress={() => onQuote(quoteTranscriptText(body))}
+              style={({ pressed }) => [styles.wellButton, pressed && styles.murmurPressed]}
+            >
+              <Text style={styles.wellButtonText}>Quote</Text>
+            </PressableScale>
+          ) : null}
+        </View>
+      ) : null}
+      {envelope.machineNote ? <Text style={styles.wellMeta}>{envelope.machineNote}</Text> : null}
+    </>
+  )
+})
+
+function EnvelopeGroup({
+  envelopes,
+  ts,
+  onRefPress,
+  mailReply,
+  onQuote,
+  onHold,
+  forceOpen = false,
+}: {
+  envelopes: readonly ParsedEnvelope[]
+  onHold?: MessageMenuHandler
+  ts?: string
+  onRefPress?: (ref: string) => void
+  mailReply?: MailReply
+  onQuote?: (text: string) => void
+  forceOpen?: boolean
+}) {
+  const { open, toggle } = useActivityDisclosure({ forceOpen })
+  const notes = envelopes.filter((envelope) => !isOperatorQuestion(envelope))
+  const questions = envelopes.filter(isOperatorQuestion)
+  const row = (envelope: ParsedEnvelope) => (
+    <EnvelopeRow
+      key={envelope.id}
+      envelope={envelope}
+      ts={ts}
+      onRefPress={onRefPress}
+      mailReply={mailReply}
+      onQuote={onQuote}
+      onHold={onHold}
+    />
+  )
+  return (
+    <>
+      {notes.length > 1 ? (
+        <MurmurLine
+          glyph={disclosureGlyph(open)}
+          label={`Read ${notes.length} notes`}
+          clock={shortTime(ts)}
+          expanded={open}
+          accessibilityLabel={`${open ? 'Collapse' : 'Expand'} ${notes.length} notes`}
+          onPress={toggle}
+        >
+          {open ? notes.map(row) : null}
+        </MurmurLine>
+      ) : (
+        notes.map(row)
+      )}
+      {questions.map(row)}
+    </>
   )
 }
 
@@ -273,305 +780,132 @@ function MachineContextDisclosure({ item }: { item: TranscriptItem }) {
 }
 
 /**
- * A phone-native work line. It spends one line on the run and a tap unfolds a
- * useful result preview.
+ * A TOOL FOLD (C1, POD-2380 — the web's POD-6258 fold on the phone). The
+ * shared transcript graph groups the calls between two pieces of the agent's
+ * text into one run; the line is named by the harness's own summary of those
+ * calls when it wrote one, else by their subjects ("Ran git status, read
+ * chat.ts"), with the run's clock beside it. A tap opens the calls in a well.
+ *
+ * LIVE, the trailing run of a working turn is the one live turn line: the
+ * moving mark, the call in flight ("Reading transcript-graph.ts") and its
+ * running clock, in the moving colour. It settles in place into the fold.
  */
-const ToolsRun = observer(function ToolsRun({
+export const ToolsRun = observer(function ToolsRun({
   blocks = [],
   run,
   forceOpen = false,
+  live = false,
   onRefPress,
+  mailReply,
+  onQuote,
+  onHold,
 }: {
   blocks?: ChatBlock[]
   run?: TranscriptActivityRun
   forceOpen?: boolean
+  /** The trailing run of a turn that is still working. */
+  live?: boolean
   onRefPress?: (ref: string) => void
+  mailReply?: MailReply
+  onQuote?: (text: string) => void
+  onHold?: MessageMenuHandler
 }) {
   const { open: expanded, toggle } = useActivityDisclosure({ forceOpen })
   const failures = run?.failures ?? toolRunFailures(blocks)
-  const durationMs =
-    run?.durationMs ?? blocks.reduce((total, block) => total + (block.item.durationMs ?? 0), 0)
-  const title =
-    (run?.count ?? blocks.length) > 1
-      ? (run?.summary ?? toolBatchTitles(blocks).summary)
+  const lastTool = run?.lastTool ?? blocks.findLast((block) => block.item.role === 'tool')
+  const inFlight =
+    live && lastTool && lastTool.result === undefined && lastTool.item.toolResult === undefined
+  const title = inFlight
+    ? toolCallPhrase(lastTool.item)
+    : live
+      ? 'Working'
       : (run?.title ?? toolBatchTitles(blocks).title)
+  const label = failures > 0 && !live ? `${title} · ${failures} failed` : title
 
   return (
-    <View style={styles.tools}>
-      <PressableScale
-        accessibilityRole="button"
-        accessibilityLabel={`${expanded ? 'Collapse' : 'Expand'} work run: ${title}`}
-        accessibilityState={{ expanded }}
-        aria-expanded={expanded}
-        onPress={toggle}
-        style={({ pressed }) => [styles.workLine, pressed && styles.workLinePressed]}
-      >
-        <Text style={[styles.workDisclosure, failures > 0 && styles.workDisclosureFailed]}>
-          {failures > 0 ? '✕' : '✓'}
-        </Text>
-        <Text style={styles.workTitle} numberOfLines={1}>
-          {title}
-        </Text>
-        <Text style={styles.workCount}>{formatChurn(durationMs)}</Text>
-        <Icon as={expanded ? ChevronDown : ChevronRight} size={14} color={color.textMicro} />
-      </PressableScale>
+    <MurmurLine
+      glyph={live ? <WorkingMark size={14} label={null} /> : disclosureGlyph(expanded)}
+      label={label}
+      clock={<ToolsRunClock run={run} blocks={blocks} live={live} />}
+      tone={live ? 'live' : failures > 0 ? 'failed' : 'quiet'}
+      expanded={expanded}
+      accessibilityLabel={`${expanded ? 'Collapse' : 'Expand'} work run: ${label}`}
+      onPress={toggle}
+    >
       {expanded
-        ? (run?.executionSections ?? toolExecutionSections(blocks)).map((section) => (
-            <View key={section.blocks[0]!.item.id}>
-              {(section.summary || (section.batchKind && section.blocks.length > 1)) && (
-                <Text style={styles.executionBatch}>
-                  {section.summary ?? toolBatchTitles([...section.blocks]).summary}
-                </Text>
-              )}
-              {section.blocks.map((b) => {
-                const { item } = b
-                const display = activitySingletonDisplay(b)
-                if (display.kind === 'received-notes')
-                  return (
-                    <View key={item.id}>
-                      {display.batch.envelopes.map((envelope) => (
-                        <EnvelopeRow
-                          key={envelope.id}
-                          envelope={envelope}
-                          onRefPress={onRefPress}
-                        />
-                      ))}
-                    </View>
-                  )
-                const mail =
-                  display.kind === 'sent-note' || display.kind === 'inbox-read'
-                    ? display.mail
-                    : undefined
-                if (mail)
-                  return (
-                    <View key={item.id}>
-                      <Text style={styles.toolPreview}>
-                        {mail.op === 'note'
-                          ? `Note to ${mail.to}`
-                          : mail.notes === undefined
-                            ? 'Read notes'
-                            : `Read ${mail.notes} notes`}
-                      </Text>
-                      <RichMarkdown
-                        text={
-                          mail.op === 'note'
-                            ? (mail.preview ?? 'Sent')
-                            : (b.result ?? item.toolResult ?? '')
-                        }
-                        onRefPress={onRefPress}
-                      />
-                    </View>
-                  )
-                if (b.execution)
-                  return <MobileCommandExecution key={item.id} block={b} forceOpen={forceOpen} />
-                const result = b.result ?? item.toolResult
-                const verdict = toolVerdict(result, item.toolEffects, item.toolExecution)
-                const desc =
-                  item.toolName === 'Bash'
-                    ? (item.toolInput ?? item.toolTitle ?? '')
-                    : (item.toolTitle ?? item.toolInput ?? '')
-                const files = item.toolPaths?.length ?? 0
-                const preview = resultPreview(result)
-                return (
-                  <View key={item.id}>
-                    <View style={styles.trow}>
-                      <Text
-                        style={[
-                          styles.toolGlyph,
-                          verdict === 'ok' && styles.toolGlyphOk,
-                          verdict === 'err' && styles.toolGlyphErr,
-                        ]}
-                      >
-                        {verdict === 'err' ? '✕' : verdict === 'ok' ? '✓' : '·'}
-                      </Text>
-                      <Text style={styles.toolName}>{item.toolName ?? 'result'}</Text>
-                      <ToolDescription toolName={item.toolName} command={desc} />
-                      {files > 1 ? <Text style={styles.toolMag}>{files} files</Text> : null}
-                    </View>
-                    {verdict === 'err' ? (
-                      <Text style={styles.toolFail} numberOfLines={1}>
-                        {failLine(result)}
-                      </Text>
-                    ) : preview ? (
-                      <Text style={styles.toolPreview} numberOfLines={1}>
-                        {preview.line}
-                        {preview.more > 0 ? `  +${preview.more}` : ''}
-                      </Text>
-                    ) : null}
-                  </View>
-                )
-              })}
-            </View>
-          ))
+        ? (run?.blocks ?? blocks).map((b) => {
+            const { item } = b
+            const display = activitySingletonDisplay(b)
+            if (display.kind === 'received-notes')
+              return (
+                <View key={item.id}>
+                  <EnvelopeGroup
+                    envelopes={display.batch.envelopes}
+                    ts={item.ts}
+                    onRefPress={onRefPress}
+                    mailReply={mailReply}
+                    onQuote={onQuote}
+                    onHold={onHold}
+                  />
+                </View>
+              )
+            return <ToolCallRow key={item.id} block={b} />
+          })
         : null}
-    </View>
+    </MurmurLine>
   )
 })
 
-function MobileCommandExecution({ block, forceOpen }: { block: ChatBlock; forceOpen: boolean }) {
-  const { open, toggle } = useActivityDisclosure({ forceOpen })
-  const [copied, setCopied] = useState<string>()
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  useEffect(() => () => clearTimeout(timer.current), [])
-  const execution = block.execution!
-  const first = execution.inputs[0]!
-  const title =
-    execution.count === 1
-      ? first.description
-        ? `${first.description} (${first.text.split('\n')[0]})`
-        : first.text.split('\n')[0]
-      : execution.label
-  const copy = async (text: string, key: string) => {
-    try {
-      await Clipboard.setStringAsync(text)
-      setCopied(key)
-    } catch {
-      setCopied('failed')
-    }
-    clearTimeout(timer.current)
-    timer.current = setTimeout(() => setCopied(undefined), 1800)
-  }
-  return (
-    <View style={[styles.commandExecution, open && styles.commandExecutionOpen]}>
-      <PressableScale
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
-        aria-expanded={open}
-        accessibilityLabel={`${open ? 'Collapse' : 'Expand'} ${title}`}
-        onPress={toggle}
-        style={styles.executionHeader}
-      >
-        <Text style={styles.executionTitle} numberOfLines={1}>
-          {title}
-        </Text>
-        <Text style={styles.executionCue}>{execution.output.label}</Text>
-        <Icon as={open ? ChevronDown : ChevronRight} size={12} color={color.textMicro} />
-      </PressableScale>
-      {open && (
-        <>
-          <View style={styles.executionInputs}>
-            <Text style={styles.executionSection}>
-              {execution.kind === 'commands'
-                ? execution.count === 1
-                  ? 'Command'
-                  : 'Commands'
-                : 'Inputs'}
-            </Text>
-            {execution.inputs.map((input, index) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: inputs keep their native order inside one immutable execution.
-              <View key={`${block.item.id}:${index}`} style={styles.executionInput}>
-                {execution.count > 1 && input.description && (
-                  <Text style={styles.executionSection}>{input.description}</Text>
-                )}
-                <Text selectable style={styles.executionCode}>
-                  {input.text}
-                </Text>
-                {input.capture !== 'complete' && (
-                  <Text style={styles.executionCue}>
-                    {input.capture === 'truncated'
-                      ? 'Input truncated. Only retained text is available.'
-                      : 'The record may contain only an input preview.'}
-                  </Text>
-                )}
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Copy retained input"
-                  onPress={() => {
-                    void copy(input.text, String(index))
-                  }}
-                >
-                  <Text style={styles.executionCopy}>
-                    {copied === String(index) ? 'Copied' : 'Copy'}
-                  </Text>
-                </Pressable>
-              </View>
-            ))}
-            {execution.omittedInputs > 0 && (
-              <Text style={styles.executionCue}>
-                {execution.omittedInputs} more inputs were not retained.
-              </Text>
-            )}
-          </View>
-          <View style={styles.executionOutput}>
-            <View style={styles.trow}>
-              <Text style={styles.executionSection}>Output</Text>
-              {execution.output.text ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Copy retained output"
-                  onPress={() => {
-                    void copy(execution.output.text!, 'output')
-                  }}
-                >
-                  <Text style={styles.executionCopy}>
-                    {copied === 'output' ? 'Copied' : 'Copy'}
-                  </Text>
-                </Pressable>
-              ) : null}
-            </View>
-            {execution.output.text ? (
-              <ScrollView style={styles.executionScroll} nestedScrollEnabled>
-                <Text selectable style={styles.executionCode}>
-                  {execution.output.text}
-                </Text>
-              </ScrollView>
-            ) : (
-              <Text style={styles.executionCue}>
-                {execution.output.capture === 'complete' && execution.output.text === ''
-                  ? 'No output was returned.'
-                  : (execution.output.note ?? 'The transcript does not include captured output.')}
-              </Text>
-            )}
-            {execution.output.text && execution.output.note && (
-              <Text style={styles.executionCue}>{execution.output.note}</Text>
-            )}
-            {execution.exitCode !== undefined && (
-              <Text style={styles.executionCue}>Exit {execution.exitCode}</Text>
-            )}
-            {(execution.status === 'failed' || execution.status === 'interrupted') && (
-              <Text style={styles.toolGlyphErr}>
-                {execution.status === 'failed' ? 'Failed' : 'Interrupted'}
-              </Text>
-            )}
-            {copied === 'failed' && (
-              <Text accessibilityLiveRegion="polite" style={styles.executionCue}>
-                Unable to copy. Select the text to copy it.
-              </Text>
-            )}
-          </View>
-        </>
-      )}
-    </View>
-  )
-}
+const ToolsRunClock = observer(function ToolsRunClock({
+  run,
+  blocks,
+  live,
+}: {
+  run?: TranscriptActivityRun
+  blocks: ChatBlock[]
+  live: boolean
+}) {
+  const first = run?.firstBlock ?? blocks[0]
+  const lastTool = run?.lastTool ?? blocks.findLast((block) => block.item.role === 'tool')
+  const now = useAgeNow(first?.item.ts ?? '', 0, live && first?.item.ts !== undefined, 3_600_000)
+  const duration = live
+    ? (run?.elapsed(now) ??
+      (first && lastTool ? toolRunElapsedMs([first, lastTool], now) : undefined))
+    : run?.durationMs ||
+      blocks.reduce((total, block) => total + (block.item.durationMs ?? 0), 0) ||
+      run?.elapsed()
+  const clock = murmurClock(duration || undefined)
+  return clock ? <Text style={[styles.murmurClock, live && styles.murmurLive]}>{clock}</Text> : null
+})
 
 /** An answered AskUserQuestion, collapsed to "? question — picked" so past
  *  decisions stay auditable without spending attention. */
 function AskReceipt({ item }: { item: TranscriptItem }) {
+  const skipped = askQuestionOutcome({ item }) === 'skipped'
   const questions = parseAskQuestions(item.toolInputJson)
   const first = questions[0]
-  const picked = first?.options
-    .filter((o) => isChosenOption(item.toolResult ?? '', o.label))
-    .map((o) => o.label)
-    .join(', ')
+  const answer = askQuestionAnswerText({ item })
+  const label = skipped ? 'Skipped' : answer ? `Answered: ${answer}` : 'Answered'
   return (
-    <View style={styles.receipt}>
+    <View
+      style={styles.receipt}
+      accessible
+      accessibilityLabel={`${skipped ? 'Skipped' : 'Answered'} question: ${first?.question ?? 'Question'}${answer ? ` · ${answer}` : ''}`}
+    >
       <Text style={styles.receiptGlyph}>?</Text>
       <Text style={styles.receiptQ} numberOfLines={2}>
         {first?.question ?? item.toolInput ?? 'Question'}
       </Text>
-      {picked ? (
-        <Text style={styles.receiptPick} numberOfLines={1}>
-          {picked}
-        </Text>
-      ) : null}
+      <Text style={styles.receiptPick} numberOfLines={1}>
+        {label}
+      </Text>
     </View>
   )
 }
 
 export interface TranscriptTailState {
   label: string
-  tone: 'working' | 'attention' | 'idle'
+  tone: 'working' | 'attention' | 'error' | 'idle'
   since?: string
 }
 
@@ -585,32 +919,119 @@ function elapsedSince(since: string | undefined, now: number): string | null {
   return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
-function TranscriptTail({ state }: { state?: TranscriptTailState }) {
-  const now = useAgeNow(state?.since ?? '', 0, !!state?.since)
+export function TranscriptTail({ state }: { state?: TranscriptTailState }) {
+  const since =
+    state?.label === 'interrupted' || state?.label === 'Sending' ? undefined : state?.since
 
   if (!state) return null
-  const elapsed = elapsedSince(state.since, now)
+  // Working with no tool run in flight (thinking, writing): the same one live
+  // line a running fold draws, with the turn's own clock.
+  if (state.tone === 'working') {
+    return (
+      <View style={styles.tailWrap}>
+        <MurmurLine
+          glyph={<WorkingMark size={14} label={null} />}
+          label={state.label}
+          clock={<TailClock since={since} working />}
+          tone="live"
+          accessibilityLabel={state.label}
+        />
+      </View>
+    )
+  }
   return (
     <View style={styles.tailWrap}>
-      <View style={styles.tail} accessibilityRole="text">
-        {/* The end of the feed is the one surface a reader watches while
-            nothing else moves, so "working" is the moving mark here rather
-            than the static ⠿ cell it used to be — the same swap the web tail
-            made. The label beside it already says the state, so the mark is
-            decorative. */}
-        {state.tone === 'working' ? (
-          <WorkingMark size={18} label={null} />
-        ) : (
-          <Text style={[styles.tailMark, state.tone === 'attention' && styles.tailAttention]}>
+      <ActivityLine>
+        <View style={styles.tail} accessibilityRole="text">
+          <Text
+            style={[
+              styles.tailMark,
+              state.tone === 'attention' && styles.tailAttention,
+              state.tone === 'error' && styles.murmurFailed,
+            ]}
+          >
             ●
           </Text>
-        )}
-        <Text style={styles.tailLabel}>{state.label}</Text>
-        {elapsed ? <Text style={styles.tailElapsed}>{elapsed}</Text> : null}
-        <View style={styles.tailRule} />
-      </View>
+          <Text style={styles.tailLabel}>{state.label}</Text>
+          <TailClock since={since} />
+          <View style={styles.tailRule} />
+        </View>
+      </ActivityLine>
     </View>
   )
+}
+
+function TailClock({ since, working = false }: { since?: string; working?: boolean }) {
+  const now = useAgeNow(since ?? '', 0, !!since, working ? 3_600_000 : 60_000)
+  const start = since ? Date.parse(since) : Number.NaN
+  const clock = working
+    ? Number.isNaN(start)
+      ? undefined
+      : murmurClock(Math.max(0, now - start))
+    : elapsedSince(since, now)
+  return clock ? (
+    <Text style={working ? [styles.murmurClock, styles.murmurLive] : styles.tailElapsed}>
+      {clock}
+    </Text>
+  ) : null
+}
+
+const DAY_MARK_LOOKBACK = 80
+
+/** Day boundaries inspect a bounded source window without mounting older rows. */
+const TranscriptDayMark = observer(function TranscriptDayMark({
+  entry,
+  index,
+  rows,
+  suffixRows = [],
+  presentation,
+  preceding = [],
+}: {
+  entry: string | Row
+  index: number
+  rows: readonly (string | Row)[]
+  suffixRows?: readonly Row[]
+  presentation?: MobileConversationPresentation
+  preceding?: readonly Row[]
+}) {
+  const timestamp = (entry: string | Row | undefined) => {
+    const item = typeof entry === 'string' ? presentation?.sourceItem(entry) : entry?.item
+    const date = item?.ts ? new Date(item.ts) : undefined
+    return date && !Number.isNaN(date.getTime()) ? date : undefined
+  }
+  const current = timestamp(entry)
+  if (!current) return null
+  let previous: Date | undefined
+  for (let position = preceding.length - 1; position >= 0; position--) {
+    previous = timestamp(preceding[position])
+    if (previous) break
+  }
+  const start = Math.max(0, index - DAY_MARK_LOOKBACK)
+  for (let position = index - 1; !previous && position >= start; position--) {
+    previous = timestamp(
+      position < rows.length ? rows[position] : suffixRows[position - rows.length],
+    )
+    if (previous) break
+  }
+  // An unknown prefix is not a known date boundary. Undated rows stay transparent.
+  if (!previous && start > 0) return null
+  if (previous && dayKey(previous) === dayKey(current)) return null
+  return <DayMarkLabel dates={previous ? [previous, current] : [current]} />
+})
+
+/** Only boundary labels observe the clock; ordinary transcript rows do not. */
+function DayMarkLabel({ dates }: { dates: Date[] }) {
+  return (
+    <ActivityLine>
+      <DayMarkText dates={dates} />
+    </ActivityLine>
+  )
+}
+
+function DayMarkText({ dates }: { dates: Date[] }) {
+  const now = useClock(60_000)
+  const label = dayMarksByPosition(dates, new Date(now), (date) => date).get(dates.length - 1)
+  return label ? <Text style={styles.dayMark}>{label}</Text> : null
 }
 
 function FeedRowFrame({
@@ -631,20 +1052,21 @@ function FeedRowFrame({
   reduceMotion: boolean
   children: React.ReactNode
 }) {
-  const entrance = useRef(new Animated.Value(arrived && !reduceMotion ? 0 : 1)).current
+  const animateArrival =
+    arrived && row.item.role !== 'user' && row.kind !== 'pending' && !reduceMotion
+  const entrance = useRef(new Animated.Value(animateArrival ? 0 : 1)).current
   useEffect(() => {
-    if (!arrived || reduceMotion) return
+    if (!animateArrival) return
     Animated.timing(entrance, { toValue: 1, duration: 220, useNativeDriver: true }).start()
-  }, [arrived, entrance, reduceMotion])
+  }, [animateArrival, entrance])
+  // A note from another agent is a murmur line, not a turn of its own: it keeps
+  // the feed's beat spacing instead of opening a new turn (board Chat).
+  const turn = row.kind === 'envelope' && row.turn === 'open' ? 'beat' : row.turn
   return (
     <Animated.View
       style={[
         styles.feedRow,
-        row.turn === 'open'
-          ? styles.turnOpen
-          : row.turn === 'bind'
-            ? styles.turnBind
-            : styles.turnBeat,
+        turn === 'open' ? styles.turnOpen : turn === 'bind' ? styles.turnBind : styles.turnBeat,
         highlighted && styles.searchHit,
         dimmed && styles.searchDim,
         {
@@ -660,49 +1082,6 @@ function FeedRowFrame({
   )
 }
 
-function HoldableMessage({
-  text,
-  onHold,
-  children,
-}: {
-  text: string
-  onHold: (text: string) => void
-  children: React.ReactNode
-}) {
-  return (
-    <Pressable
-      accessibilityActions={[
-        { name: 'copy', label: 'Copy message' },
-        { name: 'quote', label: 'Quote in reply' },
-      ]}
-      onAccessibilityAction={() => onHold(text)}
-      onLongPress={() => {
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-        onHold(text)
-      }}
-      delayLongPress={350}
-    >
-      {children}
-    </Pressable>
-  )
-}
-
-function StreamingCaret({ reduceMotion }: { reduceMotion: boolean }) {
-  const opacity = useRef(new Animated.Value(1)).current
-  useEffect(() => {
-    if (reduceMotion) return
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 0.25, duration: 520, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 1, duration: 520, useNativeDriver: true }),
-      ]),
-    )
-    loop.start()
-    return () => loop.stop()
-  }, [opacity, reduceMotion])
-  return <Animated.Text style={[styles.streamingCaret, { opacity }]}>▋</Animated.Text>
-}
-
 interface TranscriptFeedRowProps {
   row: Row
   transcript?: Pick<TranscriptLog, 'ids' | 'byId' | 'items'>
@@ -714,6 +1093,12 @@ interface TranscriptFeedRowProps {
   reduceMotion: boolean
   liveQuestion: boolean
   streaming: boolean
+  /** This row is the trailing tool run of a turn still working: the live line. */
+  liveRun?: boolean
+  /** The chat's reply-to-the-asker flow, for notes that ask the operator. */
+  mailReply?: MailReply | undefined
+  /** Quote text into the composer. */
+  onQuoteText?: ((markdown: string) => void) | undefined
   assetContext?: TranscriptAssetContext
   answerInteractionId?: string
   onAnswer: (answer: AskQuestionAnswer) => Promise<void>
@@ -722,7 +1107,8 @@ interface TranscriptFeedRowProps {
   onDiscardPending?: (turn: PendingTurn) => void
   onSendAgainPending?: (turn: PendingTurn) => void
   onRetractPending?: (id: string) => void
-  onHold: (text: string) => void
+  /** Long-press menu result; no action opens the host's message sheet. */
+  onHold: MessageMenuHandler
 }
 
 function sameAssetContext(
@@ -810,6 +1196,9 @@ const TranscriptFeedRow = memo(
     reduceMotion,
     liveQuestion,
     streaming,
+    liveRun = false,
+    mailReply,
+    onQuoteText,
     assetContext,
     onAnswer,
     answerInteractionId,
@@ -820,28 +1209,44 @@ const TranscriptFeedRow = memo(
     onRetractPending,
     onHold,
   }: TranscriptFeedRowProps) {
+    const timeLabel = messageTimeLabel(row.item.ts)
     const message = (text: string, child: ReactNode) => (
-      <HoldableMessage text={text} onHold={onHold}>
+      <MessageMenu
+        messageId={row.key}
+        text={text}
+        timeLabel={timeLabel}
+        canQuote={onQuoteText !== undefined}
+        onAction={(text, action) => onHold(text, action, timeLabel)}
+      >
         {child}
-      </HoldableMessage>
+      </MessageMenu>
     )
 
     let content: ReactNode
     switch (row.kind) {
       case 'user': {
-        const time = shortTime(row.item.ts)
         content = message(
           row.item.text,
-          <View style={styles.userWrap}>
-            <View style={styles.userCard}>
-              <MessageText
-                text={row.item.text.trim()}
-                style={styles.userText}
-                onRefPress={onRefPress}
-              />
-              <SharedFiles item={row.item} context={assetContext} showHeader={false} />
+          <View style={styles.userWrap} testID="operator-message">
+            <View style={styles.pendingBubbleLine}>
+              <View style={styles.userCard}>
+                <MessageText
+                  text={row.item.text.trim()}
+                  style={styles.userText}
+                  onRefPress={onRefPress}
+                />
+                <SharedFiles item={row.item} context={assetContext} showHeader={false} />
+              </View>
             </View>
-            {time ? <Text style={styles.userMetaOutside}>{time}</Text> : null}
+            <View style={styles.userMetaRow}>
+              <Text
+                style={styles.userMetaOutside}
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+              >
+                {'\u00a0'}
+              </Text>
+            </View>
           </View>,
         )
         break
@@ -849,89 +1254,54 @@ const TranscriptFeedRow = memo(
       case 'pending': {
         const turn = row.pendingTurn
         const failed = pendingFailure(turn)
-        content = (
-          <View style={styles.userWrap}>
-            <View
-              style={[styles.userCard, failed ? styles.userCardFailed : styles.userCardPending]}
-            >
-              <MessageText text={row.pendingText} style={styles.userText} onRefPress={onRefPress} />
-              <PendingFiles files={turn.files ?? []} context={assetContext} />
+        content = message(
+          row.pendingText,
+          <View style={styles.userWrap} testID="operator-message">
+            <View style={styles.pendingBubbleLine}>
+              <View style={styles.userCard}>
+                <MessageText
+                  text={row.pendingText}
+                  style={styles.userText}
+                  onRefPress={onRefPress}
+                />
+                <PendingFiles files={turn.files ?? []} context={assetContext} />
+                {!failed && turn.retractError ? (
+                  <Text
+                    style={styles.pendingError}
+                  >{`couldn't retract — ${turn.retractError}`}</Text>
+                ) : null}
+              </View>
               {failed ? (
-                <>
-                  <Text style={styles.pendingError}>{failed}</Text>
-                  {turn.notice !== undefined ? (
-                    // NOT A RESEND (POD-4764): the words go back into the
-                    // composer and the operator sends them as a new message.
-                    onSendAgainPending ? (
-                      <PressableScale
-                        accessibilityRole="button"
-                        accessibilityLabel={
-                          turn.notice === 'unknown'
-                            ? 'Send again — it may already have arrived'
-                            : 'Send again'
-                        }
-                        onPress={() => onSendAgainPending(turn)}
-                        hitSlop={8}
-                        style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
-                      >
-                        <Text style={styles.retryText}>Send again</Text>
-                      </PressableScale>
-                    ) : null
-                  ) : /* THE SAME MESSAGE AGAIN (POD-4762): "Try again" re-issues
-                      the entry the phone still holds, under its own id, so a
-                      first attempt that did arrive is not sent twice. */
-                  onRetryPending && turn.retryable !== false ? (
-                    <PressableScale
-                      accessibilityRole="button"
-                      accessibilityLabel="Send this message again"
-                      onPress={() => onRetryPending(turn)}
-                      hitSlop={8}
-                      style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
-                    >
-                      <Text style={styles.retryText}>Try again</Text>
-                    </PressableScale>
-                  ) : null}
-                  {onDiscardPending ? (
-                    <PressableScale
-                      accessibilityRole="button"
-                      accessibilityLabel={
-                        turn.notice !== undefined ? 'Dismiss' : 'Discard this unsent message'
-                      }
-                      onPress={() => onDiscardPending(turn)}
-                      hitSlop={8}
-                      style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
-                    >
-                      <Text style={styles.retryText}>
-                        {turn.notice !== undefined ? 'Dismiss' : 'Discard'}
-                      </Text>
-                    </PressableScale>
-                  ) : null}
-                </>
-              ) : (
-                <>
-                  {turn.retractError ? (
-                    <Text
-                      style={styles.pendingError}
-                    >{`couldn't retract — ${turn.retractError}`}</Text>
-                  ) : null}
-                  {turn.retractable && onRetractPending ? (
-                    <PressableScale
-                      accessibilityRole="button"
-                      accessibilityLabel="Retract this message"
-                      onPress={() => onRetractPending(turn.id)}
-                      hitSlop={8}
-                      style={({ pressed }) => [styles.retry, pressed && styles.retryPressed]}
-                    >
-                      <Text style={styles.retryText}>Retract</Text>
-                    </PressableScale>
-                  ) : null}
-                </>
-              )}
+                <DeliveryFailureMark
+                  label={
+                    turn.delivery === 'unknown' ? 'Message not confirmed' : 'Message not delivered'
+                  }
+                />
+              ) : null}
             </View>
-            <Text style={[styles.userMetaOutside, failed && styles.userTimeFailed]}>
-              {pendingMetaLine(turn)}
-            </Text>
-          </View>
+            {failed ? (
+              <PendingDeliveryFailure
+                turn={turn}
+                onRetry={onRetryPending}
+                onSendAgain={onSendAgainPending}
+                onDiscard={onDiscardPending}
+              />
+            ) : (
+              <View style={styles.userMetaRow}>
+                <Text style={styles.userMetaOutside}>{pendingMetaLine(turn)}</Text>
+                {turn.retractable && onRetractPending ? (
+                  <PressableScale
+                    accessibilityRole="button"
+                    accessibilityLabel="Retract this message"
+                    onPress={() => onRetractPending(turn.id)}
+                    hitSlop={12}
+                  >
+                    <Text style={styles.userMetaOutside}>Retract</Text>
+                  </PressableScale>
+                ) : null}
+              </View>
+            )}
+          </View>,
         )
         break
       }
@@ -955,7 +1325,11 @@ const TranscriptFeedRow = memo(
             run={row.run}
             blocks={row.run ? undefined : (row.blocks ?? [])}
             forceOpen={highlighted}
+            live={liveRun}
             onRefPress={onRefPress}
+            mailReply={mailReply}
+            onQuote={onQuoteText}
+            onHold={onHold}
           />
         )
         break
@@ -963,24 +1337,36 @@ const TranscriptFeedRow = memo(
         content = <SharedFiles item={row.item} context={assetContext} />
         break
       case 'envelope':
-        content = row.envelope
-          ? message(
-              envelopeText(row.envelope),
-              <EnvelopeRow envelope={row.envelope} onRefPress={onRefPress} />,
-            )
-          : null
+        content = row.envelopes ? (
+          <EnvelopeGroup
+            envelopes={row.envelopes}
+            ts={row.item.ts}
+            onRefPress={onRefPress}
+            mailReply={mailReply}
+            onQuote={onQuoteText}
+            forceOpen={highlighted}
+            onHold={onHold}
+          />
+        ) : row.envelope ? (
+          <EnvelopeRow
+            envelope={row.envelope}
+            ts={row.item.ts}
+            onRefPress={onRefPress}
+            mailReply={mailReply}
+            onQuote={onQuoteText}
+            onHold={onHold}
+          />
+        ) : null
         break
       case 'context':
         content = <MachineContextDisclosure item={row.item} />
         break
       case 'recap': {
-        const time = shortTime(row.item.ts)
         content = message(
           row.item.text,
-          <View style={styles.recap}>
+          <View>
             <View style={styles.answerLabelRow}>
               <Text style={styles.answerLabel}>Recap</Text>
-              {time ? <Text style={styles.answerMeta}>{time}</Text> : null}
             </View>
             <MessageText
               text={row.item.text.trim()}
@@ -991,23 +1377,23 @@ const TranscriptFeedRow = memo(
         )
         break
       }
+      case 'asked':
+        content = (
+          <AskedMurmur item={row.item} result={row.blocks?.[0]?.result ?? row.item.toolResult} />
+        )
+        break
       case 'quiet':
         content = (
-          <Text style={styles.quiet} numberOfLines={2}>
-            {row.quietText}
-          </Text>
+          <SystemMurmur item={row.item} quietText={row.quietText ?? ''} onRefPress={onRefPress} />
         )
         break
       case 'answer': {
-        const time = shortTime(row.item.ts)
         content = message(
           row.item.text,
           <>
-            <View style={styles.answer}>
-              <View style={styles.answerLabelRow}>
-                <Text style={styles.answerLabel}>Answer</Text>
-                {time ? <Text style={styles.answerMeta}>{time}</Text> : null}
-              </View>
+            {/* The answer stands out by ink alone: no eyebrow, no keyline
+                (desktop POD-2076; the board draws plain prose). */}
+            <View>
               <MessageText
                 text={row.item.text.trim()}
                 style={styles.proseText}
@@ -1055,6 +1441,9 @@ const TranscriptFeedRow = memo(
     previous.reduceMotion === next.reduceMotion &&
     previous.liveQuestion === next.liveQuestion &&
     previous.streaming === next.streaming &&
+    previous.liveRun === next.liveRun &&
+    previous.mailReply === next.mailReply &&
+    previous.onQuoteText === next.onQuoteText &&
     sameAssetContext(previous.assetContext, next.assetContext) &&
     previous.onAnswer === next.onAnswer &&
     previous.answerInteractionId === next.answerInteractionId &&
@@ -1116,7 +1505,7 @@ function JumpToNewest({
     return () => animation.stop()
   }, [enter, reduceMotion, visible])
 
-  if (!mounted) return null
+  if (!mounted || !visible) return null
   return (
     <Animated.View
       pointerEvents={visible ? 'box-none' : 'none'}
@@ -1176,12 +1565,15 @@ export const TranscriptList = observer(function TranscriptList({
   onRetractPending,
   onQuote,
   tail,
+  mailReply,
   streaming = false,
   refreshControl,
   refreshAccessibilityProps,
   emptyComponent,
   footer,
   bottomInset = 0,
+  overlayInset,
+  topInset = 0,
   hidePendingQuestion = false,
   findRequest = 0,
   pinRequest = 0,
@@ -1248,6 +1640,18 @@ export const TranscriptList = observer(function TranscriptList({
    * composer. Without it the last row rests under the capsule forever.
    */
   bottomInset?: number
+  /**
+   * Height of the chrome over the feed's bottom edge RIGHT NOW (the composer
+   * at its grown height, plus any band above it). The Newest button rides
+   * above it; the feed's padding keeps using the resting `bottomInset`.
+   * Defaults to `bottomInset`.
+   */
+  overlayInset?: number
+  /**
+   * Room at the top for chrome the feed scrolls UNDER — the mission's deck bar
+   * (POD-2381). The first row rests below it; scrolled rows pass beneath it.
+   */
+  topInset?: number
   /** Keep the active ask out of the feed when screen chrome renders its band. */
   hidePendingQuestion?: boolean
   /** Incremented by header/menu chrome to reveal the find bar. */
@@ -1259,7 +1663,10 @@ export const TranscriptList = observer(function TranscriptList({
    * to its newest row, exactly as the web chat's send calls `pinToBottom`.
    */
   pinRequest?: number
+  /** Reply to an agent's question from the composer (POD-2380). */
+  mailReply?: MailReply
 }) {
+  const layoutMargin = useLayoutMargin()
   // Order is the list's subscription. Message versions belong to row observers.
   const order = !presentation && transcript ? JSON.stringify(transcript.ids.slice()) : undefined
   // biome-ignore lint/correctness/useExhaustiveDependencies: order is the subscription to transcript membership; the snapshot is read untracked.
@@ -1287,7 +1694,10 @@ export const TranscriptList = observer(function TranscriptList({
   const [legacyCursor, setLegacyCursor] = useState(0)
   const cursor = find?.cursor ?? legacyCursor
   const setCursor = find?.setCursor ?? setLegacyCursor
-  const [actionText, setActionText] = useState<string | null>(null)
+  const [actionMessage, setActionMessage] = useState<{ text: string; timeLabel?: string } | null>(
+    null,
+  )
+  const actionText = actionMessage?.text
   const [atTail, setAtTail] = useState(true)
   /** Rows that arrived while the operator was reading further up. */
   const [unread, setUnread] = useState(0)
@@ -1366,7 +1776,7 @@ export const TranscriptList = observer(function TranscriptList({
   // The settled rows remain stable viewport data while transport text changes.
   // Tail-only rows are a bounded suffix rendered in the footer, in the same
   // order they had when all rows shared one array.
-  const suffixRows = useMemo(() => {
+  const tailRows = useMemo(() => {
     const built: Row[] = liveRow ? [liveRow] : []
     for (const turn of pendingTurns ?? []) {
       built.push({
@@ -1376,6 +1786,9 @@ export const TranscriptList = observer(function TranscriptList({
           id: turn.id,
           role: 'user',
           text: turn.text,
+          ...(turn.at !== undefined && Number.isFinite(turn.at) && turn.at > 0
+            ? { ts: new Date(turn.at).toISOString() }
+            : {}),
           // A held upload (POD-2148) names its file, not a path on the machine.
           ...(turn.files?.some((file) => !file.attachmentId)
             ? {
@@ -1404,6 +1817,26 @@ export const TranscriptList = observer(function TranscriptList({
     return built
   }, [hidePendingQuestion, liveRow, pendingAsk, pendingTurns])
   const rows: readonly (string | Row)[] = presentation ? presentation.keys : model!.rows
+  // biome-ignore lint/correctness/useExhaustiveDependencies: positionOfKey reads the source-owned membership version; its observable keys retain their identity.
+  const { suffixRows, placedPendingRows } = useMemo(() => {
+    const suffixRows: Row[] = []
+    const placedPendingRows = new Map<number, PendingRow[]>()
+    const positionOfItem = presentation?.positionOfKey ?? model!.positionOfKey
+    for (const row of tailRows) {
+      const position =
+        row.kind === 'pending'
+          ? conversationBubblePosition(row.pendingTurn, positionOfItem)
+          : undefined
+      // Tail positions stay in the footer alongside live transport rows.
+      if (position === undefined || position >= rows.length) suffixRows.push(row)
+      else {
+        const placed = placedPendingRows.get(position) ?? []
+        placed.push(row as PendingRow)
+        placedPendingRows.set(position, placed)
+      }
+    }
+    return { suffixRows, placedPendingRows }
+  }, [tailRows, presentation, model, rows.length, membershipVersion])
   const searchModel =
     !presentation && searching && transcript
       ? buildMobileTranscript(
@@ -1465,6 +1898,15 @@ export const TranscriptList = observer(function TranscriptList({
   const latestAssistantKey = presentation
     ? presentation.latestAssistantKey
     : model!.latestAssistantKey
+  // THE ONE LIVE TURN LINE (C1). While the turn works and its newest settled
+  // row is a tool run, that run draws the live line itself and the tail steps
+  // aside, so the feed never shows the same work twice.
+  const working = tail?.tone === 'working'
+  const trailing = suffixRows.length === 0 ? rows.at(-1) : undefined
+  const trailingKey = typeof trailing === 'string' ? trailing : trailing?.key
+  const trailingRow =
+    typeof trailing === 'string' ? presentation?.row(trailing) : (trailing as Row | undefined)
+  const liveRunKey = working && trailingRow?.kind === 'tools' ? trailingKey : undefined
   const transcriptId = assetContext?.sessionId ?? 'transcript'
   const followChangeRef = useRef(onFollowChange)
   useLayoutEffect(() => {
@@ -1479,12 +1921,14 @@ export const TranscriptList = observer(function TranscriptList({
     setUnread(0)
   }, [transcriptId])
   const pinToNewest = useCallback(() => {
+    setAtTail(true)
     listRef.current?.pinToNewest()
+    followChangeRef.current?.(true)
     setUnread(0)
   }, [])
 
   const lastPinRequest = useRef(pinRequest)
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (pinRequest === lastPinRequest.current) return
     lastPinRequest.current = pinRequest
     // A send re-pins without travel: the optimistic row is about to grow the
@@ -1524,31 +1968,82 @@ export const TranscriptList = observer(function TranscriptList({
     onLoadOlder?.()
   }, [findOpen, itemCount, onLoadOlder, query])
 
+  const quoteRef = useRef(onQuote)
+  useLayoutEffect(() => {
+    quoteRef.current = onQuote
+  }, [onQuote])
+  const [selectText, setSelectText] = useState<string | null>(null)
+  const copyText = useCallback((text: string) => {
+    void Clipboard.setStringAsync(text)
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
+  }, [])
+  const quoteText = useCallback((text: string) => {
+    quoteRef.current?.(quoteTranscriptText(text))
+  }, [])
+  const holdMessage = useCallback(
+    (text: string, action?: MessageAction, timeLabel?: string) => {
+      if (action === undefined) setActionMessage({ text, timeLabel })
+      else if (action === 'copy') copyText(text)
+      else if (action === 'quote') quoteText(text)
+      else setSelectText(text)
+    },
+    [copyText, quoteText],
+  )
+
   const messageActions = useMemo<SheetAction[]>(() => {
     if (!actionText) return []
-    const actions: SheetAction[] = [
-      {
-        label: 'Copy text',
-        onPress: () => {
-          void Clipboard.setStringAsync(actionText)
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
-        },
-      },
-    ]
+    const actions: SheetAction[] = [{ label: 'Copy text', onPress: () => copyText(actionText) }]
     if (onQuote) {
-      actions.push({
-        label: 'Quote in reply',
-        onPress: () => onQuote(quoteTranscriptText(actionText)),
-      })
+      actions.push({ label: 'Quote in reply', onPress: () => quoteText(actionText) })
+    }
+    // The web feed is selectable in place; native needs the text view.
+    if (Platform.OS !== 'web') {
+      actions.push({ label: 'Select text', onPress: () => setSelectText(actionText) })
     }
     return actions
-  }, [actionText, onQuote])
+  }, [actionText, copyText, onQuote, quoteText])
+
+  const renderTailRow = (row: Row, index: number, preceding?: readonly Row[]) => (
+    <View key={row.key}>
+      <TranscriptDayMark
+        entry={row}
+        index={index}
+        rows={rows}
+        suffixRows={suffixRows}
+        presentation={presentation}
+        preceding={preceding}
+      />
+      <TranscriptFeedRow
+        row={row}
+        arrived={suffixArrivedKeys.has(row.key)}
+        highlighted={false}
+        dimmed={query.trim().length > 0}
+        reduceMotion={reduceMotion}
+        liveQuestion={
+          statePendingKey === row.key || (live && pendingKey !== null && pendingKey === row.key)
+        }
+        streaming={streaming && row.key === liveRow?.key}
+        mailReply={mailReply}
+        onQuoteText={onQuote}
+        assetContext={assetContext}
+        onAnswer={answerRow}
+        answerInteractionId={answerInteractionId}
+        onRefPress={onRefPress ? pressRowRef : undefined}
+        onRetryPending={onRetryPending ? retryPendingRow : undefined}
+        onDiscardPending={onDiscardPending ? discardPendingRow : undefined}
+        onSendAgainPending={onSendAgainPending ? sendAgainPendingRow : undefined}
+        onRetractPending={onRetractPending ? retractPendingRow : undefined}
+        onHold={holdMessage}
+      />
+    </View>
+  )
 
   return (
-    <View style={styles.listFrame}>
+    <View style={styles.listFrame} collapsable={false}>
       <TranscriptViewport
         ref={listRef}
         identity={transcriptId}
+        visibleInsets={{ top: topInset, bottom: bottomInset }}
         moreAbove={moreAbove}
         loadingOlder={loadingOlder}
         onLoadOlder={onLoadOlder}
@@ -1567,7 +2062,14 @@ export const TranscriptList = observer(function TranscriptList({
                   : [row.key]
               }
         }
-        contentContainerStyle={[styles.content, { paddingBottom: space.md + bottomInset }]}
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingHorizontal: layoutMargin,
+            paddingTop: space.xl + topInset,
+            paddingBottom: space.md + bottomInset,
+          },
+        ]}
         refreshControl={refreshControl}
         {...refreshAccessibilityProps}
         ListEmptyComponent={suffixRows.length === 0 ? emptyComponent : undefined}
@@ -1580,31 +2082,8 @@ export const TranscriptList = observer(function TranscriptList({
         keyboardShouldPersistTaps="handled"
         ListFooterComponent={
           <>
-            {suffixRows.map((row) => (
-              <TranscriptFeedRow
-                key={row.key}
-                row={row}
-                arrived={suffixArrivedKeys.has(row.key)}
-                highlighted={false}
-                dimmed={query.trim().length > 0}
-                reduceMotion={reduceMotion}
-                liveQuestion={
-                  statePendingKey === row.key ||
-                  (live && pendingKey !== null && pendingKey === row.key)
-                }
-                streaming={streaming && row.key === liveRow?.key}
-                assetContext={assetContext}
-                onAnswer={answerRow}
-                answerInteractionId={answerInteractionId}
-                onRefPress={onRefPress ? pressRowRef : undefined}
-                onRetryPending={onRetryPending ? retryPendingRow : undefined}
-                onDiscardPending={onDiscardPending ? discardPendingRow : undefined}
-                onSendAgainPending={onSendAgainPending ? sendAgainPendingRow : undefined}
-                onRetractPending={onRetractPending ? retractPendingRow : undefined}
-                onHold={setActionText}
-              />
-            ))}
-            <TranscriptTail state={tail} />
+            {suffixRows.map((row, index) => renderTailRow(row, rows.length + index))}
+            <TranscriptTail state={liveRunKey === undefined ? tail : undefined} />
             {footer ? <View style={styles.footer}>{footer}</View> : null}
           </>
         }
@@ -1618,6 +2097,9 @@ export const TranscriptList = observer(function TranscriptList({
             liveQuestion:
               statePendingKey === key || (live && pendingKey !== null && pendingKey === key),
             streaming: streaming && liveRow === undefined && key === latestAssistantKey,
+            liveRun: key === liveRunKey,
+            mailReply,
+            onQuoteText: onQuote,
             assetContext,
             onAnswer: answerRow,
             answerInteractionId,
@@ -1626,24 +2108,42 @@ export const TranscriptList = observer(function TranscriptList({
             onDiscardPending: onDiscardPending ? discardPendingRow : undefined,
             onSendAgainPending: onSendAgainPending ? sendAgainPendingRow : undefined,
             onRetractPending: onRetractPending ? retractPendingRow : undefined,
-            onHold: setActionText,
+            onHold: holdMessage,
           }
-          return presentation && typeof entry === 'string' ? (
-            <RetainedTranscriptRow presentation={presentation} rowKey={entry} {...props} />
-          ) : (
-            <ObservedTranscriptRow
-              transcript={transcript}
-              collapseContext={collapseContext}
-              sourceIds={rowSources.get(key)}
-              row={entry as Row}
-              {...props}
-            />
+          const content =
+            presentation && typeof entry === 'string' ? (
+              <RetainedTranscriptRow presentation={presentation} rowKey={entry} {...props} />
+            ) : (
+              <ObservedTranscriptRow
+                transcript={transcript}
+                collapseContext={collapseContext}
+                sourceIds={rowSources.get(key)}
+                row={entry as Row}
+                {...props}
+              />
+            )
+          return (
+            <View>
+              {placedPendingRows
+                .get(index)
+                ?.map((row, pendingIndex, pending) =>
+                  renderTailRow(row, index, pending.slice(0, pendingIndex)),
+                )}
+              <TranscriptDayMark
+                entry={entry}
+                index={index}
+                rows={rows}
+                presentation={presentation}
+                preceding={placedPendingRows.get(index)}
+              />
+              {content}
+            </View>
           )
         }}
       />
 
       {findOpen ? (
-        <View style={styles.findBar}>
+        <View style={[styles.findBar, topInset > 0 && { top: space.sm + topInset }]}>
           <TextInput
             autoFocus
             accessibilityLabel="Find in transcript"
@@ -1696,16 +2196,23 @@ export const TranscriptList = observer(function TranscriptList({
       <JumpToNewest
         visible={!atTail}
         unread={unread}
-        lift={bottomInset + space.md}
+        lift={(overlayInset ?? bottomInset) + space.md}
         reduceMotion={reduceMotion}
         onPress={pinToNewest}
       />
 
       <ActionSheet
-        visible={actionText !== null}
+        visible={actionMessage !== null}
         title="Message"
+        subtitle={actionMessage?.timeLabel}
         actions={messageActions}
-        onClose={() => setActionText(null)}
+        onClose={() => setActionMessage(null)}
+      />
+      <SelectTextSheet
+        text={selectText}
+        onClose={() => setSelectText(null)}
+        onCopy={copyText}
+        onQuote={onQuote ? quoteText : undefined}
       />
     </View>
   )
@@ -1715,7 +2222,8 @@ const styles = StyleSheet.create({
   listFrame: {
     flex: 1,
     minHeight: 0,
-    backgroundColor: color.engraved,
+    // The page colour (board Chat: black in dark): the transcript is the page.
+    backgroundColor: color.bg,
   },
   footer: {
     marginTop: space.xs,
@@ -1736,16 +2244,17 @@ const styles = StyleSheet.create({
   feedRow: {
     minWidth: 0,
   },
+  // Board Chat rhythm: one 12pt gap between every feed item, murmurs
+  // included; an operator turn opens with one extra 12 above its bubble.
   turnOpen: {
-    marginTop: space.lg,
+    marginTop: space.md,
     marginBottom: space.md,
   },
   turnBeat: {
-    marginBottom: space.lg,
+    marginBottom: space.md,
   },
   turnBind: {
-    marginTop: -space.xs,
-    marginBottom: space.sm,
+    marginBottom: space.md,
   },
   searchHit: {
     borderRadius: radius.md,
@@ -1756,70 +2265,7 @@ const styles = StyleSheet.create({
   searchDim: {
     opacity: 0.28,
   },
-  envelope: {
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: color.border,
-    borderLeftWidth: 3,
-    borderLeftColor: color.info,
-    borderRadius: radius.md,
-    backgroundColor: color.surface,
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm + 2,
-  },
-  envelopeHeader: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: 6,
-  },
-  envelopeKind: { ...monoLabel(font.micro), color: color.info },
-  envelopeRoute: {
-    ...sans(500),
-    flex: 1,
-    minWidth: 130,
-    color: color.textDim,
-    fontSize: font.tiny,
-  },
   envelopeRef: { color: color.accentTint, textDecorationLine: 'underline' },
-  envelopeQuestion: {
-    ...monoLabel(),
-    color: color.accentTint,
-    backgroundColor: color.accentSoft,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: radius.xs,
-  },
-  envelopeReply: {
-    ...monoLabel(),
-    color: color.info,
-    backgroundColor: color.workingSoft,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: radius.xs,
-  },
-  envelopeId: {
-    ...mono(400),
-    color: color.textMicro,
-    fontSize: font.micro,
-    marginTop: 3,
-  },
-  envelopeBody: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: color.border,
-    marginTop: space.sm,
-    paddingTop: space.xs,
-  },
-  envelopeMachine: {
-    ...mono(400),
-    color: color.textMicro,
-    fontSize: font.micro,
-    lineHeight: leading(font.micro),
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: color.border,
-    marginTop: space.sm,
-    paddingTop: space.xs,
-  },
   contextToggle: {
     minHeight: 28,
     flexDirection: 'row',
@@ -1857,31 +2303,32 @@ const styles = StyleSheet.create({
     fontSize: font.small,
     lineHeight: leading(font.small),
   },
-  // Operator turn — the ONLY elevated surface on the field.
+  // Operator turn — the ONLY elevated surface on the field. No fill of its own:
+  // the list paints the page colour, and a full-width copy of it here kept the
+  // old appearance's colour after a live dark/light switch, a band behind the
+  // bubble until the row re-rendered (POD-2666).
   userWrap: {
+    alignSelf: 'stretch',
     alignItems: 'flex-end',
     gap: 4,
     paddingVertical: space.xs,
-    backgroundColor: color.engraved,
   },
+  // Board Chat's .you: card colour, card radius 8, 8/12 inset, no outline.
   userCard: {
-    maxWidth: '80%',
-    backgroundColor: color.surfaceHigh,
-    borderColor: color.border,
+    maxWidth: '84%',
+    backgroundColor: color.card,
+    borderColor: color.clear,
     borderWidth: StyleSheet.hairlineWidth,
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    borderBottomRightRadius: 5,
-    borderBottomLeftRadius: 14,
-    paddingHorizontal: space.lg - 1,
-    paddingVertical: space.sm + 2,
+    borderRadius: 8,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
   },
-  userCardPending: {
-    opacity: 0.7,
-    borderStyle: 'dashed',
-  },
-  userCardFailed: {
-    borderColor: color.danger,
+  pendingBubbleLine: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 8,
   },
   pendingError: {
     ...mono(400),
@@ -1912,13 +2359,12 @@ const styles = StyleSheet.create({
     paddingRight: 2,
     color: color.textMicro,
     fontSize: font.micro,
+    lineHeight: 16,
+    minHeight: 16,
   },
-  userTimeFailed: {
-    ...mono(700),
-    color: color.dangerText,
-  },
+  userMetaRow: { flexDirection: 'row', gap: space.md, minHeight: 16 },
   userText: {
-    ...sans(500),
+    ...sans(400),
     color: color.text,
     fontSize: font.body,
     lineHeight: leading(font.body, 'prose'),
@@ -1927,150 +2373,15 @@ const styles = StyleSheet.create({
   proseText: {
     ...sans(400),
     color: color.body,
-    fontSize: font.body,
-    lineHeight: leading(font.body, 'prose'),
-  },
-  // Tool run — a surfaced 34px fold control; details stay quiet beneath it.
-  tools: {
-    gap: 4,
-  },
-  workLine: {
-    minHeight: 34,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    paddingHorizontal: space.md,
-    borderRadius: radius.sm,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.surface,
-  },
-  workLinePressed: {
-    backgroundColor: color.elevated,
-  },
-  workDisclosure: {
-    ...mono(500),
-    width: 12,
-    color: color.textMicro,
-    fontSize: font.tiny,
-  },
-  workDisclosureFailed: {
-    color: color.dangerText,
-  },
-  workTitle: {
-    ...mono(500),
-    flex: 1,
-    color: color.textDim,
-    fontSize: font.tiny,
-  },
-  workCount: {
-    ...mono(400),
-    color: color.textMicro,
-    fontSize: font.micro,
-  },
-  trow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: space.sm + 1,
-    minWidth: 0,
-  },
-  toolGlyph: {
-    ...mono(400),
-    width: 12,
-    textAlign: 'center',
-    color: color.textMicro,
-    fontSize: font.tiny,
-  },
-  toolGlyphOk: {
-    color: color.successText,
-  },
-  toolGlyphErr: {
-    color: color.dangerText,
-  },
-  commandExecution: {
-    borderWidth: 1,
-    borderColor: 'transparent',
-    borderRadius: 9,
-    marginVertical: 2,
-    overflow: 'hidden',
-  },
-  commandExecutionOpen: { borderColor: color.hairline, marginVertical: 8 },
-  executionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 40,
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  executionTitle: { ...mono(400), flex: 1, color: color.textDim, fontSize: font.tiny },
-  executionCue: { color: color.textMicro, fontSize: font.micro, lineHeight: 18 },
-  executionInputs: { padding: 12, gap: 10, borderTopWidth: 1, borderTopColor: color.hairline },
-  executionSection: { color: color.textMicro, fontSize: font.micro, marginBottom: 4 },
-  executionInput: { gap: 4, minWidth: 0 },
-  executionCode: { ...mono(400), color: color.textDim, fontSize: font.tiny, lineHeight: 20 },
-  executionCopy: {
-    color: color.textMicro,
-    fontSize: font.micro,
-    paddingVertical: 6,
-    minHeight: 32,
-  },
-  executionOutput: { borderTopWidth: 1, borderTopColor: color.hairline, padding: 12, gap: 8 },
-  executionScroll: { maxHeight: 280 },
-  executionBatch: { color: color.textDim, fontSize: font.tiny, marginTop: 12, marginBottom: 4 },
-  toolName: {
-    ...mono(500),
-    color: color.textDim,
-    fontSize: font.tiny,
-  },
-  toolMag: {
-    ...mono(400),
-    marginLeft: 'auto',
-    color: color.textMicro,
-    fontSize: font.tiny,
-  },
-  toolFail: {
-    ...mono(400),
-    marginLeft: 21,
-    marginTop: 1,
-    paddingLeft: space.sm + 1,
-    borderLeftWidth: 2,
-    borderLeftColor: color.hairline,
-    color: color.textMicro,
-    fontSize: font.tiny,
-  },
-  toolPreview: {
-    ...mono(400),
-    marginLeft: 21,
-    marginTop: 1,
-    paddingLeft: space.sm + 1,
-    borderLeftWidth: 2,
-    borderLeftColor: color.hairline,
-    color: color.textMicro,
-    fontSize: font.micro,
-  },
-  toolsMore: {
-    ...mono(400),
-    paddingLeft: 21,
-    color: color.textMicro,
-    fontSize: font.tiny,
+    fontSize: 16,
+    lineHeight: 24,
   },
   // System/interrupt/churn — quiet mono line.
+  systemRow: { paddingTop: space.sm, flexShrink: 0 },
   quiet: {
     ...mono(400),
     color: color.textMicro,
     fontSize: font.tiny,
-  },
-  recap: {
-    borderTopWidth: 2,
-    borderTopColor: color.accentBorder,
-    paddingTop: space.md,
-  },
-  // Final answer — flat, marked by the page's only accent: a keyline.
-  answer: {
-    borderTopWidth: 2,
-    borderTopColor: color.accentBorder,
-    paddingTop: space.md,
   },
   answerLabelRow: {
     flexDirection: 'row',
@@ -2081,11 +2392,13 @@ const styles = StyleSheet.create({
     ...monoLabel(),
     color: color.accentTint,
   },
-  answerMeta: {
-    ...mono(400),
-    marginLeft: 'auto',
+  dayMark: {
+    ...sans(600),
     color: color.textMicro,
-    fontSize: font.micro,
+    fontSize: 12,
+    lineHeight: 16,
+    textAlign: 'center',
+    marginBottom: space.md,
   },
   // Answered ask — one-line receipt.
   receipt: {
@@ -2116,12 +2429,6 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
     overflow: 'hidden',
     maxWidth: '40%',
-  },
-  streamingCaret: {
-    ...mono(700),
-    color: color.accentTint,
-    fontSize: font.small,
-    marginTop: 2,
   },
   tailWrap: {
     gap: space.md,
@@ -2223,4 +2530,61 @@ const styles = StyleSheet.create({
     color: color.text,
     fontSize: font.tiny,
   },
+  // MURMUR (board Chat, POD-2380): 13/16 tertiary text, a 14pt glyph in an
+  // 8pt-gapped row of at least 24pt, an 11pt mono clock at the trailing edge.
+  murmur: { gap: space.xs },
+  murmurLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    minHeight: 24,
+  },
+  murmurPressed: { opacity: 0.6 },
+  murmurGlyph: { width: 14, alignItems: 'center', justifyContent: 'center' },
+  murmurText: {
+    flex: 1,
+    minWidth: 0,
+    ...sans(),
+    fontSize: font.tiny,
+    lineHeight: 16,
+    color: color.textMicro,
+  },
+  murmurStrong: { ...sans(600), color: color.textDim },
+  murmurLive: { color: color.workingText },
+  murmurAsked: { color: color.needsYouText },
+  wellResult: {
+    ...mono(400),
+    fontSize: font.micro,
+    lineHeight: 16,
+    color: color.textFaint,
+  },
+  murmurFailed: { color: color.dangerText },
+  murmurClock: {
+    ...mono(),
+    fontSize: font.micro,
+    lineHeight: 16,
+    color: color.textMicro,
+    fontVariant: ['tabular-nums'],
+  },
+  // The opened fold: a quaternary-fill well, card radius 8, 8/12 inset.
+  well: {
+    backgroundColor: color.quaternaryFill,
+    borderRadius: 8,
+    paddingVertical: space.sm,
+    paddingHorizontal: space.md,
+    gap: space.xs,
+  },
+  wellProse: { fontSize: font.small, lineHeight: 20, color: color.text },
+  wellMeta: { ...sans(), fontSize: font.tiny, lineHeight: 16, color: color.textMicro },
+  wellActions: { flexDirection: 'row', gap: space.sm, paddingTop: space.xs },
+  // Control radius 6, 32pt tall: the board's .btn.
+  wellButton: {
+    height: 32,
+    paddingHorizontal: space.md,
+    borderRadius: radius.sm,
+    backgroundColor: color.fill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wellButtonText: { ...sans(500), fontSize: 14, color: color.text },
 })

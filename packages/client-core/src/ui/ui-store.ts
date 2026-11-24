@@ -62,6 +62,7 @@ import {
   workspaceFor,
   workspaceKeyForState,
   workspaceMirrorPatch,
+  workspaceWritePatch,
 } from './state'
 import type { IssueVisitBaseline, UserFocus } from './types'
 import {
@@ -484,6 +485,23 @@ export class UiStore {
   ): void {
     const [tabId, opts] = parameters
     this.openInWorkspace(tabId, opts)
+  }
+
+  /**
+   * Record a seat in a workspace without navigating (POD-2432): the phone opens
+   * a task where the desktop would, and remembers the session it showed in the
+   * device-local layouts the desktop reads. The workspace on screen takes the
+   * ordinary write, mirrors included; any other keeps its layout only, so
+   * recording a seat never moves a pane.
+   */
+  @actionBound
+  rememberWorkspaceTab(key: string, tabId: TabId | null | undefined): void {
+    if (!tabId) return
+    const st = this.screen
+    const next = openTab(workspaceFor(st, key), tabId, { permanent: true })
+    if (st.workspaces[key] === next) return
+    if (resolvedWorkspaceKey(st) === key) this.patch(workspaceWritePatch(st, key, next))
+    else this.patch({ workspaces: { ...st.workspaces, [key]: next } })
   }
 
   @actionBound

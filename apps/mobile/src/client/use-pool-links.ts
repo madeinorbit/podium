@@ -43,6 +43,12 @@ export function usePoolRefChip(token: string, refKind: 'issue' | 'session', pref
   return useMobilePoolProjection(read, EMPTY_CHIP)
 }
 
+/** My machines alone: a host sample does not re-render the reader (Pulse's
+ *  root reads only these; host samples subscribe where they are drawn). */
+export function usePulseMachines(): readonly MachineFacts[] {
+  return useMobilePoolProjection(readMachines, EMPTY_LIVE.machines)
+}
+
 export function usePulseLive() {
   // Independent projections preserve the machine array identity when only a
   // health sample moves; Pulse's polling effect depends on that identity.

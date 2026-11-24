@@ -1,3 +1,9 @@
+import {
+  type ComposerAttachment,
+  updateFirstTaskDraftAttachments,
+} from '@podium/client-core/first-task-draft'
+import { randomUUID } from '@podium/client-core/id'
+import type { UiState } from '@podium/client-core/ui-state'
 import type { SessionId } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { useCallback, useRef, useState } from 'react'
@@ -35,26 +41,11 @@ import { pickedFileReady } from '../lib/composer-media-types'
  * (doc §3.1.2, inheritance on create).
  */
 
-export interface ComposerAttachment {
-  id: string
-  name: string
-  /** A local data URI while the bytes are in hand, or '' for a file with no
-   *  preview — the chip then shows its name and a document glyph. */
-  previewUri: string
-  /** The absolute path on the session's machine, when the upload was put
-   *  there at once (a shell, or the superagent's headless session). */
-  path?: string
-  /** The upload as the server holds it (POD-2148): an agent session's file
-   *  waits on the server and reaches the agent's machine with the message. */
-  ref?: RuntimeAttachmentRef
-  state: 'uploading' | 'ready' | 'failed'
-  /** A useful per-file refusal, kept until the operator removes the chip. */
-  error?: string
-}
+export type { ComposerAttachment } from '@podium/client-core/first-task-draft'
 
 export interface ComposerAttachmentsApi {
   attachments: ComposerAttachment[]
-  /** True while any chip is still uploading — the send control waits for it. */
+  /** True from intake through upload, including before React paints the chip. */
   uploading: boolean
   /** Present only where the platform has a route for it; the composer hides the
    *  control rather than offering one that does nothing. */
@@ -64,6 +55,8 @@ export interface ComposerAttachmentsApi {
   paste?: () => void
   /** Wired by the composer to its own text node: a browser paste or drop. */
   accept: (files: PickedFile[]) => void
+  /** Reserve a chip now; serialize preparation, reads and upload for every source. */
+  fromSource: (source: () => Promise<PickedFile[]>) => void
   remove: (id: string) => void
   clear: () => void
   /** The uploaded files ready to ride into the prompt, in the order attached. */
@@ -90,22 +83,42 @@ export interface SentAttachment {
   name: string
 }
 
-let seq = 0
-
 export function useComposerAttachments(
   sessionId: SessionId | undefined,
   options: {
     prepareSession?: () => Promise<SessionId>
     /** Testable platform seam; production uses the native/web picker module. */
     pickMedia?: () => Promise<PickedFile[]>
+    /** The New Task composer holds uploads until sessions.create claims them. */
+    destination?: 'session' | 'issue'
+    /** New Task reads its chips from the shared draft in device state. */
+    draft?: {
+      attachments: ComposerAttachment[]
+      uiState: Pick<UiState, 'get' | 'set'>
+    }
   } = {},
 ): ComposerAttachmentsApi {
   const trpc = useTrpc()
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
+  const [localAttachments, setAttachments] = useState<ComposerAttachment[]>([])
+  const attachments = options.draft?.attachments ?? localAttachments
+  const draftRef = useRef(options.draft)
+  draftRef.current = options.draft
   // The send reads paths at the instant of the press, and `ready()` must not be
   // a stale closure over the render that created the callback.
   const latest = useRef(attachments)
   latest.current = attachments
+  const changeAttachments = useCallback(
+    (change: (current: ComposerAttachment[]) => ComposerAttachment[]) => {
+      const draft = draftRef.current
+      const next = draft
+        ? updateFirstTaskDraftAttachments(draft.uiState, change)
+        : change(latest.current)
+      latest.current = next
+      // The draft is device state; its subscription repaints the chips.
+      if (!draft) setAttachments(next)
+    },
+    [],
+  )
   const sessionRef = useRef(sessionId)
   sessionRef.current = sessionId
   const prepareRef = useRef(options.prepareSession)
@@ -147,6 +160,7 @@ export function useComposerAttachments(
           filename: file.name,
           mimeType: file.mimeType,
           dataBase64: file.dataBase64,
+          ...(options.destination === 'issue' ? { pending: true as const } : {}),
         })
         if (!result || !('path' in result)) throw new Error('upload refused')
         // A held upload answers its ref with no path (POD-2148). Otherwise an
@@ -156,35 +170,43 @@ export function useComposerAttachments(
         if (!result.path && !ref) {
           throw new Error(('error' in result ? result.error : undefined) ?? 'upload refused')
         }
-        setAttachments((prev) =>
+        changeAttachments((prev) =>
           prev.map((a) =>
             a.id === id ? { ...a, path: result.path || undefined, ref, state: 'ready' } : a,
           ),
         )
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        setAttachments((prev) =>
+        changeAttachments((prev) =>
           prev.map((a) => (a.id === id ? { ...a, state: 'failed', error: message } : a)),
         )
       }
     },
-    [trpc],
+    [trpc, options.destination, changeAttachments],
   )
 
   const accept = useCallback(
-    (files: PickedFile[]) => {
-      if (files.length === 0) return
+    (files: PickedFile[], reservationId?: string) => {
+      // Removing or clearing a pending chip cancels its eventual result too.
+      if (reservationId && !latest.current.some((file) => file.id === reservationId)) return
+      if (files.length === 0 && !reservationId) return
       const added = files.map((file) => ({
         chip: {
-          id: `att-${++seq}`,
+          id: `att-${randomUUID()}`,
           name: file.name,
           previewUri: file.previewUri,
+          ...(file.size === undefined ? {} : { size: file.size }),
           state: pickedFileReady(file) ? ('uploading' as const) : ('failed' as const),
           ...(file.error ? { error: file.error } : {}),
         },
         file,
       }))
-      setAttachments((prev) => [...prev, ...added.map((entry) => entry.chip)])
+      const chips = added.map((entry) => entry.chip)
+      changeAttachments((prev) =>
+        reservationId
+          ? prev.flatMap((file) => (file.id === reservationId ? chips : [file]))
+          : [...prev, ...chips],
+      )
       const ready = added.flatMap((entry) =>
         pickedFileReady(entry.file) ? [{ chip: entry.chip, file: entry.file }] : [],
       )
@@ -199,7 +221,7 @@ export function useComposerAttachments(
         .catch((error: unknown) => {
           const message = error instanceof Error ? error.message : String(error)
           const ids = new Set(ready.map((entry) => entry.chip.id))
-          setAttachments((prev) =>
+          changeAttachments((prev) =>
             prev.map((attachment) =>
               ids.has(attachment.id)
                 ? { ...attachment, state: 'failed', error: message }
@@ -208,43 +230,60 @@ export function useComposerAttachments(
           )
         })
     },
-    [upload],
+    [upload, changeAttachments],
   )
 
   const fromSource = useCallback(
     (source: () => Promise<PickedFile[]>) => {
+      const reservationId = `att-${randomUUID()}`
+      changeAttachments((prev) => [
+        ...prev,
+        {
+          id: reservationId,
+          name: 'Attachment',
+          previewUri: '',
+          state: 'uploading',
+        },
+      ])
       intakeQueueRef.current = intakeQueueRef.current.then(async () => {
+        if (!latest.current.some((file) => file.id === reservationId)) return
         try {
-          accept(await source())
+          accept(await source(), reservationId)
         } catch (error) {
-          accept([
-            {
-              name: 'Attachment',
-              mimeType: 'application/octet-stream',
-              previewUri: '',
-              error: error instanceof Error ? error.message : String(error),
-            },
-          ])
+          accept(
+            [
+              {
+                name: 'Attachment',
+                mimeType: 'application/octet-stream',
+                previewUri: '',
+                error: error instanceof Error ? error.message : String(error),
+              },
+            ],
+            reservationId,
+          )
         }
         // `accept` updates the ref synchronously. Waiting here keeps the next
         // picker read behind this batch's upload and its retained base64 bytes.
         await uploadQueueRef.current
       })
     },
-    [accept],
+    [accept, changeAttachments],
   )
 
   return {
     attachments,
-    uploading: attachments.some((a) => a.state === 'uploading'),
+    get uploading() {
+      return latest.current.some((a) => a.state === 'uploading')
+    },
     ...(canPickFiles ? { pick: () => fromSource(pickMediaRef.current) } : {}),
     ...(canPasteMedia ? { paste: () => fromSource(pasteMedia) } : {}),
     accept,
+    fromSource,
     remove: useCallback(
-      (id: string) => setAttachments((prev) => prev.filter((a) => a.id !== id)),
-      [],
+      (id: string) => changeAttachments((prev) => prev.filter((a) => a.id !== id)),
+      [changeAttachments],
     ),
-    clear: useCallback(() => setAttachments([]), []),
+    clear: useCallback(() => changeAttachments(() => []), [changeAttachments]),
     ready: useCallback(
       () =>
         latest.current

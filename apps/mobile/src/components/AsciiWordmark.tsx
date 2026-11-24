@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Platform, StyleSheet, Text } from 'react-native'
 import { useReduceMotion } from '../hooks/useReduceMotion'
+import { ASCII_WORDMARK, RAMP } from './AsciiWordmark.shared'
 import { ASCII_COVERAGE } from './podium-ascii'
 
 /**
@@ -10,7 +11,6 @@ import { ASCII_COVERAGE } from './podium-ascii'
  * with a brief sparkle, then settles. Idle wordmarks stay still, and reduced
  * motion renders the settled frame without starting the reveal.
  */
-const RAMP = ' .`\'^",:;!i~+_-?][}{1)(|/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$'
 
 /** Reveal timing (web AsciiLoader values): front-loaded random reveal. */
 const REVEAL_SECONDS = 0.8
@@ -43,6 +43,7 @@ function makeRevealAt(): Float32Array {
 }
 
 function frame(t: number | null, revealAt: Float32Array | null): string {
+  if (t === null) return ASCII_WORDMARK
   const n = RAMP.length - 1
   const cols = ASCII_COVERAGE[0]?.length ?? 0
   let out = ''

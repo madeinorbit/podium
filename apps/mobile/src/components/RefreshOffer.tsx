@@ -4,6 +4,7 @@ import { useServedBuildRefresh } from '../lib/served-build'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { RefreshCw } from './icons'
+import { NoticeLayout } from './notice-layout'
 import { PressableScale } from './PressableScale'
 
 /**
@@ -23,19 +24,21 @@ export function RefreshOffer() {
   if (!needsRefresh) return null
 
   return (
-    <View accessibilityRole="alert" style={styles.offer} testID="served-build-refresh">
-      <Icon as={RefreshCw} size={16} color={color.needsYouText} />
-      <Text style={styles.message}>A newer Podium is ready on your server.</Text>
-      <PressableScale
-        accessibilityRole="button"
-        accessibilityLabel="Refresh to the new version of Podium"
-        hitSlop={8}
-        onPress={refresh}
-        style={styles.action}
-      >
-        <Text style={styles.actionLabel}>Refresh</Text>
-      </PressableScale>
-    </View>
+    <NoticeLayout>
+      <View accessibilityRole="alert" style={styles.offer} testID="served-build-refresh">
+        <Icon as={RefreshCw} size={16} color={color.needsYouText} />
+        <Text style={styles.message}>A newer Podium is ready on your server.</Text>
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel="Refresh to the new version of Podium"
+          hitSlop={8}
+          onPress={refresh}
+          style={styles.action}
+        >
+          <Text style={styles.actionLabel}>Refresh</Text>
+        </PressableScale>
+      </View>
+    </NoticeLayout>
   )
 }
 

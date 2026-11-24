@@ -2,6 +2,7 @@ import {
   type ShippingPanelRow,
   shippingActivityLabel,
   shippingElapsed,
+  shippingElapsedNextChangeAt,
 } from '@podium/client-core/values'
 import { observer } from '@podium/client-graph/react'
 import {
@@ -115,7 +116,7 @@ function IssueIdentity({ row }: { row: ShippingPanelRow }): JSX.Element {
 }
 
 function ElapsedWait({ queuedAt, now }: { queuedAt: string; now: number }): JSX.Element {
-  const live = useAgeNow(queuedAt, 0, now === 0)
+  const live = useAgeNow(queuedAt, 0, now === 0, 0, shippingElapsedNextChangeAt)
   const elapsed = shippingElapsed(queuedAt, now || live)
   const queued = new Date(queuedAt)
   return (

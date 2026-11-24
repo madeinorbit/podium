@@ -17,6 +17,7 @@ import {
   MobileNativeSections,
   MobileSearchSections,
   type MobileWorkSection,
+  mobileRowStamp,
   workGroupFoldKey,
 } from './work-sections'
 
@@ -467,5 +468,15 @@ describe('MobileSearchSections', () => {
     expect(fourX?.issues).toBe((oneX?.issues ?? 0) * 4)
     expect(fourX?.textPasses).toBe(oneX?.textPasses)
     expect(fourX?.issueRows).toBe(0)
+  })
+})
+
+describe('mobileRowStamp', () => {
+  it('formats the working row stamp, not 1798:41', () => {
+    const now = 1_800_000_000_000
+    const h = 3_600_000
+    expect(
+      mobileRowStamp({ phase: 'working', sinceMs: now - (29 * h + 58 * 60_000) } as never, now),
+    ).toBe('29h 58m')
   })
 })

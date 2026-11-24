@@ -1,53 +1,67 @@
-import { memo, useCallback, useRef } from 'react'
-import { useFocusEffect } from 'expo-router'
-import Svg, { Ellipse } from 'react-native-svg'
-import type NativeEllipse from 'react-native-svg/lib/typescript/elements/Ellipse'
-import { restingPicture } from '@podium/working-mark/frames'
-import { tetra } from '@podium/working-mark/designs'
-import type { Picture } from '@podium/working-mark'
+import { memo, useEffect } from 'react'
+import { StyleSheet, View } from 'react-native'
+import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 import { useReduceMotion } from '../hooks/useReduceMotion'
+import { useContentVisible } from '../lib/visible-content'
 import { color } from '../theme/theme'
 import type { WorkingMarkProps } from './WorkingMark.shared'
-import { subscribeWorkingMark } from './working-mark-motion.native'
+import { workingMarkDot, workingMarkRest, workingMarkViewDot } from './working-mark-frames'
+import { subscribeWorkingMark, workingMarkProgress } from './working-mark-motion.native'
 
-const rest = restingPicture(tetra)
-
-/** Native SVG uses the package's tetra pictures, without loading its DOM renderer. */
+/** Four fixed-size Views share one clock. Transform/opacity updates use the
+ * synchronous iOS path instead of committing the screen's shadow tree. */
 export const WorkingMark = memo(function WorkingMark({
   size = 12,
   tint = color.workingText,
 }: WorkingMarkProps) {
-  // moduleSuffixes selects SVG's web declarations even for this native file.
-  // Native Shape.setNativeProps accepts ellipse props directly (web uses style).
-  const dots = useRef<(NativeEllipse | null)[]>([])
   const reduceMotion = useReduceMotion()
-  const paint = useCallback((picture: Picture) => {
-    picture.forEach(([cx, cy, rx, ry, opacity], index) => {
-      dots.current[index]?.setNativeProps({ cx, cy, rx, ry, opacity })
-    })
-  }, [])
-  useFocusEffect(useCallback(() => {
-    paint(rest)
-    if (!reduceMotion) return subscribeWorkingMark(paint)
-  }, [paint, reduceMotion]))
+  // Focus state also chooses static dots on covered screens, even if another screen keeps the clock alive.
+  const focused = useContentVisible()
+  const width = Math.round(size * 0.66)
+  const dotStyle = [styles.dot, { left: width / 2 - 1, top: size / 2 - 1, backgroundColor: tint }]
+  useEffect(
+    () => (focused && !reduceMotion ? subscribeWorkingMark() : undefined),
+    [focused, reduceMotion],
+  )
 
   return (
-    <Svg
+    <View
       testID="working-mark"
       accessible={false}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      viewBox="-0.5 -0.5 1 1"
-      width={Math.round(size * 0.66)}
-      height={size}
+      pointerEvents="none"
+      style={{ width, height: size }}
     >
-      {rest.map(([cx, cy, rx, ry, opacity], index) => (
-        <Ellipse
-          key={index}
-          ref={dot => { dots.current[index] = dot as unknown as NativeEllipse | null }}
-          cx={cx} cy={cy} rx={rx} ry={ry} opacity={opacity} fill={tint}
-        />
-      ))}
-    </Svg>
+      {workingMarkRest.map(([cx, cy, rx, ry, opacity], index) =>
+        focused && !reduceMotion ? (
+          <MovingDot key={`${cx}:${cy}`} index={index} width={width} style={dotStyle} />
+        ) : (
+          <View
+            key={`${cx}:${cy}`}
+            style={[dotStyle, workingMarkViewDot({ cx, cy, rx, ry, opacity }, width)]}
+          />
+        ),
+      )}
+    </View>
   )
+})
+
+function MovingDot({
+  index,
+  width,
+  style,
+}: {
+  index: number
+  width: number
+  style: React.ComponentProps<typeof View>['style']
+}) {
+  const animatedStyle = useAnimatedStyle(() =>
+    workingMarkViewDot(workingMarkDot(index, workingMarkProgress.get()), width),
+  )
+  return <Animated.View style={[style, animatedStyle]} />
+}
+
+const styles = StyleSheet.create({
+  dot: { position: 'absolute', width: 2, height: 2, borderRadius: 1 },
 })

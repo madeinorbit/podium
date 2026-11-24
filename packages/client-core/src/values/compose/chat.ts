@@ -61,7 +61,13 @@ import type { SessionView } from '../../session-values'
 import { isCodexAsyncQuestion, isInterviewQuestion, isPendingAskQuestion } from '../ask-question'
 import { type ChatBlock, type ChatRow, MACHINE_CONTEXT_RE, transcriptActivityFacts } from '../chat'
 import { type ReferentExit, type ReferentState, resolveReferent } from '../session-ownership'
-import { type ChatActivity, chatActivity, sessionWaking } from '../session-status'
+import {
+  type ChatActivity,
+  chatActivity,
+  phoneChatActivity,
+  phoneSessionWaking,
+  sessionWaking,
+} from '../session-status'
 
 // ---------------------------------------------------------------------------
 // The composer draft: classified, and deliberately absent.
@@ -518,13 +524,19 @@ export function issueClosedPlaceholder(state: ComposerState): string {
 
 export function composerState(input: {
   session:
-    | (Pick<SessionView, 'status' | 'resumable' | 'agentState' | 'queuedMessageCount'> & {
+    | (Pick<
+        SessionView,
+        'status' | 'resumable' | 'agentState' | 'queuedMessageCount' | 'stoppedAt'
+      > & {
         readonly archived?: boolean
       })
     | undefined
   headless: boolean
   turnRunning: boolean
   compact: boolean
+  /** PHONE ONLY (POD-2471): present, the phone's waking rule
+   *  ({@link phoneSessionWaking}) decides; web omits it and keeps {@link sessionWaking}. */
+  phoneWakeRequestedAt?: number | null
 }): ComposerState {
   const { session, headless, turnRunning, compact } = input
   // Archive is retirement, not another parked state. In particular, an
@@ -551,7 +563,10 @@ export function composerState(input: {
   // A wake already in flight (POD-762). The composer stays open — a second
   // message queues behind the first — but it must not keep offering to do the
   // thing it is already doing.
-  const waking = sessionWaking(session)
+  const waking =
+    'phoneWakeRequestedAt' in input
+      ? phoneSessionWaking(session, false, input.phoneWakeRequestedAt)
+      : sessionWaking(session)
   // Headless: PTY status is meaningless — a send goes whenever no turn is
   // running (a turn is one queued unit; the server rejects overlap anyway).
   const deliverable = headless ? !archived && !turnRunning : sendable || canResume
@@ -672,9 +687,14 @@ export function chatActivityState(input: {
   headless: boolean
   turnRunning: boolean
   justSent: boolean
+  /** PHONE ONLY (POD-2471): see {@link composerState}. */
+  phoneWakeRequestedAt?: number | null
 }): ChatActivity | null {
   const { session, headless, turnRunning, justSent } = input
-  if (!headless) return chatActivity(session, justSent)
+  if (!headless)
+    return 'phoneWakeRequestedAt' in input
+      ? phoneChatActivity(session, justSent, undefined, input.phoneWakeRequestedAt)
+      : chatActivity(session, justSent)
   if (turnRunning) return { label: 'Working…', tone: 'working' }
   if (justSent) return { label: 'Sending', tone: 'idle', transient: 'just-sent' }
   return null

@@ -19,10 +19,15 @@ import { omitGone } from '@podium/client-graph/lookup'
 
 import { knownReading } from '@podium/client-core/live'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { type NoticeSink, StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import {
+  type NoticeSink,
+  StoreProvider,
+  type UserFocus,
+  useClientRuntime,
+} from '@podium/client-core/react'
 import type { IssueViewModel, Replica } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
-import type { ClientRuntime } from '@podium/client-core/runtime-root'
+import type { ClientRuntime, VisibilitySource } from '@podium/client-core/runtime-root'
 import { machineAndRepoRecords } from '@podium/client-core/test-support/machine-records'
 import type { MobxPool } from '@podium/client-graph/pool'
 import {
@@ -36,11 +41,11 @@ import {
   type MachineProjection,
   type MachineWire,
   type MessageRecordWire,
+  type NoticeWire,
   type PinWire,
   type RepoProjection,
   type SessionMeta,
   type SessionUserStateWire,
-  type NoticeWire,
   type SuperagentThreadWire,
 } from '@podium/model'
 import { render, waitFor } from '@testing-library/react'
@@ -55,6 +60,8 @@ import { createMobileTestReplica } from './test-replica'
 import type { MobileTrpc } from './trpc'
 
 export interface MobileStoreFixture {
+  visibility?: VisibilitySource
+  screenFocus?: () => UserFocus | null
   /** A pre-seeded production kernel facade for addressed feed consumers. */
   replica?: Replica
   /** Exercise an app's real pool attachment on the provider-owned runtime. */
@@ -245,6 +252,8 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
         principal={principal}
         createReplicaFn={createReplicaFn}
         routerWindow={routerWindow}
+        visibility={fixture.visibility}
+        screenFocus={fixture.screenFocus}
         attachRuntime={
           fixture.attachRuntime ??
           ((runtime) =>

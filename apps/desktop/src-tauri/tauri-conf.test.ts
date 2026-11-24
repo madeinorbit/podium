@@ -27,6 +27,20 @@ const webLinkHostSource = readFileSync(
 )
 
 describe('tauri desktop config', () => {
+  it('selects the Linux display backend before logging or GTK can initialize', () => {
+    expect(mainSource).toContain('#[cfg(target_os = "linux")]\nmod linux_backend;')
+    const startup = mainSource.slice(mainSource.indexOf('fn main() {'))
+    expect(startup).toMatch(
+      /^fn main\(\) \{\s*#\[cfg\(target_os = "linux"\)\]\s*linux_backend::configure\(\);/,
+    )
+    expect(startup.indexOf('logging::init()')).toBeGreaterThan(
+      startup.indexOf('linux_backend::configure()'),
+    )
+    expect(startup.indexOf('tauri::Builder::default()')).toBeGreaterThan(
+      startup.indexOf('logging::init()'),
+    )
+  })
+
   it('registers podium as a static desktop deep-link scheme', () => {
     expect(conf.plugins['deep-link']).toEqual({ desktop: { schemes: ['podium'] } })
     expect(cargoSource).toContain('tauri-plugin-deep-link = "2"')

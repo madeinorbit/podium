@@ -144,10 +144,12 @@ export function shippingActivityLabel(activity: ShipOrderProjection['activity'])
   return ACTIVITY_LABELS[activity]
 }
 
+const MINUTE_SECONDS = 60
+
 export function shippingElapsed(queuedAt: string, now: number): ShippingElapsed {
   const start = Date.parse(queuedAt)
   const seconds = Number.isFinite(start) ? Math.max(0, Math.floor((now - start) / 1_000)) : 0
-  const minutes = Math.floor(seconds / 60)
+  const minutes = Math.floor(seconds / MINUTE_SECONDS)
   if (minutes < 1) return { label: '<1 min', duration: `PT${seconds}S` }
   if (minutes < 60) return { label: `${minutes} min`, duration: `PT${minutes}M` }
   const hours = Math.floor(minutes / 60)
@@ -156,6 +158,14 @@ export function shippingElapsed(queuedAt: string, now: number): ShippingElapsed 
     label: remainder === 0 ? `${hours} hr` : `${hours} hr ${remainder} min`,
     duration: `PT${hours}H${remainder > 0 ? `${remainder}M` : ''}`,
   }
+}
+
+/** The visible waiting label retains minutes even after it starts showing hours. */
+export function shippingElapsedNextChangeAt(since: number, now: number): number {
+  if (!Number.isFinite(since)) return Infinity
+  const minuteMs = MINUTE_SECONDS * 1000
+  const minutes = Math.max(0, Math.floor((now - since) / minuteMs))
+  return since + (minutes + 1) * minuteMs
 }
 
 export function formatShippingElapsed(queuedAt: string, now: number): string {

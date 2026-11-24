@@ -18,6 +18,7 @@ import { SESSION_PANE_SOURCE_KEY } from '@podium/client-graph/session-pane-sourc
 import { asSessionId, asUserId, sessionUserStateRowId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { type ComponentProps, type ReactNode, StrictMode, useEffect, useRef } from 'react'
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { noticeFixture } from '../../../../tests/worklist/diagnostics/notice-fixture'
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
@@ -71,6 +72,11 @@ vi.mock('expo-router', () => ({
   }),
   useLocalSearchParams: () => ({ sessionId: seams.route }),
   useFocusEffect: (fn: () => (() => void) | void) => useEffect(fn, [fn]),
+}))
+// The phone's terminal route reads safe-area insets (dev/tf Console layout).
+vi.mock('react-native-safe-area-context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-native-safe-area-context')>()),
+  useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }))
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
@@ -364,7 +370,9 @@ async function mount(
         <SessionScreen />
         <TerminalRoute />
         <WebPane sessionId={SID} active />
-        <NativePane sessionId={SID} active />
+        <SafeAreaInsetsContext.Provider value={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+          <NativePane sessionId={SID} active />
+        </SafeAreaInsetsContext.Provider>
       </>
     )
   }

@@ -57,3 +57,69 @@ describe('the line under a phone bubble', () => {
     expect(lineFor('a-status-from-a-newer-server')).toBe('sent')
   })
 })
+
+/** The phone's line for this device's own send while it is in `state`. */
+function localLine(
+  state: 'sending' | 'queued' | 'sent' | 'failed' | 'interrupted',
+  error?: string,
+): string {
+  const [bubble] = projectConversation({
+    turns: [
+      {
+        id: 'pending-1',
+        deliveryId: 'msg-local',
+        text: 'a long prompt',
+        wire: 'a long prompt',
+        at: 0,
+        state,
+        kind: 'message',
+        ...(error ? { error } : {}),
+      },
+    ],
+    records: [],
+    transcriptIds: new Set(),
+    seenOpen: new Set(),
+    hidden: new Set(),
+  })
+  if (!bubble) throw new Error(`no bubble for a ${state} send`)
+  return pendingMetaLine(pendingTurnOf(bubble))
+}
+
+describe('a send from this phone, from the press to its answer (POD-2423)', () => {
+  it('reads as on its way the moment it is pressed', () => {
+    expect(localLine('sending')).toBe('sending…')
+  })
+
+  it('then sent, or waiting its turn behind a running one', () => {
+    expect(localLine('sent')).toBe('sent')
+    expect(localLine('queued')).toBe('waiting its turn')
+  })
+
+  it('or not sent, carrying its retry rather than inviting a second copy', () => {
+    const [bubble] = projectConversation({
+      turns: [
+        {
+          id: 'pending-1',
+          deliveryId: 'msg-local',
+          text: 'a long prompt',
+          wire: 'a long prompt',
+          at: 0,
+          state: 'failed',
+          kind: 'message',
+          error: 'offline',
+        },
+      ],
+      records: [],
+      transcriptIds: new Set(),
+      seenOpen: new Set(),
+      hidden: new Set(),
+    })
+    const row = pendingTurnOf(bubble!)
+    expect(row.failed).toBe('offline')
+    expect(pendingMetaLine(row)).toBe('not sent')
+  })
+
+  it('says a stopped turn was interrupted, not that the words never left', () => {
+    expect(localLine('interrupted')).toBe('interrupted')
+  })
+})

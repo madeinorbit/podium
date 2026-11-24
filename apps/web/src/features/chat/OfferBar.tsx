@@ -4,7 +4,7 @@ import type { SessionOffer } from '@podium/model/browser'
 import { ChevronDown, Pencil, X } from 'lucide-react'
 import { type JSX, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { useTipAnchorVisible, useTipMoment, useTipUnseen } from '@/features/tips'
-import { useClock } from '@/lib/clock-hooks'
+import { useAgeNow } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
 import { OfferText } from './OfferText'
@@ -146,10 +146,9 @@ function OfferActionLabel({ label, pending }: { label: string; pending: boolean 
   )
 }
 
-/** How long the decision has waited ("8h"). Its own leaf on a minute clock, so
- *  the tick re-renders three characters rather than the card. */
+/** How long the decision has waited ("8h"). Only its text boundary wakes this leaf. */
 function OfferAge({ since }: { since: string }): JSX.Element | null {
-  const now = useClock(60_000)
+  const now = useAgeNow(since)
   const age = relativeTime(since, now).replace(/ ago$/, '')
   if (!age) return null
   return <span className="offer-card-age"> · {age === 'just now' ? 'now' : age}</span>

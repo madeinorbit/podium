@@ -1,19 +1,24 @@
 import type { TranscriptActivityRun } from '@podium/client-core/conversation'
 import {
   activityRowSingletonDisplay,
+  askQuestionOutcome,
+  askQuestionResult,
   type ChatBlock,
   type ChatRow,
   computeTranscript,
   envelopePrincipal,
   formatChurn,
-  isAskUserQuestion,
   isChosenOption,
+  isInteractiveTool,
+  isInterviewQuestion,
+  isOperatorQuestion,
   MACHINE_CONTEXT_RE,
   machineContextLabel,
   type ParsedEnvelope,
   parseAskQuestions,
   searchBlocks,
   transcriptActivityFacts,
+  transcriptSystemText,
 } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
 
@@ -32,6 +37,7 @@ export interface MobileTranscriptRow {
     | 'answer'
     | 'tools'
     | 'question'
+    | 'asked'
     | 'receipt'
     | 'quiet'
     | 'envelope'
@@ -42,6 +48,7 @@ export interface MobileTranscriptRow {
   blocks?: ChatBlock[]
   readonly run?: TranscriptActivityRun
   blockIndices: number[]
+  envelopes?: readonly ParsedEnvelope[]
   envelope?: ParsedEnvelope
   quietText?: string
   turn: MobileTurnPosition
@@ -114,12 +121,15 @@ export function shapeMobileChatRow(
   }
 
   const { item } = chatRow.block
-  if (isAskUserQuestion(item)) {
-    if (!item.toolResult && item.id === options.hiddenQuestionId) return rows
+  if (isInterviewQuestion(item)) {
+    const result = askQuestionResult(chatRow.block)
+    const outcome = askQuestionOutcome(chatRow.block)
+    const settled = outcome === 'answered' || outcome === 'skipped'
+    if (result === undefined && item.id === options.hiddenQuestionId) return rows
     append({
       key: transcriptItemKey(item),
-      kind: item.toolResult ? 'receipt' : 'question',
-      item,
+      kind: settled ? 'receipt' : 'question',
+      item: result !== undefined ? { ...item, toolResult: result } : item,
       blockIndices,
       turn: 'beat',
     })
@@ -130,6 +140,20 @@ export function shapeMobileChatRow(
       key: transcriptItemKey(item),
       kind: 'shared',
       item,
+      blockIndices,
+      turn: 'beat',
+    })
+    return rows
+  }
+  // A call that addressed the operator but carries no structured input to
+  // build a card from (Codex / MCP interviews, plan approvals). It must not
+  // read as a file read: desktop gives it a "Needs your input" block (POD-376).
+  if (item.role === 'tool' && isInteractiveTool(item)) {
+    append({
+      key: transcriptItemKey(item),
+      kind: 'asked',
+      item,
+      blocks: [chatRow.block],
       blockIndices,
       turn: 'beat',
     })
@@ -160,7 +184,7 @@ export function shapeMobileChatRow(
     const quietText =
       item.systemKind === 'duration' && item.durationMs !== undefined
         ? `churned ${formatChurn(item.durationMs)}`
-        : item.text.trim()
+        : transcriptSystemText(item.text)
     if (quietText) {
       append({
         key: transcriptItemKey(item),
@@ -198,12 +222,17 @@ export function shapeMobileChatRow(
   if (item.role === 'user') {
     const batch = transcriptActivityFacts(item).envelopes
     if (batch) {
-      batch.envelopes.forEach((envelope, index) => {
+      const notes = batch.envelopes.filter((envelope) => !isOperatorQuestion(envelope))
+      const questions = batch.envelopes.filter(isOperatorQuestion)
+      const visible =
+        notes.length > 1 ? [...notes.slice(0, 1), ...questions] : [...notes, ...questions]
+      visible.forEach((envelope, index) => {
         append({
           key: `${transcriptItemKey(item)}:message:${envelope.id}`,
           kind: 'envelope',
           item,
           envelope,
+          ...(index === 0 && notes.length > 1 ? { envelopes: notes } : {}),
           blockIndices,
           turn: index === 0 ? 'open' : 'bind',
         })

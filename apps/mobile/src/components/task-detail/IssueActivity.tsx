@@ -1,43 +1,28 @@
+import { relativeTime } from '@podium/client-core/focus'
 import type { IssueWithBodies } from '@podium/client-core/replica'
-import { ISSUE_ASSISTANT_KIND } from '@podium/client-core/spawn-agent'
 import {
   type ActivityEntry,
   type ActivityItem,
-  eventClock,
   groupActivityFeed,
-  type IssueEventIcon,
   type IssueEventLine,
 } from '@podium/client-core/values'
 import type { IssueHistoryView } from '@podium/client-graph/issue-activity'
-import { LOADING } from '@podium/client-graph/loading'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import { issueObserver as observer } from '../../client/issue-observer'
-import { useMobilePool } from '../../client/mobile-pool'
+import { useAgeNow } from '../../lib/clock-hooks'
 import type { IssueCommands, IssueMailMessage } from '../../lib/issue-detail'
-import { alpha } from '../../theme/mix'
-import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
+import { compactAge } from '../../screens/TasksSurface.types'
+import { color, font, leading, radius, sans, space } from '../../theme/theme'
 import { Icon } from '../Icon'
-import {
-  type AppIcon,
-  ArrowRight,
-  CheckCircle2,
-  ChevronRight,
-  Circle,
-  CircleDot,
-  Flag,
-  FlagOff,
-  GitMerge,
-  Link2,
-  Mail,
-  Play,
-  RefreshCw,
-  Trash2,
-  Unlock,
-} from '../icons'
+import { ChevronDown, ChevronRight, Mail } from '../icons'
 import { PressableScale } from '../PressableScale'
-import { MachineLabel, SectionHeading } from './chrome'
-import { IssueAge, IssueDayLabel } from './IssueAge'
+import { SectionHeading } from './chrome'
+import { DetailText as Text } from './DetailText'
+import { useDetailLayout } from './detail-type'
+import { IssueAge } from './IssueAge'
+import { GroupHeading } from './TaskOverview'
 
 /**
  * The activity half of the task page [POD-724]: agent mail, the assistant note,
@@ -60,11 +45,18 @@ import { IssueAge, IssueDayLabel } from './IssueAge'
  * affordance, and adding one would invent a policy that is settled the other way.
  */
 
-export const MailSection = observer(function MailSection({ mail }: { mail: IssueMailMessage[] }) {
+export const MailSection = observer(function MailSection({
+  mail,
+  headless = false,
+}: {
+  mail: IssueMailMessage[]
+  /** Inside a fold whose header already names it. */
+  headless?: boolean
+}) {
   if (mail.length === 0) return null
   return (
-    <View style={styles.section} testID="issue-mail">
-      <SectionHeading label="Mail" count={String(mail.length)} />
+    <View style={headless ? undefined : styles.section} testID="issue-mail">
+      {headless ? null : <SectionHeading label="Mail" count={String(mail.length)} />}
       {mail.map((m) => (
         <View key={m.id} style={styles.mail}>
           <View style={styles.mailHead}>
@@ -73,9 +65,7 @@ export const MailSection = observer(function MailSection({ mail }: { mail: Issue
               size={12}
               color={m.status === 'unread' ? color.needsYouText : color.textFaint}
             />
-            <Text style={styles.mailFrom} numberOfLines={1}>
-              {m.fromAuthor}
-            </Text>
+            <Text style={styles.mailFrom}>{m.fromAuthor}</Text>
             {m.status === 'unread' ? <Text style={styles.unread}>UNREAD</Text> : null}
             {m.status === 'claimed' && m.claimedBy ? (
               <Text style={styles.claimed}>claimed · {m.claimedBy}</Text>
@@ -93,105 +83,57 @@ export const MailSection = observer(function MailSection({ mail }: { mail: Issue
   )
 })
 
-/** Glyph per event-line kind. The pure formatter returns a stable `icon` KEY so
- *  it stays renderer-free; this is the phone's mapping of those keys, and the
- *  desktop has its own over the same set. */
-const EVENT_ICONS: Record<IssueEventIcon, AppIcon> = {
-  created: CircleDot,
-  moved: ArrowRight,
-  closed: CheckCircle2,
-  started: Play,
-  attached: Link2,
-  cleaned: Trash2,
-  flagged: Flag,
-  cleared: FlagOff,
-  ready: Unlock,
-  integration: GitMerge,
-  generic: Circle,
-}
-
 export const IssueActivitySection = observer(function IssueActivitySection({
-  issue,
-  busy,
-  commands,
   feed,
   history,
+  headless = false,
 }: {
   issue: IssueWithBodies
   busy: boolean
   commands: IssueCommands
-  feed: ActivityItem[]
+  feed: ActivityItem[] | typeof LOADING
   revision?: number
   history?: IssueHistoryView
+  /** Inside the page's Activity fold: no second heading, no card of its own;
+   *  the rows nest under the fold's header (POD-2666). */
+  headless?: boolean
 }) {
-  // Days are derived per render against a coarse clock: the only thing `now`
-  // decides is whether a group says "Today", so re-deriving on a timer would
-  // repaint the whole feed to change one word a day.
-  const days = groupActivityFeed(feed, Date.now())
-  // An `issue.assistant` record still running, asked here or on another
-  // device (POD-6526): the refresh waits for it.
-  const pool = useMobilePool()
-  const refreshing = pool?.issueObject(issue.id).workPending === ISSUE_ASSISTANT_KIND
-  const waiting = busy || refreshing
-  const activityNotes = issue.activityNotes === LOADING ? undefined : issue.activityNotes // POD-7555: LOADING reads as empty on the phone
-  const notesUpdatedAt = issue.notesUpdatedAt === LOADING ? undefined : issue.notesUpdatedAt // POD-7555: LOADING reads as empty on the phone
-  return (
-    <View style={styles.section}>
-      <SectionHeading
-        label="Activity"
-        right={
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel="Refresh AI notes"
-            accessibilityState={refreshing ? { disabled: true, busy: true } : { disabled: busy }}
-            aria-busy={waiting}
-            disabled={waiting}
-            onPress={commands.refreshAssistant}
-            hitSlop={10}
-            style={({ pressed }) => [styles.refresh, (waiting || pressed) && styles.refreshMuted]}
-          >
-            <Icon as={RefreshCw} size={13} color={color.textDim} />
-          </PressableScale>
-        }
-      />
-
-      {activityNotes ? (
-        <View style={styles.assistant}>
-          <View style={styles.assistantHead}>
-            <MachineLabel>Assistant</MachineLabel>
-            {notesUpdatedAt ? (
-              <Text style={styles.stamp}>
-                <IssueAge stamp={notesUpdatedAt} />
-              </Text>
-            ) : null}
+  if (feed === LOADING)
+    return (
+      <View testID="issue-activity" accessibilityState={{ busy: true }} aria-busy>
+        {headless ? (
+          <View style={styles.nested}>
+            <Text style={styles.emptyInCard}>Loading activity…</Text>
           </View>
-          <Text style={styles.assistantBody} selectable>
-            {activityNotes}
+        ) : (
+          <GroupHeading label="Activity" />
+        )}
+      </View>
+    )
+  // The board's activity list: newest first, one line per entry, in one card.
+  // The day grouping still collapses runs of minor events into a rollup; the
+  // day labels themselves are not drawn, each row carries its own age. The
+  // state paragraph (activityNotes) is the summary card's at the top, so it is
+  // not repeated here.
+  const entries = groupActivityFeed(feed, Date.now())
+    .flatMap((day) => day.entries)
+    .reverse()
+  const card = headless ? styles.nested : styles.card
+  return (
+    <View testID="issue-activity">
+      {headless ? null : <GroupHeading label="Activity" />}
+      {entries.length === 0 && !history?.hasEarlier && !history?.error ? (
+        <View style={card}>
+          <Text style={styles.emptyInCard}>
+            Nothing has happened on this task yet. Comments and state changes land here.
           </Text>
         </View>
-      ) : null}
-
-      {history ? <EarlierActivity history={history} /> : null}
-
-      {days.length === 0 ? (
-        <Text style={styles.empty}>
-          Nothing has happened on this task yet. Comments and state changes land here.
-        </Text>
       ) : (
-        <View testID="activity-feed">
-          {days.map((day) => (
-            <View key={day.key}>
-              <View style={styles.day}>
-                <MachineLabel>
-                  <IssueDayLabel day={day.key} stamp={day.entries[0]?.ts ?? ''} />
-                </MachineLabel>
-                <View style={styles.dayRule} />
-              </View>
-              {day.entries.map((entry) => (
-                <EntryRow key={entry.id} entry={entry} />
-              ))}
-            </View>
+        <View style={card} testID="activity-feed">
+          {entries.map((entry, index) => (
+            <EntryRow key={entry.id} entry={entry} first={index === 0} />
           ))}
+          {history ? <EarlierActivity history={history} first={entries.length === 0} /> : null}
         </View>
       )}
     </View>
@@ -199,12 +141,15 @@ export const IssueActivitySection = observer(function IssueActivitySection({
 })
 
 /** Full history is on request: the feed opens on its newest page, and this
- *  pages further back each time it is pressed. */
+ *  row, last in the card, pages further back each time it is pressed. */
 const EarlierActivity = observer(function EarlierActivity({
   history,
+  first,
 }: {
   history: IssueHistoryView
+  first: boolean
 }) {
+  const { accessorySize } = useDetailLayout()
   if (!history.hasEarlier && !history.error) return null
   return (
     <PressableScale
@@ -213,11 +158,15 @@ const EarlierActivity = observer(function EarlierActivity({
       accessibilityState={{ disabled: history.loading }}
       disabled={history.loading}
       onPress={() => void history.loadEarlier()}
-      style={styles.event}
+      scaleTo={1}
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       testID="activity-earlier"
     >
-      <View style={[styles.node, styles.nodeMinor]} />
-      <Text style={[styles.eventText, styles.eventMinor]}>
+      {first ? null : (
+        <View style={[styles.separator, { left: space.md + accessorySize(14) + space.sm }]} />
+      )}
+      <View style={[styles.gutter, { width: accessorySize(14) }]} />
+      <Text style={styles.earlier}>
         {history.loading
           ? 'Loading earlier activity…'
           : history.error
@@ -228,61 +177,100 @@ const EarlierActivity = observer(function EarlierActivity({
   )
 })
 
-const EntryRow = observer(function EntryRow({ entry }: { entry: ActivityEntry }) {
-  if (entry.kind === 'rollup') return <Rollup entry={entry} />
-  if (entry.kind === 'comment')
-    return <Comment author={entry.author} body={entry.body} ts={entry.ts} />
-  return <EventLine line={entry.line} ts={entry.ts} />
-})
+type RowMark = 'needs' | 'working' | 'resting' | 'done'
 
-/** One transition on the timeline. The row draws its own spine and node, so the
- *  feed reads as one continuous line — a real transition lights its node, a
- *  minor one leaves it grey. */
-const EventLine = observer(function EventLine({ line, ts }: { line: IssueEventLine; ts: string }) {
-  const EventIcon = EVENT_ICONS[line.icon] ?? EVENT_ICONS.generic
-  const minor = line.minor === true
+/** The board's three shapes, read from the event's own kind. */
+function eventMark(line: IssueEventLine): RowMark {
+  if (line.minor) return 'resting'
+  if (line.icon === 'closed' || line.icon === 'integration') return 'done'
+  if (line.icon === 'flagged') return 'needs'
+  if (line.icon === 'moved' || line.icon === 'started' || line.icon === 'ready') return 'working'
+  return 'resting'
+}
+
+function Mark({ mark }: { mark: RowMark }) {
+  const { accessorySize } = useDetailLayout()
+  if (mark === 'needs' || mark === 'done')
+    return (
+      <View
+        style={[
+          styles.dot,
+          { width: accessorySize(8), height: accessorySize(8), borderRadius: accessorySize(4) },
+          { backgroundColor: mark === 'done' ? color.successText : color.needsYouText },
+        ]}
+      />
+    )
   return (
-    <View style={styles.event} testID="activity-event">
-      <View style={[styles.node, minor && styles.nodeMinor]} />
-      <Icon as={EventIcon} size={12} color={minor ? color.textMicro : color.textFaint} />
-      <Text style={[styles.eventText, minor && styles.eventMinor]}>{line.text}</Text>
-      <Text style={styles.clock}>{eventClock(ts)}</Text>
-    </View>
+    <View
+      style={[
+        styles.ring,
+        {
+          width: accessorySize(8),
+          height: accessorySize(8),
+          borderRadius: accessorySize(4),
+          borderWidth: accessorySize(1.5),
+        },
+        { borderColor: mark === 'working' ? color.workingText : color.textFaint },
+      ]}
+    />
   )
-})
+}
 
-const Rollup = observer(function Rollup({
+/** First letter up: the event formatter writes "moved to Review" for prose. */
+const sentence = (text: string) => (text ? text[0]?.toUpperCase() + text.slice(1) : text)
+
+function Age({ stamp }: { stamp: string }) {
+  return compactAge(relativeTime(stamp, useAgeNow(stamp)))
+}
+
+const EntryRow = observer(function EntryRow({
   entry,
+  first,
 }: {
-  entry: Extract<ActivityEntry, { kind: 'rollup' }>
+  entry: ActivityEntry
+  first: boolean
 }) {
   const [open, setOpen] = useState(false)
+  if (entry.kind === 'comment')
+    return (
+      <Row
+        first={first}
+        mark="resting"
+        title={entry.body.trim()}
+        meta={entry.author}
+        ts={entry.ts}
+        selectable
+      />
+    )
+  if (entry.kind === 'event')
+    return (
+      <Row
+        first={first}
+        mark={eventMark(entry.line)}
+        title={sentence(entry.line.text)}
+        ts={entry.ts}
+      />
+    )
   return (
     <>
-      <PressableScale
-        accessibilityRole="button"
-        // `aria-expanded` beside `accessibilityState`: react-native-web 0.21 reads
-        // only the former. [POD-1664]
-        accessibilityState={{ expanded: open }}
-        aria-expanded={open}
-        accessibilityLabel={entry.label}
-        accessibilityHint={`between ${eventClock(entry.firstTs)} and ${eventClock(entry.ts)}`}
-        onPress={() => setOpen((v) => !v)}
-        scaleTo={0.997}
-        style={styles.event}
-        testID="activity-rollup"
-      >
-        <View style={[styles.node, styles.nodeMinor]} />
-        <Icon as={ChevronRight} size={12} color={color.textMicro} />
-        <Text style={[styles.eventText, styles.eventMinor]} numberOfLines={1}>
-          {entry.label}
-        </Text>
-        <Text style={styles.clock}>{eventClock(entry.ts)}</Text>
-      </PressableScale>
+      <Row
+        first={first}
+        mark="resting"
+        title={entry.label}
+        ts={entry.ts}
+        expanded={open}
+        onPress={() => setOpen((value) => !value)}
+      />
       {open
         ? entry.items.map((item) =>
             item.kind === 'event' ? (
-              <EventLine key={item.id} line={item.line} ts={item.ts} />
+              <Row
+                key={item.id}
+                first={false}
+                mark={eventMark(item.line)}
+                title={sentence(item.line.text)}
+                ts={item.ts}
+              />
             ) : null,
           )
         : null}
@@ -290,190 +278,173 @@ const Rollup = observer(function Rollup({
   )
 })
 
-/**
- * A comment. NO ATTRIBUTION PAIR IS SYNTHESISED HERE, and that is a measurement
- * rather than an omission: the comment shape carries `author`, `body`,
- * `createdAt` and an id — no `Attribution`. §3.1.3 A3 says the UI READS the pair
- * and never asserts it, so a row whose server shape has none renders none.
- */
-const Comment = observer(function Comment({
-  author,
-  body,
+/** One activity row: mark, one-line title, then "Author · 6m" underneath. */
+function Row({
+  first,
+  mark,
+  title,
+  meta,
   ts,
+  expanded,
+  onPress,
+  selectable,
 }: {
-  author: string
-  body: string
+  first: boolean
+  mark: RowMark
+  title: string
+  meta?: string
   ts: string
+  expanded?: boolean
+  onPress?: () => void
+  selectable?: boolean
 }) {
-  return (
-    <View style={styles.comment}>
-      <View style={styles.commentHead}>
-        <Text style={styles.commentAuthor}>{author}</Text>
-        <Text style={styles.clock}>{eventClock(ts)}</Text>
+  const { size, accessorySize } = useDetailLayout()
+  const body = (
+    <>
+      {first ? null : (
+        <View style={[styles.separator, { left: space.md + accessorySize(14) + space.sm }]} />
+      )}
+      <View
+        style={[styles.gutter, { width: accessorySize(14), height: size(leading(font.small)) }]}
+      >
+        <Mark mark={mark} />
       </View>
-      <Text style={styles.commentBody} selectable>
-        {body}
-      </Text>
-    </View>
+      <View style={styles.main}>
+        <Text lineBreakStrategyIOS="standard" style={styles.title} selectable={selectable}>
+          {title}
+        </Text>
+        <Text style={styles.meta}>
+          {meta ? `${meta} · ` : ''}
+          <Age stamp={ts} />
+        </Text>
+      </View>
+      {onPress ? (
+        <View style={{ height: size(leading(font.small)), justifyContent: 'center' }}>
+          <Icon
+            as={expanded ? ChevronDown : ChevronRight}
+            size={accessorySize(14)}
+            color={color.textFaint}
+          />
+        </View>
+      ) : null}
+    </>
   )
-})
+  if (!onPress)
+    return (
+      <View style={styles.row} testID="activity-event">
+        {body}
+      </View>
+    )
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      // `aria-expanded` beside `accessibilityState`: react-native-web 0.21 reads
+      // only the former. [POD-1664]
+      accessibilityState={{ expanded: expanded === true }}
+      aria-expanded={expanded === true}
+      accessibilityLabel={title}
+      onPress={onPress}
+      scaleTo={1}
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+      testID="activity-rollup"
+    >
+      {body}
+    </PressableScale>
+  )
+}
 
 const styles = StyleSheet.create({
+  // In the fold: indented under its header with a hairline above, like Details.
+  nested: {
+    marginLeft: space.lg,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.hairline,
+  },
+  card: {
+    borderCurve: 'continuous',
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: color.groupedCard,
+  },
+  emptyInCard: {
+    ...sans(400),
+    paddingHorizontal: space.md,
+    paddingVertical: space.md,
+    color: color.textDim,
+    fontSize: font.small,
+  },
+  row: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm,
+    paddingHorizontal: space.md,
+    paddingVertical: space.md,
+  },
+  rowPressed: { backgroundColor: color.surfacePressed },
+  separator: {
+    position: 'absolute',
+    top: 0,
+    left: 34,
+    right: 0,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: color.hairline,
+  },
+  gutter: { width: 14, alignItems: 'center', justifyContent: 'center' },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  ring: { width: 8, height: 8, borderRadius: 4, borderWidth: 1.5 },
+  main: { flex: 1, minWidth: 0, gap: space.xs },
+  title: { ...sans(400), color: color.text, fontSize: font.small, lineHeight: leading(font.small) },
+  meta: { ...sans(400), color: color.textFaint, fontSize: font.tiny },
+  earlier: { ...sans(400), flex: 1, color: color.textDim, fontSize: font.small },
   section: {
-    paddingBottom: space.xl,
-  },
-  refresh: {
-    width: 28,
-    height: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  refreshMuted: {
-    opacity: 0.5,
+    paddingBottom: 0,
   },
   mail: {
-    gap: 5,
+    gap: space.sm,
     marginBottom: space.sm,
     padding: space.md,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.surface,
+    borderRadius: radius.card,
+    backgroundColor: color.groupedCard,
   },
   mailHead: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: space.sm,
   },
   mailFrom: {
-    ...mono(400),
+    ...sans(400),
     flexShrink: 1,
     color: color.textDim,
-    fontSize: font.micro,
+    fontSize: font.tiny,
   },
   unread: {
-    ...mono(600),
+    ...sans(600),
     color: color.needsYouText,
-    fontSize: 9,
-    letterSpacing: 0.5,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+    fontSize: font.tiny,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.xs,
     borderRadius: radius.xs,
     overflow: 'hidden',
     backgroundColor: color.needsYouSoft,
   },
   claimed: {
-    ...mono(400),
+    ...sans(400),
     color: color.textFaint,
-    fontSize: 9,
+    fontSize: font.tiny,
   },
   mailBody: {
     ...sans(400),
     color: color.body,
-    fontSize: font.tiny,
-    lineHeight: leading(font.tiny, 'prose'),
-  },
-  assistant: {
-    gap: 4,
-    marginBottom: space.sm,
-    padding: space.md,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderStyle: 'dashed',
-    borderColor: color.border,
-    backgroundColor: alpha(color.surface, 0.5),
-  },
-  assistantHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  assistantBody: {
-    ...sans(400),
-    color: color.body,
-    fontSize: font.tiny,
-    lineHeight: leading(font.tiny, 'prose'),
-  },
-  day: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    marginTop: space.md,
-    marginBottom: space.xs,
-  },
-  dayRule: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: color.hairline,
-  },
-  event: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    minHeight: 30,
-    paddingLeft: space.md,
-    // The spine: a hairline down the left of every row, so the feed reads as one
-    // continuous line rather than a stack of unrelated strips.
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderLeftColor: color.hairline,
-  },
-  node: {
-    position: 'absolute',
-    left: -3,
-    top: 12,
-    width: 5,
-    height: 5,
-    borderRadius: radius.full,
-    backgroundColor: color.working,
-  },
-  nodeMinor: {
-    backgroundColor: color.border,
-  },
-  eventText: {
-    ...sans(400),
-    flex: 1,
-    color: color.textDim,
-    fontSize: font.tiny,
-  },
-  eventMinor: {
-    color: color.textMicro,
-  },
-  clock: {
-    ...mono(400),
-    color: color.textMicro,
-    fontSize: 9.5,
-  },
-  comment: {
-    gap: 4,
-    marginVertical: 6,
-    marginLeft: 5,
-    padding: space.md,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.surface,
-  },
-  commentHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  commentAuthor: {
-    ...sans(600),
-    color: color.text,
-    fontSize: font.micro,
-  },
-  commentBody: {
-    ...sans(400),
-    color: color.body,
-    fontSize: font.tiny,
-    lineHeight: leading(font.tiny, 'prose'),
+    fontSize: font.small,
+    lineHeight: leading(font.small, 'prose'),
   },
   stamp: {
-    ...mono(400),
+    ...sans(400),
     marginLeft: 'auto',
     color: color.textMicro,
-    fontSize: 9.5,
+    fontSize: font.tiny,
   },
   empty: {
     ...sans(400),

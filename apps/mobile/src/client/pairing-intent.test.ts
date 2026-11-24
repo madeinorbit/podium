@@ -27,6 +27,10 @@ const pairingLinks = [
   ['the HTTPS fragment URL', https],
 ] as const
 
+// The phone keeps dev/tf's link owner (app-link-intent, POD-2364) with
+// upstream's pairing rule: a cold pairing link starts at the root, a warm one
+// moves the router nowhere; the gate reads the raw URL from Linking. Sign-in,
+// mission and handoff links are covered in app-link-intent.test.ts.
 describe('OS pairing links and the router (POD-6913)', () => {
   it.each(
     pairingLinks,
@@ -47,21 +51,11 @@ describe('OS pairing links and the router (POD-6913)', () => {
     expect(redirectSystemPath({ path: link, initial: false })).toBeNull()
   })
 
-  it.each([
-    'podium://issues/POD-1606',
-    'podium://session/abc?origin=https%3A%2F%2Fteam.podium.test&instance=x',
-    'podium://signed-in?code=hoff_x&challenge=y',
-    'podium://pairs/elsewhere',
-    'https://team.podium.test/issues/POD-1606',
-  ])('leaves %s to the router', (link) => {
-    expect(redirectSystemPath({ path: link, initial: true })).toBe(link)
-    expect(redirectSystemPath({ path: link, initial: false })).toBe(link)
-  })
-
   it('is the file expo-router loads for native intents', () => {
     const app = readdirSync(resolve(import.meta.dirname, '../../app'))
     expect(app).toContain('+native-intent.ts')
-    // No route claims /pair: the secret must never become router state.
-    expect(app.filter((name) => /^pair\b/i.test(name))).toEqual([])
+    expect(app).not.toContain('+native-intent.tsx')
+    // dev/tf keeps app/pair.tsx only as a redirect to the root, for any path
+    // that skips the native intent (see app-link-intent.test.ts).
   })
 })

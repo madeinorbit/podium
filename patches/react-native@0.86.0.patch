@@ -1,0 +1,271 @@
+diff --git a/ReactCommon/react/utils/SimpleThreadSafeCache.h b/ReactCommon/react/utils/SimpleThreadSafeCache.h
+--- a/ReactCommon/react/utils/SimpleThreadSafeCache.h
++++ b/ReactCommon/react/utils/SimpleThreadSafeCache.h
+@@ -77,15 +77,27 @@
+
+   auto getMapIterator(const KeyT &key, CacheGeneratorFunction<ValueT> auto generator) const
+   {
++    {
++      std::lock_guard<std::mutex> lock(mutex_);
++      if (auto it = map_.find(key); it != map_.end()) {
++        // Move accessed item to front of list
++        list_.splice(list_.begin(), list_, it->second);
++        return it;
++      }
++    }
++
++    // The generator runs without the lock: it may block on another thread
++    // that needs this cache. On iOS, text measurement creates an
++    // NSTextStorage whose editing notification can wait for the main queue,
++    // while the main thread waits for this lock to measure text.
++    auto value = generator();
++
+     std::lock_guard<std::mutex> lock(mutex_);
+-
+     if (auto it = map_.find(key); it != map_.end()) {
+-      // Move accessed item to front of list
++      // Another thread generated the same key meanwhile
+       list_.splice(list_.begin(), list_, it->second);
+       return it;
+     }
+-
+-    auto value = generator();
+     // Add new value to front of list and map
+     list_.emplace_front(key, value);
+     auto [it, _] = map_.insert_or_assign(key, list_.begin());
+diff --git a/React/Fabric/Mounting/ComponentViews/Text/RCTParagraphComponentView.mm b/React/Fabric/Mounting/ComponentViews/Text/RCTParagraphComponentView.mm
+--- a/React/Fabric/Mounting/ComponentViews/Text/RCTParagraphComponentView.mm
++++ b/React/Fabric/Mounting/ComponentViews/Text/RCTParagraphComponentView.mm
+@@ -384,6 +384,17 @@
+   CAShapeLayer *_highlightLayer;
+ }
+
++- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection
++{
++  [super traitCollectionDidChange:previousTraitCollection];
++
++  // Fabric draws text into this view. RCTViewComponentView only invalidates
++  // its own background layer when UIKit resolves new semantic colors.
++  if ([self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previousTraitCollection]) {
++    [self setNeedsDisplay];
++  }
++}
++
+ - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
+ {
+   return nil;
+@@ -406,23 +417,27 @@
+
+   CGRect frame = RCTCGRectFromRect(_layoutMetrics.getContentFrame());
+
+-  [nativeTextLayoutManager drawAttributedString:stateData.attributedString
+-                            paragraphAttributes:_paragraphAttributes
+-                                          frame:frame
+-                              drawHighlightPath:^(UIBezierPath *highlightPath) {
+-                                if (highlightPath) {
+-                                  if (!self->_highlightLayer) {
+-                                    self->_highlightLayer = [CAShapeLayer layer];
+-                                    self->_highlightLayer.fillColor = [UIColor colorWithWhite:0 alpha:0.25].CGColor;
+-                                    [self.layer addSublayer:self->_highlightLayer];
++  // TextKit must resolve every inline run against this view, including
++  // a paragraph that was measured or cached under another appearance.
++  [self.traitCollection performAsCurrentTraitCollection:^{
++    [nativeTextLayoutManager drawAttributedString:stateData.attributedString
++                              paragraphAttributes:_paragraphAttributes
++                                            frame:frame
++                                drawHighlightPath:^(UIBezierPath *highlightPath) {
++                                  if (highlightPath) {
++                                    if (!self->_highlightLayer) {
++                                      self->_highlightLayer = [CAShapeLayer layer];
++                                      self->_highlightLayer.fillColor = [UIColor colorWithWhite:0 alpha:0.25].CGColor;
++                                      [self.layer addSublayer:self->_highlightLayer];
++                                    }
++                                    self->_highlightLayer.position = frame.origin;
++                                    self->_highlightLayer.path = highlightPath.CGPath;
++                                  } else {
++                                    [self->_highlightLayer removeFromSuperlayer];
++                                    self->_highlightLayer = nil;
+                                   }
+-                                  self->_highlightLayer.position = frame.origin;
+-                                  self->_highlightLayer.path = highlightPath.CGPath;
+-                                } else {
+-                                  [self->_highlightLayer removeFromSuperlayer];
+-                                  self->_highlightLayer = nil;
+-                                }
+-                              }];
++                                }];
++  }];
+ }
+
+ @end
+diff --git a/ReactCommon/react/renderer/textlayoutmanager/platform/ios/react/renderer/textlayoutmanager/RCTTextLayoutManager.mm b/ReactCommon/react/renderer/textlayoutmanager/platform/ios/react/renderer/textlayoutmanager/RCTTextLayoutManager.mm
+--- a/ReactCommon/react/renderer/textlayoutmanager/platform/ios/react/renderer/textlayoutmanager/RCTTextLayoutManager.mm
++++ b/ReactCommon/react/renderer/textlayoutmanager/platform/ios/react/renderer/textlayoutmanager/RCTTextLayoutManager.mm
+@@ -71,10 +71,31 @@
+                        frame:(CGRect)frame
+            drawHighlightPath:(void (^_Nullable)(UIBezierPath *highlightPath))block
+ {
+-  NSTextStorage *textStorage = [self
+-      _textStorageAndLayoutManagerWithAttributesString:[self _nsAttributedStringFromAttributedString:attributedString]
+-                                   paragraphAttributes:paragraphAttributes
+-                                                  size:frame.size];
++  // Keep the measured fonts and geometry, but resolve semantic run colors
++  // again for this draw. TextKit can retain a run's previously resolved color
++  // even after the paragraph view has invalidated its bitmap.
++  NSMutableAttributedString *drawString = [[self _nsAttributedStringFromAttributedString:attributedString] mutableCopy];
++  for (NSAttributedStringKey key in @[
++         NSForegroundColorAttributeName,
++         NSBackgroundColorAttributeName,
++         NSStrokeColorAttributeName,
++         NSUnderlineColorAttributeName,
++         NSStrikethroughColorAttributeName
++       ]) {
++    [drawString enumerateAttribute:key
++                          inRange:NSMakeRange(0, drawString.length)
++                          options:0
++                       usingBlock:^(id value, NSRange range, BOOL *stop) {
++                         if ([value isKindOfClass:UIColor.class]) {
++                           [drawString addAttribute:key
++                                              value:[value resolvedColorWithTraitCollection:UITraitCollection.currentTraitCollection]
++                                              range:range];
++                         }
++                       }];
++  }
++  NSTextStorage *textStorage = [self _textStorageAndLayoutManagerWithAttributesString:drawString
++                                                               paragraphAttributes:paragraphAttributes
++                                                                              size:frame.size];
+   NSLayoutManager *layoutManager = textStorage.layoutManagers.firstObject;
+   NSTextContainer *textContainer = layoutManager.textContainers.firstObject;
+
+diff --git a/React/Tests/Text/RCTParagraphComponentViewTests.mm b/React/Tests/Text/RCTParagraphComponentViewTests.mm
+--- a/React/Tests/Text/RCTParagraphComponentViewTests.mm
++++ b/React/Tests/Text/RCTParagraphComponentViewTests.mm
+@@ -470,4 +470,70 @@
+   XCTAssertTrue(elements[0].accessibilityTraits & UIAccessibilityTraitLink);
+ }
+
++- (void)testCachedInlineSemanticColorsFollowAppearanceWithoutChangingMeasurement
++{
++  RCTTextLayoutManager *manager = [RCTTextLayoutManager new];
++  AttributedString string;
++  auto attributes = TextAttributes::defaultTextAttributes();
++  attributes.fontSize = 24;
++  attributes.foregroundColor = SharedColor{Color{DynamicColor{
++      .lightColor = static_cast<int32_t>(0xFFFF0000),
++      .darkColor = static_cast<int32_t>(0xFF0000FF)}}};
++  AttributedString::Fragment count;
++  count.string = "41/64";
++  count.textAttributes = attributes;
++  string.appendFragment(count);
++  AttributedString::Fragment next;
++  next.string = "  11 up next";
++  next.textAttributes = attributes;
++  next.textAttributes.foregroundColor = colorFromRGBA(0, 128, 0, 255);
++  string.appendFragment(next);
++  ParagraphAttributes paragraph;
++  TextLayoutContext context;
++  LayoutConstraints constraints{.maximumSize = {.width = 300, .height = 100}};
++
++  // Warm the same native measurement cache under the opposite appearance.
++  __block TextMeasurement measured;
++  [[UITraitCollection traitCollectionWithUserInterfaceStyle:UIUserInterfaceStyleDark] performAsCurrentTraitCollection:^{
++    measured = [manager measureAttributedString:string
++                           paragraphAttributes:paragraph
++                                 layoutContext:context
++                             layoutConstraints:constraints];
++  }];
++  for (UIUserInterfaceStyle style : {UIUserInterfaceStyleLight, UIUserInterfaceStyleDark, UIUserInterfaceStyleLight}) {
++    unsigned char pixels[300 * 100 * 4] = {};
++    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
++    CGContextRef bitmap = CGBitmapContextCreate(pixels, 300, 100, 8, 300 * 4, space,
++        kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
++    CGColorSpaceRelease(space);
++    XCTAssertNotEqual(bitmap, nullptr);
++    UIGraphicsPushContext(bitmap);
++    [[UITraitCollection traitCollectionWithUserInterfaceStyle:style] performAsCurrentTraitCollection:^{
++      [manager drawAttributedString:string paragraphAttributes:paragraph
++                             frame:CGRectMake(0, 0, 300, 100) drawHighlightPath:nil];
++      auto again = [manager measureAttributedString:string
++                               paragraphAttributes:paragraph
++                                     layoutContext:context
++                                 layoutConstraints:constraints];
++      XCTAssertEqual(again.size.width, measured.size.width);
++      XCTAssertEqual(again.size.height, measured.size.height);
++    }];
++    UIGraphicsPopContext();
++    CGContextRelease(bitmap);
++    NSUInteger red = 0;
++    NSUInteger blue = 0;
++    for (NSUInteger i = 0; i < sizeof(pixels); i += 4) {
++      if (pixels[i] > 64 && pixels[i] > pixels[i + 2] + 32) red++;
++      if (pixels[i + 2] > 64 && pixels[i + 2] > pixels[i] + 32) blue++;
++    }
++    if (style == UIUserInterfaceStyleLight) {
++      XCTAssertGreaterThan(red, 10U);
++      XCTAssertEqual(blue, 0U);
++    } else {
++      XCTAssertGreaterThan(blue, 10U);
++      XCTAssertEqual(red, 0U);
++    }
++  }
++}
++
+ @end
+diff --git a/Libraries/Text/TextInput/Multiline/RCTUITextView.h b/Libraries/Text/TextInput/Multiline/RCTUITextView.h
+--- a/Libraries/Text/TextInput/Multiline/RCTUITextView.h
++++ b/Libraries/Text/TextInput/Multiline/RCTUITextView.h
+@@ -22,6 +22,8 @@
+
+ @property (nonatomic, weak) id<RCTBackedTextInputDelegate> textInputDelegate;
+
++// Opt-in image paste for Podium's composer. Other inputs retain UIKit behavior.
++@property (nonatomic, copy, nullable) void (^podiumImagePasteHandler)(void);
+ @property (nonatomic, assign) BOOL contextMenuHidden;
+ @property (nonatomic, assign, readonly) BOOL textWasPasted;
+ @property (nonatomic, assign, readonly) BOOL dictationRecognizing;
+diff --git a/Libraries/Text/TextInput/Multiline/RCTUITextView.mm b/Libraries/Text/TextInput/Multiline/RCTUITextView.mm
+--- a/Libraries/Text/TextInput/Multiline/RCTUITextView.mm
++++ b/Libraries/Text/TextInput/Multiline/RCTUITextView.mm
+@@ -216,6 +216,16 @@
+
+ - (void)paste:(id)sender
+ {
++  void (^imagePasteHandler)(void) = _podiumImagePasteHandler;
++  if (imagePasteHandler && self.editable && UIPasteboard.generalPasteboard.hasImages) {
++    // Insert mixed text before snapshotting images or scheduling their encoding.
++    if (UIPasteboard.generalPasteboard.hasStrings) {
++      _textWasPasted = YES;
++      [super paste:sender];
++    }
++    imagePasteHandler();
++    return;
++  }
+   _textWasPasted = YES;
+   [super paste:sender];
+ }
+@@ -309,6 +319,12 @@
+     return NO;
+   }
+
++  // hasImages checks types only. Do not read clipboard contents before Paste.
++  if (action == @selector(paste:) && _podiumImagePasteHandler && self.editable &&
++      UIPasteboard.generalPasteboard.hasImages) {
++    return YES;
++  }
++
+   return [super canPerformAction:action withSender:sender];
+ }
+
+diff --git a/React/Fabric/Mounting/ComponentViews/TextInput/RCTTextInputComponentView.mm b/React/Fabric/Mounting/ComponentViews/TextInput/RCTTextInputComponentView.mm
+--- a/React/Fabric/Mounting/ComponentViews/TextInput/RCTTextInputComponentView.mm
++++ b/React/Fabric/Mounting/ComponentViews/TextInput/RCTTextInputComponentView.mm
+@@ -378,6 +378,9 @@
+ {
+   [super prepareForRecycle];
+   _state.reset();
++  if ([_backedTextInputView isKindOfClass:RCTUITextView.class]) {
++    ((RCTUITextView *)_backedTextInputView).podiumImagePasteHandler = nil;
++  }
+   _backedTextInputView.attributedText = nil;
+   _mostRecentEventCount = 0;
+   _comingFromJS = NO;

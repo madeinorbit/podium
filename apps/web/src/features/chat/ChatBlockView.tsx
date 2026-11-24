@@ -8,6 +8,7 @@ import {
   messageAttachmentText,
   type TranscriptAttribution,
   transcriptActivityFacts,
+  transcriptSystemText,
 } from '@podium/client-core/values'
 import { codexQuestionReplyText } from '@podium/harness/browser'
 import { machinePathBasename, resolveMachinePath } from '@podium/model'
@@ -534,7 +535,7 @@ export const ChatBlockView = observer(function ChatBlockView({
     envelopeBatch?.operatorText ||
     nextSplit?.body ||
     (item.role === 'user' ? codexQuestionReplyText(item.text) : undefined) ||
-    attachmentText
+    (item.role === 'system' && !item.systemKind ? transcriptSystemText(item.text) : attachmentText)
   const refPrefixesVersion = useKnownRefPrefixesVersion()
   // biome-ignore lint/correctness/useExhaustiveDependencies: refPrefixesVersion is a deliberate recompute trigger — linkifyRefs reads the prefix registry.
   const html = useMemo(() => {
@@ -581,6 +582,7 @@ export const ChatBlockView = observer(function ChatBlockView({
   // The concierge/btw seed & re-entry deltas are delivered as user text so the
   // agent sees them, but they're machine-authored context — collapse instead of
   // showing a giant "You" bubble (ported from the old SuperagentView renderer).
+  if (item.role === 'system' && !item.systemKind && !displayText) return null
   if (collapseContext && item.role === 'user' && MACHINE_CONTEXT_RE.test(item.text))
     return <MachineContextRow item={item} cls={rowClass} index={index} />
 

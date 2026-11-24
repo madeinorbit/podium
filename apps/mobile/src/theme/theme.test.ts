@@ -10,11 +10,14 @@ function luma(hex: string): number {
 describe('Dark Ink surface ramp', () => {
   it('steps up from the ground — nothing is darker than the app background', () => {
     const ground = luma(color.bg)
-    for (const tier of [color.engraved, color.bar, color.rail, color.surface, color.elevated]) {
+    for (const tier of [color.bar, color.rail, color.surface, color.elevated]) {
       expect(luma(tier)).toBeGreaterThan(ground)
     }
   })
 
+  it('lays the conversation field on the ground itself, not a grey step above it', () => {
+    expect(color.engraved).toBe(color.bg)
+  })
 })
 
 /**

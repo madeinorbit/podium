@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   envelopePrincipal,
   envelopePrincipalLabel,
+  noteSubject,
   parseEnvelopeBatch,
   parseMessageEnvelope,
   pointerFallbackBody,
@@ -317,4 +318,11 @@ describe('envelopePrincipal', () => {
     })
     expect(envelopePrincipal('superagent')).toEqual({ pre: 'superagent', ref: null, post: '' })
   })
+})
+
+it('uses the first note line as a marker-free preview subject', () => {
+  expect(noteSubject('## **Ready**\nMore details')).toBe('Ready')
+  expect(noteSubject('- Read the notes\nthen reply')).toBe('Read the notes')
+  expect(noteSubject('`file.ts`')).toBe('file.ts')
+  expect(noteSubject('')).toBe('')
 })

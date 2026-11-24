@@ -319,11 +319,8 @@ describe('mobile pool-only worklist regressions', () => {
     const { view, feed } = await mount('u-bench')
     checkpoint('bootstrap and mission details')
 
-    fireEvent.click(screen.getByLabelText('New work'))
-    await waitFor(() => expect(screen.getAllByLabelText(/^Start in /).length).toBe(1))
-    checkpoint('launch sheet')
-    fireEvent.click(screen.getByLabelText('Close sheet'))
-    checkpoint('close launch sheet')
+    // dev/tf: New work is a thin launcher that pushes the New Task compose
+    // sheet; the inline launch sheet upstream opened here is gone on the phone.
     fireEvent.click(screen.getByLabelText('Search work'))
     checkpoint('search')
 

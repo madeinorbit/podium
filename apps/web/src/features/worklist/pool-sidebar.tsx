@@ -39,6 +39,7 @@ import { ScreenRefreshMark } from '@/components/ScreenRefreshMark'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
 import { PHONE_APP_IN_STORES } from '@/features/mobile-handoff/mobile-handoff'
 import { FirstFlightsBadge } from '@/features/tips/FirstFlightsBadge'
+import { GitHubStarOnFinishedTask } from '@/features/tips/github-star-tip'
 import { useMemberRoster } from '@/lib/member-roster'
 import { type RowTransitionItem, type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
@@ -237,6 +238,7 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
       {PHONE_APP_IN_STORES && <MobilePromoCard />}
       <FirstFlightsBadge />
       <FirstSendTip />
+      <GitHubStarOnFinishedTask />
     </WorklistProvider>
   )
 })

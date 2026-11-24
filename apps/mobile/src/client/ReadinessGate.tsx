@@ -1,6 +1,7 @@
 import type { ServerReadiness } from '@podium/model'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { type ReadinessDisplayState, ReadinessScreen } from '../components/ReadinessScreen'
+import { startupTiming } from '../lib/startup-timing'
 import { demoEnabled } from './demoData'
 import { heldOfflineStatus } from './held-offline'
 import { LaunchReadyView } from './launch-ready'
@@ -64,21 +65,23 @@ export function ReadinessGate({ children }: { children: ReactNode }) {
     let alive = true
     setState('checking')
     setAcceptedDegraded(false)
-    fetchServerReadiness(config.httpOrigin).then(
-      (readiness) => {
-        if (alive) setState(readiness)
-      },
-      async (cause: unknown) => {
-        // No answer at all (no network, a timeout): open what this device
-        // holds. The profile is read at failure time, not a dependency: a new
-        // profile write must not re-ask the server.
-        const held =
-          cause instanceof ReadinessAnswerError
-            ? undefined
-            : await heldOfflineStatus(profileRef.current)
-        if (alive) setState(held ? 'offline' : 'unreachable')
-      },
-    )
+    startupTiming
+      .measure('server.readiness', () => fetchServerReadiness(config.httpOrigin))
+      .then(
+        (readiness) => {
+          if (alive) setState(readiness)
+        },
+        async (cause: unknown) => {
+          // No answer at all (no network, a timeout): open what this device
+          // holds. The profile is read at failure time, not a dependency: a new
+          // profile write must not re-ask the server.
+          const held =
+            cause instanceof ReadinessAnswerError
+              ? undefined
+              : await heldOfflineStatus(profileRef.current)
+          if (alive) setState(held ? 'offline' : 'unreachable')
+        },
+      )
     return () => {
       alive = false
     }

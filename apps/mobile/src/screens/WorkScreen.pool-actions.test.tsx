@@ -26,6 +26,7 @@ import { type ReactNode, useState } from 'react'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { createSidebarActionsFixture } from '../../../web/test/sidebar-actions-fixture'
 import type { MobilePool } from '../client/mobile-pool'
+import { noScreenFocus } from '../client/screen-read-focus'
 import { WorkIssueMenu } from '../components/WorkIssueMenu'
 import { type PoolWorkMenuData, resolvePoolWorkMenu } from '../lib/pool-work-menu'
 import type { MobileWorkSection } from '../lib/work-sections'
@@ -321,6 +322,7 @@ async function mount(prepare?: (fixture: Fixture) => void, probeId?: string) {
   })
   const view = render(
     <StoreProvider
+      screenFocus={noScreenFocus}
       principal={asClientPrincipal(asUserId('sidebar-pool-actions'))}
       config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
       api={fixture.api}
@@ -431,33 +433,25 @@ afterAll(() => {
 })
 
 describe('mobile pool work-list actions', () => {
-  it('keeps opened content seen when its durable read receipt is refused', async () => {
+  it.each([
+    '',
+    'Synthetic task 3',
+  ])('opens chat directly from Work query "%s" and waits for focus before marking read', async (query) => {
     await mount((f) => f.patchIssue(TARGET, { readAt: null }))
+    if (query)
+      fireEvent.change(screen.getByRole('textbox', { name: 'Search work' }), {
+        target: { value: query },
+      })
     expect(value().emphasizeUnread).toBe(true)
+    const navigation = vi.fn(() => expect(requests).toEqual([]))
+    router.push.mockImplementationOnce(navigation)
     fireEvent.click(button())
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith(`/mission/${TARGET}`))
-    expect(runtime.ui.selectedIssueId).toBe(TARGET)
-    expect(pool().issueObject(TARGET).readObservation.viewing).toBe(true)
-    const write = await request('issues.markRead')
-    expect(write.input).toMatchObject({ id: TARGET, mutationId: expect.any(String) })
-    expect(Date.parse(value().issue.readAt ?? '')).toBeGreaterThanOrEqual(
-      Date.parse(value().issue.updatedAt),
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith(`/mission/${TARGET}?sessionId=synthetic-session-3`),
     )
-    expect(value().emphasizeUnread).toBe(false)
-    await settle(write)
-    // Selection's leading receipt and the explicit tap receipt may both have
-    // enqueued before the visit was established. Refuse every submitted read.
-    for (const receipt of requests.filter(
-      (r) => !r.settled && r.procedure === 'issues.markRead' && r.input.id === TARGET,
-    ))
-      await settle(receipt)
-    // The authority cursor rolls back, but this device still knows the user
-    // opened the content. A refused receipt must not restore its unread dot.
-    expect(value().issue.readAt).toBeNull()
-    expect(pool().issueObject(TARGET).readObservation.viewing).toBe(true)
-    expect(value().emphasizeUnread).toBe(false)
-    // A deliberate Mark unread is different: it overrides the local visit.
-    await runtime.commands.issues.markUnread(TARGET)
+    expect(navigation).toHaveBeenCalledOnce()
+    await settled()
+    expect(requests).toEqual([])
     expect(value().emphasizeUnread).toBe(true)
   })
 
@@ -655,6 +649,8 @@ describe('mobile pool work-list actions', () => {
     expect(requests).toEqual([])
     await choose('Close anyway')
     const write = await request('issues.close')
+    expect(write.input).toMatchObject({ id: TARGET, reason: 'done' })
+    expect(requests).toHaveLength(1)
     await settled()
     await settle(write)
     expect(value().issue.stage).toBe('in_progress')

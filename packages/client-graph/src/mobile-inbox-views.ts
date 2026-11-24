@@ -1,13 +1,13 @@
-import { omitGone } from './lookup'
-import { referenceView } from './issue-reference'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueReferenceModel } from '@podium/client-core/values'
+import { lazy } from '@podium/mobx-helpers'
 import type { PodiumTarget } from '@podium/protocol'
 import { parseSessionRef } from '@podium/protocol'
 import { reaction } from 'mobx'
-import { lazy } from '@podium/mobx-helpers'
-import { screeningQueue } from './mobile-triage'
 import { readPageIssue } from './issue-page'
+import { referenceView } from './issue-reference'
+import { omitGone } from './lookup'
+import { screeningQueue } from './mobile-triage'
 import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -20,7 +20,9 @@ export function createMobileInboxViews(pool: MobxPool) {
     return (
       !state ||
       state === LOADING ||
-      (!state.hasCursor && pool.queries.heldCount('session') === 0 && pool.queries.heldCount('issue') === 0)
+      (!state.hasCursor &&
+        pool.queries.heldCount('session') === 0 &&
+        pool.queries.heldCount('issue') === 0)
     )
   }
   class ScreeningQueue {
@@ -59,21 +61,11 @@ export function createMobileInboxViews(pool: MobxPool) {
   }
   function session(identifier: string): Loaded<SessionView> {
     const trimmed = identifier.trim()
-    const direct = omitGone(pool.row('session', trimmed)) as Loaded<SessionView>
-    if (direct && direct !== LOADING && !pool.queries.collapsed(trimmed)) return direct
-    if (!parseSessionRef(trimmed)) return direct === LOADING ? LOADING : undefined
-    let pending = false
-    // Reference membership is indexed by the feed; rows still use one reader.
-    const ids = pool.queries
-      .ids({ kind: 'sessionReference', ref: trimmed })
-      .sort((a, b) => pool.queries.orderKey(a).localeCompare(pool.queries.orderKey(b)))
-    for (const id of ids) {
-      if (pool.queries.collapsed(id)) continue
-      const row = omitGone(pool.row('session', id)) as Loaded<SessionView>
-      if (row === LOADING) pending = true
-      else if (row?.displayRef === trimmed) return row
-    }
-    return pending ? LOADING : undefined
+    // The same indexed identity lookup desktop uses includes exited sessions.
+    // Stored rows carry ref fields, not the derived displayRef string.
+    const id =
+      pool.queries.linkedSessionId(trimmed) ?? (!parseSessionRef(trimmed) ? trimmed : undefined)
+    return id ? (omitGone(pool.row('session', id)) as Loaded<SessionView>) : undefined
   }
   function route(target: PodiumTarget): Loaded<string | null> {
     if ((target.kind !== 'issue' && target.kind !== 'session') || target.search || target.hash)

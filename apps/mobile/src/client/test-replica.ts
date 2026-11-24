@@ -10,9 +10,12 @@ import {
   type ReplicaRows,
   rowKey,
 } from '@podium/client-core/replica'
+import type { StoreTranscriptCache } from '@podium/client-core/transcript-store'
 import type { EntityRecord } from '@podium/sync/replica'
 
-export function createMobileTestReplica(): Replica & { finishBootstrap(): void } {
+export function createMobileTestReplica(
+  options: { transcripts?: StoreTranscriptCache } = {},
+): Replica & { finishBootstrap(): void } {
   const records = new Map<string, EntityRecord>()
   let seq = 0
   const key = (entity: string, id: string) => `${entity}:${id}`
@@ -24,6 +27,7 @@ export function createMobileTestReplica(): Replica & { finishBootstrap(): void }
       durability: () => 'degraded-memory',
     },
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+    ...(options.transcripts ? { transcripts: options.transcripts } : {}),
   })
   function applyChanges<K extends ReplicaKind>(kind: K, rows: ReplicaRows[K][], removed: string[]) {
     const entity = entityForKind(kind)

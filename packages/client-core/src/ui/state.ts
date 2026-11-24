@@ -130,6 +130,18 @@ export function visibleTabIds(st: ScreenState): SessionId[] {
     .filter((id): id is SessionId => id != null)
 }
 
+/** Route-owned visibility is independent of remembered workspace tabs. */
+export function visibleScreenSessions(
+  st: ScreenState,
+  screenFocus?: UserFocus | null,
+): SessionId[] {
+  if (screenFocus === undefined) return visibleTabIds(st)
+  return (
+    screenFocus?.visibleSessionIds ??
+    (screenFocus?.focusedSessionId ? [screenFocus.focusedSessionId] : [])
+  )
+}
+
 /**
  * Which pane the operator is typing into.
  *
@@ -141,7 +153,11 @@ export function visibleTabIds(st: ScreenState): SessionId[] {
  * The scalar path survives for the empty-workspace case {@link visibleTabIds}
  * describes.
  */
-export function focusedPaneSession(st: ScreenState): SessionId | null {
+export function focusedPaneSession(
+  st: ScreenState,
+  screenFocus?: UserFocus | null,
+): SessionId | null {
+  if (screenFocus !== undefined) return screenFocus?.focusedSessionId ?? null
   const ws = currentWorkspace(st)
   if (allTabIds(ws).length === 0) {
     return st.split ? (st.focusedPane === 'A' ? st.paneA : st.paneB) : st.paneA
@@ -450,7 +466,9 @@ export function workspaceMembership(
             else if (issue?.worktreePath) worktrees.push(issue.worktreePath)
           }
         }
-        return loading || worktrees.some((wt) => isMachinePathWithinRoot(wt, session.cwd))
+        return (
+          loading || worktrees.some((wt) => isMachinePathWithinRoot(wt, session.cwd))
+        )
       }
     }
   }
@@ -480,9 +498,18 @@ export function referencedTabIds(st: Pick<ScreenState, 'workspaces'>): Set<strin
  *
  *  A miss is final, not pending: under a scoped slice the selected issue may
  *  simply not be visible to this principal. */
-export function foregroundIssue(st: ScreenState): NavigationIssue | undefined {
+export function foregroundIssue(
+  st: ScreenState,
+  screenFocus?: UserFocus | null,
+): NavigationIssue | undefined {
   const id =
-    st.view === 'issues' ? st.openIssueId : st.view === 'workspace' ? st.selectedIssueId : null
+    screenFocus !== undefined
+      ? (screenFocus?.openIssueId ?? screenFocus?.issueId)
+      : st.view === 'issues'
+        ? st.openIssueId
+        : st.view === 'workspace'
+          ? st.selectedIssueId
+          : null
   if (!id) return undefined
   if (st.navigation) {
     const issue = st.navigation.issue(id)

@@ -1,5 +1,5 @@
 import { lazy } from '@podium/mobx-helpers'
-import type { MessageRecordWire, SessionId, SessionOffer } from '@podium/model'
+import type { MessageRecordWire, SessionId, SessionOffer, TranscriptItem } from '@podium/model'
 import { formatAgentError } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import {
@@ -31,6 +31,7 @@ import type { TranscriptChange, TranscriptLog } from './transcript-log'
 
 export interface SendsOptions extends ConversationSendOptions {
   transcript: TranscriptLog
+  compactionFor?: (receiptId: string) => TranscriptItem | undefined
   drafts: Pick<DraftStore, 'get' | 'set'>
   /** Reads the observable pool session row; no updateContext pushes. */
   readContext: () => ConversationContext
@@ -147,9 +148,33 @@ export class Sends {
       transcriptIds: this.options.transcript.byId,
       seenOpen: this.seenOpen,
       seenHistory: this.seenUserIds,
+      receiptIsProven: (record) => this.receiptIsProven(record),
       hidden: new Set(this.hidden.keys()),
       retracting: this.retracting,
     })
+  }
+
+  /** Server time of the newest message still in flight, or null when every
+   * visible attempt failed. Local times cannot be compared with stoppedAt. */
+  @lazy get wakeRequestedAt(): number | null | undefined {
+    let latest: number | undefined
+    let inFlight = false
+    let failed = false
+    for (const bubble of this.bubbles) {
+      if (bubble.state === 'failed' || bubble.state === 'unknown') failed = true
+      if (
+        bubble.state !== 'sending' &&
+        bubble.state !== 'queued' &&
+        bubble.state !== 'sent' &&
+        bubble.state !== 'accepted'
+      )
+        continue
+      inFlight = true
+      if (!bubble.record) continue
+      const at = Date.parse(bubble.record.createdAt)
+      if (Number.isFinite(at) && (latest === undefined || at > latest)) latest = at
+    }
+    return latest ?? (!inFlight && failed ? null : undefined)
   }
 
   @action start(): void {
@@ -406,12 +431,22 @@ export class Sends {
     }
   }
 
-  @action async interrupt(draft = this.draft): Promise<boolean> {
+  /**
+   * Stop the running turn. With an empty draft the last prompt comes back into
+   * the composer to edit, as Esc does in the terminal, unless `restore` is
+   * false. The phone passes false (POD-2423): there a Stop tapped right after a
+   * send refilled the field with words that had already reached the agent, and
+   * that read as "not sent", so the operator sent them again.
+   */
+  @action async interrupt(
+    draft = this.draft,
+    options: { restore?: boolean } = {},
+  ): Promise<boolean> {
     if (this.disposed) return false
     if (!this.context.canInterrupt || !this.options.interrupt) return false
     this.patch({ interruptError: null })
     const prompt = this.context.latestOperatorPrompt ?? this.options.transcript.latestOperatorPrompt
-    if (draft === '' && prompt) this.setDraft(prompt)
+    if (options.restore !== false && draft === '' && prompt) this.setDraft(prompt)
     try {
       const messageId = this.interruptMessageId
       await this.options.interrupt(messageId ?? undefined)
@@ -522,6 +557,7 @@ export class Sends {
       text,
       wire,
       at: this.clock.now(),
+      afterTranscriptId: this.options.transcript.ids.at(-1) ?? null,
       state: 'sending',
       kind,
       ...(input.backend ? { backend: input.backend } : {}),
@@ -780,6 +816,7 @@ export class Sends {
       }
     }
     const completed = this.consumeConfirmedTranscript()
+    this.settleCompaction(completed)
     const pending = this.pending.filter(
       (turn) =>
         (turn.state === 'retracted' || !completed.has(turn.deliveryId)) &&
@@ -845,10 +882,6 @@ export class Sends {
   /** Called by TranscriptLog inside the append/read action, never by a reaction.
    * A delta examines only its changed entries; reads/resets may establish a baseline. */
   @action reconcile(change: TranscriptChange, baseline = false): void {
-    const completed = this.consumeConfirmedTranscript()
-    const retained = this.pending.filter(
-      (turn) => turn.state === 'retracted' || !completed.has(turn.deliveryId),
-    )
     const users = change.changed
       .filter((item) => item.role === 'user')
       .sort(
@@ -856,8 +889,16 @@ export class Sends {
           (this.options.transcript.position(left.id) ?? -1) -
           (this.options.transcript.position(right.id) ?? -1),
       )
-    if (baseline || !this.userBaselineReady) {
+    const establishBaseline = baseline || !this.userBaselineReady
+    if (establishBaseline) {
       this.seenUserIds.replace(users.map((item) => item.id))
+    }
+    const completed = this.consumeConfirmedTranscript()
+    this.settleCompaction(completed)
+    const retained = this.pending.filter(
+      (turn) => turn.state === 'retracted' || !completed.has(turn.deliveryId),
+    )
+    if (establishBaseline) {
       this.seenUserTailId = this.options.transcript.latestUserId
       this.userBaselineReady = true
       this.patch(retained.length === this.pending.length ? {} : { pending: retained })
@@ -909,6 +950,37 @@ export class Sends {
       this.looked.delete(record.id)
     }
     return completed
+  }
+
+  private receiptIsProven(record: ConversationMessage): boolean {
+    const id = record.transcriptItem?.id
+    if (!id) return false
+    const item = this.options.transcript.byId.get(id)
+    if (item?.systemKind !== 'compaction') return true
+    const group = this.options.compactionFor?.(id)
+    return group?.compaction?.trigger === 'manual' && Boolean(group.text.trim())
+  }
+
+  /** A compaction acknowledges only the authority's exact history receipt.
+   * A later boundary, a local sent state or missing metadata proves nothing.
+   * Retain proven receipt IDs in the existing history-membership set; do not
+   * suppress notices, so authoritative failure/cancellation always wins. */
+  private settleCompaction(completed: Set<string>): void {
+    for (const record of this.currentRecords()) {
+      const id = record.transcriptItem?.id
+      if (
+        !id ||
+        !/^\/compact(?:\s|$)/.test(record.body.trim()) ||
+        record.status === 'failed' ||
+        record.status === 'expired' ||
+        record.status === 'cancelled'
+      )
+        continue
+      const group = this.options.compactionFor?.(id)
+      if (group?.compaction?.trigger !== 'manual' || !group.text.trim()) continue
+      this.seenUserIds.add(id)
+      completed.add(record.id)
+    }
   }
 
   private markSent(): number {

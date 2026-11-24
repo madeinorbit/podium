@@ -10,15 +10,32 @@ import {
   type PinWire,
   type RepoProjection,
 } from '@podium/model'
-import { act, cleanup, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { observer } from 'mobx-react-lite'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { issueRowToProjection } from '../../../server/src/modules/issues/projection'
 import { issueRowFixture } from '../../../server/src/test-support/issue-row'
 import { useIssues } from '../../test/roster-hooks'
 import { useBooting, useIssue } from '../client/hooks'
+import {
+  ServerProfileContext,
+  type ServerProfileContextValue,
+} from '../client/server-profile-context'
 
-afterEach(cleanup)
+const navigation = vi.hoisted(() => ({
+  push: vi.fn(),
+  replace: vi.fn(),
+  back: vi.fn(),
+  hasBack: false,
+}))
+afterEach(() => {
+  cleanup()
+  navigation.push.mockClear()
+  navigation.replace.mockClear()
+  navigation.back.mockClear()
+  navigation.hasBack = false
+})
 
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
@@ -30,8 +47,9 @@ vi.mock('expo-haptics', () => ({
 vi.mock('expo-router', () => ({
   Stack: { Screen: () => null, SearchBar: () => null },
   useLocalSearchParams: () => ({ issueId: 'root', missionId: 'root' }),
-  useRouter: () => ({ push: vi.fn(), back: vi.fn(), replace: vi.fn(), canGoBack: () => false }),
+  useRouter: () => ({ ...navigation, canGoBack: () => navigation.hasBack }),
   usePathname: () => '/issue/root',
+  useNavigation: () => ({ setOptions: vi.fn(), dispatch: vi.fn() }),
 }))
 // The real screen stays mounted; only its native tab navigator has no host.
 vi.mock('expo-router/build/react-navigation/bottom-tabs', async () => {
@@ -81,6 +99,7 @@ vi.mock('../components/LaunchPlaceholders', () => ({
   BootstrapCrossfade: ({ children }: { children: ReactNode }) => <>{children}</>,
   DetailSkeleton: () => null,
   TasksSkeleton: () => null,
+  TranscriptSkeleton: () => null,
 }))
 // The real composer is chat furniture tested elsewhere; here it only has to be
 // findable, so the test can say WHERE the page put it.
@@ -167,16 +186,55 @@ const fixture = {
   issueGitStates: [git],
   repoProjections: [repo],
 }
+const profile: ServerProfileContextValue = {
+  profile: {
+    id: 'normalized-fixture',
+    name: 'Normalized fixture',
+    httpOrigin: 'http://127.0.0.1:0',
+    mode: 'open',
+    transport: 'insecure-http',
+    createdAt: '2026-09-30T10:00:00Z',
+    updatedAt: '2026-09-30T10:00:00Z',
+  },
+  profiles: [],
+  config: {
+    httpOrigin: 'http://127.0.0.1:0',
+    wsClientUrl: 'ws://127.0.0.1:0/client',
+    override: true,
+  },
+  bearer: null,
+  activation: 'verified',
+  runtimeKey: 'normalized-fixture',
+  isEphemeralOverride: true,
+  beginAddServer: () => {},
+  switchProfile: async () => {},
+  renameProfile: async () => {},
+  removeProfile: async () => {},
+  updateCredential: async () => {},
+  recordUser: async () => {},
+  revalidateOfflineProfile: async () => {},
+}
 let latest: IssueViewModel | undefined
 let actions: import('@podium/client-core/commands').Commands
-function Probe() {
+const Probe = observer(function Probe() {
   latest = useIssue('root')
   actions = useCommands()
   const issues = useIssues()
   const booting = useBooting()
-  // The detail is a live pool model (it holds its pool), so tests read it as
-  // `latest`; only the plain list and the boot flag are rendered.
-  return <div data-testid="model">{JSON.stringify({ list: issues, booting })}</div>
+  // Hook results are live graph models with pool references, not wire records.
+  return (
+    <div data-testid="model">
+      {JSON.stringify({
+        list: issues.map((issue) => ({ id: issue.id })),
+        detail: latest && { id: latest.id, title: latest.title, repoPath: latest.repoPath },
+        booting,
+      })}
+    </div>
+  )
+})
+
+function renderedModel() {
+  return JSON.parse(screen.getByTestId('model').textContent ?? '{}')
 }
 
 describe('mobile normalized issue reads with no legacy issue rows', () => {
@@ -185,7 +243,16 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
     ['mission', MissionScreen],
     ['issue detail', IssueScreen],
   ])('renders the %s screen from normalized homes', async (_name, Surface) => {
-    const mounted = await renderWithMobileStore(<Surface />, fixture)
+    const mounted = await renderWithMobileStore(
+      Surface === IssuesScreen ? (
+        <ServerProfileContext.Provider value={profile}>
+          <Surface />
+        </ServerProfileContext.Provider>
+      ) : (
+        <Surface />
+      ),
+      fixture,
+    )
     expect(await mounted.replica.hydrate()).not.toHaveProperty('issues')
     await waitFor(() =>
       expect(screen.getAllByText('Normalized mobile mission').length).toBeGreaterThan(0),
@@ -204,14 +271,41 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
       throw error
     })
     if (Surface === IssuesScreen) {
-      expect(screen.getByText('POD')).toBeTruthy()
-      expect(screen.getByText('42')).toBeTruthy()
+      expect(screen.getByText('POD-42')).toBeTruthy()
     }
     if (Surface === IssueScreen) {
       expect(screen.getAllByText(/POD-42/).length).toBeGreaterThan(0)
+      // The description is a visible inset-grouped section, no longer a fold.
       expect(screen.getByText('The normalized description.')).toBeTruthy()
       expect(screen.getByText('Ship normalized mobile?')).toBeTruthy()
     }
+  })
+
+  it.each([
+    false,
+    true,
+  ])('pushes a sub-task immediately and retains the parent detail when history is %s', async (hasBack) => {
+    navigation.hasBack = hasBack
+    const children = Array.from({ length: 6 }, (_, index) => ({
+      ...projection,
+      id: asIssueId(`child ${index}`),
+      seq: 43 + index,
+      title: `Detail child ${index}`,
+      parentId: projection.id,
+      needsHuman: false,
+      asked: undefined,
+    }))
+    await renderWithMobileStore(<IssueScreen />, {
+      ...fixture,
+      issueProjections: [projection, ...children],
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'See all sub-tasks' }))
+    const expanded = screen.getByTestId('sub-issues-card')
+    fireEvent.click(screen.getByRole('button', { name: /Detail child 5/ }))
+    expect(navigation.push).toHaveBeenCalledExactlyOnceWith('/issue/child%205')
+    expect(navigation.replace).not.toHaveBeenCalled()
+    expect(screen.getByTestId('sub-issues-card')).toBe(expanded)
+    expect(screen.getByRole('button', { name: /Detail child 5/ })).toBeTruthy()
   })
 
   it('renders an outstanding question whose historical asker is unknown', async () => {
@@ -256,9 +350,14 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
     expect(latest).not.toHaveProperty('draft')
     expect(latest).not.toHaveProperty('origin')
     expect(latest).not.toHaveProperty('humanQuestion')
-    const rendered = JSON.parse(screen.getByTestId('model').textContent ?? '{}')
+    const rendered = renderedModel()
     expect(rendered.list).toHaveLength(1)
     expect(rendered.list[0].id).toBe(projection.id)
+    expect(rendered.detail).toEqual({
+      id: projection.id,
+      title: projection.title,
+      repoPath: '/normalized/podium',
+    })
     expect(rendered.booting).toBe(false)
   })
 
@@ -272,10 +371,13 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
     })
     await act(async () => replica.applyChanges('repos', [repo], []))
     expect(latest?.repoPath).toBe('/normalized/podium')
+    expect(renderedModel().detail.repoPath).toBe('/normalized/podium')
     await act(async () => replica.applyChanges('issueProjections', [], [projection.id]))
     expect(latest).toBeUndefined()
+    expect(renderedModel().detail).toBeUndefined()
     await act(async () => replica.applyChanges('issueProjections', [projection], []))
     expect(latest?.title).toBe(projection.title)
+    expect(renderedModel().detail.title).toBe(projection.title)
   })
 
   it('paints normalized edits and rolls them back after a refused update', async () => {
@@ -295,6 +397,7 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
         .catch(() => {})
     })
     expect(latest?.title).toBe('Optimistic normalized title')
+    expect(renderedModel().detail.title).toBe('Optimistic normalized title')
     await waitFor(() => expect(update).toHaveBeenCalled())
     await act(async () => {
       refuse(
@@ -303,5 +406,6 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
       await completion
     })
     await waitFor(() => expect(latest?.title).toBe(projection.title))
+    expect(renderedModel().detail.title).toBe(projection.title)
   })
 })

@@ -273,6 +273,9 @@ interface Painted {
 
 const PROJECTION_KEYS = Object.keys(IssueProjection.shape)
 
+/** A launch's failure notice, keyed so its retry can dismiss it alone. */
+const launchNoticeId = (sessionId: SessionId): string => `launch:${sessionId}`
+
 export class PoolLaunches {
   private disposed = false
   /** Launch placeholders this pool paints, by session id. */
@@ -498,6 +501,7 @@ export class PoolLaunches {
         this.hide(sessionId)
         this.ports.notices.error(
           `Couldn't start the ${subject} — ${error instanceof Error ? error.message : 'unknown error'}`,
+          launchNoticeId(sessionId),
         )
         this.settle(sessionId, false)
         this.answer(sessionId, false)
@@ -709,7 +713,7 @@ export class PoolLaunches {
     if (ended) {
       if (this.local.has(launch.sessionId) && !this.told.has(launch.effectId)) {
         this.told.add(launch.effectId)
-        this.ports.notices.error(this.failureText(launch))
+        this.ports.notices.error(this.failureText(launch), launchNoticeId(launch.sessionId))
       }
       this.settle(launch.sessionId, false)
       this.answer(launch.sessionId, false)
@@ -883,6 +887,8 @@ export class PoolLaunches {
   }
 
   private settle(sessionId: SessionId, started: boolean): void {
+    // An accepted retry (the same session id) resolves its earlier failure.
+    if (started) this.ports.notices.dismissError?.(launchNoticeId(sessionId))
     const settle = this.settlers.get(sessionId)
     if (settle === undefined) return
     this.settlers.delete(sessionId)

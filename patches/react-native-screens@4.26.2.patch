@@ -1,0 +1,335 @@
+diff --git a/android/src/main/java/com/swmansion/rnscreens/ScreenStackHeaderConfigViewManager.kt b/android/src/main/java/com/swmansion/rnscreens/ScreenStackHeaderConfigViewManager.kt
+index fa1b77317f609983ae2434764174072e51130550..79a9f22f08289e329043633e034177f433d3df15 100644
+--- a/android/src/main/java/com/swmansion/rnscreens/ScreenStackHeaderConfigViewManager.kt
++++ b/android/src/main/java/com/swmansion/rnscreens/ScreenStackHeaderConfigViewManager.kt
+@@ -124,6 +124,17 @@ class ScreenStackHeaderConfigViewManager :
+         config.setTitle(title)
+     }
+ 
++    // The navigation item subtitle is an iOS 26 UIKit feature.
++    override fun setSubtitle(
++        config: ScreenStackHeaderConfig,
++        subtitle: String?,
++    ) = Unit
++
++    override fun setLargeSubtitle(
++        config: ScreenStackHeaderConfig,
++        largeSubtitle: String?,
++    ) = Unit
++
+     override fun setTitleFontFamily(
+         config: ScreenStackHeaderConfig,
+         titleFontFamily: String?,
+diff --git a/ios/RNSScreenContentWrapper.mm b/ios/RNSScreenContentWrapper.mm
+index 7756a55b7aef23de1ad248e3471cebf69e4aceba..0fbd32e1b6d60c0867764cefbfcb1ff2bb80a1e7 100644
+--- a/ios/RNSScreenContentWrapper.mm
++++ b/ios/RNSScreenContentWrapper.mm
+@@ -10,6 +10,7 @@
+ #import "RNSSafeAreaViewComponentView.h"
+ #import "RNSScreen.h"
+ #import "RNSScreenStack.h"
++#import "RNSScreenStackHeaderConfig.h"
+ 
+ namespace react = facebook::react;
+ 
+@@ -43,6 +44,7 @@ namespace react = facebook::react;
+ {
+   UIViewController *controller = screenCtrl;
+   float headerHeightErrata = 0.f;
++  BOOL contentExtendsUnderNavigationBar = NO;
+ 
+   do {
+     if ([controller isKindOfClass:RNSScreen.class]) {
+@@ -50,9 +52,14 @@ namespace react = facebook::react;
+       if ([currentScreen.screenView registerContentWrapper:self contentHeightErrata:headerHeightErrata]) {
+         break;
+       }
++      contentExtendsUnderNavigationBar = [currentScreen.screenView findHeaderConfig].translucent;
+     } else if ([controller isKindOfClass:RNSNavigationController.class]) {
+       UINavigationBar *navigationBar = static_cast<RNSNavigationController *>(controller).navigationBar;
+-      headerHeightErrata += navigationBar.frame.size.height * !navigationBar.isHidden;
++      // Extended content already includes the transparent bar in its measured
++      // layout. Only a bar outside the content needs adding to the detent.
++      if (!contentExtendsUnderNavigationBar) {
++        headerHeightErrata += navigationBar.frame.size.height * !navigationBar.isHidden;
++      }
+     }
+ 
+     controller = controller.parentViewController;
+diff --git a/ios/RNSScreenStack.mm b/ios/RNSScreenStack.mm
+index 192f5d2c77192f323844b0d11ee179081891e7a4..ecf2feab001279d2ad4629057963ddc0b934f54e 100644
+--- a/ios/RNSScreenStack.mm
++++ b/ios/RNSScreenStack.mm
+@@ -38,7 +38,43 @@ namespace react = facebook::react;
+ 
+ @end
+ 
+-@implementation RNSNavigationController
++@interface RNSNavigationController ()
++- (void)rnscreens_deferHeaderForViewController:(UIViewController *)viewController;
++@end
++
++@implementation RNSNavigationController {
++  // The screen whose header UIKit asked for while this stack was off-window.
++  __weak UIViewController *_deferredHeaderViewController;
++#if !TARGET_OS_TV
++  __weak UINavigationItem *_scrollToTopNavigationItem;
++  CGFloat _scrollToTopLayoutWidth;
++  UIContentSizeCategory _scrollToTopContentSizeCategory;
++  UIUserInterfaceSizeClass _scrollToTopVerticalSizeClass;
++  CGFloat _scrollToTopExpandedBarHeight;
++#endif
++}
++
++// A tab re-show runs UINavigationController's willShow delegate from
++// viewWillAppear, before this stack is back in a window and before its traits
++// are current. Bar items rebuilt there after a hidden light/dark change come
++// back without their Liquid Glass platter. viewIsAppearing runs with the view
++// in the window and current traits, still before the first visible frame.
++- (void)rnscreens_deferHeaderForViewController:(UIViewController *)viewController
++{
++  _deferredHeaderViewController = viewController;
++}
++
++- (void)viewIsAppearing:(BOOL)animated
++{
++  [super viewIsAppearing:animated];
++  UIViewController *screen = _deferredHeaderViewController;
++  _deferredHeaderViewController = nil;
++  if (screen == nil || screen != self.topViewController || ![screen.view isKindOfClass:RNSScreenView.class]) {
++    return;
++  }
++  RNSScreenStackHeaderConfig *config = ((RNSScreenView *)screen.view).findHeaderConfig;
++  [RNSScreenStackHeaderConfig willShowViewController:screen animated:NO withConfig:config];
++}
+ 
+ #if !TARGET_OS_TV
+ - (UIViewController *)childViewControllerForStatusBarStyle
+@@ -76,6 +112,43 @@ namespace react = facebook::react;
+ 
+     [self maybeUpdateHeaderLayoutInfoInShadowTree:screenController];
+   }
++
++  UIScrollView *scrollView =
++      [RNSScrollViewFinder findScrollViewInFirstDescendantChainFrom:self.topViewController.view];
++  [self rnscreens_scrollToTopInsetForScrollView:scrollView];
++}
++
++- (CGFloat)rnscreens_scrollToTopInsetForScrollView:(UIScrollView *)scrollView
++{
++  CGFloat topInset = scrollView.adjustedContentInset.top;
++  UINavigationItem *navigationItem = self.topViewController.navigationItem;
++  if (self.viewControllers.count != 1 || self.isNavigationBarHidden || !self.navigationBar.prefersLargeTitles ||
++      navigationItem.largeTitleDisplayMode == UINavigationItemLargeTitleDisplayModeNever) {
++    return topInset;
++  }
++
++  // UIKit reduces adjustedContentInset along with a collapsed large title. Remember
++  // the expanded bar during layout, before a re-tap needs to restore that height.
++  // Reset measurements when the root, orientation or Dynamic Type size changes.
++  CGFloat layoutWidth = self.view.bounds.size.width;
++  UIContentSizeCategory contentSizeCategory = self.traitCollection.preferredContentSizeCategory;
++  if (_scrollToTopNavigationItem != navigationItem || _scrollToTopLayoutWidth != layoutWidth ||
++      ![_scrollToTopContentSizeCategory isEqualToString:contentSizeCategory] ||
++      _scrollToTopVerticalSizeClass != self.traitCollection.verticalSizeClass) {
++    _scrollToTopNavigationItem = navigationItem;
++    _scrollToTopLayoutWidth = layoutWidth;
++    _scrollToTopContentSizeCategory = contentSizeCategory;
++    _scrollToTopVerticalSizeClass = self.traitCollection.verticalSizeClass;
++    _scrollToTopExpandedBarHeight = 0;
++  }
++
++  CGFloat barHeight = self.navigationBar.bounds.size.height;
++  if (!scrollView.isDragging && !scrollView.isDecelerating) {
++    _scrollToTopExpandedBarHeight = MAX(_scrollToTopExpandedBarHeight, barHeight);
++  }
++
++  // Use today's safe area and content inset; only the measured title delta is cached.
++  return topInset + MAX(0, _scrollToTopExpandedBarHeight - barHeight);
+ }
+ 
+ - (UIInterfaceOrientationMask)supportedInterfaceOrientations
+@@ -145,7 +218,11 @@ namespace react = facebook::react;
+   } else if (tabScreenController.tabScreenComponentView.shouldUseRepeatedTabSelectionScrollToTopSpecialEffect) {
+     UIScrollView *scrollView =
+         [RNSScrollViewFinder findScrollViewInFirstDescendantChainFrom:[[self topViewController] view]];
++#if !TARGET_OS_TV
++    return [scrollView rnscreens_scrollToTopWithTopInset:[self rnscreens_scrollToTopInsetForScrollView:scrollView]];
++#else
+     return [scrollView rnscreens_scrollToTop];
++#endif
+   }
+ 
+   return false;
+@@ -248,6 +325,12 @@ namespace react = facebook::react;
+     // if the current view is a snapshot, config was already removed so we don't trigger the method
+     return;
+   }
++  if (navigationController.view.window == nil &&
++      [navigationController isKindOfClass:RNSNavigationController.class]) {
++    // Off-window (a tab being re-shown): apply once the stack is in its window.
++    [(RNSNavigationController *)navigationController rnscreens_deferHeaderForViewController:viewController];
++    return;
++  }
+   auto *screenView = static_cast<RNSScreenView *>(viewController.view);
+   [RNSScreenStackHeaderConfig willShowViewController:viewController
+                                             animated:animated
+diff --git a/ios/RNSScreenStackHeaderConfig.h b/ios/RNSScreenStackHeaderConfig.h
+index 8a41697223f6c4b5cb2dd6d450fc58cbb3b27536..41896f499a192ec8c205a09704326f09399a94bb 100644
+--- a/ios/RNSScreenStackHeaderConfig.h
++++ b/ios/RNSScreenStackHeaderConfig.h
+@@ -23,6 +23,8 @@
+ NS_ASSUME_NONNULL_BEGIN
+ 
+ @property (nonatomic, retain) NSString *title;
++@property (nonatomic, retain, nullable) NSString *subtitle;
++@property (nonatomic, retain, nullable) NSString *largeSubtitle;
+ @property (nonatomic, retain) NSString *titleFontFamily;
+ @property (nonatomic, retain) NSNumber *titleFontSize;
+ @property (nonatomic, retain) NSString *titleFontWeight;
+diff --git a/ios/RNSScreenStackHeaderConfig.mm b/ios/RNSScreenStackHeaderConfig.mm
+index 1c844846a5c66e31cfa530ca462774d2fb6bbea1..689d7aa193c52afa8287d3b16e2b42757d4c831f 100644
+--- a/ios/RNSScreenStackHeaderConfig.mm
++++ b/ios/RNSScreenStackHeaderConfig.mm
+@@ -365,6 +365,18 @@ RNS_IGNORE_SUPER_CALL_END
+   }
+ }
+ 
++// Podium (POD-2666): the content size category the header renders in. The
++// current trait collection during a props update is not the window's.
++static UITraitCollection *RNSHeaderTraits(UIViewController *vc)
++{
++  UITraitCollection *traits = vc.view.window.traitCollection ?: vc.traitCollection;
++  if (traits.preferredContentSizeCategory == UIContentSizeCategoryUnspecified) {
++    return [UITraitCollection traitCollectionWithPreferredContentSizeCategory:
++                                  UIApplication.sharedApplication.preferredContentSizeCategory];
++  }
++  return traits;
++}
++
+ + (UINavigationBarAppearance *)buildAppearance:(UIViewController *)vc withConfig:(RNSScreenStackHeaderConfig *)config
+ {
+   UINavigationBarAppearance *appearance = [UINavigationBarAppearance new];
+@@ -431,6 +443,13 @@ RNS_IGNORE_SUPER_CALL_END
+     } else {
+       attrs[NSFontAttributeName] = [UIFont boldSystemFontOfSize:[size floatValue]];
+     }
++    // Podium (POD-2666): at the default size the title follows Dynamic Type, as
++    // UIKit's own does; an explicit fontSize stays fixed.
++    if (config.titleFontSize == nil) {
++      attrs[NSFontAttributeName] = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleHeadline]
++                  scaledFontForFont:attrs[NSFontAttributeName]
++          compatibleWithTraitCollection:RNSHeaderTraits(vc)];
++    }
+     appearance.titleTextAttributes = attrs;
+   }
+ 
+@@ -459,6 +478,13 @@ RNS_IGNORE_SUPER_CALL_END
+     } else {
+       largeAttrs[NSFontAttributeName] = [UIFont systemFontOfSize:[largeSize floatValue] weight:UIFontWeightBold];
+     }
++    // Podium (POD-2666): at the default size the large title follows Dynamic
++    // Type, as UIKit's own does; an explicit fontSize stays fixed.
++    if (config.largeTitleFontSize == nil) {
++      largeAttrs[NSFontAttributeName] = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleLargeTitle]
++                  scaledFontForFont:largeAttrs[NSFontAttributeName]
++          compatibleWithTraitCollection:RNSHeaderTraits(vc)];
++    }
+ 
+     appearance.largeTitleTextAttributes = largeAttrs;
+   }
+@@ -513,7 +539,11 @@ RNS_IGNORE_SUPER_CALL_END
+     return;
+   }
+ 
+-  navctr.navigationBar.overrideUserInterfaceStyle = config.userInterfaceStyle;
++  // Reapplying the same override during header/page/focus updates can discard
++  // iOS 26 bar-button glass. Let UIKit inherit traits without another transition.
++  if (navctr.navigationBar.overrideUserInterfaceStyle != config.userInterfaceStyle) {
++    navctr.navigationBar.overrideUserInterfaceStyle = config.userInterfaceStyle;
++  }
+ 
+ #if !TARGET_OS_TV
+   [config configureBackItem:prevItem withPrevVC:prevVC];
+@@ -648,6 +678,12 @@ RNS_IGNORE_SUPER_CALL_END
+   // This assignment should be done after `navitem.titleView = ...` assignment (iOS 16.0 bug).
+   // See: https://github.com/software-mansion/react-native-screens/issues/1570 (comments)
+   navitem.title = config.title;
++#if defined(__IPHONE_26_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_26_0
++  if (@available(iOS 26.0, *)) {
++    navitem.subtitle = config.subtitle;
++    navitem.largeSubtitle = config.largeSubtitle;
++  }
++#endif
+   navitem.leftBarButtonItems = [config barButtonItemsFromConfigs:config.headerLeftBarButtonItems
+                                                 withCurrentItems:navitem.leftBarButtonItems];
+   navitem.rightBarButtonItems = [config barButtonItemsFromConfigs:config.headerRightBarButtonItems
+@@ -1023,6 +1059,8 @@ static RCTResizeMode resizeModeFromCppEquiv(react::ImageResizeMode resizeMode)
+   }
+ 
+   _title = RCTNSStringFromStringNilIfEmpty(newScreenProps.title);
++  _subtitle = RCTNSStringFromStringNilIfEmpty(newScreenProps.subtitle);
++  _largeSubtitle = RCTNSStringFromStringNilIfEmpty(newScreenProps.largeSubtitle);
+   if (newScreenProps.titleFontFamily != oldScreenProps.titleFontFamily) {
+     _titleFontFamily = RCTNSStringFromStringNilIfEmpty(newScreenProps.titleFontFamily);
+   }
+diff --git a/ios/UIScrollView+RNScreens.h b/ios/UIScrollView+RNScreens.h
+index 6a481fb4e17b2fa0d29775f9c857ca776e57a2af..96bbe07097a18a629cb8f9d97f5bb6437ac684af 100644
+--- a/ios/UIScrollView+RNScreens.h
++++ b/ios/UIScrollView+RNScreens.h
+@@ -11,6 +11,9 @@ NS_ASSUME_NONNULL_BEGIN
+  */
+ - (BOOL)rnscreens_scrollToTop;
+ 
++/** Scrolls to a measured top inset, including the expanded navigation title. */
++- (BOOL)rnscreens_scrollToTopWithTopInset:(CGFloat)topInset;
++
+ @end
+ 
+ NS_ASSUME_NONNULL_END
+diff --git a/ios/UIScrollView+RNScreens.mm b/ios/UIScrollView+RNScreens.mm
+index c877d5c2e2ad37032736172d38651c7561805989..9dabed5383a148b5aa7188b18960a0cd7f0d1d19 100644
+--- a/ios/UIScrollView+RNScreens.mm
++++ b/ios/UIScrollView+RNScreens.mm
+@@ -4,8 +4,13 @@
+ 
+ - (BOOL)rnscreens_scrollToTop
+ {
+-  if ([self contentOffset].y != -self.adjustedContentInset.top) {
+-    [self setContentOffset:CGPointMake(0, -self.adjustedContentInset.top) animated:YES];
++  return [self rnscreens_scrollToTopWithTopInset:self.adjustedContentInset.top];
++}
++
++- (BOOL)rnscreens_scrollToTopWithTopInset:(CGFloat)topInset
++{
++  if ([self contentOffset].y != -topInset) {
++    [self setContentOffset:CGPointMake(self.contentOffset.x, -topInset) animated:YES];
+     return YES;
+   }
+ 
+diff --git a/lib/typescript/fabric/ScreenStackHeaderConfigNativeComponent.d.ts b/lib/typescript/fabric/ScreenStackHeaderConfigNativeComponent.d.ts
+index a51d8648567cff29cd2be0d5262bd15c6fc69c61..7eb4179e6acf42e13fbe2458cd041a3216d93cbf 100644
+--- a/lib/typescript/fabric/ScreenStackHeaderConfigNativeComponent.d.ts
++++ b/lib/typescript/fabric/ScreenStackHeaderConfigNativeComponent.d.ts
+@@ -32,6 +32,8 @@ export interface NativeProps extends ViewProps {
+     largeTitleColor?: ColorValue | undefined;
+     translucent?: boolean | undefined;
+     title?: string | undefined;
++    subtitle?: string | undefined;
++    largeSubtitle?: string | undefined;
+     titleFontFamily?: string | undefined;
+     titleFontSize?: CT.Int32 | undefined;
+     titleFontWeight?: string | undefined;
+diff --git a/src/fabric/ScreenStackHeaderConfigNativeComponent.ts b/src/fabric/ScreenStackHeaderConfigNativeComponent.ts
+index a80d9fef0c0ab5ce8221c5e0c7fae65162bc6164..38660fa7e0f41b91568760b525b221a6fa23c13e 100644
+--- a/src/fabric/ScreenStackHeaderConfigNativeComponent.ts
++++ b/src/fabric/ScreenStackHeaderConfigNativeComponent.ts
+@@ -61,6 +61,8 @@ export interface NativeProps extends ViewProps {
+   largeTitleColor?: ColorValue | undefined;
+   translucent?: boolean | undefined;
+   title?: string | undefined;
++  subtitle?: string | undefined;
++  largeSubtitle?: string | undefined;
+   titleFontFamily?: string | undefined;
+   titleFontSize?: CT.Int32 | undefined;
+   titleFontWeight?: string | undefined;

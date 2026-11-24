@@ -269,6 +269,19 @@ export function anyRefMatcher(): RegExp {
   return new RegExp(`\\b${ANY_REF_SOURCE}\\b`, 'g')
 }
 
+/**
+ * The ref token when `text` is exactly one ref and nothing else, else null.
+ * Markdown renderers unwrap an inline code span holding only a ref into a ref
+ * chip: `POD-13` in backticks is how agents write refs, while a ref quoted in a
+ * longer span (a command, a path) stays literal. Shared by web and phone.
+ */
+export function soleRefToken(text: string): string | null {
+  const tok = text.trim()
+  if (!tok) return null
+  const m = anyRefMatcher().exec(tok)
+  return m && m[0] === tok ? tok : null
+}
+
 // ---------------------------------------------------------------------------
 // Canonical display formats
 // ---------------------------------------------------------------------------

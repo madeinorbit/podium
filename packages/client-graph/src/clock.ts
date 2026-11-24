@@ -55,9 +55,22 @@ export const UNTRACKED_READS: Readonly<Record<string, string>> = {
   'pool-session-position': 'Read the insertion position from the device index; the demanded position atom owns invalidation.',
   'pool-auxiliary-presence': 'Observe auxiliary row presence only; acquisition returns a stable reader handle, not live row fields.',
   'pool-formal-parent': 'Read the plain parent twin after observing the source table slot.',
-  'query-result-seed': 'Seed demanded rows synchronously; row reactions and membership subscriptions maintain result atoms.',
-  'lazy-batch-probe': 'Ask whether @lazy runs inside a MobX batch; the probe computed must never become a reader\'s dependency.',
-  'spawn-sort-peek': 'Read addressed placement rows inside the spawn action without requesting cold payloads.',
-  'fresh-record-placement': 'Read held rows once when a create is pressed, to guess a new record\'s placement; its paint is fixed for the entry\'s life.',
-  'command-target-held': 'Ask once, when a command is reduced, whether the device holds its target; an absent target paints nothing and its result arrives through the feed.',
+  'query-result-seed':
+    'Seed demanded rows synchronously; row reactions and membership subscriptions maintain result atoms.',
+  'lazy-batch-probe':
+    "Ask whether @lazy runs inside a MobX batch; the probe computed must never become a reader's dependency.",
+  'spawn-sort-peek':
+    'Read addressed placement rows inside the spawn action without requesting cold payloads.',
+  'fresh-record-placement':
+    "Read held rows once when a create is pressed, to guess a new record's placement; its paint is fixed for the entry's life.",
+  'command-target-held':
+    'Ask once, when a command is reduced, whether the device holds its target; an absent target paints nothing and its result arrives through the feed.',
+  'clock-store-snapshot':
+    'Seed a React clock snapshot without subscribing its enclosing observer; the explicit store subscription owns later clock invalidation.',
+  'task-cost-project-peek':
+    "Read a held issue's repository without loading it; the stub and repository row answer otherwise, and the cost answer re-renders the groups.",
+  'pulse-held-usage':
+    'Leaving Pulse keeps the last usage reading on screen without holding account.usage; focus resumes the live read.',
+  'work-search-child-peek':
+    'Work search skips sub-tasks not in memory instead of loading them; the next query re-runs it.',
 }

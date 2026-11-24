@@ -32,11 +32,14 @@ import { RuntimeProvider, useClientRuntime } from './runtime-root'
 export type { NoticeSink } from '../notices'
 export type { ClientPrincipal } from '../principal'
 export type { ServerOrigin } from '../runtime-root/types'
-export type { UserFocus } from '../ui/types'
+
+import type { UserFocus } from '../ui/types'
+
 // The main-view union lives with the router (URL ↔ view mapping).
 export type { MainView } from '../ui-state'
 export type { FileTab } from '../values'
 export { useClientRuntime } from './runtime-root'
+export type { UserFocus }
 
 /** The current principal, for DISPLAY only. Never an input to a command. */
 const PrincipalCtx = createContext<ClientPrincipal | null>(null)
@@ -81,6 +84,7 @@ export interface StoreProviderProps<TApi extends PodiumClientApi> {
    * native answers (AppState, NetInfo) and web passes none of them.
    */
   visibility?: VisibilitySource
+  screenFocus?: () => UserFocus | null
   onlineEvents?: OnlineEvents
   isOnline?: () => boolean
   heartbeatIntervalMs?: number
@@ -112,6 +116,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   feed,
   createOutboxFn,
   visibility,
+  screenFocus,
   onlineEvents,
   isOnline,
   heartbeatIntervalMs,
@@ -185,13 +190,15 @@ export function StoreProvider<TApi extends PodiumClientApi>({
         onFatalError: (m) => latest.current.onFatalError(m),
         formatError: (e, f) => latest.current.formatError(e, f),
         notices: {
-          error: (m) => latest.current.notices.error(m),
+          error: (m, id) => latest.current.notices.error(m, id),
+          dismissError: (id) => latest.current.notices.dismissError?.(id),
           info: (m, d) => latest.current.notices.info(m, d),
         },
         createReplicaFn,
         feed,
         createOutboxFn,
         visibility,
+        screenFocus,
         onlineEvents,
         isOnline,
         heartbeatIntervalMs,

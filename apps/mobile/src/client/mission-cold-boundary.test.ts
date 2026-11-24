@@ -11,7 +11,6 @@ import {
 import { openFenceFeeds } from '../../../../tests/worklist/harness/src/fence-feeds'
 import { FIXED_NOW } from '../../../../tests/worklist/harness/src/fixture/corpus'
 import { startScenarioEngine } from '../../../../tests/worklist/shared/src/scenarios'
-import { mostRelevantSession } from '../lib/mission-session'
 
 it('settles the phone mission for the closed corpus root i938', async () => {
   vi.useFakeTimers({ toFake: ['Date'] })
@@ -21,12 +20,7 @@ it('settles the phone mission for the closed corpus root i938', async () => {
   const ctx = await startScenarioEngine(1),
     feeds = openFenceFeeds(ctx, 'pooled')
   const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
-  const input = {
-    selectedId: 'i938',
-    mode: 'full' as const,
-    tasks: null,
-    selectSession: mostRelevantSession,
-  }
+  const input = { selectedId: 'i938', mode: 'full' as const, tasks: null }
   let stop = () => {}
   try {
     await attachMobileScreens(handle.pool)

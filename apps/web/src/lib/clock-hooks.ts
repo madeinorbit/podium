@@ -1,4 +1,5 @@
-import { clockStore, deadlineClock, now, nowForAge } from '@podium/mobx-helpers'
+import { relativeTimeNextChangeAt } from '@podium/client-core/focus'
+import { type AgeNextChange, clockStore, deadlineClock, now, nowForAge } from '@podium/mobx-helpers'
 import { useMemo, useSyncExternalStore } from 'react'
 import { usePanelVisible } from '@/app/panel-visible'
 
@@ -11,11 +12,18 @@ export function useClock(precision: number, enabled = true): number {
   return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
 }
 
-export function useAgeNow(since: number | string, baseMs = 0, enabled = true): number {
+export function useAgeNow(
+  since: number | string,
+  baseMs = 0,
+  enabled = true,
+  secondsUntil = 0,
+  nextChangeAt: AgeNextChange = relativeTimeNextChangeAt,
+): number {
   const visible = usePanelVisible()
   const store = useMemo(
-    () => clockStore(() => nowForAge(since, baseMs), enabled && visible),
-    [since, baseMs, enabled, visible],
+    () =>
+      clockStore(() => nowForAge(since, nextChangeAt, baseMs, secondsUntil), enabled && visible),
+    [since, baseMs, enabled, secondsUntil, nextChangeAt, visible],
   )
   return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
 }

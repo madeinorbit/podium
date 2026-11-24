@@ -1,0 +1,765 @@
+/**
+ * THE MURMUR COLUMN (POD-2380, board Chat): tool folds, notes from other agents
+ * and the live turn speak in one quiet line each, and a question an agent asked
+ * the operator opens with Reply, which hands the note to the composer's reply.
+ */
+import { TranscriptGraph } from '@podium/client-core/conversation'
+import { renderMailPointer } from '@podium/commands/mail-pointer-nudge'
+import type { TranscriptItem } from '@podium/model'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { MobileConversationPresentation } from '../lib/conversation-presentation'
+import { shapeMobileChatRow } from '../lib/transcript-feed'
+
+const messageMenus = vi.hoisted(() => new Map<string, MessageMenuProps>())
+vi.mock('./MessageMenu', async (original) => {
+  const actual = await original<typeof import('./MessageMenu')>()
+  return {
+    MessageMenu: (props: MessageMenuProps) => {
+      messageMenus.set(props.text, props)
+      return <actual.MessageMenu {...props} />
+    },
+  }
+})
+const markdownRenders = vi.hoisted(() => vi.fn())
+const mailBody = vi.hoisted(() =>
+  vi.fn((): { status: string; body?: string; retry?: () => void } => ({
+    status: 'ready',
+    body: 'The complete pointer body.',
+  })),
+)
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<object>()),
+  useMailBody: mailBody,
+}))
+
+import type { MessageMenuProps } from './message-menu.types'
+import { murmurClock, TranscriptList } from './TranscriptList'
+
+vi.mock('expo-haptics', () => ({
+  ImpactFeedbackStyle: { Light: 'light' },
+  NotificationFeedbackType: { Success: 'success', Error: 'error' },
+  impactAsync: vi.fn(async () => {}),
+  notificationAsync: vi.fn(async () => {}),
+}))
+vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn(async () => {}) }))
+vi.mock('./RichMarkdown', () => ({
+  RichMarkdown: ({ text }: { text: string }) => {
+    markdownRenders(text)
+    return <span>{text}</span>
+  },
+  RichMarkdownInline: ({ text }: { text: string }) => <>{text}</>,
+}))
+vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
+vi.mock('../client/hooks', () => ({
+  useUiState: () => ({ get: () => null, set: () => {}, subscribe: () => () => {} }),
+}))
+vi.mock('./ActionSheet', () => ({
+  ActionSheet: ({ visible, subtitle }: { visible: boolean; subtitle?: string }) =>
+    visible ? <div data-testid="message-actions">{subtitle}</div> : null,
+}))
+vi.mock('./SelectTextSheet', () => ({
+  SelectTextSheet: ({ text }: { text: string | null }) =>
+    text === null ? null : <div data-testid="selected-message">{text}</div>,
+}))
+vi.mock('./BottomSheet', () => ({
+  BottomSheet: ({ children, head }: { children: React.ReactNode; head: React.ReactNode }) => (
+    <div role="dialog">
+      {head}
+      {children}
+    </div>
+  ),
+}))
+vi.mock('./SharedFiles', () => ({ SharedFiles: () => null }))
+vi.mock('expo-linear-gradient', () => ({
+  LinearGradient: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+}))
+vi.mock('react-native-svg', async () => {
+  const { View } = await import('react-native')
+  const Svg = ({ children }: { children?: React.ReactNode }) => <View>{children}</View>
+  return { default: Svg, Svg, Circle: () => null }
+})
+
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
+beforeEach(() => {
+  messageMenus.clear()
+  markdownRenders.mockClear()
+  mailBody.mockReset()
+  mailBody.mockReturnValue({ status: 'ready', body: 'The complete pointer body.' })
+})
+
+it.each([
+  '',
+  'Error: answer could not be delivered',
+  "[Tool call interrupted: the session ended before this call's result was recorded, so its outcome is unknown.]",
+])('keeps Not answered history and its result detail for %j', (result) => {
+  const item: TranscriptItem = {
+    id: 'question',
+    role: 'tool',
+    text: '',
+    toolName: 'AskUserQuestion',
+    toolInputJson: JSON.stringify({
+      questions: [{ question: 'Where?', options: [{ label: 'main' }] }],
+    }),
+  }
+  const rows = shapeMobileChatRow(
+    { kind: 'block', block: { item, result }, blockIndex: 0 },
+    { hiddenQuestionId: item.id },
+  )
+  expect(rows[0]?.kind).toBe('question')
+  expect(rows[0]?.item.toolResult).toBe(result)
+  render(transcript([{ ...item, toolResult: result }]))
+  expect(screen.getByText(result || 'No answer was recorded.')).toBeTruthy()
+  expect(screen.getByText('Not answered')).toBeTruthy()
+  expect(screen.queryByLabelText('main')).toBeNull()
+  expect(screen.queryByLabelText(/Answered question/)).toBeNull()
+})
+
+it('formats the murmur clock with the shared m:ss motion clock', () => {
+  expect(murmurClock(12_000)).toBe('0:12')
+  expect(murmurClock(195_000)).toBe('3:15')
+  expect(murmurClock(3_725_000)).toBe('62:05')
+  expect(murmurClock(undefined)).toBeUndefined()
+  expect(murmurClock(-1)).toBeUndefined()
+})
+
+const running: TranscriptItem[] = [
+  { id: 'say', role: 'assistant', text: 'Looking at the graph.', ts: '2026-11-10T10:00:00Z' },
+  {
+    id: 'read',
+    role: 'tool',
+    text: '',
+    toolName: 'Read',
+    toolInput: '/repo/transcript-graph.ts',
+    ts: '2026-11-10T10:00:01Z',
+  },
+]
+
+it('draws one live line for a working turn: the call in flight, not the tail too', () => {
+  render(
+    <TranscriptList
+      items={running}
+      live
+      transcriptQuestion={null}
+      onAnswer={async () => {}}
+      tail={{ label: 'Working', tone: 'working', since: '2026-11-10T10:00:00Z' }}
+    />,
+  )
+  const live = screen.getAllByLabelText(/work run:/)
+  expect(live).toHaveLength(1)
+  expect(live[0]?.getAttribute('aria-label')).toMatch(/Read/)
+  // The tail steps aside while the run carries the live line.
+  expect(screen.queryByLabelText('Working')).toBeNull()
+})
+
+it('keeps the tail as the live line while the agent writes after its tools', () => {
+  render(
+    <TranscriptList
+      items={[...running, { id: 'after', role: 'assistant', text: 'Done reading.' }]}
+      live
+      transcriptQuestion={null}
+      onAnswer={async () => {}}
+      tail={{ label: 'Working', tone: 'working', since: '2026-11-10T10:00:00Z' }}
+    />,
+  )
+  expect(screen.getByLabelText('Working')).toBeTruthy()
+})
+
+it('opens a question from another agent with Reply, which starts the reply', () => {
+  const start = vi.fn()
+  const mailReply = {
+    active: false,
+    target: null,
+    start,
+    load: vi.fn(async () => {}),
+    message: () => undefined,
+  }
+  render(
+    <TranscriptList
+      items={[
+        {
+          id: 'ask',
+          role: 'user',
+          text: '[podium message msg_q · from issue:POD-1906 · to operator]\nShould the CSV move to the report?\n[this is a question: reply with podium mail reply msg_q]\n[end podium message msg_q]',
+        },
+      ]}
+      live={false}
+      transcriptQuestion={null}
+      onAnswer={async () => {}}
+      mailReply={mailReply as never}
+    />,
+  )
+  const line = screen.getByLabelText(/^Open note from POD-1906: asked you a question/)
+  expect(screen.queryByText(/Should the CSV move/)).toBeNull()
+  fireEvent.click(line)
+  expect(screen.getByText(/Should the CSV move/)).toBeTruthy()
+  fireEvent.click(screen.getByLabelText('Reply to POD-1906'))
+  expect(start).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg_q' }))
+})
+
+it("names a fold by the harness's own summary of its calls", () => {
+  render(
+    <TranscriptList
+      items={[
+        {
+          id: 'c1',
+          role: 'tool',
+          text: '',
+          toolName: 'Bash',
+          toolUseId: 'u1',
+          toolInput: 'bun build',
+        },
+        {
+          id: 'c2',
+          role: 'tool',
+          text: '',
+          toolName: 'Read',
+          toolUseId: 'u2',
+          toolInput: '/r/chart.ts',
+        },
+        {
+          id: 's',
+          role: 'system',
+          systemKind: 'tool-summary',
+          text: 'Rebuilt the corpus and regenerated the chart',
+          summarizes: ['u1', 'u2'],
+        },
+        { id: 'after', role: 'assistant', text: 'Done.' },
+      ]}
+      live={false}
+      transcriptQuestion={null}
+      onAnswer={async () => {}}
+    />,
+  )
+  expect(
+    screen.getByLabelText('Expand work run: Rebuilt the corpus and regenerated the chart'),
+  ).toBeTruthy()
+})
+
+const transcript = (items: TranscriptItem[]) => (
+  <TranscriptList items={items} live={false} transcriptQuestion={null} onAnswer={async () => {}} />
+)
+
+it('collapses a paired answer into its receipt and removes successful hook noise', () => {
+  render(
+    transcript([
+      {
+        id: 'question',
+        role: 'tool',
+        text: '',
+        toolName: 'AskUserQuestion',
+        toolUseId: 'ask-use',
+        toolInputJson: JSON.stringify({
+          questions: [{ question: 'Which colour?', options: [{ label: 'Red' }] }],
+        }),
+      },
+      {
+        id: 'result',
+        role: 'tool',
+        text: '',
+        toolUseId: 'ask-use',
+        toolResult: 'You selected "Red"',
+      },
+      { id: 'reply', role: 'assistant', text: 'You picked Red.' },
+      {
+        id: 'stdout',
+        role: 'system',
+        text: 'Compacted (ctrl+o to see full summary)\nPreCompact [http://127.0.0.1/hooks/id] completed successfully',
+      },
+    ]),
+  )
+  expect(screen.queryByTestId('ask-question-tile')).toBeNull()
+  expect(screen.getByText(/You picked Red/)).toBeTruthy()
+  expect(screen.queryByText(/PreCompact/)).toBeNull()
+  expect(screen.getByLabelText(/answered/i)).toBeTruthy()
+  expect(screen.getByText('Answered: Red')).toBeTruthy()
+})
+
+it('shows the custom answer in its receipt instead of the native result narration', () => {
+  render(
+    transcript([
+      {
+        id: 'question',
+        role: 'tool',
+        text: '',
+        toolName: 'AskUserQuestion',
+        toolInputJson: JSON.stringify({
+          questions: [{ question: 'Which colour?', options: [{ label: 'Red' }] }],
+        }),
+        toolResult:
+          'The user answered your questions: "Which colour?"="Medium custom". You can now continue.',
+      },
+    ]),
+  )
+  expect(screen.getByText('Answered: Medium custom')).toBeTruthy()
+  expect(screen.getByLabelText('Answered question: Which colour? · Medium custom')).toBeTruthy()
+  expect(screen.queryByText(/The user answered/)).toBeNull()
+  expect(screen.queryByTestId('ask-question-tile')).toBeNull()
+})
+
+it('omits successful PreCompact and PostCompact rows from text and accessibility, retaining failures', () => {
+  const { container } = render(
+    transcript([
+      {
+        id: 'success',
+        role: 'system',
+        text: 'PreCompact [http://127.0.0.1:45977/hooks/id] completed successfully: {}\nPostCompact [if [ -n home ]; then hook; fi] completed successfully: {}',
+      },
+      { id: 'failed', role: 'system', text: 'PostCompact [hook] failed: exit 1' },
+    ]),
+  )
+  expect(container.textContent).not.toContain('completed successfully')
+  expect(container.innerHTML).not.toContain('127.0.0.1')
+  expect(screen.queryByLabelText(/completed successfully/)).toBeNull()
+  expect(screen.getByText('PostCompact [hook] failed: exit 1')).toBeTruthy()
+})
+
+it('uses the desktop short subject for file rows in an opened fold', () => {
+  render(
+    transcript([
+      {
+        id: 'read-path',
+        role: 'tool',
+        text: '',
+        toolName: 'Read',
+        toolInput: '/Users/till/project/.worktrees/issue-5/src/search.ts',
+        toolPaths: ['/Users/till/project/.worktrees/issue-5/src/search.ts'],
+      },
+    ]),
+  )
+  fireEvent.click(screen.getByLabelText(/^Expand work run:/))
+  expect(screen.getByLabelText('Expand call: search.ts')).toBeTruthy()
+  expect(screen.queryByText('/Users/till/project/.worktrees/issue-5/src/search.ts')).toBeNull()
+})
+
+it('marks a delivered custom answer as answered even without a listed option match', () => {
+  render(
+    transcript([
+      {
+        id: 'question',
+        role: 'tool',
+        text: '',
+        toolName: 'AskUserQuestion',
+        toolUseId: 'custom-use',
+        toolInputJson: JSON.stringify({
+          questions: [{ question: 'Which colour?', options: [{ label: 'Red' }] }],
+        }),
+      },
+      {
+        id: 'custom-result',
+        role: 'tool',
+        text: '',
+        toolUseId: 'custom-use',
+        toolResult: 'You answered Purple',
+      },
+    ]),
+  )
+  expect(screen.getByText('Answered: Purple')).toBeTruthy()
+  expect(screen.queryByTestId('ask-question-tile')).toBeNull()
+})
+const note = (id: string, body: string, ask = false) =>
+  `[podium message ${id} · from issue:POD-1906 · to ${ask ? 'operator' : 'issue:POD-1879'}]\n${body}\n${ask ? `[this is a question: reply with podium mail reply ${id}]\n` : ''}[end podium message ${id}]`
+
+it('uses a first-line note subject and keeps the full markdown behind the fold', () => {
+  render(
+    transcript([
+      { id: 'note', role: 'user', text: note('msg_n', '## **Ready**\nDetails on the next line.') },
+    ]),
+  )
+  expect(screen.getByLabelText('Open note from POD-1906: Ready')).toBeTruthy()
+  expect(screen.queryByText(/Details on/)).toBeNull()
+  fireEvent.click(screen.getByLabelText('Open note from POD-1906: Ready'))
+  expect(screen.getByText(/Details on/)).toBeTruthy()
+})
+
+it('does not load a pointer until its well opens, then uses the fetched body', () => {
+  const text = renderMailPointer(1, [{ from: 'issue:POD-1906', ids: ['msg_pointer'] }])
+  render(transcript([{ id: 'pointer', role: 'user', text }]))
+  expect(mailBody).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByLabelText(/^Open note from POD-1906/))
+  expect(mailBody).toHaveBeenCalledWith('msg_pointer')
+  expect(screen.getByText('The complete pointer body.')).toBeTruthy()
+})
+
+it('shows a pointer read failure and retries from the opened well', () => {
+  const retry = vi.fn()
+  mailBody.mockReturnValue({ status: 'error', retry })
+  render(
+    transcript([
+      {
+        id: 'pointer',
+        role: 'user',
+        text: renderMailPointer(1, [{ from: 'issue:POD-1906', ids: ['msg_pointer'] }]),
+      },
+    ]),
+  )
+  fireEvent.click(screen.getByLabelText(/^Open note from POD-1906/))
+  expect(screen.getByText('Could not load this message.')).toBeTruthy()
+  fireEvent.click(screen.getByLabelText('Retry loading note'))
+  expect(retry).toHaveBeenCalledOnce()
+})
+
+it('folds ordinary notes from one delivery but keeps an operator question separate', () => {
+  render(
+    transcript([
+      {
+        id: 'batch',
+        role: 'user',
+        text: [
+          note('msg_a', 'First note'),
+          note('msg_q', 'Need a choice?', true),
+          note('msg_b', 'Second note'),
+        ].join('\n'),
+      },
+    ]),
+  )
+  expect(screen.getByLabelText('Expand 2 notes')).toBeTruthy()
+  expect(screen.getByLabelText(/^Open note from POD-1906: asked you a question/)).toBeTruthy()
+  expect(screen.queryByLabelText('Open note from POD-1906: First note')).toBeNull()
+  fireEvent.click(screen.getByLabelText('Expand 2 notes'))
+  expect(screen.getByLabelText('Open note from POD-1906: First note')).toBeTruthy()
+  expect(screen.getByLabelText('Open note from POD-1906: Second note')).toBeTruthy()
+})
+
+it('expands a call inline to six output lines and opens the rest in a sheet', async () => {
+  const output = Array.from({ length: 9 }, (_, index) => `Output line ${index + 1}`).join('\n')
+  render(
+    transcript([
+      {
+        id: 'call',
+        role: 'tool',
+        text: '',
+        toolName: 'Bash',
+        toolInput: 'bun run test',
+        toolResult: output,
+      },
+    ]),
+  )
+  fireEvent.click(screen.getByLabelText(/^Expand work run:/))
+  expect(screen.queryByText(/Output line 1/)).toBeNull()
+  fireEvent.click(screen.getByLabelText('Expand call: bun run test'))
+  expect(screen.getByText(/Output line 6/)).toBeTruthy()
+  expect(screen.queryByText(/Output line 7/)).toBeNull()
+  fireEvent.click(screen.getByLabelText('Show all for bun run test'))
+  expect((await screen.findByRole('dialog')).textContent).toContain('Output line 9')
+})
+
+it('shows recorded edit counts and the diff inside the opened call', () => {
+  render(
+    transcript([
+      {
+        id: 'edit',
+        role: 'tool',
+        text: '',
+        toolName: 'Edit',
+        toolTitle: 'Edited LoginScreen.tsx',
+        toolInputJson: JSON.stringify({
+          kind: 'file-edit',
+          mode: 'replace',
+          hunks: [{ oldText: 'old', newText: 'new\nmore' }],
+          added: 2,
+          removed: 1,
+        }),
+      },
+    ]),
+  )
+  fireEvent.click(screen.getByLabelText(/^Expand work run:/))
+  expect(screen.getByText('+2')).toBeTruthy()
+  expect(screen.getByText('−1')).toBeTruthy()
+  fireEvent.click(screen.getByLabelText('Expand call: Edited LoginScreen.tsx'))
+  expect(screen.getByText(/−old/)).toBeTruthy()
+  expect(screen.getByText(/\+new/)).toBeTruthy()
+})
+
+it('renders Codex/MCP asks as asks and compaction as a summary disclosure', () => {
+  render(
+    transcript([
+      {
+        id: 'ask',
+        role: 'tool',
+        text: '',
+        toolName: 'mcp__codex__request_user_input',
+        toolTitle: 'Choose a target',
+        toolResult: 'Target chosen.',
+      },
+      {
+        id: 'compact',
+        role: 'system',
+        systemKind: 'compaction',
+        text: '## Summary\nKeep the corrected corpus.',
+      },
+    ]),
+  )
+  const ask = screen.getByLabelText(/^Needs your input/)
+  expect(screen.queryByText('Target chosen.')).toBeNull()
+  fireEvent.click(ask)
+  expect(screen.getByText('Target chosen.')).toBeTruthy()
+  expect(screen.queryByText(/Keep the corrected corpus/)).toBeNull()
+  fireEvent.click(screen.getByLabelText('Context compacted · Show summary'))
+  expect(screen.getByText(/Keep the corrected corpus/)).toBeTruthy()
+})
+
+it('centres one mark per day change without per-bubble clocks', () => {
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  const today = new Date()
+  render(
+    transcript([
+      { id: 'one', role: 'user', text: 'Yesterday message', ts: yesterday.toISOString() },
+      { id: 'two', role: 'assistant', text: 'Same day', ts: yesterday.toISOString() },
+      { id: 'three', role: 'user', text: 'Today message', ts: today.toISOString() },
+    ]),
+  )
+  expect(screen.getAllByText('Yesterday')).toHaveLength(1)
+  expect(screen.getAllByText('Today')).toHaveLength(1)
+  expect(screen.queryByText(/^\d{2}:\d{2}$/)).toBeNull()
+})
+
+it.each([
+  1024, 4096,
+])('bounds day-mark reads through %i legacy rows without inventing a boundary', (length) => {
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  const older = new Date(yesterday)
+  older.setDate(older.getDate() - 1)
+  const items = Array.from(
+    { length },
+    (_, index): TranscriptItem => ({
+      id: `legacy-${index}`,
+      role: 'assistant',
+      text: `Legacy message ${index}`,
+      ...(index === 0
+        ? { ts: older.toISOString() }
+        : index === length - 1
+          ? { ts: yesterday.toISOString() }
+          : {}),
+    }),
+  )
+  const graph = new TranscriptGraph(items)
+  const presentation = new MobileConversationPresentation(graph, shapeMobileChatRow, (id) =>
+    graph.itemPosition(id),
+  )
+  const sourceReads = vi.spyOn(presentation, 'sourceItem')
+  const readRow = presentation.row.bind(presentation)
+  const rowReads = vi.spyOn(presentation, 'row').mockImplementation((key) => {
+    if (Number(key.replace('legacy-', '')) < length - 80)
+      throw new Error(`Resolved an offscreen presentation row: ${key}`)
+    return readRow(key)
+  })
+  try {
+    render(
+      <TranscriptList
+        presentation={presentation}
+        live={false}
+        transcriptQuestion={null}
+        onAnswer={async () => {}}
+      />,
+    )
+    expect(screen.getByText(`Legacy message ${length - 1}`)).toBeTruthy()
+    expect(screen.queryByText('Yesterday')).toBeNull()
+    expect(new Set(sourceReads.mock.calls.map(([key]) => key)).size).toBeLessThanOrEqual(160)
+    expect(new Set(rowReads.mock.calls.map(([key]) => key)).size).toBe(80)
+  } finally {
+    cleanup()
+    presentation.dispose()
+    graph.dispose()
+  }
+})
+
+it('keeps undated and invalid rows transparent between nearby day boundaries', () => {
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  const items: TranscriptItem[] = [
+    { id: 'yesterday', role: 'assistant', text: 'Yesterday prose', ts: yesterday.toISOString() },
+    { id: 'undated', role: 'assistant', text: 'Undated prose' },
+    { id: 'invalid', role: 'assistant', text: 'Invalid timestamp prose', ts: 'legacy-invalid' },
+    { id: 'today', role: 'assistant', text: 'Today prose', ts: new Date().toISOString() },
+  ]
+  const graph = new TranscriptGraph(items)
+  const presentation = new MobileConversationPresentation(graph, shapeMobileChatRow, (id) =>
+    graph.itemPosition(id),
+  )
+  try {
+    render(
+      <TranscriptList
+        presentation={presentation}
+        live={false}
+        transcriptQuestion={null}
+        onAnswer={async () => {}}
+      />,
+    )
+    expect(screen.getAllByText('Yesterday')).toHaveLength(1)
+    expect(screen.getAllByText('Today')).toHaveLength(1)
+  } finally {
+    cleanup()
+    presentation.dispose()
+    graph.dispose()
+  }
+})
+
+it('updates a day label at midnight without rendering message prose again', () => {
+  vi.useFakeTimers()
+  const geometry = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    right: 300,
+    bottom: 400,
+    width: 300,
+    height: 400,
+    toJSON() {},
+  } as DOMRect)
+  vi.setSystemTime(new Date(2026, 10, 13, 23, 59, 30))
+  const ts = new Date().toISOString()
+  render(
+    transcript([
+      { id: 'one', role: 'assistant', text: 'Earlier today', ts },
+      { id: 'two', role: 'assistant', text: 'Still today', ts },
+    ]),
+  )
+  expect(screen.queryByText('Yesterday')).toBeNull()
+  const renders = markdownRenders.mock.calls.length
+  act(() => {
+    vi.advanceTimersByTime(61_000)
+  })
+  expect(screen.getByText('Yesterday')).toBeTruthy()
+  expect(markdownRenders).toHaveBeenCalledTimes(renders)
+  geometry.mockRestore()
+})
+
+it('keeps a failed edit visible while its recorded diff is expanded', () => {
+  render(
+    transcript([
+      {
+        id: 'failed-edit',
+        role: 'tool',
+        text: '',
+        toolName: 'Edit',
+        toolTitle: 'Edited LoginScreen.tsx',
+        toolResult: 'Error: the target text was not found',
+        toolInputJson: JSON.stringify({
+          kind: 'file-edit',
+          mode: 'replace',
+          hunks: [{ oldText: 'old', newText: 'new' }],
+          added: 1,
+          removed: 1,
+        }),
+      },
+    ]),
+  )
+  fireEvent.click(screen.getByLabelText(/^Expand work run:/))
+  fireEvent.click(screen.getByLabelText('Expand call: Edited LoginScreen.tsx'))
+  expect(screen.getByText(/target text was not found/)).toBeTruthy()
+  expect(screen.getByText(/−old/)).toBeTruthy()
+})
+
+it('passes the exact time to the native menu and JS sheet while preserving the action argument', async () => {
+  render(
+    transcript([{ id: 'timed', role: 'user', text: 'Timed message', ts: '2026-11-13T13:32:05Z' }]),
+  )
+  const menu = messageMenus.get('Timed message')
+  if (!menu) throw new Error('Missing message menu')
+  expect(menu.timeLabel).toContain('2026')
+  expect(menu.timeLabel).toContain(':32:05')
+  act(() => menu.onAction('Timed message'))
+  expect(screen.getByTestId('message-actions').textContent).toBe(menu.timeLabel)
+  const clipboard = await import('expo-clipboard')
+  act(() => menu.onAction('Timed message', 'copy'))
+  expect(clipboard.setStringAsync).toHaveBeenLastCalledWith('Timed message')
+})
+
+it('copies, quotes and selects the resolved pointer body with the original timestamp', async () => {
+  const body = 'Resolved pointer body\nSecond line from the ledger.'
+  mailBody.mockReturnValue({ status: 'ready', body })
+  const onQuote = vi.fn()
+  const text = renderMailPointer(1, [{ from: 'issue:POD-1906', ids: ['msg_actions'] }])
+  render(
+    <TranscriptList
+      items={[{ id: 'pointer-actions', role: 'user', text, ts: '2026-11-12T13:32:05Z' }]}
+      live={false}
+      transcriptQuestion={null}
+      onAnswer={async () => {}}
+      onQuote={onQuote}
+    />,
+  )
+  expect(messageMenus.size).toBe(0)
+  fireEvent.click(screen.getByLabelText(/^Open note from POD-1906/))
+  const menu = messageMenus.get(body)
+  if (!menu) throw new Error('Resolved pointer body has no menu')
+  expect(menu.messageId).toBe('msg_actions')
+  expect([...messageMenus.keys()]).toEqual([body])
+  expect(menu.timeLabel).toContain('2026')
+  expect(menu.timeLabel).toContain(':32:05')
+  const clipboard = await import('expo-clipboard')
+  act(() => menu.onAction(body, 'copy'))
+  expect(clipboard.setStringAsync).toHaveBeenLastCalledWith(body)
+  act(() => menu.onAction(body, 'quote'))
+  expect(onQuote).toHaveBeenLastCalledWith(
+    '> Resolved pointer body\n> Second line from the ledger.\n\n',
+  )
+  act(() => menu.onAction(body, 'select'))
+  expect(screen.getByTestId('selected-message').textContent).toBe(body)
+})
+
+it('keeps each grouped note menu bound to that note and its delivery time', async () => {
+  const onQuote = vi.fn()
+  render(
+    <TranscriptList
+      items={[
+        {
+          id: 'group-actions',
+          role: 'user',
+          ts: '2026-11-12T13:32:05Z',
+          text: [note('msg_a', 'First grouped body'), note('msg_b', 'Second grouped body')].join(
+            '\n',
+          ),
+        },
+      ]}
+      live={false}
+      transcriptQuestion={null}
+      onAnswer={async () => {}}
+      onQuote={onQuote}
+    />,
+  )
+  expect(messageMenus.size).toBe(0)
+  fireEvent.click(screen.getByLabelText('Expand 2 notes'))
+  const first = messageMenus.get('First grouped body')
+  const second = messageMenus.get('Second grouped body')
+  if (!first || !second) throw new Error('A grouped note is missing its menu')
+  expect(first.timeLabel).toContain(':32:05')
+  expect(second.timeLabel).toBe(first.timeLabel)
+  const clipboard = await import('expo-clipboard')
+  act(() => first.onAction('First grouped body', 'copy'))
+  expect(clipboard.setStringAsync).toHaveBeenLastCalledWith('First grouped body')
+  act(() => second.onAction('Second grouped body', 'quote'))
+  expect(onQuote).toHaveBeenLastCalledWith('> Second grouped body\n\n')
+  act(() => second.onAction('Second grouped body', 'select'))
+  expect(screen.getByTestId('selected-message').textContent).toBe('Second grouped body')
+})
+
+it('keeps individual note actions inside an opened mixed tool stretch', () => {
+  render(
+    transcript([
+      {
+        id: 'cmd',
+        role: 'tool',
+        text: '',
+        toolName: 'Bash',
+        toolInput: 'git status',
+        toolResult: 'clean',
+      },
+      {
+        id: 'note',
+        role: 'user',
+        ts: '2026-11-12T13:32:05Z',
+        text: note('msg_nested', 'Nested note body'),
+      },
+    ]),
+  )
+  fireEvent.click(screen.getByLabelText(/^Expand work run:/))
+  expect(messageMenus.get('Nested note body')?.timeLabel).toContain(':32:05')
+})

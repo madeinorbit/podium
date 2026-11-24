@@ -2,7 +2,10 @@ import type { PodiumTarget } from '@podium/protocol'
 // @vitest-environment happy-dom
 import { formatPodiumLink, PODIUM_SCHEME } from '@podium/protocol'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { NavigationContainerRefContext } from 'expo-router/build/react-navigation/core/NavigationContainerRefContext'
+import type { ComponentProps } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { expoRootStateReader } from '../../test/expo-root-state'
 import { poolRouteFixture } from '../../test/pool-routes'
 import type { ServerProfileContextValue } from '../client/server-profile-context'
 import type { ServerProfile } from '../client/server-profiles'
@@ -69,6 +72,7 @@ import {
   markPendingMobileHandoffProfileSelected,
   pendingMobileHandoffSnapshot,
 } from '../client/mobile-handoff'
+import { followPodiumLink } from '../lib/podium-link'
 import { PodiumLinkHost } from './PodiumLinkHost'
 
 const SESSION_ID = 'session-private-id'
@@ -139,6 +143,53 @@ beforeEach(() => {
 afterEach(() => cleanup())
 
 describe('PodiumLinkHost mobile handoff integration', () => {
+  it.each([
+    'in-app markdown/action card',
+    'OS deep link',
+  ])('dismisses a root sheet before opening a console from an %s', async (source) => {
+    seams.sessions = [{ sessionId: SESSION_ID }]
+    const tabs = { key: 'tabs', name: '(tabs)' }
+    const mission = { key: 'mission', name: 'mission/[missionId]', params: { missionId: 'root' } }
+    const state = {
+      key: 'root',
+      type: 'stack',
+      index: 2,
+      routes: [tabs, mission, { key: 'sheet', name: 'launch/[issueId]' }],
+    }
+    const dispatch = vi.fn()
+    const navigation = {
+      getRootState: expoRootStateReader(() => state),
+      dispatch,
+    } as unknown as NonNullable<
+      ComponentProps<typeof NavigationContainerRefContext.Provider>['value']
+    >
+    render(
+      <NavigationContainerRefContext value={navigation}>
+        <PodiumLinkHost />
+      </NavigationContainerRefContext>,
+    )
+
+    act(() => {
+      const url = `podium://session/${SESSION_ID}/terminal`
+      if (source === 'OS deep link') {
+        captureMobileHandoffUrl(url)
+        markPendingMobileHandoffProfileSelected(pendingMobileHandoffSnapshot().id)
+      } else followPodiumLink(url)
+    })
+
+    await waitFor(() => expect(seams.router.push).toHaveBeenCalledTimes(1))
+    expect(seams.router.push.mock.calls[0]?.[0]).toBe(`/session/${SESSION_ID}/terminal`)
+    expect(dispatch).toHaveBeenCalledWith({
+      type: 'RESET',
+      target: 'root',
+      payload: { ...state, index: 1, routes: [tabs, mission] },
+    })
+    expect(dispatch.mock.invocationCallOrder[0]).toBeLessThan(
+      seams.router.push.mock.invocationCallOrder[0] ?? 0,
+    )
+    expect(seams.router.replace).not.toHaveBeenCalled()
+  })
+
   it('routes an OS-delivered issue through the pool route', async () => {
     seams.issues = [{ id: 'iss-1710', displayRef: 'POD-1710' }]
     render(<PodiumLinkHost />)
@@ -148,8 +199,12 @@ describe('PodiumLinkHost mobile handoff integration', () => {
       markPendingMobileHandoffProfileSelected(pendingMobileHandoffSnapshot().id)
     })
 
-    await waitFor(() => expect(seams.router.replace).toHaveBeenCalledWith('/issue/iss-1710'))
-    expect(seams.router.push).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(seams.router.push).toHaveBeenCalledExactlyOnceWith('/issue/iss-1710', {
+        withAnchor: true,
+      }),
+    )
+    expect(seams.router.replace).not.toHaveBeenCalled()
   })
 
   it('waits for profile selection before opening from the authorized replica', async () => {
@@ -168,8 +223,12 @@ describe('PodiumLinkHost mobile handoff integration', () => {
     act(() => {
       markPendingMobileHandoffProfileSelected(pendingMobileHandoffSnapshot().id)
     })
-    await waitFor(() => expect(seams.router.replace).toHaveBeenCalledWith(`/session/${SESSION_ID}`))
-    expect(seams.router.push).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(seams.router.push).toHaveBeenCalledExactlyOnceWith(`/session/${SESSION_ID}`, {
+        withAnchor: true,
+      }),
+    )
+    expect(seams.router.replace).not.toHaveBeenCalled()
     expect(screen.getByRole('status').textContent).toBe('Opening the session.')
   })
 

@@ -61,6 +61,7 @@ vi.mock('./TranscriptViewport', async (importOriginal) => {
   return { ...actual, TranscriptViewport: CapturingViewport }
 })
 vi.mock('./RichMarkdown', () => ({
+  RichMarkdownInline: ({ text }: { text: string }) => <>{text}</>,
   RichMarkdown: ({ text }: { text: string }) => {
     markdownRenders.set(text, (markdownRenders.get(text) ?? 0) + 1)
     return <span>{text}</span>
@@ -124,6 +125,10 @@ vi.mock('../lib/transcript-feed', async (importOriginal) => {
     },
   }
 })
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<object>()),
+  useMailBody: () => ({ status: 'ready', body: 'Fetched pointer body' }),
+}))
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
 vi.mock('../client/hooks', () => ({
   useUiState: () => ({ get: () => null, set: () => {}, subscribe: () => () => {} }),
@@ -209,7 +214,9 @@ describe('TranscriptList pendingAsk', () => {
           onAnswer={onAnswer}
         />,
       )
-      expect(screen.getByText('▋').parentElement?.textContent).toContain('Latest answer')
+      expect(screen.getByText('▋').closest('[data-row-key]')?.textContent).toContain(
+        'Latest answer',
+      )
       expect(tailWork.rowIterations).toBe(0)
       rerender(
         <TranscriptList
@@ -514,44 +521,14 @@ describe('TranscriptList pendingAsk', () => {
   })
 })
 
-it('discloses the retained Bash input and its capture state inside a work run', () => {
-  const command = 'echo "$HOME" && printf "%s" 42'
-  const { container } = render(
-    <TranscriptList
-      transcriptQuestion={null}
-      live={false}
-      onAnswer={async () => {}}
-      items={[
-        {
-          id: 'bash-row',
-          role: 'tool',
-          text: '',
-          toolName: 'Bash',
-          toolTitle: 'Check home',
-          toolInput: command,
-          toolExecution: {
-            kind: 'commands',
-            inputs: [{ kind: 'command', toolName: 'Bash', text: command, capture: 'complete' }],
-            status: 'running',
-          },
-        },
-      ]}
-    />,
-  )
-  fireEvent.click(screen.getByLabelText(/^Expand work run:/))
-  expect(screen.queryByLabelText('Copy retained input')).toBeNull()
-  fireEvent.click(screen.getByLabelText(`Expand ${command}`))
-  expect(screen.getByLabelText('Copy retained input').parentElement?.textContent).toContain(command)
-  expect(screen.queryByText('The record may contain only an input preview.')).toBeNull()
-  expect(container.textContent).toContain(
-    'The transcript does not establish whether output was returned.',
-  )
-})
+// Upstream also pinned its unified command-execution disclosure here
+// (954b4c6b2a, "Expand <command>" / "Copy retained input"). The phone keeps
+// dev/tf's Murmur transcript rows, which draw tool runs their own way.
 
 // POD-2143: an oversized mail reaches the agent as a one-line inbox pointer
 // with no body. The phone shows it as an envelope that says where the body
 // went — never an empty card, never the person's own bubble.
-it('renders an inbox pointer as an envelope that says where its body went', () => {
+it('renders an inbox pointer as a note whose opened well loads the body', () => {
   render(
     <TranscriptList
       transcriptQuestion={null}
@@ -570,9 +547,9 @@ it('renders an inbox pointer as an envelope that says where its body went', () =
       ]}
     />,
   )
-  expect(screen.getByText('Internal')).toBeTruthy()
-  expect(screen.getByText(/Delivered via the inbox/)).toBeTruthy()
-  expect(screen.getByText(/podium mail show msg_big/)).toBeTruthy()
+  // The preview stays quiet; disclosure mounts the shared body reader.
+  fireEvent.click(screen.getByLabelText(/^Open note from POD-2128/))
+  expect(screen.getByText('Fetched pointer body')).toBeTruthy()
   expect(screen.queryByText(/podium issue mail inbox/)).toBeNull()
 })
 
@@ -601,7 +578,7 @@ describe('TranscriptList pending delivery captions', () => {
     expect(screen.queryByText('sending…')).toBeNull()
   })
 
-  it('offers "Send again" and Dismiss on a message the server says did not arrive', () => {
+  it('offers an inline failure mark and restores a server failure to the composer', () => {
     const onSendAgainPending = vi.fn()
     const onRetryPending = vi.fn()
     render(
@@ -616,12 +593,44 @@ describe('TranscriptList pending delivery captions', () => {
         pendingTurns={[turn({ failed: 'not delivered · session torn down', notice: 'failed' })]}
       />,
     )
-    expect(screen.getByText('not delivered')).toBeTruthy()
+    expect(screen.getByLabelText('Message not delivered')).toBeTruthy()
     expect(screen.queryByText('Try again')).toBeNull()
-    fireEvent.click(screen.getByLabelText('Send again'))
+    fireEvent.click(screen.getByRole('button', { name: 'Not Delivered — Tap to retry' }))
     expect(onSendAgainPending).toHaveBeenCalledTimes(1)
     expect(onRetryPending).not.toHaveBeenCalled()
     expect(screen.getByLabelText('Dismiss')).toBeTruthy()
+  })
+
+  it('retries a local failure through the existing retry handler and keeps refused sends disabled', () => {
+    const retry = vi.fn(),
+      sendAgain = vi.fn()
+    const view = render(
+      <TranscriptList
+        transcriptQuestion={null}
+        items={[]}
+        live
+        onAnswer={async () => {}}
+        onRetryPending={retry}
+        onSendAgainPending={sendAgain}
+        pendingTurns={[turn({ failed: 'Offline' })]}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Not Delivered — Tap to retry' }))
+    expect(retry).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg_1' }))
+    expect(sendAgain).not.toHaveBeenCalled()
+    view.rerender(
+      <TranscriptList
+        transcriptQuestion={null}
+        items={[]}
+        live
+        onAnswer={async () => {}}
+        onRetryPending={retry}
+        onSendAgainPending={sendAgain}
+        pendingTurns={[turn({ failed: 'Refused', retryable: false })]}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: /Tap to retry/ })).toBeNull()
+    expect(screen.getByText('Not Delivered')).toBeTruthy()
   })
 
   it('says an unknown message may already have arrived before offering it again', () => {
@@ -635,8 +644,13 @@ describe('TranscriptList pending delivery captions', () => {
         pendingTurns={[turn({ delivery: 'unknown', notice: 'unknown' })]}
       />,
     )
-    expect(screen.getByText('not confirmed — it may or may not have arrived')).toBeTruthy()
-    expect(screen.getByLabelText('Send again — it may already have arrived')).toBeTruthy()
+    expect(
+      screen.getByText('It may already have arrived. Tap to review before sending again.'),
+    ).toBeTruthy()
+    expect(
+      screen.getByRole('button', { name: 'Not Confirmed — Tap to review before sending again' }),
+    ).toBeTruthy()
+    expect(screen.queryByText('Not Delivered — Tap to retry')).toBeNull()
   })
 })
 
@@ -802,6 +816,10 @@ it('discloses note members of a mixed stretch on the phone', () => {
   )
   expect(screen.queryByText(/needle in the note/)).toBeNull()
   fireEvent.click(screen.getByLabelText(/^Expand work run:/))
+  expect(screen.queryByText(/needle in the note/)).toBeNull()
+  fireEvent.click(screen.getByLabelText(/^Open note from system:steward|^Open note from steward/))
   expect(screen.getByText(/needle in the note/)).toBeTruthy()
-  expect(screen.getByText('Internal')).toBeTruthy()
+  expect(
+    screen.getByLabelText(/^Close note from system:steward|^Close note from steward/),
+  ).toBeTruthy()
 })

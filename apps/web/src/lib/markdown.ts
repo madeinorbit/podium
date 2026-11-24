@@ -1,4 +1,4 @@
-import { anyRefMatcher, parseAnyRef, parsePodiumLink } from '@podium/protocol'
+import { anyRefMatcher, parseAnyRef, parsePodiumLink, soleRefToken } from '@podium/protocol'
 import DOMPurify, { type UponSanitizeAttributeHook } from 'dompurify'
 import { getKnownRefPrefixes, isKnownRefPrefix } from './markdown-references'
 import { renderMarkdownUnsafe } from './markdown-renderer'
@@ -139,14 +139,6 @@ function refAnchor(tok: string): string | null {
   // under the scroller. The alpha keeps the chip deliberately state-free;
   // liveness is not transcript content and may not rewrite this string.
   return `<a class="ref-link ref-link--${ref.kind}" href="#${tok}" data-ref="${tok}">${tok}</a>`
-}
-
-/** Whether the text is exactly one ref token and nothing else. */
-function soleRefToken(text: string): string | null {
-  const tok = text.trim()
-  if (!tok) return null
-  const m = anyRefMatcher().exec(tok)
-  return m && m[0] === tok ? tok : null
 }
 
 export function linkifyRefs(html: string): string {

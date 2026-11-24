@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SheetAction } from './ActionSheet'
-import { nativePickerSpec, nativeSheetEligible, nativeSheetSpec } from './action-sheet-native'
+import { nativePickerSpec, nativeSheetEligible, nativeSheetSpec } from './action-sheet-spec'
 
 const noop = () => {}
 

@@ -46,6 +46,8 @@ import {
   TELEMETRY_SCHEMA_VERSION,
   type TelemetryFeature,
   type TelemetryReport,
+  type TelemetryStarEvent,
+  type TelemetryStarSurface,
   tierOf,
   type UsageReport,
 } from './schema'
@@ -89,6 +91,8 @@ export interface EmitterDeps {
   /** One debug line, at most, on failure. Default: silence. */
   log?: (message: string) => void
 }
+
+const GITHUB_STAR_COUNT_CAP = 1_000
 
 export class TelemetryEmitter {
   private crashSignatures = new Map<string, number>()
@@ -160,6 +164,17 @@ export class TelemetryEmitter {
     if (window.features.includes(feature)) return
     if (!this.tierOn('usage')) return
     window.features.push(feature)
+    writeWindow(this.deps.stateDir, window)
+  }
+
+  /** The GitHub star card appeared or was clicked. Human-paced: once per account. */
+  recordGithubStar(event: TelemetryStarEvent, surface: TelemetryStarSurface): void {
+    if (!this.tierOn('usage')) return
+    const window = this.window()
+    const star = (window.githubStar ??= { shown: {}, clicked: {} })
+    // The card shows once per person. Any member can call this, so stay far below
+    // the schema's cap: one count over it would fail the whole day's report.
+    star[event][surface] = Math.min((star[event][surface] ?? 0) + 1, GITHUB_STAR_COUNT_CAP)
     writeWindow(this.deps.stateDir, window)
   }
 
@@ -241,6 +256,7 @@ export class TelemetryEmitter {
       machines: bucketMachines(machines),
       sessions,
       features,
+      ...(window.githubStar ? { githubStar: window.githubStar } : {}),
     }
   }
 

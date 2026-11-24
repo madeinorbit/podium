@@ -1,84 +1,73 @@
-import { relativeTime } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
+import type { IssueNavigationModel } from '@podium/client-core/values'
 import {
-  continuationPresenceLine,
-  deckSessions,
-  deckViewEmptyLine,
-  type FlightDeckMode,
-  formatClock,
-  type IssueContinuation,
-  type IssueNavigationModel,
-  type MotionPhase,
-  sessionRole,
-  sessionTitle,
-  treeGuides,
-} from '@podium/client-core/values'
+  FULL_DECK_FILTERS,
+  type FullDeck,
+  type FullDeckFilter,
+  type FullDeckTask,
+} from '@podium/client-graph/mission-full-deck'
+import { ProposalSubmissions } from '@podium/client-graph/mission-proposals'
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
-import { type MissionDeckIssueModel, settled } from '@podium/client-graph/mission-view'
-import type { SessionModel } from '@podium/client-graph/models'
+import { settled } from '@podium/client-graph/mission-view'
+import { ROW_WINDOW_SIZE } from '@podium/client-graph/row-window'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import type { IssueId, SessionId } from '@podium/model'
-import { issueDisplayRef } from '@podium/protocol'
 import { observer } from 'mobx-react-lite'
-import { memo, useCallback, useEffect, useMemo } from 'react'
-import { ScrollView, StyleSheet, Text, View } from 'react-native'
-import { useAgeNow } from '../lib/clock-hooks'
-import { deckContentHeight } from '../lib/deck-rows'
-import { stageColor } from '../theme/stage'
-import { color, font, mono, radius, sans, space } from '../theme/theme'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { AppState, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { useIssueRowActions } from '../lib/issue-row-actions'
+import { useProposalPorts } from '../lib/proposal-ports'
+import { color, font, leading, radius, sans, space } from '../theme/theme'
+import { deckColor } from './deck-colors'
 import { Icon } from './Icon'
-import { ArrowDown, Check, ChevronsDownUp, ChevronsUpDown, Plus, X } from './icons'
-import { PressableScale } from './PressableScale'
+import { Check, ChevronDown, ChevronRight } from './icons'
+import { DoneHidden, DoneToggle } from './MissionDeckDone'
 import {
-  DeckSection,
-  isLead,
-  ProposalRow,
-  type Rail,
-  type RailTone,
-  ROOT_RAIL,
-  railFor,
-  roleLabel,
-  SessionBand,
-  STRIP_H,
-  seatFor,
-  TaskStrip,
-} from './spine'
+  DeckContent,
+  DeckGroup,
+  DeckProposals,
+  DeckRow,
+  DeckTasks,
+  MissionDeckList,
+} from './MissionDeckList'
+import { DeckAgentRow, DeckPhaseHeading, DeckSeatRow, DeckTaskRow } from './MissionDeckRows'
+import { DeckGauge, DeckVitalsLine, deckVitals } from './MissionGauge'
+import { MissionProposalRow } from './MissionProposalRow'
+import { MissionProposalSlot } from './MissionProposalSlot'
+import type { DeckTaskRowProps } from './mission-deck-rows.types'
+import type { MissionProposalRowProps } from './mission-proposal-row.types'
+import { StageGlyph } from './StageGlyph'
 import { EmptyState } from './ui'
+import type { WorkMenuSheet } from './WorkIssueMenu'
 
-/** A {@link Rail} as the style a plain `View` draws it with. */
-const toRailStyle = (rail: Rail) => ({ width: rail.width, backgroundColor: rail.color })
+/** The shared FullDeck projection in a full-screen native list: the page right of the chat. */
 
 /**
- * THE FLIGHT DECK, as the mission screen's pull-down panel [POD-592, POD-724].
- *
- * Every row, state word, count and tree guide comes from the mission module in
- * `@podium/client-core/values` — the same lines the desktop's second column
- * reads. The phone derives nothing of its own, for the reason the worklist
- * stopped being re-derived per platform in POD-331: two derivations disagree
- * eventually, and the one place an operator decides what to run is the worst
- * place for them to disagree. Only the chrome here is native.
- *
- * What POD-724 changed is where it LIVES. It used to be the whole screen you
- * landed on from Work, with the transcript a push behind it — so the ordinary
- * act of answering an agent cost two navigations, and the deck's real power
- * (seeing the subtree while you talk to one of its agents) was never available
- * at the same time as the talking. Now the deck is a panel over the
- * conversation and its session bands SWITCH the transcript in place, which is
- * the thing a phone can do that a desktop column cannot.
- *
- * POD-767 brings it onto the LEAD RAIL the web deck landed in POD-758, so the
- * same mission reads the same on both. Two fills and no more — grey for a task
- * in every state, fuchsia for a proposal — with selection and attention as
- * square ticks in the rail's gutter, a lead's branch drawn in the theme
- * ink, agent rows reduced to contents rather than objects, a census behind
- * every fold, and proposals sunk to a tail that names who filed them.
+ * Reveal the selected seat using the deck's existing fold actions. A user can
+ * fold it again without the selection continually reopening it.
  */
+export function useRevealSeat(screen: MissionScreen | null | undefined, sessionId?: string) {
+  const ready = screen?.ready === true
+  useEffect(() => {
+    if (!ready || !screen || !sessionId) return
+    let id: string | null =
+      screen.crew.find((session) => session.sessionId === sessionId)?.issueId ?? null
+    while (id && screen.members.has(id)) {
+      const task = screen.full.task(id)
+      if (task.foldable && !task.open) screen.full.toggleFold(id)
+      id = task.parentId
+    }
+  }, [ready, screen, sessionId])
+}
 
-const MODES: Array<{ id: FlightDeckMode; label: string }> = [
-  { id: 'full', label: 'Full' },
-  { id: 'working', label: 'Working' },
-  { id: 'needs-you', label: 'Needs you' },
-]
+const FILTER_LABEL: Readonly<Record<FullDeckFilter, string>> = {
+  all: 'All',
+  'needs-you': 'Needs you',
+  active: 'Active',
+  'up-next': 'Up next',
+}
+
+/** As WorkIssueMenu's own acts: a refused row write leaves the row as it was. */
+const ignoreRowError = () => {}
 
 export const MissionDeck = observer(function MissionDeck({
   screen,
@@ -86,811 +75,676 @@ export const MissionDeck = observer(function MissionDeck({
   onOpenSession,
   onOpenTask,
   onOpenTaskMenu,
-  onLaunchAgent,
-  onTuckRoot,
-  onFileRoot,
-  onOpenDeparture,
-  onContentHeight,
+  onScreenProposals,
+  showTitle = true,
 }: {
-  /** The opened mission: its rows, folds, mode and the root's answers. */
   screen: MissionScreen
-  /** The session the conversation underneath is showing — the deck marks it so
-   *  the panel answers "where am I" as well as "what else is there". */
-  currentSessionId: SessionId | undefined
+  currentSessionId: string | undefined
   onOpenSession: (session: SessionView) => void
   onOpenTask: (issue: IssueNavigationModel) => void
-  onOpenTaskMenu?: (issue: IssueNavigationModel) => void
-  onLaunchAgent: () => void
-  onTuckRoot: () => void
-  onFileRoot: () => void
-  onOpenDeparture: (issueId: IssueId) => void
-  /** The deck's natural height, re-reported whenever the rows it renders
-   *  change — the mission screen sizes and animates the panel from it. */
-  onContentHeight: (height: number) => void
+  /** A task row's menu, or (with `sheet`) the one sheet a native menu row asked for. */
+  onOpenTaskMenu: (issue: IssueNavigationModel, sheet?: WorkMenuSheet) => void
+  onScreenProposals: () => void
+  showTitle?: boolean
 }) {
-  const mode = screen.mode
-  const folds = screen.folds
-  const rootId = screen.rootId as IssueId
-  const rows = screen.rows
-  // The root is NOT a strip — the mission bar above is its row, so it is dropped
-  // from the spine and its agents hang directly off the head. The view model
-  // drops it, applies the folds and sinks the proposals.
-  const spineRows = screen.visibleRows
-  const rootRow = screen.rootRow
-  /**
-   * PROPOSALS SINK. A childless proposal leaves the sibling order and collects
-   * in a tail at the bottom of the spine: work being offered to the operator is
-   * not part of the mission's SHAPE, and interleaving it with the shape is what
-   * made a proposal read as a task somebody had started. One with sub-tasks
-   * stays in the tree, because by then it is holding structure up. A childless
-   * proposed ROOT is the phone's one extra: the bar names it, the tail lists it.
-   */
-  const proposals = useMemo(
-    () =>
-      rootRow && rootRow.stage === 'proposed' && rootRow.descendantIds.length === 0
-        ? [rootRow, ...screen.proposedRows]
-        : screen.proposedRows,
-    [rootRow, screen.proposedRows],
-  )
-  // Computed over the rows that ACTUALLY render: a fold or a filter changes which
-  // strip is the last child of its branch, and a rail that outlives its last
-  // child is the tell that the tree was drawn from data rather than from layout.
-  const guides = useMemo(() => treeGuides(spineRows as MissionDeckIssueModel[]), [spineRows])
-
-  /**
-   * THE TASKS THAT HAVE A LEAD — the set the lead rails are drawn from.
-   *
-   * A designated coordinator whose session has exited is not leading anything,
-   * so the predicate is over LIVE sessions: a rail that stayed lit after its
-   * lead went home would be the deck asserting somebody is driving when nobody
-   * is, which is the one thing this device must never do.
-   */
-  const ledIssueIds = new Set(rows.filter(row => row.hasLead).map(row => row.id))
-  const leadTone = useCallback(
-    (issueId: IssueId | undefined): RailTone =>
-      issueId === undefined || !ledIssueIds.has(issueId)
-        ? null
-        : issueId === rootId
-          ? 'mission'
-          : 'task',
-    [ledIssueIds, rootId],
-  )
-  /**
-   * WHICH TASK OWNS THE RAIL AT EACH LEVEL of each rendered row.
-   *
-   * The rail at level L descends from the node at depth L-1 — level 1 from the
-   * mission root, level 2 from the depth-1 ancestor — so colouring a lead's
-   * branch means knowing each row's ancestry, which the flat row list does not
-   * carry. Rebuilt here from depth alone, over the rows that actually render,
-   * for the same reason `treeGuides` is: a filtered spine has a different tree.
-   *
-   * One entry longer than the row's depth: the last is the tone of the row's
-   * OWN descent, which is the line its agents hang on.
-   */
-  const rails = useMemo(() => {
-    const trail: (IssueId | undefined)[] = [rootId]
-    return spineRows.map((row) => {
-      trail.length = row.depth
-      trail[row.depth] = row.id as IssueId
-      const tones: RailTone[] = []
-      for (let level = 1; level <= row.depth + 1; level += 1) tones.push(leadTone(trail[level - 1]))
-      return tones
-    })
-  }, [spineRows, rootId, leadTone])
-
-  // THE HEADER'S AGENTS OBEY THE VIEW BAR (POD-1356), which they did not: the
-  // roster was read with `matched` forced true, so every agent hanging off the
-  // mission survived every view. On the one-task mission — which most missions
-  // are — that made `Full`, `Active` and `Needs you` render the same screen, and
-  // the bar read as broken because on that mission it WAS.
-  //
-  // The root's ROW is still unfilterable, and that is a different thing: the
-  // header names which mission is on screen and says so in every view. What the
-  // view narrows is the crew under it, which is content — the same rule POD-758
-  // wrote down when it took the roster's own disclosure away and said the view
-  // bar is what removes an agent from the deck.
-  const rootSessions = rootRow ? deckSessions(rootRow, mode) : []
-  const foldable = screen.foldable
-  const allFolded = screen.allFolded
-  const rootEmptyNote = screen.presence
-  const rootRetired = rootEmptyNote?.kind === 'done'
-  const rootContinuation = screen.continuation
-  const departures = screen.otherDepartures
-  const continuationState = screen.continuationState
-  const rootFinished = screen.rootFinished
-
-  // WHAT THE DECK IS ABOUT TO RENDER, COUNTED — the same predicates the JSX
-  // below uses, so the height the panel animates to and the rows that appear
-  // in it cannot disagree. Rows are fixed-height constants, which is what lets
-  // this be arithmetic instead of an onLayout round trip.
-  const emptyBlock = spineRows.length === 0 && rootSessions.length === 0 && proposals.length === 0
-  const contentHeight = deckContentHeight({
-    strips: spineRows.length,
-    bands:
-      rootSessions.length +
-      spineRows.reduce(
-        (n, row) => n + (row.folded(folds) ? 0 : deckSessions(row, mode).length),
-        0,
-      ),
-    proposals: proposals.length,
-    departures: departures.length,
-    signposts:
-      (rootContinuation ? 1 : 0) + (emptyBlock && !rootContinuation && rootRetired ? 1 : 0),
-    sections: (proposals.length > 0 ? 1 : 0) + (rootContinuation || departures.length > 0 ? 1 : 0),
-    empty: emptyBlock && !rootContinuation && !rootRetired,
-  })
+  const full = screen.full
+  const proposalPorts = useProposalPorts()
+  const submissions = useMemo(() => new ProposalSubmissions(full, 'brief'), [full])
+  const receiptDeadline = submissions.receiptDeadline
   useEffect(() => {
-    onContentHeight(contentHeight)
-  }, [contentHeight, onContentHeight])
-  const openTask = (row: MissionDeckIssueModel) => {
-    const issue = screen.reader.issue(row.id)
-    if (issue && issue !== LOADING) onOpenTask(issue)
-  }
+    if (receiptDeadline === null) return
+    const timer = setTimeout(
+      () => submissions.expireReceipts(),
+      Math.max(0, receiptDeadline - Date.now()),
+    )
+    const listener = AppState.addEventListener('change', (state) => {
+      if (state === 'active') submissions.expireReceipts()
+    })
+    return () => {
+      clearTimeout(timer)
+      listener.remove()
+    }
+  }, [submissions, receiptDeadline])
+  const vitals = deckVitals(full)
+  // Past the filters' breakpoint the Done toggle takes its own line: beside
+  // the vitals at accessibility sizes it ran off the screen edge as "Hide".
+  const stackedVitals = useWindowDimensions().fontScale > SEGMENT_MAX_SCALE
+  const [proposalsOpen, setProposalsOpen] = useState(true)
+  const acceptedTree = full.ready ? submissions.acceptedTree : null
+  // Beside Done the summary drops Up next; the done/total count always shows.
+  // When the line and the toggle do not fit together, the row wraps the toggle
+  // onto its own line instead of clipping it or dropping the count.
+  const compactVitals = !stackedVitals && acceptedTree?.filterable === true
+  const rowIds = acceptedTree?.rowIds ?? []
+  const proposalIds = full.ready ? submissions.ids : []
+  const seatIds = full.ready ? settled(() => full.root.sessionIds) : []
+  const rootSeats = seatIds === LOADING ? [] : seatIds
+  const title = settled(() => screen.rootTitle)
+  const issueOf = useCallback(
+    (id: string): IssueNavigationModel | null => {
+      const value = screen.reader.issue(id)
+      return value && value !== LOADING ? value : null
+    },
+    [screen],
+  )
+  const openSession = useCallback(
+    (id: string) => onOpenSession(screen.pool.sessionObject(id) as unknown as SessionView),
+    [screen, onOpenSession],
+  )
+  const openTask = useCallback(
+    (id: string) => {
+      const issue = issueOf(id)
+      if (issue) onOpenTask(issue)
+    },
+    [issueOf, onOpenTask],
+  )
+  const openTaskMenu = useCallback(
+    (id: string, sheet?: WorkMenuSheet) => {
+      const issue = issueOf(id)
+      if (issue) onOpenTaskMenu(issue, sheet)
+    },
+    [issueOf, onOpenTaskMenu],
+  )
+  // iOS task rows carry Work's row acts as a native context menu: direct acts
+  // write through the store, and rename, delete or a guarded close hand back
+  // to the host's WorkIssueMenu with the sheet to open.
+  const rowActions = useIssueRowActions({
+    openMenu: openTaskMenu,
+    onError: ignoreRowError,
+  })
+
+  // The gauge heads the coordinator card when there is one: a header-only
+  // section of its own would add List's empty-section padding beneath it.
+  const head = (
+    <View style={styles.head}>
+      {showTitle ? (
+        <Text style={styles.title} numberOfLines={2} accessibilityRole="header">
+          {title === LOADING ? '' : title}
+        </Text>
+      ) : null}
+      {vitals ? (
+        <>
+          <DeckGauge vitals={vitals} />
+          <View style={stackedVitals ? styles.vitalsStacked : styles.vitalsRow}>
+            <View style={styles.vitalsText} testID="deck-vitals-text">
+              <DeckVitalsLine
+                vitals={vitals}
+                numberOfLines={stackedVitals ? undefined : 1}
+                showUpNext={!compactVitals}
+              />
+            </View>
+            {acceptedTree?.filterable ? <DoneToggle full={full} /> : null}
+          </View>
+        </>
+      ) : (
+        <Text style={styles.sub}>Loading tasks…</Text>
+      )}
+    </View>
+  )
 
   return (
-    <View style={styles.panel}>
-      <View style={styles.controls}>
-        <View style={styles.seg}>
-          {MODES.map((m) => {
-            const on = m.id === mode
-            return (
-              <PressableScale
-                key={m.id}
-                onPress={() => screen.setMode(m.id)}
-                scaleTo={0.99}
-                accessibilityRole="button"
-                // `aria-pressed`, not `aria-selected`, and beside `accessibilityState` rather
-                // than instead of it. react-native-web 0.21 reads only the `aria-*` spelling,
-                // so the web build announced no state at all; and `aria-selected` is only
-                // valid on a listbox/tab/grid role, so on a `button` it is ignored — the
-                // browser-visible way to say a button is the chosen one is `aria-pressed`.
-                // React Native still reads `accessibilityState` on device. [POD-1664]
-                accessibilityState={{ selected: on }}
-                aria-pressed={on}
-                accessibilityLabel={m.label}
-                style={[styles.segBtn, on ? styles.segBtnOn : null]}
-              >
-                <Text style={[styles.segLabel, on ? styles.segLabelOn : null]} numberOfLines={1}>
-                  {m.label}
-                </Text>
-              </PressableScale>
-            )
-          })}
-        </View>
-        <PressableScale
-          onPress={() => screen.foldAll()}
-          accessibilityRole="button"
-          accessibilityLabel={allFolded ? 'Expand every branch' : 'Fold every branch'}
-          disabled={foldable.length === 0}
-          style={styles.ctlBtn}
-        >
-          <Icon
-            as={allFolded ? ChevronsUpDown : ChevronsDownUp}
-            size={15}
-            color={color.textFaint}
-          />
-        </PressableScale>
-        {/* ICON ONLY, and the label is the reason. "+ Agent" cost about 50pt of
-            a 390pt row, which is exactly what "Needs you" needed to stay on one
-            line — and a segmented control whose third tab wraps to two lines
-            makes the whole row taller than the controls beside it. The bisque
-            fill already says "this is the primary action here", and it is the
-            only accent on the panel. */}
-        <PressableScale
-          onPress={onLaunchAgent}
-          accessibilityRole="button"
-          accessibilityLabel="Launch an agent on this mission"
-          hitSlop={8}
-          style={({ pressed }) => [styles.launch, pressed && styles.launchPressed]}
-        >
-          <Icon as={Plus} size={17} color={color.onAccent} />
-        </PressableScale>
-      </View>
-
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* The rail crosses the list's own top padding, joining the first visible
-            member without borrowing a line from the controls above the tree. */}
-        <View style={styles.topRail}>
-          <View
-            style={[
-              styles.topRailLine,
-              { left: ROOT_RAIL, ...toRailStyle(railFor(leadTone(rootId))) },
-            ]}
-          />
-        </View>
-
-        {/* THE MISSION'S OWN AGENTS, hanging off the mission bar — the line that
-            leaves the bar IS their rail, and it carries on into the first child
-            below.
-
-            NOTHING IS HIDDEN HERE (POD-758/POD-767). This block used to fold its
-            finished agents away behind an "N finished" line, because every
-            session the mission ever had hangs off the header and on a long
-            mission that was a screen of retired rows before the first task. The
-            phone answers the same problem the way the desktop does instead:
-            settled agents stay, one tier dimmer, and what removes them is the
-            view bar above. A second, in-view disclosure that hid what the
-            chosen view had just promised to show was the duplication — and a
-            phone-only one would have put the two decks back out of step, which
-            is the whole reason this work exists. */}
-        {rootRow
-          ? rootSessions.map((session, i) => (
-              <Band
-                key={session.sessionId}
-                row={rootRow}
-                session={session}
-                depth={0}
-                carries={[]}
-                rails={[leadTone(rootId)]}
-                // The root's rail carries on into the spine below it, so the
-                // last agent's elbow must not close the line.
-                stops={i === rootSessions.length - 1 && spineRows.length === 0}
-                current={session.sessionId === currentSessionId}
-                onPress={() => onOpenSession(session)}
+    <MissionDeckList>
+      {rootSeats.length > 0 ? (
+        <DeckGroup testID="deck-crew" header={<View style={styles.headAbove}>{head}</View>}>
+          {rootSeats.map((id, index) => (
+            <DeckRow key={id}>
+              <SeatRow
+                task={full.root}
+                sessionId={id}
+                first={index === 0}
+                current={id === currentSessionId}
+                onOpenSession={openSession}
               />
+            </DeckRow>
+          ))}
+        </DeckGroup>
+      ) : (
+        <DeckContent>{head}</DeckContent>
+      )}
+
+      {acceptedTree?.filterable ? (
+        <DeckContent>
+          <View style={styles.filterBar}>
+            <Filters full={full} />
+          </View>
+        </DeckContent>
+      ) : null}
+
+      <DeckTasks ids={rowIds}>
+        <DeckRows
+          full={full}
+          rowIds={rowIds}
+          currentSessionId={currentSessionId}
+          onOpenSession={openSession}
+          onOpenTask={openTask}
+          onOpenTaskMenu={openTaskMenu}
+          onAction={rowActions.onAction}
+          onStatus={rowActions.onStatus}
+        />
+      </DeckTasks>
+
+      {full.ready && rowIds.length === 0 && acceptedTree?.filterable && full.filter !== 'all' ? (
+        <DeckContent>
+          <Text style={styles.empty}>
+            Nothing {FILTER_LABEL[full.filter].toLowerCase()} right now.
+          </Text>
+        </DeckContent>
+      ) : null}
+      {full.ready &&
+      !acceptedTree?.filterable &&
+      rootSeats.length === 0 &&
+      proposalIds.length === 0 ? (
+        <DeckContent>
+          <EmptyState title="No tasks or agents on this mission yet." />
+        </DeckContent>
+      ) : null}
+      <DeckProposals
+        ids={proposalsOpen ? proposalIds : []}
+        header={
+          proposalIds.length > 0 ? (
+            <View style={styles.section}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Proposals, ${proposalIds.length}`}
+                accessibilityState={{ expanded: proposalsOpen }}
+                aria-expanded={proposalsOpen}
+                onPress={() => setProposalsOpen((open) => !open)}
+                style={styles.sectionToggle}
+              >
+                <View style={styles.gutter}>
+                  <StageGlyph stage="proposed" tint={deckColor.proposal} ground={color.groupedBg} />
+                </View>
+                <Text style={styles.sectionTitle} numberOfLines={2}>
+                  Proposed
+                </Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Screen proposals"
+                onPress={onScreenProposals}
+                style={styles.sectionAction}
+              >
+                <Text style={styles.sectionActionLabel}>Screen</Text>
+              </Pressable>
+              <Pressable
+                accessible={false}
+                onPress={() => setProposalsOpen((open) => !open)}
+                style={styles.sectionTrail}
+              >
+                <Text style={styles.sectionCount}>{proposalIds.length}</Text>
+                <Icon
+                  as={proposalsOpen ? ChevronDown : ChevronRight}
+                  size={13}
+                  color={color.textFaint}
+                />
+              </Pressable>
+            </View>
+          ) : undefined
+        }
+      >
+        {proposalsOpen
+          ? proposalIds.map((id, index) => (
+              <MissionProposalSlot
+                key={id}
+                id={id}
+                window={submissions.window}
+                prime={index < ROW_WINDOW_SIZE}
+                first={index === 0}
+              >
+                <ProposalContent
+                  full={full}
+                  id={id}
+                  first={index === 0}
+                  submissions={submissions}
+                  onSubmit={(action) => void submissions.submit(id, action, proposalPorts)}
+                  onPress={() => {
+                    const issue = issueOf(id)
+                    if (issue) onOpenTask(issue)
+                  }}
+                />
+              </MissionProposalSlot>
             ))
           : null}
-
-        {spineRows.length === 0 && rootSessions.length === 0 && proposals.length === 0 ? (
-          rootContinuation ? null : rootRetired ? (
-            <RetiredSignpost abandoned={screen.rootAbandoned} onTuck={onTuckRoot} />
-          ) : (
-            <EmptyState
-              title={
-                deckViewEmptyLine(mode, screen.waitingCount) ??
-                rootEmptyNote?.text ??
-                'No sessions or sub-tasks are attached.'
-              }
-            />
-          )
-        ) : null}
-
-        {spineRows.map((row, index) => (
-          <SpineRow
-            key={row.id}
-            row={row}
-            carries={guides[index] ?? []}
-            rails={rails[index] ?? []}
-            stops={!(guides[index + 1] ?? [])[row.depth - 1]}
-            childFollows={(spineRows[index + 1]?.depth ?? 0) > row.depth}
-            mode={mode}
-            folded={row.folded(folds)}
-            currentSessionId={currentSessionId}
-            onToggleFold={() => screen.toggleFold(row)}
-            onOpenTask={() => openTask(row)}
-            onOpenTaskMenu={
-              onOpenTaskMenu &&
-              (() => {
-                const issue = screen.reader.issue(row.id)
-                if (issue && issue !== LOADING) onOpenTaskMenu(issue)
-              })
-            }
-            onOpenSession={onOpenSession}
-          />
-        ))}
-
-        {proposals.length > 0 ? (
-          <DeckSection label="Proposed" count={proposals.length} tone={stageColor('proposed')}>
-            {proposals.map((row) => (
-              <MissionProposal key={row.id} screen={screen} row={row} onPress={() => openTask(row)} />
-            ))}
-          </DeckSection>
-        ) : null}
-
-        {rootContinuation || departures.length > 0 ? (
-          <DeckSection
-            label="Where the work went"
-            count={departures.length + (rootContinuation ? 1 : 0)}
-          >
-            {rootContinuation ? (
-              <ContinuationSignpost
-                continuation={rootContinuation}
-                state={continuationState?.label ?? null}
-                finished={rootFinished}
-                sessions={rootRow?.sessions ?? []}
-                onOpen={(id) => onOpenDeparture(id)}
-                onFile={onFileRoot}
-              />
-            ) : null}
-            {departures.map((departure) => (
-              <DepartureRow
-                key={departure.issue.id}
-                displayRef={issueDisplayRef(departure.issue)}
-                title={departure.issue.title}
-                state={departure.state.label}
-                attention={departure.state.attention}
-                onPress={() => onOpenDeparture(departure.issue.id)}
-              />
-            ))}
-          </DeckSection>
-        ) : null}
-      </ScrollView>
-    </View>
+      </DeckProposals>
+      {/* What Show Done would add, said once at the end of the list (POD-2666). */}
+      {acceptedTree?.filterable ? <DoneHidden full={full} /> : null}
+    </MissionDeckList>
   )
 })
 
-/** A proposal names the session that filed it, because the ref is how you go
- *  and ask it why. Unresolvable (a human create, or an agent long gone) means
- *  no author line rather than a raw session id. */
-const MissionProposal = observer(function MissionProposal({
-  screen,
-  row,
-  onPress,
-}: {
-  screen: MissionScreen
-  row: MissionDeckIssueModel
-  onPress: () => void
-}) {
-  return (
-    <ProposalRow
-      title={row.title}
-      displayRef={row.displayRef}
-      author={screen.proposalAuthor(row)}
-      selected={false}
-      onPress={onPress}
-    />
-  )
+/** Resolve each task only inside the native slot's active window. */
+const ProposalContent = observer(function ProposalContent({
+  full,
+  id,
+  ...props
+}: Omit<MissionProposalRowProps, 'task'> & { full: FullDeck; id: string }) {
+  return <MissionProposalRow {...props} task={full.task(id)} />
 })
 
-export const SpineRow = observer(function SpineRow({
-  row,
-  carries,
-  rails,
-  stops,
-  childFollows,
-  mode,
-  folded,
-  currentSessionId,
-  onToggleFold,
-  onOpenTask,
-  onOpenTaskMenu,
-  onOpenSession,
-}: {
-  row: MissionDeckIssueModel
-  carries: readonly boolean[]
-  rails: readonly RailTone[]
-  stops: boolean
-  /** Whether the next RENDERED row is a child of this task. Its agents and its
-   *  children share one line, so the line has to survive the gap between this
-   *  block and the next row instead of stopping at the last agent's elbow. */
-  childFollows: boolean
-  mode: FlightDeckMode
-  folded: boolean
-  currentSessionId: SessionId | undefined
-  onToggleFold: () => void
-  onOpenTask: () => void
-  onOpenTaskMenu?: () => void
-  onOpenSession: (s: SessionView) => void
-}) {
-  const content = settled(() => {
-    const presentation = row.presentation
-    const state = presentation.state
-    const context = !row.matched
-    const note = context ? null : presentation.note
-    const bands = folded ? [] : deckSessions(row, mode)
-    // The seat is held for work that could be picked up — never under a proposal,
-    // and never to restate a dependency the strip has already named above it.
-    const seat =
-      context || row.stage === 'proposed' ? null : seatFor(presentation.presence)
-    // A FOLDED BRANCH REPORTS LIVE STATE, not the count already in its payload:
-    // "2 running" is the thing the fold is hiding, and `3 tasks` is printed on the
-    // same line beside it.
-    const liveWord =
-      folded && row.descendantIds.length > 0 && row.workingAgentCount > 0
-        ? `${row.workingAgentCount} running`
-        : undefined
-    const selected = bands.some((s) => s.sessionId === currentSessionId)
-    // NO GAP BETWEEN BLOCKS, deliberately. Every row draws the rails crossing it
-    // inside its own band, so the tree is continuous only while the rows are
-    // flush: a few points of breathing room between task blocks would cut every
-    // ancestor line in the column at exactly that point.
+/**
+ * One segmented control over the shared filters: exactly one selected segment
+ * (iOS UISegmentedControl, widths by content). Done is not a filter; it is the
+ * separate Show/Hide toggle beside the counts. Each segment's 44pt hit area is
+ * reserved in layout around the 32pt track. At accessibility text sizes the
+ * segments stop fitting, so the same choices stack as full-width checkmark rows
+ * at the person's own size (Settings' single-choice lists), never shrunk.
+ */
+const Filters = observer(function Filters({ full }: { full: FullDeck }) {
+  const counts = full.phoneCounts
+  // The shared tone: red when anything Needs you lists has errored, else amber.
+  const needsTone = full.needsYouTone === 'error' ? styles.errorText : styles.needsText
+  const { fontScale } = useWindowDimensions()
+  if (fontScale > SEGMENT_MAX_SCALE) {
     return (
-      <View>
-        <TaskStrip
-          depth={row.depth}
-          carries={carries}
-          rails={rails}
-          // The strip's own rail is its PARENT's descent, at the parent's x. It
-          // ends at this elbow when no sibling follows — the agents and children
-          // below hang one step further in, on a different line.
-          stops={stops}
-          title={row.title}
-          displayRef={row.displayRef}
-          stage={row.stage}
-          state={state}
-          note={note}
-          seat={seat}
-          summary={row.collapsedSummary}
-          folded={folded}
-          liveWord={liveWord}
-          selected={selected}
-          context={context}
-          foldable={row.hasPayload}
-          onPress={onOpenTask}
-          onLongPress={context ? undefined : onOpenTaskMenu}
-          onToggleFold={onToggleFold}
-        />
-        {bands.map((session, i) => (
-          <Band
-            key={session.sessionId}
-            row={row}
-            session={session}
-            depth={row.depth}
-            carries={carries}
-            rails={rails}
-            stops={i === bands.length - 1 && !childFollows}
-            current={session.sessionId === currentSessionId}
-            onPress={() => onOpenSession(session)}
-          />
-        ))}
+      <View style={styles.choices} accessibilityRole="tablist">
+        {FULL_DECK_FILTERS.map((filter, index) => {
+          const on = full.filter === filter
+          const count = counts[filter]
+          return (
+            <Pressable
+              key={filter}
+              accessibilityRole="tab"
+              aria-selected={on}
+              accessibilityLabel={`${FILTER_LABEL[filter]}, ${count}`}
+              testID={`deck-filter-${filter}`}
+              onPress={() => full.setFilter(filter)}
+              style={({ pressed }) => [
+                styles.choice,
+                index > 0 && styles.choiceRule,
+                pressed && styles.choicePressed,
+              ]}
+            >
+              <Text style={styles.choiceLabel}>
+                {FILTER_LABEL[filter]}{' '}
+                <Text
+                  style={[styles.segmentCount, filter === 'needs-you' && count > 0 && needsTone]}
+                >
+                  {count}
+                </Text>
+              </Text>
+              {on ? <Icon as={Check} size={17} color={deckColor.live} /> : null}
+            </Pressable>
+          )
+        })}
       </View>
     )
-  })
-  return content === LOADING ? (
-    <View
-      accessibilityLabel="Loading task"
-      style={{ minHeight: STRIP_H, justifyContent: 'center', paddingHorizontal: space.md }}
-    >
-      <View
-        style={{ height: 8, width: 120, borderRadius: radius.sm, backgroundColor: color.tertiaryFill }}
-      />
-    </View>
-  ) : content
-})
-
-const Band = observer(function Band({
-  row,
-  session,
-  depth,
-  carries,
-  rails,
-  stops,
-  current,
-  onPress,
-}: {
-  row: MissionDeckIssueModel
-  session: SessionView
-  depth: number
-  carries: readonly boolean[]
-  rails: readonly RailTone[]
-  stops: boolean
-  current: boolean
-  onPress: () => void
-}) {
-  const phase = (session as SessionModel).motion
-  // Asked ON THIS TASK: a closed one never asks, however long its offer has been
-  // standing (POD-1072).
-  const asking = row.asks(session)
-  const working = (session as SessionModel).workingMotion
-  const role = sessionRole(row.roleIssue, session, {
-    rootId: row.depth === 0 ? row.id : null,
-    siblings: row.sessions,
-  })
+  }
   return (
-    <SessionBand
-      depth={depth}
-      carries={carries}
-      rails={rails}
-      stops={stops}
-      name={sessionTitle(session)}
-      displayRef={session.displayRef?.trim() || undefined}
-      role={role}
-      roleText={roleLabel(role)}
-      kind={session.agentKind}
-      asking={asking}
-      working={working}
-      settled={(session as SessionModel).settled}
-      lead={isLead(role)}
-      // `sessionRole` only ever returns `coordinator` at the mission root — a
-      // task's lead is `phase-lead` — so this IS "the mission's own lead".
-      coordinator={role?.kind === 'coordinator'}
-      current={current}
-      right={current ? 'reading' : <MissionSessionStamp session={session} phase={phase} working={working} asking={asking} />}
-      onPress={onPress}
-    />
-  )
-})
-
-function ContinuationSignpost({
-  continuation,
-  state,
-  finished,
-  sessions,
-  onOpen,
-  onFile,
-}: {
-  continuation: IssueContinuation
-  state: string | null
-  finished: boolean
-  sessions: readonly SessionView[]
-  onOpen: (issueId: IssueId) => void
-  onFile: () => void
-}) {
-  const target = continuation.target
-  return (
-    <View style={styles.signpost}>
-      <View style={styles.signpostHead}>
-        <View style={styles.signpostIcon}>
-          <Icon as={ArrowDown} size={13} color={color.textDim} />
-        </View>
-        <View style={styles.signpostCopy}>
-          <View style={styles.signpostTitleRow}>
-            <Text numberOfLines={2} style={styles.signpostTitle}>
-              {continuation.full}
-            </Text>
-            {state ? <Text style={styles.signpostState}>{state.toLowerCase()}</Text> : null}
-          </View>
-          <Text style={styles.signpostDetail}>
-            {continuationPresenceLine(continuation.kind, sessions)}
-            {target ? ` ${target.title} is where it carried on.` : ''}
-          </Text>
-        </View>
-      </View>
-      <View style={styles.signpostActions}>
-        {target ? (
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel={`Open ${issueDisplayRef(target)}`}
-            onPress={() => onOpen(target.id)}
-            style={({ pressed }) => [
-              styles.signpostAction,
-              styles.signpostActionPrimary,
-              pressed && styles.signpostActionPressed,
-            ]}
+    <View style={styles.segmentsBox} accessibilityRole="tablist">
+      <View style={styles.segmentsTrack} />
+      {FULL_DECK_FILTERS.map((filter) => {
+        const on = full.filter === filter
+        const count = counts[filter]
+        return (
+          <Pressable
+            key={filter}
+            accessibilityRole="tab"
+            aria-selected={on}
+            accessibilityLabel={`${FILTER_LABEL[filter]}, ${count}`}
+            testID={`deck-filter-${filter}`}
+            onPress={() => full.setFilter(filter)}
+            style={styles.segmentHit}
           >
-            <Text style={styles.signpostActionPrimaryText}>Open {issueDisplayRef(target)}</Text>
-          </PressableScale>
-        ) : null}
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel={
-            finished ? 'Tuck this task away' : 'Mark this task done and tuck it away'
-          }
-          onPress={onFile}
-          style={({ pressed }) => [styles.signpostAction, pressed && styles.signpostActionPressed]}
-        >
-          <Icon as={finished ? ArrowDown : Check} size={13} color={color.textDim} />
-          <Text style={styles.signpostActionText}>{finished ? 'Tuck away' : 'Done & tuck'}</Text>
-        </PressableScale>
-      </View>
+            <View style={[styles.segment, on && styles.segmentOn]}>
+              <Text
+                numberOfLines={1}
+                // UISegmentedControl shrinks a label that does not fit its
+                // segment; at accessibility sizes the rows above take over.
+                adjustsFontSizeToFit
+                minimumFontScale={0.85}
+                maxFontSizeMultiplier={SEGMENT_MAX_SCALE}
+                style={[styles.segmentLabel, on && styles.segmentLabelOn]}
+              >
+                {FILTER_LABEL[filter]}{' '}
+                <Text
+                  style={[styles.segmentCount, filter === 'needs-you' && count > 0 && needsTone]}
+                >
+                  {count}
+                </Text>
+              </Text>
+            </View>
+          </Pressable>
+        )
+      })}
     </View>
   )
-}
+})
 
-function DepartureRow({
-  displayRef,
-  title,
-  state,
-  attention,
-  onPress,
-}: {
-  displayRef: string
-  title: string
-  state: string
-  attention: boolean
-  onPress: () => void
-}) {
-  return (
-    <PressableScale
-      accessibilityRole="button"
-      accessibilityLabel={`${displayRef} ${title}, ${state}`}
-      onPress={onPress}
-      style={({ pressed }) => [styles.departure, pressed && styles.signpostActionPressed]}
-    >
-      <Text style={styles.departureArrow}>↗</Text>
-      <Text style={styles.departureRef}>{displayRef}</Text>
-      <Text numberOfLines={1} style={styles.departureTitle}>
-        {title}
-      </Text>
-      {attention ? <View style={styles.departureAttention} /> : null}
-      <Text numberOfLines={1} style={styles.departureState}>
-        {state.toLowerCase()}
-      </Text>
-    </PressableScale>
-  )
-}
-
-/** A finished, empty mission is a lifecycle signpost, not generic empty copy. */
-function RetiredSignpost({ abandoned, onTuck }: { abandoned: boolean; onTuck: () => void }) {
-  return (
-    <View style={styles.signpost}>
-      <View style={styles.signpostHead}>
-        <View style={styles.signpostIcon}>
-          <Icon as={abandoned ? X : Check} size={13} color={color.textDim} />
-        </View>
-        <View style={styles.signpostCopy}>
-          <Text style={styles.signpostTitle}>
-            {abandoned ? 'This task was cancelled.' : 'This task is finished.'}
-          </Text>
-          <Text style={styles.signpostDetail}>
-            No session remains on it. Tuck it away to fold it into Closed.
-          </Text>
-        </View>
-      </View>
-      <View style={styles.signpostActions}>
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel="Tuck this finished task away"
-          onPress={onTuck}
-          style={({ pressed }) => [styles.signpostAction, pressed && styles.signpostActionPressed]}
-        >
-          <Icon as={ArrowDown} size={13} color={color.textDim} />
-          <Text style={styles.signpostActionText}>Tuck away</Text>
-        </PressableScale>
-      </View>
-    </View>
-  )
+/** The header of a card with no heading, so List keeps its gap above it. */
+function GroupGap() {
+  return <View style={styles.groupGap} />
 }
 
 /**
- * The right-hand slot: a running clock only while an agent computes, the age of
- * a stop while it waits, and the compute total once it is done. Nothing while
- * queued — the dimmed row already says it.
+ * Phases become section headings; the tasks under one heading share one
+ * grouped card. Tasks outside any phase group the same way.
  */
-function stamp(
-  session: SessionView,
-  phase: MotionPhase,
-  working: boolean,
-  asking: boolean,
-  now: number,
-): string | null {
-  const state = session.agentState
-  if (working) {
-    const since = state?.since ? Date.parse(state.since) : Number.NaN
-    if (!Number.isFinite(since)) return null
-    return formatClock(Math.max(0, now - since) + (state?.workingMsTotal ?? 0))
+const DeckRows = observer(function DeckRows({
+  full,
+  rowIds,
+  currentSessionId,
+  onOpenSession,
+  onOpenTask,
+  onOpenTaskMenu,
+  onAction,
+  onStatus,
+}: {
+  full: FullDeck
+  rowIds: readonly string[]
+  currentSessionId: string | undefined
+  onOpenSession: (id: string) => void
+  onOpenTask: (id: string) => void
+  onOpenTaskMenu: (id: string) => void
+  onAction: ReturnType<typeof useIssueRowActions>['onAction']
+  onStatus: ReturnType<typeof useIssueRowActions>['onStatus']
+}) {
+  const blocks: { phase: FullDeckTask | null; tasks: FullDeckTask[]; phaseStart: boolean }[] = []
+  for (const id of rowIds) {
+    const task = full.task(id)
+    if (settled(() => task.kind) === 'phase')
+      blocks.push({ phase: task, tasks: [], phaseStart: true })
+    else {
+      const last = blocks[blocks.length - 1]
+      const phaseId = settled(() => task.phaseId)
+      const phase = typeof phaseId === 'string' ? full.task(phaseId) : null
+      if (last && last.phase?.id === phase?.id) last.tasks.push(task)
+      else blocks.push({ phase, tasks: [task], phaseStart: false })
+    }
   }
-  if (asking) return null
-  if (!(session as SessionModel).open) {
-    return `Retired · ${relativeTime(session.lastActiveAt, now)}`
-  }
-  if (phase === 'done' && state?.workingMsTotal) return `∑ ${formatClock(state.workingMsTotal)}`
-  return relativeTime(session.lastActiveAt, now)
-}
-
-const styles = StyleSheet.create({
-  panel: {
-    flex: 1,
-    minHeight: 0,
-  },
-  controls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    paddingHorizontal: space.md,
-    paddingTop: space.sm,
-    paddingBottom: space.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: color.hairline,
-  },
-  seg: {
-    flex: 1,
-    flexDirection: 'row',
-    height: 32,
-    padding: 2,
-    borderRadius: 9,
-    backgroundColor: color.bgSunken,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.hairline,
-  },
-  segBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    borderRadius: 7,
-  },
-  segBtnOn: {
-    backgroundColor: color.surfaceHigh,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.borderStrong,
-  },
-  segLabel: { ...sans(600), fontSize: font.tiny, color: color.textFaint, flexShrink: 1 },
-  segLabelOn: { color: color.text },
-  ctlBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: color.bgSunken,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.hairline,
-  },
-  // The deck's ONE primary action, and the only accent on the panel: launching an
-  // agent is what the operator came here to be able to do without leaving the
-  // conversation.
-  launch: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-    backgroundColor: color.accent,
-  },
-  launchPressed: {
-    opacity: 0.82,
-  },
-  scroll: { flex: 1, minHeight: 0 },
-  scrollContent: { paddingBottom: space.xl },
-  topRail: { height: space.sm },
-  topRailLine: { position: 'absolute', top: 0, bottom: 0 },
-  signpost: {
-    marginHorizontal: space.lg,
-    marginVertical: space.lg,
-    padding: space.md,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.surface,
-  },
-  signpostHead: { flexDirection: 'row', alignItems: 'flex-start', gap: space.sm },
-  signpostIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: color.bgSunken,
-  },
-  signpostCopy: { flex: 1, minWidth: 0 },
-  signpostTitleRow: { flexDirection: 'row', alignItems: 'baseline', gap: space.sm },
-  signpostTitle: { ...sans(600), fontSize: font.small, color: color.text },
-  signpostState: { ...sans(500), flexShrink: 0, fontSize: font.micro, color: color.textFaint },
-  signpostDetail: {
-    ...sans(400),
-    marginTop: 3,
-    fontSize: font.tiny,
-    lineHeight: 18,
-    color: color.textDim,
-  },
-  signpostAction: {
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    minHeight: 32,
-    paddingHorizontal: space.sm,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.borderStrong,
-    backgroundColor: color.bgSunken,
-  },
-  signpostActionPressed: { opacity: 0.78 },
-  signpostActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.sm,
-    marginTop: space.sm,
-    marginLeft: 32,
-  },
-  signpostActionPrimary: { backgroundColor: color.text },
-  signpostActionPrimaryText: { ...sans(600), fontSize: font.tiny, color: color.bg },
-  signpostActionText: { ...sans(500), fontSize: font.tiny, color: color.text },
-  departure: {
-    minHeight: 38,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    paddingHorizontal: space.xs,
-  },
-  departureArrow: { ...mono(500), fontSize: font.tiny, color: color.textFaint },
-  departureRef: { ...mono(400), flexShrink: 0, fontSize: font.micro, color: color.textFaint },
-  departureTitle: { ...sans(400), flex: 1, minWidth: 0, fontSize: font.tiny, color: color.textDim },
-  departureAttention: { width: 5, height: 5, borderRadius: 3, backgroundColor: color.accent },
-  departureState: { ...mono(400), flexShrink: 0, fontSize: font.micro, color: color.textFaint },
+  return (
+    <>
+      {blocks.map(({ phase, tasks, phaseStart }, index) => {
+        // Key by group and its occurrence, not by its first task: a first task
+        // that changes state must not remount the native rows beside it.
+        const groupKey = phase?.id ?? 'loose'
+        const occurrence = blocks
+          .slice(0, index)
+          .filter((block) => (block.phase?.id ?? 'loose') === groupKey).length
+        const phaseSeats =
+          phase && phaseStart ? settled(() => (phase.open ? phase.sessionIds : [])) : []
+        const leadingSeats = phaseSeats === LOADING ? [] : phaseSeats
+        return (
+          <Fragment key={`${groupKey}-${occurrence}`}>
+            <DeckGroup
+              testID={`deck-group-${phase?.id ?? 'loose'}`}
+              heading={phase ? <DeckPhaseHeading phase={phase} /> : undefined}
+              header={phase ? undefined : <GroupGap />}
+            >
+              {phase &&
+                leadingSeats.map((id) => (
+                  <DeckRow key={id}>
+                    <AgentRow
+                      task={phase}
+                      sessionId={id}
+                      indent={0}
+                      current={id === currentSessionId}
+                      onOpenSession={onOpenSession}
+                    />
+                  </DeckRow>
+                ))}
+              {tasks.map((task, row) => (
+                <TaskRows
+                  key={task.id}
+                  task={task}
+                  phase={phase}
+                  first={row === 0 && leadingSeats.length === 0}
+                  currentSessionId={currentSessionId}
+                  onOpenTask={onOpenTask}
+                  onOpenTaskMenu={onOpenTaskMenu}
+                  onOpenSession={onOpenSession}
+                  onAction={onAction}
+                  onStatus={onStatus}
+                />
+              ))}
+            </DeckGroup>
+          </Fragment>
+        )
+      })}
+    </>
+  )
 })
 
-const MissionSessionStamp = observer(function MissionSessionStamp({ session, phase, working, asking }: {
-  session: SessionView; phase: MotionPhase; working: boolean; asking: boolean
+/** Each task owns its handlers and menu. Count/crew updates above it cannot
+ * replace every row's props and redraw all native context menus. */
+const TaskRows = observer(function TaskRows({
+  task,
+  phase,
+  first,
+  currentSessionId,
+  onOpenTask,
+  onOpenTaskMenu,
+  onOpenSession,
+  onAction,
+  onStatus,
+}: {
+  task: FullDeckTask
+  phase: FullDeckTask | null
+  first: boolean
+  currentSessionId: string | undefined
+  onOpenTask: (id: string) => void
+  onOpenTaskMenu: (id: string) => void
+  onOpenSession: (id: string) => void
+  onAction: ReturnType<typeof useIssueRowActions>['onAction']
+  onStatus: ReturnType<typeof useIssueRowActions>['onStatus']
 }) {
-  const since = working ? session.agentState?.since ?? session.lastActiveAt : session.lastActiveAt
-  const now = useAgeNow(since, working ? session.agentState?.workingMsTotal ?? 0 : 0,
-    !asking && (working || !(session as SessionModel).open || phase !== 'done' || !session.agentState?.workingMsTotal))
-  return stamp(session, phase, working, asking, now)
+  const shape = settled(() => ({
+    depth: task.depth,
+    base: phase ? phase.depth + 1 : 0,
+    seats: task.open ? task.sessionIds : [],
+  }))
+  const indent = shape === LOADING ? 0 : Math.max(0, shape.depth - shape.base)
+  const seats = shape === LOADING ? [] : shape.seats
+  const onPress = useCallback(() => onOpenTask(task.id), [onOpenTask, task])
+  const onLongPress = useCallback(() => onOpenTaskMenu(task.id), [onOpenTaskMenu, task])
+  const issue = task.deck.screen.reader.issue(task.id)
+  const menu = useMemo<DeckTaskRowProps['menu']>(
+    () =>
+      issue && issue !== LOADING
+        ? {
+            issue,
+            onAction: (action) => onAction(task.id, action),
+            onStatus: (value) => onStatus(task.id, value),
+          }
+        : undefined,
+    [issue, task, onAction, onStatus],
+  )
+  return (
+    <>
+      <DeckRow>
+        <DeckTaskRow
+          task={task}
+          indent={indent}
+          first={first}
+          onPress={onPress}
+          onLongPress={onLongPress}
+          menu={menu}
+        />
+      </DeckRow>
+      {seats.map((id) => (
+        <DeckRow key={id}>
+          <AgentRow
+            task={task}
+            sessionId={id}
+            indent={indent}
+            current={id === currentSessionId}
+            onOpenSession={onOpenSession}
+          />
+        </DeckRow>
+      ))}
+    </>
+  )
+})
+
+const AgentRow = observer(function AgentRow({
+  onOpenSession,
+  ...props
+}: Omit<Parameters<typeof DeckAgentRow>[0], 'onPress'> & { onOpenSession: (id: string) => void }) {
+  const { sessionId } = props
+  const onPress = useCallback(() => onOpenSession(sessionId), [onOpenSession, sessionId])
+  return <DeckAgentRow {...props} onPress={onPress} />
+})
+
+const SeatRow = observer(function SeatRow({
+  onOpenSession,
+  ...props
+}: Omit<Parameters<typeof DeckSeatRow>[0], 'onPress'> & { onOpenSession: (id: string) => void }) {
+  const { sessionId } = props
+  const onPress = useCallback(() => onOpenSession(sessionId), [onOpenSession, sessionId])
+  return <DeckSeatRow {...props} onPress={onPress} />
+})
+
+/** Every row's glyph column, then its text column, on the 4pt grid. */
+const GUTTER = 20
+const INSET = space.lg
+/** A child's glyph sits in its parent's title column, like its seats. */
+const _INDENT = GUTTER + space.md
+const _ROW_H = 44
+/** UISegmentedControl stops growing its labels a little past the default size. */
+const SEGMENT_MAX_SCALE = 1.35
+
+/** Hit area reserved above the 32pt segment track: 44pt rows. */
+const SEGMENT_HIT_PAD = 12
+/** How far a 44pt header control reaches past a 22pt title line, each side. */
+const SECTION_HIT_PAD = 11
+const _DISCLOSURE_SLOP = { top: 4, bottom: 4, left: 8, right: 4 }
+const styles = StyleSheet.create({
+  head: { gap: space.sm, paddingHorizontal: INSET, paddingTop: space.sm },
+  headAbove: { paddingBottom: space.lg },
+  title: {
+    ...sans(600),
+    color: color.text,
+    fontSize: font.body,
+    lineHeight: 24,
+  },
+  sub: { ...sans(400), color: color.textDim, fontSize: font.tiny, lineHeight: leading(font.tiny) },
+  vitalsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    columnGap: space.md,
+    rowGap: space.xs,
+  },
+  vitalsStacked: { alignItems: 'flex-start', gap: space.xs },
+  // Content-sized basis, so the row wraps the toggle before shrinking the text.
+  vitalsText: { flexGrow: 1, flexShrink: 1, minWidth: 0, maxWidth: '100%' },
+  // SwiftUI keeps ~20pt between any header and its first row: that is the gap.
+  groupGap: { height: 0 },
+  /** The 44pt hit row; the 32pt track sits at its foot, so the reserved band
+   * lies in the gap above it and the card below keeps List's spacing. */
+  segmentsBox: { flexDirection: 'row', paddingHorizontal: 2, gap: 2 },
+  segmentsTrack: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: SEGMENT_HIT_PAD,
+    bottom: 0,
+    borderRadius: radius.card,
+    backgroundColor: color.tertiaryFill,
+  },
+  segmentHit: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 'auto',
+    minHeight: 44,
+    paddingTop: SEGMENT_HIT_PAD + 2,
+    paddingBottom: 2,
+  },
+  // The reserved hit band above the track keeps the visible 24pt gap.
+  filterBar: { paddingTop: space.xl - SEGMENT_HIT_PAD },
+  choices: {
+    borderRadius: radius.card,
+    backgroundColor: color.groupedCard,
+    overflow: 'hidden',
+  },
+  choice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    minHeight: 44,
+    paddingHorizontal: INSET,
+    paddingVertical: space.md,
+  },
+  choiceRule: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: color.hairline },
+  choicePressed: { backgroundColor: color.tertiaryFill },
+  choiceLabel: { ...sans(400), flex: 1, color: color.text, fontSize: font.body },
+  segment: {
+    flexGrow: 1,
+    minHeight: 28,
+    paddingHorizontal: space.sm,
+    borderRadius: radius.control,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  segmentOn: {
+    backgroundColor: deckColor.segmentThumb,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  segmentLabel: { ...sans(500), color: color.text, fontSize: font.tiny },
+  segmentLabelOn: { ...sans(600) },
+  segmentCount: { ...sans(400), color: color.textDim, fontVariant: ['tabular-nums'] },
+  // Its controls are 44pt rows in layout; the padding around them puts the
+  // title 24 below the previous card and 12 above its own, as the native
+  // phase headings (DeckPhaseHeading).
+  section: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingLeft: INSET,
+    paddingRight: INSET - space.sm,
+    paddingTop: space.xl - SECTION_HIT_PAD,
+    paddingBottom: space.md - SECTION_HIT_PAD,
+  },
+  sectionToggle: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+  },
+  sectionTitle: {
+    ...sans(600),
+    flex: 1,
+    minWidth: 0,
+    color: color.text,
+    fontSize: font.body,
+    lineHeight: leading(font.body),
+  },
+  /** Count and chevron share one trailing column on every heading. */
+  sectionTrail: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    minHeight: 44,
+    paddingHorizontal: space.sm,
+  },
+  sectionCount: {
+    ...sans(400),
+    color: color.textDim,
+    fontSize: font.small,
+    fontVariant: ['tabular-nums'],
+  },
+  sectionAction: {
+    minHeight: 44,
+    minWidth: 44,
+    paddingHorizontal: space.xs,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sectionActionLabel: { ...sans(400), color: deckColor.proposalText, fontSize: font.small },
+  gutter: { width: GUTTER, alignItems: 'center', justifyContent: 'center' },
+  // Row glyphs sit on the title's first line (Reminders, Mail), whatever the
+  // row's height: a box one title line tall, below the text's top padding.
+  needsText: { color: deckColor.needsYou },
+  errorText: { color: deckColor.error },
+  empty: {
+    ...sans(400),
+    color: color.textDim,
+    fontSize: font.tiny,
+    paddingHorizontal: INSET,
+    paddingVertical: space.md,
+  },
 })

@@ -28,11 +28,13 @@ import type {
   TaskCostState,
   TaskCostWire,
 } from '@podium/model'
-import { RATE_COHORT_MIN_REPLIES } from '@podium/model'
+import { COST_FULL_ATTRIBUTION_HARNESS, RATE_COHORT_MIN_REPLIES } from '@podium/model'
+
 export { RATE_COHORT_MIN_REPLIES } from '@podium/model'
+
 import type { HarnessDescriptorWire } from '@podium/protocol'
-import { bucketCostUsd, bucketProvider, type UsageProvider } from './usage'
 import { harnessDescriptorFor } from './harness-labels'
+import { bucketCostUsd, bucketProvider, type UsageProvider } from './usage'
 
 /**
  * The API-equivalent cost of one model's token total.
@@ -401,6 +403,189 @@ export function taskCostRows(rows: readonly TaskCostRowWire[]): {
   return { rows: priced, cohort }
 }
 
+/** One project's share of the window's task spend — see `projectCostRows`. */
+export interface ProjectCostRow {
+  /** Stable repository identity; legacy label-only callers omit it. */
+  projectKey?: string
+  /** The repository's display name, as the resolver returned it. */
+  project: string
+  /** Sum of each task's OWN window cost (`windowModels`), never the rollup. */
+  costUsd: number
+  /** Tasks that spent anything in the window. */
+  taskCount: number
+  /** The model with the most window spend across those tasks, or null. */
+  topModel: string | null
+  /** Share of the whole window's cost, 0–100. */
+  sharePercent: number
+  /** Bar width against the dearest project, 0–100. */
+  barPercent: number
+}
+
+export interface ProjectCostView {
+  /** Dearest first. */
+  rows: ProjectCostRow[]
+  /** Window spend that maps to a task AND that task's project. */
+  attributedUsd: number
+  /** `attributedUsd` as a share of the window total, 0–100; null with no spend. */
+  attributedPercent: number | null /** The window total the shares were read against. */
+  windowTotalUsd: number
+}
+
+/**
+ * THE WINDOW'S TASK SPEND, GROUPED BY PROJECT [POD-2385].
+ *
+ * OWN COST, NOT THE ROLLUP. Every task row carries its own `windowModels` and a
+ * rollup over its descendants; summing rollups would count a child once for
+ * itself and once per ancestor. Own costs partition the spend, so the groups
+ * add up to exactly what maps to a task.
+ *
+ * WINDOW, NOT ALL-TIME, for the reason `TaskCostRowWire.windowModels` exists:
+ * the share is read against the harvest's 7-day total (`usageSummary().week`),
+ * and an all-time figure over a 7-day total reads as over 100% attributed.
+ *
+ * UNATTRIBUTED SPEND IS LEFT OUT, not lumped into an "Other" row. Spend with no
+ * task, and a task whose project the caller cannot resolve (`projectOf` returns
+ * nothing — not loaded, or not visible), is what the attributed share admits.
+ *
+ * `projectOf` is the caller's lookup into the issue records it holds (the pool's
+ * issue model `repoName` on both clients) — this module never reads a store.
+ */
+export function projectCostRows(
+  rows: readonly TaskCostRowWire[],
+  projectOf: (issueId: string) => string | { key: string; name: string } | null | undefined,
+  windowTotalUsd: number,
+): ProjectCostView {
+  return projectCostShares(projectCostGroups(rows, projectOf), windowTotalUsd)
+}
+
+/** A project's group before it is read against a window total. */
+export type ProjectCostGroup = Omit<ProjectCostRow, 'sharePercent'>
+
+export interface ProjectCostGroups {
+  /** Dearest first. */
+  rows: ProjectCostGroup[]
+  attributedUsd: number
+}
+
+/**
+ * The PRICING half of `projectCostRows`: one pass over the rows and their
+ * window models. Split out so a view model can hold it as a field that
+ * recomputes only when the cost answer (or a task's project) changes, while
+ * the share against a separately-polled window total stays a cheap read.
+ */
+export function projectCostGroups(
+  rows: readonly TaskCostRowWire[],
+  projectOf: (issueId: string) => string | { key: string; name: string } | null | undefined,
+): ProjectCostGroups {
+  const groups = new Map<
+    string,
+    {
+      project: string
+      projectKey?: string
+      costUsd: number
+      taskCount: number
+      models: Map<string, number>
+    }
+  >()
+  let attributedUsd = 0
+  for (const row of rows) {
+    let taskUsd = 0
+    const perModel: Array<[string, number]> = []
+    for (const m of row.windowModels) {
+      const usd = modelTotalCostUsd(m)
+      if (usd <= 0) continue
+      taskUsd += usd
+      perModel.push([m.model, usd])
+    }
+    if (taskUsd <= 0) continue
+    const project = projectOf(row.issueId)
+    if (!project) continue
+    const key = typeof project === 'string' ? project : project.key
+    let group = groups.get(key)
+    if (!group) {
+      group = {
+        project: typeof project === 'string' ? project : project.name,
+        ...(typeof project === 'string' ? {} : { projectKey: project.key }),
+        costUsd: 0,
+        taskCount: 0,
+        models: new Map(),
+      }
+      groups.set(key, group)
+    }
+    group.costUsd += taskUsd
+    group.taskCount += 1
+    for (const [model, usd] of perModel)
+      group.models.set(model, (group.models.get(model) ?? 0) + usd)
+    attributedUsd += taskUsd
+  }
+  const sorted = [...groups.entries()].sort((a, b) => b[1].costUsd - a[1].costUsd)
+  const peak = sorted[0]?.[1].costUsd ?? 0
+  return {
+    rows: sorted.map(([, g]) => {
+      let topModel: string | null = null
+      let topUsd = 0
+      for (const [model, usd] of g.models) {
+        if (usd > topUsd) {
+          topModel = model
+          topUsd = usd
+        }
+      }
+      return {
+        project: g.project,
+        ...(g.projectKey === undefined ? {} : { projectKey: g.projectKey }),
+        costUsd: g.costUsd,
+        taskCount: g.taskCount,
+        topModel,
+        barPercent: peak > 0 ? (g.costUsd / peak) * 100 : 0,
+      }
+    }),
+    attributedUsd,
+  }
+}
+
+/** The SHARE half of `projectCostRows`: each group against the window total. */
+export function projectCostShares(
+  groups: ProjectCostGroups,
+  windowTotalUsd: number,
+): ProjectCostView {
+  return {
+    rows: groups.rows.map((g) => ({
+      ...g,
+      sharePercent: windowTotalUsd > 0 ? Math.min(100, (g.costUsd / windowTotalUsd) * 100) : 0,
+    })),
+    attributedUsd: groups.attributedUsd,
+    windowTotalUsd,
+    // Capped like the desktop's attribution cell: a harvest that priced a task
+    // a moment after the total cannot make the share read over 100%.
+    attributedPercent:
+      windowTotalUsd > 0
+        ? (Math.min(groups.attributedUsd, windowTotalUsd) / windowTotalUsd) * 100
+        : null,
+  }
+}
+
+/** The fields a window-only ranking needs, without all-time cohort pricing. */
+export type WindowTaskCostRow = Pick<TaskCostRowView, 'issueId' | 'windowCostUsd'>
+
+export function windowTaskCosts(rows: readonly TaskCostRowWire[]): WindowTaskCostRow[] {
+  return rows.map((row) => ({
+    issueId: row.issueId,
+    windowCostUsd: row.windowModels.reduce((sum, model) => sum + modelTotalCostUsd(model), 0),
+  }))
+}
+
+/**
+ * The window's dearest tasks: priced rows ranked by each task's OWN cost
+ * inside the harvest window (`windowCostUsd`), so a parent and its children
+ * are never counted twice. Tasks with no spend in the window are left out.
+ */
+export function topWindowTasks<T extends WindowTaskCostRow>(rows: readonly T[], limit = 5): T[] {
+  return rows
+    .filter((row) => row.windowCostUsd > 0)
+    .sort((a, b) => b.windowCostUsd - a.windowCostUsd)
+    .slice(0, limit)
+}
+
 // ---------------------------------------------------------------------------
 // How a figure is WORDED — the rounding, the hedge and the attribution
 // ---------------------------------------------------------------------------
@@ -429,6 +614,24 @@ export function formatCostRounded(usd: number): string {
     return `$${(Math.round(usd / factor) * factor).toLocaleString('en-US')}`
   }
   return `$${usd.toFixed(2)}`
+}
+
+/** The desktop task inspector's estimated magnitude, including a counted zero. */
+export function approxUsd(usd: number): string {
+  if (!Number.isFinite(usd) || usd <= 0) return '≈$0'
+  return `≈${formatCostRounded(usd)}`
+}
+
+/** The task inspector's attribution wording, shared with its phone detail. */
+export function floorLabel(harnesses: readonly CostHarness[], uncostedSessionCount = 0): string {
+  const parts: string[] = []
+  const named = harnesses.some((h) => h !== COST_FULL_ATTRIBUTION_HARNESS)
+    ? costHarnessLabel(harnesses)
+    : ''
+  if (named !== '') parts.push(named)
+  if (uncostedSessionCount > 0)
+    parts.push(`${uncostedSessionCount} session${uncostedSessionCount === 1 ? '' : 's'} unread`)
+  return parts.length === 0 ? '≥ floor' : `≥ floor · ${parts.join(' · ')}`
 }
 
 /**

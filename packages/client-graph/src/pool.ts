@@ -6,6 +6,7 @@ import {
   asSessionId,
   type CheckoutWire,
   type CredentialView,
+  canonicalIssueCloseReason,
   type GitRepositoryWire,
   type LayoutWire,
   type MemberView,
@@ -868,6 +869,18 @@ export class MobxPool {
     return byDeleted === LOADING ? LOADING : (byDeleted.get(null) ?? 0)
   }
 
+  /** Successful top-level tasks over all history, without loading their bodies. */
+  @lazy get finishedTaskCount(): number | typeof LOADING {
+    // A pre-upgrade stub cannot distinguish tasks from phases until its shape reloads.
+    if (this.collections.someIssue((stub) => stub.type === undefined) !== false) return LOADING
+    return this.collections.countStubs('finished-tasks', (stub) => {
+      if (stub.stage !== 'done' || stub.deletedAt != null || stub.parentId != null) return false
+      if (stub.isDraftVessel || stub.type === 'phase' || stub.type === 'milestone') return false
+      const reason = canonicalIssueCloseReason(stub.closedReason)
+      return reason === null || reason === 'done'
+    })
+  }
+
   /** TRACKED: undeleted issues the device holds whole; a lower bound of the count above. */
   get heldUndeletedIssueCount(): number {
     return this.issueCount.get()
@@ -1365,6 +1378,7 @@ function pickStub(id: string, row: Readonly<Record<string, unknown>>): IssueStub
     id,
     repoId: row['repoId'] as string | null | undefined,
     seq: row['seq'] as number | undefined,
+    type: row['type'] as string | undefined,
     stage: row['stage'] as string | undefined,
     closedReason: row['closedReason'] as string | null | undefined,
     archived: row['archived'] as boolean | undefined,

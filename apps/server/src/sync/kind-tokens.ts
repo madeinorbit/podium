@@ -10,6 +10,7 @@ import {
   MAX_AGENT_PROFILE_CANDIDATES,
   RECORDS,
   type Where,
+  recordOf,
   WorkflowStep,
   WorkflowStepEvidence,
 } from '@podium/model'
@@ -43,6 +44,8 @@ const profileInputs = {
   maxCandidates: MAX_AGENT_PROFILE_CANDIDATES,
 }
 const codeInputs: Partial<Record<MetadataEntityKind, unknown>> = {
+  // Upgrades must refresh stubs when their declared fields change, even at the same feed number.
+  issueProjection: { stub: recordOf('issueProjection').stub },
   machine: {
     agentKinds: AgentKind.options,
     defaultUpdateChannel: DEFAULT_FLEET_UPDATE_CHANNEL,

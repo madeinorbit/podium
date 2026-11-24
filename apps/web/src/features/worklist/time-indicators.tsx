@@ -12,7 +12,6 @@ import { isSessionWorking } from '@podium/client-core/values'
 import type { JSX } from 'react'
 import { useAgeNow } from '@/lib/clock-hooks'
 
-
 /** Compact elapsed duration: `34s` / `12m 34s` / `2h 5m` / `1d 3h`. */
 export function formatElapsed(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000))
@@ -48,7 +47,7 @@ const STAMP_CLASS = 'shell-type-micro flex-none tabular-nums text-text-dim'
  *  shows seconds (<1h), then drops to a once-a-minute tick — each timer owns
  *  its own interval so the second-hand never re-renders the whole sidebar. */
 export function WorkingTimer({ sinceMs }: { sinceMs: number }): JSX.Element {
-  const now = useAgeNow(sinceMs)
+  const now = useAgeNow(sinceMs, 0, true, 3_600_000)
   return (
     <span className={STAMP_CLASS} title={`Working since ${new Date(sinceMs).toLocaleString()}`}>
       {formatElapsed(now - sinceMs)}

@@ -1,3 +1,38 @@
+// @vitest-environment happy-dom
+/**
+ * The mobile pane's two contracts that are not xterm's: WHEN it attaches, and
+ * WHAT it says while there is nothing to look at.
+ *
+ * ---------------------------------------------------------------------------
+ * THE CREATE PATH MUST NOT ATTACH TO A SESSION THE SERVER HAS NEVER HEARD OF
+ * (POD-1613).
+ *
+ * The operator's report: creating a session lands you on it with a permanently
+ * blank terminal, while leaving to the overview and coming back renders it fine.
+ *
+ * The mechanism, measured rather than assumed:
+ *
+ *   1. `spawnDraftAgent` paints an OPTIMISTIC session row immediately, so
+ *      SessionScreen's absence guard passes and TerminalPane mounts at once.
+ *   2. `SocketHub.attach` sends its `attach` frame EXACTLY ONCE, at connection
+ *      construction (socket-hub.ts) — it is re-sent only when the socket itself
+ *      reconnects. A session the server has not created yet drops that frame.
+ *   3. Nothing retries. `mountSession`'s `readyTimeoutMs` backstop then fires
+ *      `onReady` anyway, so "Attaching terminal…" disappears and the operator is
+ *      left looking at an empty grid FOREVER.
+ *   4. Navigating away disposes the mount (`hub.detach`), and coming back builds
+ *      a fresh connection whose one attach now lands — hence "it's there".
+ *
+ * This is the same hazard the desktop AgentPanel documents on its own `enabled`
+ * gate ("its one-shot attach would be dropped and never retried, so
+ * `spawnConfirmed` holds the mount until the reconcile") and defends with
+ * `panelGates().terminalMounted`. Mobile gated only on transport connectivity.
+ *
+ * These cases drive the REAL optimism ledger — `store.spawnDraftAgent` mints the
+ * pending id and a replica snapshot retires it — because a fixture that hands
+ * the pane an already-confirmed session cannot reproduce a race and would pass
+ * against the defect.
+ */
 import { knownReading } from '@podium/client-core/live'
 import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -12,7 +47,7 @@ import { act, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { seedIssueFixtures } from '../client/issue-fixtures'
 import { renderWithMobileStore, SilentSocket } from '../client/test-support'
-import type { TerminalControlState } from './terminal-control'
+import { type TerminalControlState, terminalControlCopy } from './terminal-control'
 
 /**
  * The mount's callbacks, kept from the last `mountSession` call so a test can
@@ -447,27 +482,30 @@ describe('TerminalPane take control (POD-724)', () => {
     expect(pane.latest()?.role).toBe('controller')
   })
 
-  it('the caption says only what the server said: spectating on its grid, then in control on the new one', async () => {
+  it('publishes the confirmed state and grid for the header without a separate control caption', async () => {
     // POD-3190 rev 3 deleted the "fitting" state between the two. It read a
     // pending ask the phone kept for itself, and an ask the host refuses is
     // never answered — the caption stayed on "fitting" forever.
     const sessionId = asSessionId('sess-caption')
     const pane = await mountPane(sessionId)
-    const SPECTATING = 'Following the shared 103×28 terminal — take control to fit this phone.'
-    const CONTROLLING = 'In control — phone grid 62×36.'
+    const subtitle = () => {
+      const state = pane.latest()
+      if (!state) throw new Error('The pane did not publish its control state')
+      return terminalControlCopy(state).status
+    }
 
     await report('spectator')
-    expect(pane.view.queryByText(SPECTATING)).not.toBeNull()
+    expect(subtitle()).toBe('Spectating · 103×28')
+    expect(pane.view.queryByText(/Following the shared/)).toBeNull()
 
     act(() => pane.latest()?.takeControl())
-    expect(
-      pane.view.queryByText(SPECTATING),
-      'a claim changes nothing until the server answers',
-    ).not.toBeNull()
+    expect(subtitle(), 'a claim changes nothing until the server answers').toBe(
+      'Spectating · 103×28',
+    )
 
     await report('controller')
-    expect(pane.view.queryByText(SPECTATING)).toBeNull()
-    expect(pane.view.queryByText(CONTROLLING)).not.toBeNull()
+    expect(subtitle()).toBe('In control · 62×36')
+    expect(pane.view.queryByText(/phone grid/)).toBeNull()
   })
 })
 

@@ -6,12 +6,98 @@
  * assert the two decisions that make that impossible to reproduce: minor runs
  * collapse, and a row's stamp is a clock time rather than an ISO string.
  */
-import { describe, expect, it } from 'vitest'
-import { type ActivityItem, eventClock, groupActivityFeed, ROLLUP_MIN } from './issue-activity'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  type ActivityItem,
+  activityDayLabel,
+  activityDayLabelNextChangeAt,
+  eventClock,
+  groupActivityFeed,
+  ROLLUP_MIN,
+} from './issue-activity'
 
 /** Local noon on a given day — so a test never straddles a UTC day boundary. */
 const at = (day: number, hour: number, minute = 0): string =>
   new Date(2026, 6, day, hour, minute, 0).toISOString()
+
+describe('activity day deadlines', () => {
+  it('changes Today/Yesterday at midnight, then only when the displayed year changes', () => {
+    const key = '2026-07-10',
+      stamp = at(10, 8)
+    const midnight = new Date(2026, 6, 11).getTime()
+    expect(activityDayLabelNextChangeAt(key, stamp, midnight - 12_345)).toBe(midnight)
+    expect(activityDayLabel(key, stamp, midnight - 1)).toBe('Today')
+    expect(activityDayLabel(key, stamp, midnight)).toBe('Yesterday')
+    const dayAfter = new Date(2026, 6, 12).getTime()
+    expect(activityDayLabelNextChangeAt(key, stamp, midnight)).toBe(dayAfter)
+    expect(activityDayLabel(key, stamp, dayAfter)).not.toBe('Yesterday')
+    const newYear = new Date(2027, 0, 1).getTime()
+    expect(activityDayLabelNextChangeAt(key, stamp, dayAfter)).toBe(newYear)
+    expect(activityDayLabel(key, stamp, newYear)).toContain('2026')
+    expect(activityDayLabelNextChangeAt(key, stamp, newYear)).toBe(Infinity)
+    expect(activityDayLabelNextChangeAt(key, 'invalid', midnight)).toBe(Infinity)
+  })
+
+  it('schedules future dates entering the current year and becoming Today', () => {
+    const stamp = new Date(2027, 6, 10, 8).toISOString(),
+      key = '2027-07-10'
+    const newYear = new Date(2027, 0, 1).getTime()
+    expect(activityDayLabelNextChangeAt(key, stamp, newYear - 1)).toBe(newYear)
+    const day = new Date(2027, 6, 10).getTime()
+    expect(activityDayLabelNextChangeAt(key, stamp, newYear)).toBe(day)
+    expect(activityDayLabel(key, stamp, day)).toBe('Today')
+  })
+
+  it('constructs the following midnight independently when Santiago skips midnight', () => {
+    vi.stubEnv('TZ', 'America/Santiago')
+    try {
+      const key = '2026-09-06',
+        stamp = new Date(2026, 8, 6, 12).toISOString()
+      expect(new Date(2026, 8, 6).getHours()).toBe(1)
+      const midnight = new Date(2026, 8, 7).getTime()
+      const one = new Date(2026, 8, 7, 1).getTime()
+      expect(activityDayLabel(key, stamp, midnight - 1)).toBe('Today')
+      expect(activityDayLabelNextChangeAt(key, stamp, midnight - 1)).toBe(midnight)
+      const absolute = activityDayLabel(key, stamp, midnight)
+      expect(absolute).not.toBe('Today')
+      expect(absolute).not.toBe('Yesterday')
+      expect(activityDayLabelNextChangeAt(key, stamp, midnight)).toBe(one)
+      expect(activityDayLabel(key, stamp, one - 1)).toBe(absolute)
+      expect(activityDayLabelNextChangeAt(key, stamp, one - 1)).toBe(one)
+      expect(activityDayLabel(key, stamp, one)).toBe('Yesterday')
+      expect(activityDayLabelNextChangeAt(key, stamp, one)).toBe(new Date(2026, 8, 8).getTime())
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it.each([
+    ['America/New_York', 2, 8],
+    ['America/New_York', 10, 1],
+    ['Europe/Berlin', 2, 29],
+    ['Europe/Berlin', 9, 25],
+  ] as const)('matches the existing calendar rules through DST in %s, month %i day %i', (zone, month, day) => {
+    vi.stubEnv('TZ', zone)
+    try {
+      const first = new Date(2026, month, day)
+      const stamp = new Date(2026, month, day, 12).toISOString()
+      const key = `${first.getFullYear()}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+      let cursor = first.getTime()
+      // Check every half hour across both the civil day and the formatter's
+      // 24-hour Yesterday offset. No timer is due while the text stays equal.
+      for (let n = 0; n < 150; n++) {
+        const next = activityDayLabelNextChangeAt(key, stamp, cursor)
+        const label = activityDayLabel(key, stamp, cursor)
+        expect(activityDayLabel(key, stamp, next - 1)).toBe(label)
+        expect(activityDayLabel(key, stamp, next)).not.toBe(label)
+        expect(next).toBeGreaterThan(cursor)
+        cursor += 30 * 60_000
+      }
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+})
 
 const evt = (id: string, ts: string, text: string, minor = false): ActivityItem => ({
   kind: 'event',

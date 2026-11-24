@@ -18,6 +18,16 @@ import { type LayoutChangeEvent, StyleSheet, View } from 'react-native'
 const LaunchReadyContext = createContext<(() => void) | null>(null)
 const NOOP_READY_SIGNAL = () => {}
 
+/** UI transitions that must finish before the first route is revealed. A
+ * late caller gets null and must leave the already-visible layout at rest. */
+const LaunchTransitionContext = createContext<
+  ((onExpired: () => void) => (() => void) | null) | null
+>(null)
+export const LaunchTransitionProvider = LaunchTransitionContext.Provider
+export function useLaunchTransitionHold() {
+  return useContext(LaunchTransitionContext)
+}
+
 export interface LaunchSplashStatus {
   readonly label: string
   readonly detail?: string | undefined

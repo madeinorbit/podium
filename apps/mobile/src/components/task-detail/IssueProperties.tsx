@@ -1,6 +1,3 @@
-import { issueObserver as observer } from '../../client/issue-observer'
-import { isClosed } from '@podium/model/browser'
-import type { PageIssue } from '@podium/client-graph/issue-page'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
@@ -10,18 +7,28 @@ import {
   type RelationEntry,
   sessionTitle,
 } from '@podium/client-core/values'
-import type { SessionId } from '@podium/model'
+import type { PageIssue } from '@podium/client-graph/issue-page'
+import {
+  IssueType,
+  issueStatusMenuEntries,
+  issueStatusValueOf,
+  type SessionId,
+} from '@podium/model'
+import { isClosed } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { type ReactNode, useState } from 'react'
-import { Linking, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Linking, StyleSheet, TextInput, View } from 'react-native'
+import { issueObserver as observer } from '../../client/issue-observer'
 import type { IssueCommands } from '../../lib/issue-detail'
-import { alpha } from '../../theme/mix'
-import { color, font, mono, radius, sans, space } from '../../theme/theme'
+import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
+import { NativePicker, type NativePickerOption } from '../action-sheet-native'
 import { Icon } from '../Icon'
-import { ChevronRight, ExternalLink, Plus, X } from '../icons'
+import { ChevronRight, ExternalLink, X } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { PriorityGlyph, StageGlyph } from '../StageGlyph'
-import { Disclosure, MachineLabel } from './chrome'
+import { Disclosure } from './chrome'
+import { DetailText as Text } from './DetailText'
+import { useDetailLayout } from './detail-type'
 
 /**
  * The properties block [POD-724] — the phone's answer to the desktop's rail.
@@ -57,6 +64,8 @@ export const IssueProperties = observer(function IssueProperties({
   onOpenIssue,
   onPickParent,
   onAddRelation,
+  onPriority,
+  onType,
 }: {
   issue: IssueViewModel
   /** This task's member sessions, resolved against the session world. */
@@ -73,7 +82,10 @@ export const IssueProperties = observer(function IssueProperties({
   onOpenIssue: (id: string) => void
   onPickParent: () => void
   onAddRelation: () => void
+  onPriority?: () => void
+  onType?: () => void
 }) {
+  const { size: textSize, accessorySize: size, accessibility } = useDetailLayout()
   const [label, setLabel] = useState('')
   const relations =
     'relationGroups' in issue
@@ -82,79 +94,101 @@ export const IssueProperties = observer(function IssueProperties({
   // Merge axis only: a shared checkout's `ahead` is not this task's to land.
   const ahead = issue.gitState?.shared ? 0 : (issue.gitState?.ahead ?? 0)
 
+  const parentTitle = parent
+    ? `${issueDisplayRef(parent)}  ${'authoredTitle' in parent ? (parent as PageIssue).authoredTitle : parent.title}`
+    : issue.parentId
+      ? 'Loading'
+      : 'None'
+
   return (
     <View style={styles.section}>
       <Disclosure label="Details" open={open} onToggle={onToggle} testID="issue-details">
-        <Row label="Labels">
-          <View style={styles.labels}>
-            {issue.labels.map((l) => (
-              <PressableScale
-                key={l}
-                accessibilityRole="button"
-                accessibilityLabel={`Remove label ${l}`}
-                accessibilityState={{ disabled: busy }}
-                disabled={busy}
-                onPress={() => commands.removeLabel(l)}
-                style={({ pressed }) => [styles.label, pressed && styles.pressed]}
-              >
-                <Text style={styles.labelText}>{l}</Text>
-                <Icon as={X} size={11} color={color.accentTint} />
-              </PressableScale>
-            ))}
-            <TextInput
-              value={label}
-              onChangeText={setLabel}
-              accessibilityLabel="Add label"
-              placeholder="Add label…"
-              placeholderTextColor={color.textMicro}
-              returnKeyType="done"
-              onSubmitEditing={() => {
-                commands.addLabel(label)
-                setLabel('')
-              }}
-              style={styles.labelField}
+        {/* Settings-style rows, indented under their header (POD-2666): one
+            44pt row per property, value trailing, chevron when it opens more. */}
+        <View style={styles.nested}>
+          {onPriority ? (
+            <KeyRow
+              label="Priority"
+              value={`P${issue.priority}`}
+              busy={busy}
+              onPress={onPriority}
+              first
             />
-          </View>
-        </Row>
-
-        <Row label="Parent">
-          <PropertyParentReference
-            id={issue.parentId}
-            parent={parent}
-            resolveEdge={resolveEdge}
-            onOpenIssue={onOpenIssue}
-          />
-          <Ghost
-            label={parent || issue.parentId ? 'Change parent' : 'Set parent'}
+          ) : null}
+          {onType ? (
+            <KeyRow label="Type" value={capitalize(issue.type)} busy={busy} onPress={onType} />
+          ) : null}
+          <KeyRow
+            label="Parent"
+            value={parentTitle}
             busy={busy}
-            onPress={onPickParent}
+            onPress={parent ? () => onOpenIssue(parent.id) : onPickParent}
+            first={!onPriority && !onType}
           />
           {issue.parentId ? (
-            <Ghost label="Clear parent" busy={busy} onPress={() => commands.setParent(null)} />
+            <>
+              <ActionRow label="Change parent…" busy={busy} onPress={onPickParent} />
+              <ActionRow
+                label="Remove parent"
+                busy={busy}
+                destructive
+                onPress={() => commands.setParent(null)}
+              />
+            </>
           ) : null}
-        </Row>
 
-        <Row label="Relations">
-          {relations.map((group) => (
-            <View key={group.section} style={styles.relGroup}>
-              <MachineLabel>{group.section}</MachineLabel>
-              {group.entries.map((entry) => (
-                <PropertyRelationRow
-                  key={`${entry.direction}:${entry.type}:${entry.id}`}
-                  entry={entry}
-                  resolveEdge={resolveEdge}
-                  busy={busy}
-                  commands={commands}
-                  onOpenIssue={onOpenIssue}
-                />
+          <View style={[styles.kv, styles.labelsRow]}>
+            <Text style={styles.kvLabel}>Labels</Text>
+            <View style={styles.labels}>
+              {issue.labels.map((l) => (
+                <PressableScale
+                  key={l}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove label ${l}`}
+                  accessibilityState={{ disabled: busy }}
+                  disabled={busy}
+                  onPress={() => commands.removeLabel(l)}
+                  style={({ pressed }) => [styles.label, pressed && styles.pressed]}
+                >
+                  <Text style={styles.labelText}>{l}</Text>
+                  <Icon as={X} size={size(10)} color={color.accentTint} />
+                </PressableScale>
               ))}
+              <TextInput
+                value={label}
+                onChangeText={setLabel}
+                accessibilityLabel="Add label"
+                placeholder="Add"
+                placeholderTextColor={color.textFaint}
+                returnKeyType="done"
+                onSubmitEditing={() => {
+                  commands.addLabel(label)
+                  setLabel('')
+                }}
+                style={[
+                  styles.labelField,
+                  { minHeight: Math.max(32, textSize(leading(font.small))) },
+                  accessibility && styles.labelFieldAccessible,
+                ]}
+              />
             </View>
-          ))}
-          <Ghost label="Add relation" busy={busy} onPress={onAddRelation} icon />
-        </Row>
+          </View>
 
-        <Row label="Sessions">
-          {sessions.length === 0 ? <Text style={styles.none}>No agent has been here.</Text> : null}
+          {relations.map((group) =>
+            group.entries.map((entry) => (
+              <PropertyRelationRow
+                key={`${entry.direction}:${entry.type}:${entry.id}`}
+                section={group.section}
+                entry={entry}
+                resolveEdge={resolveEdge}
+                busy={busy}
+                commands={commands}
+                onOpenIssue={onOpenIssue}
+              />
+            )),
+          )}
+          <ActionRow label="Add relation…" busy={busy} onPress={onAddRelation} />
+
           {sessions.map((session) => (
             <PropertySessionRow
               key={session.sessionId}
@@ -162,79 +196,143 @@ export const IssueProperties = observer(function IssueProperties({
               onOpenSession={onOpenSession}
             />
           ))}
-          <View style={styles.ghostRow}>
-            <Ghost label="Add agent" busy={busy} onPress={commands.addSession} icon />
-            <Ghost label="Add shell" busy={busy} onPress={commands.addShell} icon />
-          </View>
-        </Row>
 
-        {issue.worktreePath ? (
-          <Row label="Branch">
-            <Text style={styles.mono} numberOfLines={1}>
-              {issue.branch ?? '—'}
-            </Text>
-            <View style={styles.ghostRow}>
-              {/* THE SIGNAL RULE. The merge button takes the accent only when
-                  there is something to land; on every other task both actions are
-                  outline and behave identically. A permanently accented primary
-                  in a fold spends the one signal on furniture. */}
-              <Ghost
-                label="FF-only merge"
+          {issue.worktreePath ? (
+            <>
+              <KeyRow label="Branch" value={issue.branch ?? '—'} mono />
+              {/* THE SIGNAL RULE: merge takes the accent only when there is
+                  something to land. */}
+              <ActionRow
+                label="Merge (fast-forward only)"
                 busy={busy}
-                primary={ahead > 0}
+                strong={ahead > 0}
                 onPress={() => commands.gitAction('merge')}
               />
-              <Ghost
+              <ActionRow
                 label={`Rebase on ${issue.parentBranch}`}
                 busy={busy}
                 onPress={() => commands.gitAction('rebase')}
               />
-              <Ghost label="Open PR" busy={busy} onPress={() => commands.gitAction('pr')} />
-            </View>
-            {issue.prUrl ? <External label="View PR" url={issue.prUrl} /> : null}
-          </Row>
-        ) : null}
+              <ActionRow label="Open PR" busy={busy} onPress={() => commands.gitAction('pr')} />
+              {issue.prUrl ? <External label="View PR" url={issue.prUrl} /> : null}
+            </>
+          ) : null}
 
-        {issue.dueAt || issue.estimateMin != null || issue.deferUntil ? (
-          <Row label="Dates">
-            {issue.dueAt ? (
-              <Text style={styles.meta}>{`due ${new Date(issue.dueAt).toLocaleDateString()}`}</Text>
-            ) : null}
-            {issue.estimateMin != null ? (
-              <Text style={styles.meta}>{`estimate ${issue.estimateMin}m`}</Text>
-            ) : null}
-            {issue.deferUntil ? (
-              <>
-                <Text style={styles.meta}>
-                  {`deferred until ${new Date(issue.deferUntil).toLocaleDateString()}`}
-                </Text>
-                <Ghost label="Undefer" busy={busy} onPress={commands.undefer} />
-              </>
-            ) : null}
-          </Row>
-        ) : null}
-
-        {issue.linearUrl || issue.linearIdentifier ? (
-          <Row label="Linear">
-            {issue.linearUrl ? (
-              <External label={issue.linearIdentifier ?? 'Open'} url={issue.linearUrl} />
-            ) : (
-              <Text style={styles.meta}>{issue.linearIdentifier}</Text>
-            )}
-          </Row>
-        ) : null}
-
-        <Row label="Origin">
-          <Text
-            style={styles.meta}
-          >{`Created by ${issue.intentOrigin === 'agent' ? 'an agent' : 'a person'}`}</Text>
-          <Text
-            style={styles.meta}
-          >{`Written for ${issue.audience === 'agent' ? 'agents only' : 'people'}`}</Text>
-          {issue.machineId ? <Text style={styles.meta}>{`Machine ${issue.machineId}`}</Text> : null}
-        </Row>
+          {issue.dueAt ? (
+            <KeyRow label="Due" value={new Date(issue.dueAt).toLocaleDateString()} />
+          ) : null}
+          {issue.estimateMin != null ? (
+            <KeyRow label="Estimate" value={`${issue.estimateMin}m`} />
+          ) : null}
+          {issue.deferUntil ? (
+            <>
+              <KeyRow
+                label="Deferred until"
+                value={new Date(issue.deferUntil).toLocaleDateString()}
+              />
+              <ActionRow label="Undefer" busy={busy} onPress={commands.undefer} />
+            </>
+          ) : null}
+          {issue.linearUrl ? (
+            <External
+              label={`Linear ${issue.linearIdentifier ?? ''}`.trim()}
+              url={issue.linearUrl}
+            />
+          ) : issue.linearIdentifier ? (
+            <KeyRow label="Linear" value={issue.linearIdentifier} />
+          ) : null}
+        </View>
       </Disclosure>
     </View>
+  )
+})
+
+const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1)
+
+/** A Settings row: label leading, value trailing, a chevron when it opens something. */
+const KeyRow = observer(function KeyRow({
+  label,
+  value,
+  busy = false,
+  onPress,
+  first = false,
+  mono: monospaced = false,
+}: {
+  label: string
+  value: string
+  busy?: boolean
+  onPress?: () => void
+  first?: boolean
+  mono?: boolean
+}) {
+  const { accessorySize: size, accessibility } = useDetailLayout()
+  const body = (
+    <>
+      <Text style={styles.kvLabel}>{label}</Text>
+      <Text
+        numberOfLines={accessibility ? 3 : 1}
+        style={[
+          styles.kvValue,
+          monospaced && styles.kvMono,
+          accessibility && styles.kvValueStacked,
+        ]}
+      >
+        {value}
+      </Text>
+      {onPress && !accessibility ? (
+        <Icon as={ChevronRight} size={size(13)} color={color.textFaint} />
+      ) : null}
+    </>
+  )
+  const style = [styles.kv, !first && styles.kvSeparated, accessibility && styles.kvStacked]
+  if (!onPress) return <View style={style}>{body}</View>
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={`${label}, ${value}`}
+      accessibilityState={{ disabled: busy }}
+      disabled={busy}
+      onPress={onPress}
+      style={({ pressed }) => [...style, (busy || pressed) && styles.pressed]}
+    >
+      {body}
+    </PressableScale>
+  )
+})
+
+/** An action row in accent ink (Settings' "Add…" rows); red when destructive. */
+const ActionRow = observer(function ActionRow({
+  label,
+  busy,
+  onPress,
+  destructive = false,
+  strong = false,
+}: {
+  label: string
+  busy: boolean
+  onPress: () => void
+  destructive?: boolean
+  strong?: boolean
+}) {
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: busy }}
+      disabled={busy}
+      onPress={onPress}
+      style={({ pressed }) => [styles.kv, styles.kvSeparated, (busy || pressed) && styles.pressed]}
+    >
+      <Text
+        style={[
+          styles.action,
+          destructive && styles.actionDestructive,
+          strong && styles.actionStrong,
+        ]}
+      >
+        {label}
+      </Text>
+    </PressableScale>
   )
 })
 
@@ -255,31 +353,94 @@ export const PropertyBar = observer(function PropertyBar({
   onStage,
   onPriority,
   onType,
+  onSelect,
+  project,
+  trailing,
+  statusOnly = false,
 }: {
   issue: IssueViewModel
   onStage: () => void
   onPriority: () => void
   onType: () => void
+  /**
+   * iOS opens each chip's choices as a native menu anchored to the chip and
+   * reports the pick here; elsewhere (and without these) a tap raises the
+   * screen's sheet through `onStage`, `onPriority` and `onType`.
+   */
+  onSelect?: {
+    status: (value: string) => void
+    priority: (priority: number) => void
+    type: (type: IssueType) => void
+  }
+  /** The repository name, as a plain pill. */
+  project?: string
+  /** Quiet text after the pills — the task's age. */
+  trailing?: ReactNode
+  statusOnly?: boolean
 }) {
+  const { accessorySize: size } = useDetailLayout()
   return (
     <View style={styles.bar}>
       <Chip
         label={isClosed(issue) ? `Closed — ${issue.closedReason}` : ISSUE_STAGE_LABELS[issue.stage]}
         accessibilityLabel={`Stage ${ISSUE_STAGE_LABELS[issue.stage]} — change`}
         onPress={onStage}
-        glyph={<StageGlyph stage={issue.stage} size={13} ground={color.surface} />}
+        glyph={<StageGlyph stage={issue.stage} size={size(13)} ground={color.surface} />}
+        {...(onSelect
+          ? {
+              picker: {
+                label: 'Status',
+                options: issueStatusMenuEntries().map((entry) => ({
+                  value: entry.value,
+                  label: entry.label,
+                })),
+                selected: issueStatusValueOf(issue),
+                onSelect: onSelect.status,
+              },
+            }
+          : {})}
       />
-      <Chip
-        label={`P${issue.priority}`}
-        accessibilityLabel={`Priority P${issue.priority} — change`}
-        onPress={onPriority}
-        glyph={<PriorityGlyph priority={issue.priority} size={13} />}
-      />
-      {issue.type !== 'task' ? (
+      {project ? (
+        <View style={styles.chip}>
+          <Text style={styles.chipText}>{project}</Text>
+        </View>
+      ) : null}
+      {!statusOnly ? (
+        <Chip
+          label={`P${issue.priority}`}
+          accessibilityLabel={`Priority P${issue.priority} — change`}
+          onPress={onPriority}
+          glyph={<PriorityGlyph priority={issue.priority} size={size(13)} />}
+          {...(onSelect
+            ? {
+                picker: {
+                  label: 'Priority',
+                  options: PRIORITIES.map((p) => ({ value: String(p), label: `P${p}` })),
+                  selected: String(issue.priority),
+                  onSelect: (value: string) => onSelect.priority(Number(value)),
+                },
+              }
+            : {})}
+        />
+      ) : null}
+      {!statusOnly && issue.type !== 'task' ? (
         <Chip
           label={issue.type}
           accessibilityLabel={`Type ${issue.type} — change`}
           onPress={onType}
+          {...(onSelect
+            ? {
+                picker: {
+                  label: 'Type',
+                  options: IssueType.options.map((t) => ({ value: t, label: t })),
+                  selected: issue.type,
+                  onSelect: (value: string) => {
+                    const parsed = IssueType.safeParse(value)
+                    if (parsed.success) onSelect.type(parsed.data)
+                  },
+                },
+              }
+            : {})}
         />
       ) : null}
       {issue.needsHuman ? (
@@ -296,121 +457,147 @@ export const PropertyBar = observer(function PropertyBar({
           <Text style={[styles.chipText, styles.chipBlockedText]}>blocked</Text>
         </View>
       ) : null}
+      {trailing ? <Text style={styles.barTrailing}>{trailing}</Text> : null}
     </View>
   )
 })
+
+const PRIORITIES = [0, 1, 2, 3, 4] as const
 
 const Chip = observer(function Chip({
   label,
   accessibilityLabel,
   onPress,
   glyph,
+  picker,
 }: {
   label: string
   accessibilityLabel: string
   onPress: () => void
   glyph?: ReactNode
+  /** The choices a native menu offers on iOS; `onPress` stays the fallback. */
+  picker?: {
+    label: string
+    options: readonly NativePickerOption[]
+    selected: string
+    onSelect: (value: string) => void
+  }
 }) {
-  return (
+  const chip = (press: (() => void) | undefined) => (
     <PressableScale
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityHint="Opens a picker"
-      onPress={onPress}
-      hitSlop={4}
-      style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
+      onPress={press}
+      style={({ pressed }) => [styles.chipTarget, pressed && styles.chipPressed]}
     >
-      {glyph}
-      <Text style={styles.chipText} numberOfLines={1}>
-        {label}
-      </Text>
-      <Text style={styles.caret}>▾</Text>
+      <View style={styles.chip}>
+        {glyph}
+        <Text style={styles.chipText}>{label}</Text>
+      </View>
     </PressableScale>
+  )
+  if (!picker) return chip(onPress)
+  return (
+    <NativePicker
+      label={picker.label}
+      style={styles.chipTarget}
+      options={picker.options}
+      selected={picker.selected}
+      onSelect={picker.onSelect}
+      onOpenFallback={onPress}
+    >
+      {chip}
+    </NativePicker>
   )
 })
 
-const PropertyParentReference = observer(function PropertyParentReference({
-  id,
-  parent,
-  resolveEdge,
-  onOpenIssue,
-}: {
-  id: string | undefined | null
-  parent: IssueViewModel | undefined
-  resolveEdge: (id: string | undefined | null) => IssueEdge
-  onOpenIssue: (id: string) => void
-}) {
-  const edge = resolveEdge(id)
-  return edge.render === 'issue' && parent ? (
-    <PressableScale
-      accessibilityRole="button"
-      accessibilityLabel={`Open parent ${issueDisplayRef(parent)}`}
-      onPress={() => onOpenIssue(parent.id)}
-      style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
-    >
-      <StageGlyph stage={parent.stage} size={13} />
-      <Text style={styles.linkRef}>{issueDisplayRef(parent)}</Text>
-      <Text style={styles.linkTitle} numberOfLines={1}>
-        {'authoredTitle' in parent ? (parent as PageIssue).authoredTitle : parent.title}
-      </Text>
-      {parent.archived ? <Text style={styles.archived}>ARCHIVED</Text> : null}
-      <Icon as={ChevronRight} size={13} color={color.textFaint} />
-    </PressableScale>
-  ) : edge.render === 'opaque' ? (
-    <Text style={styles.opaque}>an issue you do not have access to</Text>
-  ) : edge.render === 'pending' ? (
-    <Text style={styles.inert}>Referenced task is loading</Text>
-  ) : (
-    <Text style={styles.none}>None</Text>
-  )
-})
 const PropertyRelationRow = observer(function PropertyRelationRow({
+  section,
   entry,
   resolveEdge,
   busy,
   commands,
   onOpenIssue,
 }: {
+  section: string
   entry: RelationEntry
   resolveEdge: (id: string | undefined | null) => IssueEdge
   busy: boolean
   commands: IssueCommands
   onOpenIssue: (id: string) => void
 }) {
+  const { accessorySize: size } = useDetailLayout()
+  const [rowWidth, setRowWidth] = useState(0)
+  const [labelWidth, setLabelWidth] = useState(0)
   const edge = resolveEdge(entry.id)
   if (edge.render === 'hidden') return null
   const target = edge.render === 'issue' ? edge.resolution.value : undefined
+  // An explicit bound: on iOS 27 the pressable grew to its content despite flex,
+  // pushing the remove button off the card. The row's own width, less the
+  // 44pt remove target and the gap, is the most the reference may take.
+  const bound = rowWidth > 0 ? { maxWidth: Math.max(0, rowWidth - 44 - space.sm) } : null
+  // The title gets an explicit width too: there a Text never received one from
+  // flex, so it neither truncated nor clipped. Label, glyph and two gaps out.
+  const titleWidth =
+    rowWidth > 0 && labelWidth > 0
+      ? { width: Math.max(0, rowWidth - 44 - space.sm - labelWidth - size(12) - 2 * space.sm) }
+      : null
+  const title = target
+    ? 'authoredTitle' in target
+      ? (target as PageIssue).authoredTitle
+      : target.title
+    : undefined
   return (
-    <View style={styles.relRow}>
+    <View
+      style={[styles.kv, styles.kvSeparated]}
+      onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}
+    >
       {target ? (
         <PressableScale
           accessibilityRole="button"
-          accessibilityLabel={`Open ${issueDisplayRef(target)} ${'authoredTitle' in target ? (target as PageIssue).authoredTitle : target.title}`}
+          accessibilityLabel={`${section}: open ${issueDisplayRef(target)} ${title}`}
           onPress={() => onOpenIssue(target.id)}
-          style={({ pressed }) => [styles.relOpen, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.relOpen, bound, pressed && styles.pressed]}
         >
-          <StageGlyph stage={target.stage} size={13} />
-          <Text style={styles.linkRef}>{issueDisplayRef(target)}</Text>
-          <Text style={styles.linkTitle} numberOfLines={1}>
-            {'authoredTitle' in target ? (target as PageIssue).authoredTitle : target.title}
+          <Text
+            style={styles.kvLabel}
+            onLayout={(event) => setLabelWidth(event.nativeEvent.layout.width)}
+          >
+            {section}
           </Text>
+          <StageGlyph stage={target.stage} size={size(12)} />
+          {/* The box takes the width that is left, so the text truncates; a
+              Text that is itself the flexible item measured wider on iOS 27. */}
+          <View style={styles.relValueBox}>
+            <Text numberOfLines={1} style={[styles.relValue, titleWidth]}>
+              <Text style={styles.linkRef}>{`${issueDisplayRef(target)}  `}</Text>
+              {title}
+            </Text>
+          </View>
         </PressableScale>
       ) : (
-        <Text style={edge.render === 'opaque' ? styles.opaque : styles.inert}>
-          {edge.render === 'opaque'
-            ? 'an issue you do not have access to'
-            : 'Referenced task is loading'}
-        </Text>
+        <View style={[styles.relOpen, bound]}>
+          <Text style={styles.kvLabel}>{section}</Text>
+          <View style={styles.relValueBox}>
+            <Text
+              numberOfLines={1}
+              style={[styles.relValue, edge.render === 'opaque' ? styles.opaque : styles.inert]}
+            >
+              {edge.render === 'opaque' ? 'no access' : 'Loading'}
+            </Text>
+          </View>
+        </View>
       )}
       <PressableScale
         accessibilityRole="button"
         accessibilityLabel={`Remove ${entry.type} relation`}
         accessibilityState={{ disabled: busy }}
         disabled={busy}
-        hitSlop={8}
+        style={styles.removeRelation}
         onPress={() => commands.removeRelation(entry)}
       >
-        <Icon as={X} size={13} color={color.textFaint} />
+        <Icon as={X} size={size(12)} color={color.textFaint} />
       </PressableScale>
     </View>
   )
@@ -423,194 +610,205 @@ const PropertySessionRow = observer(function PropertySessionRow({
   onOpenSession: (id: SessionId) => void
 }) {
   return (
-    <PressableScale
-      accessibilityRole="button"
-      accessibilityLabel={`Open ${sessionTitle(session)}`}
+    <KeyRow
+      label={sessionTitle(session)}
+      value={session.status}
       onPress={() => onOpenSession(session.sessionId)}
-      style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
-    >
-      <Text style={styles.linkTitle} numberOfLines={1}>
-        {sessionTitle(session)}
-      </Text>
-      <Text style={styles.meta}>{session.status}</Text>
-      <Icon as={ChevronRight} size={13} color={color.textFaint} />
-    </PressableScale>
-  )
-})
-
-const Row = observer(function Row({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <View style={styles.row}>
-      <MachineLabel>{label}</MachineLabel>
-      <View style={styles.rowBody}>{children}</View>
-    </View>
-  )
-})
-
-const Ghost = observer(function Ghost({
-  label,
-  busy,
-  onPress,
-  icon,
-  primary,
-}: {
-  label: string
-  busy: boolean
-  onPress: () => void
-  icon?: boolean
-  primary?: boolean
-}) {
-  return (
-    <PressableScale
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled: busy }}
-      disabled={busy}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.ghost,
-        primary && styles.ghostPrimary,
-        (busy || pressed) && styles.pressed,
-      ]}
-    >
-      {icon ? <Icon as={Plus} size={12} color={primary ? color.onAccent : color.textDim} /> : null}
-      <Text style={[styles.ghostText, primary && styles.ghostPrimaryText]}>{label}</Text>
-    </PressableScale>
+    />
   )
 })
 
 const External = observer(function External({ label, url }: { label: string; url: string }) {
+  const { accessorySize: size } = useDetailLayout()
   return (
     <PressableScale
       accessibilityRole="link"
       accessibilityLabel={`${label} (opens externally)`}
       onPress={() => void Linking.openURL(url).catch(() => {})}
-      style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.kv, styles.kvSeparated, pressed && styles.pressed]}
     >
-      <Text style={styles.link}>{label}</Text>
-      <Icon as={ExternalLink} size={12} color={color.info} />
+      <Text style={styles.action}>{label}</Text>
+      <Icon as={ExternalLink} size={size(12)} color={color.accentTint} />
     </PressableScale>
   )
 })
 
 const styles = StyleSheet.create({
   section: {
-    paddingBottom: space.xl,
+    paddingBottom: 0,
   },
+  // The rows belong to the Details header: indented under it, a hairline above.
+  nested: {
+    marginLeft: space.lg,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.hairline,
+  },
+  kv: {
+    minHeight: 44,
+    paddingVertical: space.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  kvSeparated: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.hairline,
+  },
+  kvStacked: { flexDirection: 'column', alignItems: 'flex-start', gap: 2 },
+  kvLabel: {
+    ...sans(400),
+    flexShrink: 0,
+    color: color.text,
+    fontSize: font.body,
+  },
+  kvValue: {
+    ...sans(400),
+    flex: 1,
+    minWidth: 0,
+    textAlign: 'right',
+    color: color.textDim,
+    fontSize: font.body,
+  },
+  kvValueStacked: { textAlign: 'left' },
+  kvMono: { ...mono(400), fontSize: font.small },
+  action: {
+    ...sans(400),
+    flex: 1,
+    color: color.accentTint,
+    fontSize: font.body,
+  },
+  actionDestructive: { color: color.dangerText },
+  actionStrong: { ...sans(600) },
+  labelsRow: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.hairline,
+  },
+  relValueBox: { flex: 1, minWidth: 0, overflow: 'hidden' },
+  relValue: {
+    ...sans(400),
+    textAlign: 'right',
+    color: color.textDim,
+    fontSize: font.small,
+  },
+  // The board's header pills: 24pt fills on the control radius, no outline.
   bar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 6,
-    paddingBottom: space.lg,
+    gap: space.sm,
+  },
+  barTrailing: {
+    ...sans(400),
+    color: color.textDim,
+    fontSize: font.tiny,
+  },
+  chipTarget: {
+    minHeight: 44,
+    justifyContent: 'center',
+    maxWidth: '100%',
+    borderRadius: radius.control,
   },
   chip: {
-    minHeight: 38,
+    minHeight: 28,
+    paddingVertical: space.xs,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: space.sm,
     maxWidth: '100%',
-    paddingHorizontal: space.sm + 2,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.surface,
+    paddingHorizontal: space.sm,
+    borderRadius: radius.control,
+    backgroundColor: color.tertiaryFill,
   },
   chipPressed: {
     backgroundColor: color.surfacePressed,
   },
   chipNeedsYou: {
-    borderColor: color.needsYouBorder,
     backgroundColor: color.needsYouSoft,
   },
   chipText: {
-    ...sans(500),
+    ...sans(400),
     flexShrink: 1,
     color: color.body,
-    fontSize: font.tiny,
+    fontSize: font.small,
   },
   chipNeedsYouText: {
     color: color.needsYouText,
   },
   chipBlocked: {
-    borderColor: alpha(color.danger, 0.4),
     backgroundColor: color.dangerSoft,
   },
   chipBlockedText: {
     color: color.dangerText,
   },
-  caret: {
-    ...mono(400),
-    color: color.textFaint,
-    fontSize: 10,
-  },
   row: {
-    gap: 5,
-    paddingVertical: space.sm,
+    gap: space.sm,
+    paddingVertical: space.lg,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: alpha(color.hairline, 0.8),
+    borderTopColor: color.hairline,
   },
+  firstRow: { borderTopWidth: 0, paddingTop: space.xs },
   rowBody: {
-    gap: 5,
+    gap: space.sm,
   },
   labels: {
+    flex: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    gap: 6,
+    gap: space.xs,
   },
+  // Label chips: small capsules inside the 44pt row, not tall blocks.
   label: {
-    minHeight: 30,
+    minHeight: 26,
+    paddingVertical: 3,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     paddingHorizontal: space.sm,
-    borderRadius: radius.sm,
+    borderRadius: radius.full,
     backgroundColor: color.accentSoft,
   },
   labelText: {
     ...sans(500),
+    flexShrink: 1,
     color: color.accentTint,
-    fontSize: font.micro,
+    fontSize: font.tiny,
   },
   labelField: {
     ...sans(400),
-    minHeight: 34,
-    minWidth: 120,
-    flexGrow: 1,
+    minWidth: 56,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+    textAlign: 'right',
     color: color.text,
-    fontSize: font.tiny,
-    paddingHorizontal: space.sm,
-    borderRadius: radius.sm,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.bgSunken,
+    fontSize: font.small,
   },
+  labelFieldAccessible: { flexBasis: '100%', width: '100%' },
   linkRow: {
-    minHeight: 40,
+    minHeight: 44,
+    paddingVertical: space.sm,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: space.sm,
     paddingHorizontal: space.sm,
     marginHorizontal: -space.sm,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
   },
   linkRef: {
     ...mono(400),
     color: color.textFaint,
-    fontSize: 10,
+    fontSize: font.tiny,
   },
   linkTitle: {
     ...sans(400),
-    flex: 1,
-    minWidth: 0,
     color: color.body,
-    fontSize: font.tiny,
+    fontSize: font.small,
   },
   archived: {
     ...mono(500),
     color: color.textMicro,
-    fontSize: 9,
+    fontSize: font.tiny,
     letterSpacing: 0.5,
   },
   link: {
@@ -621,7 +819,7 @@ const styles = StyleSheet.create({
   inert: {
     ...mono(400),
     color: color.textFaint,
-    fontSize: font.micro,
+    fontSize: font.tiny,
   },
   opaque: {
     ...sans(400),
@@ -635,34 +833,36 @@ const styles = StyleSheet.create({
     fontSize: font.tiny,
   },
   meta: {
-    ...mono(400),
+    ...sans(400),
     color: color.textDim,
-    fontSize: font.micro,
+    fontSize: font.tiny,
   },
   mono: {
     ...mono(400),
     color: color.body,
-    fontSize: font.micro,
+    fontSize: font.tiny,
   },
+  removeRelation: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  referenceBody: { flex: 1, minWidth: 0, gap: space.xs },
   relGroup: {
-    gap: 3,
+    gap: space.xs,
     paddingBottom: space.xs,
   },
   relRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    minHeight: 34,
+    minHeight: 44,
+    paddingVertical: space.sm,
     gap: space.sm,
   },
   relOpen: {
     flex: 1,
     minWidth: 0,
     flexDirection: 'row',
-    alignItems: 'center',
     gap: space.sm,
-    justifyContent: 'center',
-    minHeight: 34,
+    alignItems: 'center',
+    minHeight: 44,
   },
   ghostRow: {
     flexDirection: 'row',
@@ -670,13 +870,15 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   ghost: {
-    minHeight: 36,
+    maxWidth: '100%',
+    minHeight: 44,
+    paddingVertical: space.sm,
     alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: space.sm,
     paddingHorizontal: space.md,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.border,
     backgroundColor: color.surface,
@@ -687,6 +889,7 @@ const styles = StyleSheet.create({
   },
   ghostText: {
     ...sans(500),
+    flexShrink: 1,
     color: color.textDim,
     fontSize: font.tiny,
   },

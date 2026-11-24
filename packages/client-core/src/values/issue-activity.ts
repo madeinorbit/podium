@@ -466,18 +466,43 @@ export function eventStamp(ts: string): string {
   return Number.isNaN(at.getTime()) ? ts : at.toLocaleString()
 }
 
+const DAY_MS = 86_400_000
+
 export function activityDayLabel(key: string, stamp: string, now: number): string {
   const at = new Date(stamp)
   if (Number.isNaN(at.getTime())) return key
   const today = new Date(now)
   if (key === dayKeyOf(today)) return 'Today'
-  if (key === dayKeyOf(new Date(now - 86_400_000))) return 'Yesterday'
+  if (key === dayKeyOf(new Date(now - DAY_MS))) return 'Yesterday'
   const sameYear = at.getFullYear() === today.getFullYear()
   return at.toLocaleDateString(undefined, {
     day: 'numeric',
     month: 'short',
     ...(sameYear ? {} : { year: 'numeric' }),
   })
+}
+
+/** Observe only calendar boundaries that actually change the day divider.
+ * Yesterday deliberately follows the formatter's 24-hour offset, including DST. */
+export function activityDayLabelNextChangeAt(key: string, stamp: string, now: number): number {
+  const at = new Date(stamp)
+  if (Number.isNaN(at.getTime())) return Infinity
+  const first = new Date(`${key}T00:00:00`)
+  // A skipped midnight can normalize first to 01:00. Build the next civil
+  // midnight independently so that hour is not carried into the next day.
+  const after = new Date(first.getFullYear(), first.getMonth(), first.getDate() + 1)
+  const current = activityDayLabel(key, stamp, now)
+  const year = at.getFullYear()
+  const changed = (t: number): number =>
+    t > now && activityDayLabel(key, stamp, t) !== current ? t : Infinity
+  return Math.min(
+    changed(first.getTime()),
+    changed(after.getTime()),
+    changed(first.getTime() + DAY_MS),
+    changed(after.getTime() + DAY_MS),
+    changed(new Date(year, 0, 1).getTime()),
+    changed(new Date(year + 1, 0, 1).getTime()),
+  )
 }
 
 function rollupLabel(items: ActivityItem[]): string {

@@ -7,13 +7,13 @@ import { Platform, StyleSheet, useColorScheme } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { AgentOutcomeHaptics } from '../components/AgentOutcomeHaptics'
 import { KeyboardRoot } from '../components/KeyboardRoot'
-import { MessageNoticeBanner } from '../components/MessageNoticeBanner'
 import { PodiumLinkHost } from '../components/PodiumLinkHost'
 import { VisualViewportRoot } from '../components/VisualViewportRoot'
 import { ReducedMotionProvider } from '../hooks/ReducedMotionProvider'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { installBlurOnNavigate } from '../lib/blur-on-navigate'
 import { startMobileLogging } from '../lib/logging'
+import { startupTiming } from '../lib/startup-timing'
 import { color } from '../theme/theme'
 import { AgentOnboardingGate } from './AgentOnboardingGate'
 import { AuthGate } from './AuthGate'
@@ -85,14 +85,15 @@ function ConnectedApp({ children }: { children: ReactNode }) {
         </LaunchReadyView>
         {/* Over every route, where the router and the store both exist: a
             message that did not arrive is said on whatever screen is up. */}
-        <MessageNoticeBanner />
       </MobileClientProvider>
     </AuthGate>
   )
 }
 
 function RootLayoutContent({ Navigation }: { Navigation: ComponentType<RootNavigationProps> }) {
+  startupTiming.mark('root.render')
   const fontsReady = useLaunchFontsReady()
+  if (fontsReady) startupTiming.mark('fonts.ready')
   const reduceMotion = useReduceMotion()
   const colorScheme = useColorScheme()
   return (

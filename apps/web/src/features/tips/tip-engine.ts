@@ -1,6 +1,7 @@
 import { lazy } from '@podium/mobx-helpers'
 import { action, observableRef, reaction } from 'mobx'
 import {
+  ALL_TIP_IDS,
   TIP_IDS,
   type TipCard,
   type TipId,
@@ -54,7 +55,7 @@ export class TipEngine {
   connect(): () => void {
     this.connected = true
     const stop = reaction(
-      () => [this.log.ready, this.log.enabled, ...TIP_IDS.map((id) => this.log.isSeen(id))],
+      () => [this.log.ready, this.log.enabled, ...ALL_TIP_IDS.map((id) => this.log.isSeen(id))],
       () => this.reconcile(),
       { fireImmediately: true },
     )
@@ -73,7 +74,9 @@ export class TipEngine {
   }
   @action private unregister(registration: Registration): void {
     this.registrations = this.registrations.filter((r) => r !== registration)
+    const dropped = this.pending.filter((p) => p.registration === registration)
     this.pending = this.pending.filter((p) => p.registration !== registration)
+    this.handOver(dropped)
     if (this.current?.registration === registration) this.close('dismissed')
   }
   /** Called after a registration's render. Inline card arrays need no memoization. */
@@ -90,10 +93,27 @@ export class TipEngine {
       }
       registration.wasActive = active
     }
-    this.pending = this.pending.filter((p) => p.replay || p.registration.read().active)
-    if (this.current && !this.current.replay && !this.current.registration.read().active)
+    const dropped = this.pending.filter((p) => !p.replay && !p.registration.read().active)
+    this.pending = this.pending.filter((p) => !dropped.includes(p))
+    this.handOver(dropped)
+    // The standalone ask is spent on showing, which makes its trigger false.
+    if (
+      this.current &&
+      !this.current.replay &&
+      !this.current.card.standalone &&
+      !this.current.registration.read().active
+    )
       this.close('dismissed')
     this.schedule()
+  }
+  /** A second place with the same ID takes over if the first leaves the queue. */
+  private handOver(dropped: readonly Pending[]): void {
+    for (const { registration } of dropped) {
+      const heir = this.registrations.find(
+        (r) => r !== registration && r.id === registration.id && r.read().active,
+      )
+      if (heir && !this.log.isSeen(heir.id)) this.enqueue(heir, false)
+    }
   }
   // Several mounted copies can register one moment (a hidden chat offer beside
   // the visible native one). Replay uses the copy whose first anchor is on screen.
@@ -166,6 +186,8 @@ export class TipEngine {
       if (!card || !this.anchorExists(card.anchor)) continue
       this.current = { ...pending, index: 0, card }
       this.log.record(registration.id, 'shown')
+      // Spend it before the answer, so reloads and other devices cannot ask again.
+      if (!replay && card.standalone) this.log.record(registration.id, 'finished')
       card.onShow?.()
       return
     }

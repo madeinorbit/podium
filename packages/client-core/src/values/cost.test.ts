@@ -15,10 +15,13 @@ import {
   formatCostMark,
   formatCostRounded,
   modelTotalCostUsd,
+  projectCostRows,
   RATE_COHORT_MIN_REPLIES,
   taskCostRows,
   taskCostView,
   taskRateUsd,
+  topWindowTasks,
+  windowTaskCosts,
 } from './cost'
 import { bucketCostUsd } from './usage'
 
@@ -405,4 +408,139 @@ describe('foldSessionCosts', () => {
     const named = folded.map((f) => f.sessionId).filter((id) => id !== null)
     expect(new Set(named).size).toBe(named.length)
   })
+})
+
+describe('projectCostRows', () => {
+  // Opus 5 at $5/MTok input: one million input tokens is $5.
+  const usd = (dollars: number, name = 'claude-opus-5') =>
+    model({ model: name, inputTokens: dollars * 200_000 })
+  const repo: Record<string, string> = { iss_1: 'podium', iss_2: 'podium', iss_3: 'pipp' }
+  const projectOf = (id: string) => repo[id]
+
+  it("sums each task's own window cost, never the rollup", () => {
+    // iss_1 is the parent of iss_2: its rollup already includes iss_2's spend.
+    const view = projectCostRows(
+      [
+        row(1, { windowModels: [usd(10)], rollupModels: [usd(30)] }),
+        row(2, { windowModels: [usd(20)] }),
+        row(3, { windowModels: [usd(5)] }),
+      ],
+      projectOf,
+      100,
+    )
+    expect(view.rows.map((r) => [r.project, r.taskCount])).toEqual([
+      ['podium', 2],
+      ['pipp', 1],
+    ])
+    expect(view.rows[0]?.costUsd).toBeCloseTo(30)
+    expect(view.rows[0]?.sharePercent).toBeCloseTo(30)
+    expect(view.rows[1]?.barPercent).toBeCloseTo((5 / 30) * 100)
+    expect(view.attributedUsd).toBeCloseTo(35)
+    expect(view.attributedPercent).toBeCloseTo(35)
+  })
+
+  it('leaves unattributed and idle tasks out of every figure', () => {
+    const view = projectCostRows(
+      [
+        row(1, { windowModels: [usd(10)] }),
+        row(9, { windowModels: [usd(40)] }), // project unknown: not loaded or not visible
+        row(3, { windowModels: [] }), // nothing in the window
+      ],
+      projectOf,
+      100,
+    )
+    expect(view.rows.map((r) => r.project)).toEqual(['podium'])
+    expect(view.attributedUsd).toBeCloseTo(10)
+    expect(view.attributedPercent).toBeCloseTo(10)
+  })
+
+  it('names the model with the most window spend across the project', () => {
+    const view = projectCostRows(
+      [
+        row(1, { windowModels: [usd(4), usd(3, 'claude-sonnet-5')] }),
+        row(2, { windowModels: [usd(20, 'claude-sonnet-5')] }), // cheaper per token, more tokens
+      ],
+      projectOf,
+      50,
+    )
+    expect(view.rows[0]?.topModel).toBe('claude-sonnet-5')
+  })
+
+  it('caps the share at 100% and reads null with no window spend', () => {
+    const rows = [row(1, { windowModels: [usd(10)] })]
+    expect(projectCostRows(rows, projectOf, 8).attributedPercent).toBe(100)
+    expect(projectCostRows(rows, projectOf, 8).rows[0]?.sharePercent).toBe(100)
+    expect(projectCostRows(rows, projectOf, 0).attributedPercent).toBeNull()
+  })
+})
+
+const opusTotal = (over: Partial<CostModelTotalWire> = {}): CostModelTotalWire => ({
+  model: 'claude-opus-5',
+  inputTokens: 1_000_000,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheCreationTokens: 0,
+  cacheCreation1hTokens: 0,
+  messages: 1,
+  ...over,
+})
+
+const windowRow = (seq: number, windowMTok: number, ownMTok = 50): TaskCostRowWire =>
+  ({
+    issueId: `iss_${seq}`,
+    seq,
+    displayRef: `POD-${seq}`,
+    title: `Task ${seq}`,
+    stage: 'in_progress',
+    models: [opusTotal({ inputTokens: ownMTok * 1_000_000 })],
+    messages: 10,
+    windowModels: windowMTok > 0 ? [opusTotal({ inputTokens: windowMTok * 1_000_000 })] : [],
+    windowMessages: 5,
+    // A huge rollup must not affect the ranking: that would count children twice.
+    rollupModels: [opusTotal({ inputTokens: 900_000_000 })],
+    rollupMessages: 100,
+    sessionCount: 1,
+    floor: 'none',
+    harnesses: ['claude-code'],
+    uncostedSessionCount: 0,
+  }) as TaskCostRowWire
+
+describe('topWindowTasks', () => {
+  it('ranks by own seven-day cost, drops idle tasks and keeps five', () => {
+    const rows = [1, 2, 3, 4, 5, 6].map((seq) => windowRow(seq, seq))
+    rows.push(windowRow(7, 0, 999))
+    const top = topWindowTasks(taskCostRows(rows).rows)
+    expect(top.map((t) => t.seq)).toEqual([6, 5, 4, 3, 2])
+    expect(top[0]?.windowCostUsd).toBeCloseTo(30)
+  })
+})
+
+it('window-only ranking matches the full sheet on the same folds without reading history', () => {
+  const rows = Array.from({ length: 8 }, (_, i) => ({
+    issueId: `task-${i}`,
+    models: [model({ inputTokens: (8 - i) * 1_000_000 })],
+    rollupModels: [model({ inputTokens: 99_000_000 })],
+    windowModels: i === 0 ? [] : [model({ inputTokens: i * 1_000_000 })],
+    rollupMessages: 10,
+  })) as TaskCostRowWire[]
+  const full = topWindowTasks(taskCostRows(rows).rows).map(({ issueId, windowCostUsd }) => ({
+    issueId,
+    windowCostUsd,
+  }))
+  expect(topWindowTasks(windowTaskCosts(rows))).toEqual(full)
+  expect(full.map((row) => row.issueId)).toEqual(['task-7', 'task-6', 'task-5', 'task-4', 'task-3'])
+  for (const row of rows) {
+    Object.defineProperty(row, 'models', {
+      get() {
+        throw new Error('all-time pricing')
+      },
+    })
+    Object.defineProperty(row, 'rollupModels', {
+      get() {
+        throw new Error('rollup pricing')
+      },
+    })
+  }
+  expect(topWindowTasks(windowTaskCosts(rows))).toEqual(full)
+  expect(() => taskCostRows(rows)).toThrow() // Positive control: history trap is active.
 })

@@ -37,6 +37,7 @@ export const EXAMPLE_USAGE_REPORT: UsageReport = {
   machines: '2-5',
   sessions: { 'claude-code': 14, codex: 2 },
   features: { issues: true },
+  githubStar: { shown: { finished_task: 1 }, clicked: {} },
 }
 
 /**
@@ -70,7 +71,8 @@ export const EXAMPLE_USAGE_REPORT_DISPLAY = [
   '  "installAge": "1-7d",',
   '  "machines":   "2-5",',
   '  "sessions":   { "claude-code": 14, "codex": 2 },',
-  '  "features":   { "issues": true }',
+  '  "features":   { "issues": true },',
+  '  "githubStar": { "shown": { "finished_task": 1 }, "clicked": {} }',
   '}',
 ].join('\n')
 

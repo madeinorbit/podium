@@ -1,3 +1,5 @@
+export { dayKey, dayLabel } from '@podium/client-core/transcript-time'
+
 import type { ChatRow } from '@podium/client-core/values'
 
 /** Work durations use units, with a stable two-digit seconds column after minutes. */
@@ -41,36 +43,10 @@ export function parseTs(ts: string | undefined): Date | undefined {
   return Number.isNaN(d.getTime()) ? undefined : d
 }
 
-/** Local calendar day as a sortable `YYYY-MM-DD` key — the identity a day mark
- *  is keyed on. Deliberately not `toDateString()`, which is locale text. */
-export function dayKey(d: Date): string {
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${d.getFullYear()}-${m}-${day}`
-}
-
 /** `14:32` — the row clock. Zero-padded 24h so the column stays one width; the
  *  tabular figures in `.chat-clk` do the rest. */
 export function clockLabel(d: Date): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-}
-
-/** The day mark's text: `Today` / `Yesterday` for the two days a reader thinks
- *  of by name, an absolute date for everything else, carrying the year only
- *  when it is not the current one (a 2024 row in a 2026 session must not read
- *  as March). */
-export function dayLabel(d: Date, now: Date): string {
-  const key = dayKey(d)
-  if (key === dayKey(now)) return 'Today'
-  const yesterday = new Date(now)
-  yesterday.setDate(yesterday.getDate() - 1)
-  if (key === dayKey(yesterday)) return 'Yesterday'
-  return d.toLocaleDateString(undefined, {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    ...(d.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
-  })
 }
 
 /** The full instant, for the `title` of a clock — the clock itself shows only

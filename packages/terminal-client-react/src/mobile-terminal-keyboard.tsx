@@ -1,5 +1,5 @@
-import type { MountedSession } from '@podium/terminal-client/session-mount'
 import { keySequence, type SpecialKey } from '@podium/terminal-client/keys'
+import type { MountedSession } from '@podium/terminal-client/session-mount'
 import type { CSSProperties, ReactNode, RefObject } from 'react'
 import { useEffect, useState } from 'react'
 import { ArrowSwipeKey } from './ArrowSwipeKey'
@@ -25,6 +25,8 @@ export interface MobileTerminalKeyboardProps {
   ready: boolean
   hidden?: boolean
   voiceIcon?: ReactNode
+  /** Page-owned control after the terminal input actions. */
+  trailingAction?: ReactNode
   theme?: MobileTerminalKeyboardTheme
 }
 
@@ -39,6 +41,7 @@ export function MobileTerminalKeyboard({
   ready,
   hidden = false,
   voiceIcon,
+  trailingAction,
   theme,
 }: MobileTerminalKeyboardProps) {
   const voice = useVoiceInput((text) => mountedRef.current?.sendInput(`${text} `))
@@ -69,7 +72,7 @@ export function MobileTerminalKeyboard({
     <div className="mobile-terminal-keyboard" style={vars} aria-hidden={inactive || undefined}>
       <style>{MOBILE_TERMINAL_KEYBOARD_CSS}</style>
       <div
-        className={inactive ? 'key-actions kb-hidden' : 'key-actions'}
+        className={`key-actions${inactive ? ' kb-hidden' : ''}${trailingAction ? ' has-trailing-action' : ''}`}
         onPointerDown={(event) => event.preventDefault()}
       >
         <button
@@ -131,6 +134,7 @@ export function MobileTerminalKeyboard({
             {voiceIcon ?? '🎙'}
           </button>
         ) : null}
+        {trailingAction}
       </div>
       <div
         className={`toolbar-frame${toolbarOverflow.left ? ' can-scroll-left' : ''}${toolbarOverflow.right ? ' can-scroll-right' : ''}`}
@@ -251,7 +255,7 @@ const MOBILE_TERMINAL_KEYBOARD_CSS = `
   display: flex; flex-shrink: 0; align-items: center; gap: 5px; padding: 6px 8px 2px;
   background: var(--mtk-bar, var(--bar)); border-top: 1px solid var(--mtk-hairline-bar, var(--hairline-bar));
 }
-.mobile-terminal-keyboard .key-actions:not(:has(.key-mic)) { padding-right: 48px; }
+.mobile-terminal-keyboard .key-actions:not(:has(.key-mic)):not(.has-trailing-action) { padding-right: 48px; }
 .mobile-terminal-keyboard .key-actions.kb-hidden,
 .mobile-terminal-keyboard .toolbar.kb-hidden { display: none; }
 .mobile-terminal-keyboard .key-act {

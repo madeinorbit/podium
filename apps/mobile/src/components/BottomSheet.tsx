@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics'
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
-import { Dimensions, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native'
+import { Dimensions, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler'
 import Animated, {
   cancelAnimation,
@@ -14,8 +14,10 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets'
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
+import { useDismissOnRootLeave } from '../navigation/use-dismiss-on-root-leave'
 import { alpha } from '../theme/mix'
 import { color, elevation, radius, space, spring } from '../theme/theme'
+import { ActivityModal as Modal } from './ActivityModal'
 
 /**
  * THE ONE BOTTOM SHEET.
@@ -76,6 +78,8 @@ export function BottomSheet({
   children,
   footer,
   footerRule = true,
+  grouped = false,
+  openAt = 'medium',
   scrollable,
   virtualizedContent,
   contentStyle,
@@ -98,6 +102,11 @@ export function BottomSheet({
   /** Hairline between the scroll and the footer. Off where the footer is itself
    *  an inset control (a Cancel capsule) and the rule would cut the inset. */
   footerRule?: boolean
+  /** Paint the sheet in the grouped-list background, for inset-grouped forms. */
+  grouped?: boolean
+  /** `detented` mode: the stop it opens at. A search-first picker opens at
+   *  large, because its field must stay above the keyboard it raises. */
+  openAt?: SheetDetent
   /** `fit` mode: put the content in a scroll view capped at 60% of the screen. */
   scrollable?: boolean
   /** `detented` mode: let a virtualized child own scrolling once the sheet is large. */
@@ -141,6 +150,7 @@ export function BottomSheet({
     setMounted(false)
     onClose()
   }, [onClose])
+  useDismissOnRootLeave(finishClose, mounted)
 
   const settleOnUI = useCallback(
     (to: SheetDetent | 'closed', velocity = 0) => {
@@ -179,7 +189,7 @@ export function BottomSheet({
       return
     }
     setMounted(true)
-    const initialDetent = mode === 'detented' ? 'medium' : 'large'
+    const initialDetent = mode === 'detented' ? openAt : 'large'
     detent.set(initialDetent)
     y.set(closedRef.current)
     const raf = requestAnimationFrame(() => settle(initialDetent))
@@ -375,12 +385,15 @@ export function BottomSheet({
         accessibilityLabel={accessibilityLabel}
         style={[
           styles.sheet,
+          grouped && styles.grouped,
           elevation.raised,
           mode === 'detented'
             ? { top, height: span, paddingBottom: keyboardHeight }
             : {
                 bottom: keyboardHeight,
-                paddingBottom: keyboardHeight > 0 ? space.md : insets.bottom + space.md,
+                // Grouped forms carry their own final row spacing. Only the
+                // safe area belongs here, or prompt sheets pay that gap twice.
+                paddingBottom: (keyboardHeight > 0 ? 0 : insets.bottom) + (grouped ? 0 : space.md),
               },
           sheetStyle,
         ]}
@@ -462,6 +475,7 @@ const styles = {
       borderTopColor: color.borderStrong,
       overflow: 'hidden',
     },
+    grouped: { backgroundColor: color.groupedBg },
     // A drag must never leave a trail of selected text behind it.
     dragRegion: Platform.OS === 'web' ? ({ userSelect: 'none' } as object) : {},
     grabberBox: { height: 24, alignItems: 'center', justifyContent: 'center' },

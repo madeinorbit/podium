@@ -9,6 +9,8 @@ export const MAX_ATTACHMENTS_PER_PICK = 4
 
 export interface AttachmentReadSource extends PickedFileBase {
   uri: string
+  /** A native provider failure, reported through the same removable chip. */
+  error?: string
 }
 
 function tooLarge(name: string): string {
@@ -30,12 +32,16 @@ export async function readAttachmentsSequentially(
   const results: PickedFile[] = []
   for (const source of sources.slice(0, MAX_ATTACHMENTS_PER_PICK)) {
     try {
-      const size = source.size ?? (await io.sizeOf(source))
+      const size = source.size ?? (source.error ? undefined : await io.sizeOf(source))
       const base = {
         name: source.name,
         mimeType: source.mimeType,
         previewUri: source.previewUri,
         ...(size === undefined ? {} : { size }),
+      }
+      if (source.error) {
+        results.push({ ...base, error: source.error })
+        continue
       }
       if (size !== undefined && size > MAX_ATTACHMENT_BYTES) {
         results.push({ ...base, error: tooLarge(source.name) })

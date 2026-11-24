@@ -30,7 +30,10 @@ export type { MainView } from '@podium/client-core/router'
 export type { FileTab } from '@podium/client-core/values'
 
 const NOTICES: NoticeSink = {
-  error: (message) => toast.error(message),
+  error: (message, id) => (id === undefined ? toast.error(message) : toast.error(message, { id })),
+  dismissError: (id) => {
+    toast.dismiss(id)
+  },
   info: (message, description) =>
     toast(message, description ? { description: describeNotice(description) } : undefined),
 }

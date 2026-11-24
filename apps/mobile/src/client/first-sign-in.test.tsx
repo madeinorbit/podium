@@ -1,80 +1,119 @@
-/**
- * A PROFILE WRITE AFTER THE PHONE SIGNS IN (POD-6913).
- *
- * Right after a sign-in the native gate writes the saved profile while the
- * app is already on screen: the live socket connects and the follow observer
- * saves the server's installation identity (`saveServerIdentity`). The gate
- * then rebuilds its whole context value, so every callback in it,
- * `updateCredential` included, gets a new identity. The live provider used to
- * fold that identity into the store's tRPC client, so StoreProvider saw a new
- * `api` for the replica it had already opened. It tore the signed-in runtime
- * down during render (React: "Cannot update a component (IssuesScreen) while
- * rendering a different component (StoreProvider)") and built a second one
- * over the same assembly, whose kernel outbox factory may be consumed only
- * once. The release build died with "kernel engine Outbox factory may only be
- * consumed once". The browser build never writes that profile, so it never
- * crashed.
- *
- * The provider here is the production one over a real SQLite file, as in
- * refused-member.test. The gate is a stub with the native gate's shape: one
- * memo over the profile state, so a profile write replaces every callback.
- */
-import { mkdtempSync, rmSync } from 'node:fs'
+/** Fresh native setup through the real gates, replica and single-use outbox. */
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { useClientRuntime } from '@podium/client-core/react'
+import { asUserId } from '@podium/model'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import type { SqlDatabaseLike } from '@podium/sync/adapters/mobile-sqlite'
-import { act, cleanup, render, screen } from '@testing-library/react'
-import {
-  Component,
-  createContext,
-  type ReactNode,
-  StrictMode,
-  useContext,
-  useMemo,
-  useState,
-} from 'react'
-import { Platform } from 'react-native'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AuthStatus } from './auth'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { Component, type ReactNode } from 'react'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { passwordCapabilities } from '../test-support/auth-capabilities'
 
-const state = vi.hoisted(() => ({
-  device: new Map<string, string>(),
-  sqliteFile: '',
-  // biome-ignore lint/suspicious/noExplicitAny: the stubbed gate's context, set per test
-  ProfileContext: null as any,
-  // biome-ignore lint/suspicious/noExplicitAny: the stub gate's current context value
-  gate: null as any,
+const device = vi.hoisted(() => ({
+  metadata: new Map<string, string>(),
+  keychain: new Map<string, string>(),
+  database: '',
+  protected: false,
+  failures: [] as Error[],
+  runtimes: new Set<unknown>(),
 }))
 
 vi.mock('@react-native-async-storage/async-storage', () => ({
   default: {
-    getAllKeys: async () => [...state.device.keys()],
-    getItem: async (key: string) => state.device.get(key) ?? null,
-    setItem: async (key: string, value: string) => void state.device.set(key, value),
-    removeItem: async (key: string) => {
-      state.device.delete(key)
-    },
+    getAllKeys: async () => [...device.metadata.keys()],
+    getItem: async (key: string) => device.metadata.get(key) ?? null,
+    setItem: async (key: string, value: string) => void device.metadata.set(key, value),
+    removeItem: async (key: string) => void device.metadata.delete(key),
   },
 }))
-vi.mock('./ServerProfileGate', () => ({
-  useOptionalServerProfile: () => useContext(state.ProfileContext),
+vi.mock('expo-secure-store', () => ({
+  WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'unlocked',
+  getItemAsync: async (key: string) => device.keychain.get(key) ?? null,
+  setItemAsync: async (key: string, value: string) => void device.keychain.set(key, value),
+  deleteItemAsync: async (key: string) => void device.keychain.delete(key),
 }))
+vi.mock('./profile-credentials', () => vi.importActual('./profile-credentials.native'))
+vi.mock('react-native', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-native')>()
+  return {
+    ...actual,
+    Platform: { ...actual.Platform, OS: 'ios' },
+    AccessibilityInfo: { ...actual.AccessibilityInfo, announceForAccessibility: vi.fn() },
+    Linking: {
+      getInitialURL: async () => null,
+      addEventListener: () => ({ remove: vi.fn() }),
+    },
+    TextInput: ({
+      accessibilityLabel,
+      onChangeText,
+      placeholder,
+      value,
+    }: {
+      accessibilityLabel?: string
+      onChangeText?(value: string): void
+      placeholder?: string
+      value?: string
+    }) => (
+      <input
+        aria-label={accessibilityLabel}
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => onChangeText?.(event.currentTarget.value)}
+      />
+    ),
+  }
+})
+vi.mock('expo-router', () => ({ router: { replace: vi.fn() } }))
+vi.mock('expo-crypto', () => ({}))
+vi.mock('expo-haptics', () => ({
+  notificationAsync: async () => {},
+  NotificationFeedbackType: { Success: 'success' },
+}))
+vi.mock('./hosted-sign-in-runtime', () => ({
+  hostedSignIn: { begin: vi.fn(), cancel: async () => {} },
+}))
+vi.mock('../components/PairingScanner', () => ({ PairingScanner: () => null }))
+vi.mock('../components/KeyboardAvoidingRoot', () => ({
+  KeyboardAvoidingRoot: ({ children }: { children: ReactNode }) => children,
+}))
+vi.mock('../components/PressableScale', () => ({
+  PressableScale: ({
+    accessibilityLabel,
+    children,
+    disabled,
+    onPress,
+  }: {
+    accessibilityLabel?: string
+    children?: ReactNode
+    disabled?: boolean
+    onPress?(): void
+  }) => (
+    <button type="button" aria-label={accessibilityLabel} disabled={disabled} onClick={onPress}>
+      {children}
+    </button>
+  ),
+}))
+// The test server supplies authentication, not a sync stream. Keep the actual
+// store mounted so its real outbox enforces the single-consumer contract.
 vi.mock('./MobileSyncBoundary', () => ({
   MobileSyncBoundary: ({ children }: { children: ReactNode }) => children,
 }))
 vi.mock('./mobile-entity-store', async () => {
   const { SqliteSyncStore } = await import('@podium/sync/adapters/mobile-sqlite')
-  const open = await realSqlite()
+  const open = await sqlite()
   return {
     openMobileEntityStore: () =>
       SqliteSyncStore.open({
-        openDatabase: () => open(state.sqliteFile),
+        openDatabase: () => open(device.database),
         deleteDatabase: () => {},
         onDegraded: () => {},
       }),
   }
 })
-async function realSqlite(): Promise<(file: string) => SqlDatabaseLike> {
+
+async function sqlite(): Promise<(file: string) => SqlDatabaseLike> {
   for (const [specifier, exportName] of [
     ['bun:sqlite', 'Database'],
     ['node:sqlite', 'DatabaseSync'],
@@ -85,8 +124,16 @@ async function realSqlite(): Promise<(file: string) => SqlDatabaseLike> {
       if (typeof Database === 'function') return (file) => new Database(file)
     } catch {}
   }
-  throw new Error('no real SQLite in this runtime')
+  throw new Error('No SQLite engine is available for the first-sign-in regression')
 }
+
+import { AuthGate } from './AuthGate'
+import { AuthStatusContext } from './auth-context'
+import { MobileClientProvider } from './MobileClientProvider'
+import { resetInitialNativeLinkConsumptionForTests, ServerProfileGate } from './ServerProfileGate'
+import { ServerProfileContext, type ServerProfileContextValue } from './server-profile-context'
+import { loadServerProfiles } from './server-profiles'
+import { setActiveServerRuntime } from './trpc'
 
 class SilentSocket {
   readyState = 0
@@ -96,149 +143,188 @@ class SilentSocket {
   removeEventListener(): void {}
 }
 
-const alice: AuthStatus = {
-  needsAuth: true,
-  authed: true,
-  userId: 'user-alice',
-  memberId: 'alice',
-  syncBoundaryId: 'boundary-a',
-} as AuthStatus
-
-class RenderErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
-  state = { error: null as Error | null }
-  static getDerivedStateFromError(error: Error) {
-    return { error }
+class FailureBoundary extends Component<{ children: ReactNode }, { failure: Error | null }> {
+  state = { failure: null as Error | null }
+  static getDerivedStateFromError(failure: Error) {
+    return { failure }
+  }
+  componentDidCatch(failure: Error) {
+    device.failures.push(failure)
   }
   render() {
-    return this.state.error ? (
-      <div data-testid="render-error">{this.state.error.message}</div>
+    return this.state.failure ? (
+      <div role="alert">{this.state.failure.message}</div>
     ) : (
       this.props.children
     )
   }
 }
 
-/**
- * Boots the live provider for a profile that has not saved its server's
- * identity yet, then lets that identity arrive as the connected socket
- * delivers it. `memberRecorded: false` is a first sign-in: the boot records
- * the member, which writes the profile and re-runs the boot once before paint.
- */
-async function bootSignedIn(options: { memberRecorded: boolean; strict?: boolean }) {
-  vi.resetModules()
-  state.ProfileContext = createContext(null)
-  const [{ MobileClientProvider }, { AuthStatusContext }, { readServerConfig }] = await Promise.all(
-    [import('./MobileClientProvider'), import('./auth-context'), import('./trpc')],
-  )
-  const config = { ...readServerConfig(), httpOrigin: 'https://podium.test' }
-  const recorded: string[] = []
-  function StubGate({ children }: { children: ReactNode }) {
-    const [profile, setProfile] = useState({
-      id: 'profile-a',
-      httpOrigin: 'https://podium.test',
-      ...(options.memberRecorded
-        ? { userId: 'alice', syncBoundaryId: 'boundary-a', memberId: 'alice' }
-        : {}),
-    } as Record<string, unknown>)
-    // As in ServerProfileGate: one memo over the profile state, so every
-    // profile write hands out new callbacks.
-    const value = useMemo(
-      () => ({
-        profile,
-        profiles: [profile],
-        config,
-        bearer: 'alice-bearer',
-        activation: 'verified',
-        runtimeKey: 'profile-a',
-        isEphemeralOverride: false,
-        updateCredential: async () => {},
-        recordUser: async (userId: string, identity: Record<string, string>) => {
-          recorded.push(userId)
-          if (profile.memberId === identity.memberId) return
-          setProfile({ ...profile, userId, ...identity })
-        },
-        revalidateOfflineProfile: async () => {},
-        // What the follow observer calls once the live socket has connected.
-        saveServerIdentity: async (identity: Record<string, string>) => {
-          setProfile((current) => ({ ...current, ...identity }))
-        },
-      }),
-      [profile],
-    )
-    state.gate = value
-    return <state.ProfileContext.Provider value={value}>{children}</state.ProfileContext.Provider>
-  }
-  const tree = (
-    <RenderErrorBoundary>
-      <StubGate>
-        <AuthStatusContext.Provider value={alice}>
-          <MobileClientProvider>
-            <div data-testid="app">app</div>
-          </MobileClientProvider>
-        </AuthStatusContext.Provider>
-      </StubGate>
-    </RenderErrorBoundary>
-  )
-  render(options.strict ? <StrictMode>{tree}</StrictMode> : tree)
-  await screen.findByTestId('app', undefined, { timeout: 10_000 })
-  // The boot settles first (recording a new member re-runs it once).
-  await act(() => new Promise((resolve) => setTimeout(resolve, 500)))
-  // The socket connected: the server's identity lands on the saved profile
-  // while the signed-in app is on screen.
-  await act(async () => {
-    await state.gate.saveServerIdentity({
-      installationId: 'installation-1',
-      installationPublicKey: 'key-1',
-    })
-  })
-  await act(() => new Promise((resolve) => setTimeout(resolve, 100)))
-  return { recorded }
+function Work() {
+  device.runtimes.add(useClientRuntime())
+  return <div data-testid="work">Work</div>
 }
 
-let dir = ''
-let consoleErrors: string[] = []
-let originalOS: string
+let directory = ''
 beforeEach(() => {
-  originalOS = Platform.OS
-  ;(Platform as { OS: string }).OS = 'android'
-  ;(globalThis as { WebSocket?: unknown }).WebSocket = SilentSocket
-  vi.stubGlobal('fetch', async () => {
-    throw new Error('offline in this test')
+  directory = mkdtempSync(join(tmpdir(), 'mobile-first-sign-in-'))
+  device.database = join(directory, 'replica.db')
+  device.metadata.clear()
+  device.keychain.clear()
+  device.failures.length = 0
+  device.runtimes.clear()
+  resetInitialNativeLinkConsumptionForTests()
+  setActiveServerRuntime(undefined, null)
+  vi.stubGlobal('WebSocket', SilentSocket)
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(String(input))
+    if (url.pathname === '/version') {
+      return Response.json({
+        wireVersion: CLIENT_WIRE_VERSION,
+        minSupportedVersion: CLIENT_WIRE_VERSION,
+        instanceId: 'fresh-server',
+      })
+    }
+    if (url.pathname === '/auth/status') {
+      const authed =
+        !device.protected ||
+        new Headers(init?.headers).get('Authorization') === 'Bearer first-token'
+      return Response.json({
+        needsAuth: device.protected,
+        authed,
+        userId: authed ? 'first-member' : null,
+        ...(authed
+          ? { memberId: 'first-member', syncBoundaryId: 'fresh-boundary' }
+          : // Upstream's sign-in screen draws only the options the server offers.
+            { capabilities: passwordCapabilities, prompt: 'password' }),
+      })
+    }
+    if (url.pathname === '/auth/login') {
+      return Response.json({
+        ok: true,
+        delivery: 'native',
+        token: 'first-token',
+        userId: 'first-member',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+      })
+    }
+    throw new Error('No sync server in the first-sign-in test')
   })
-  consoleErrors = []
-  const error = console.error
-  vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
-    consoleErrors.push(args.map(String).join(' '))
-    error(...args)
-  })
-  dir = mkdtempSync(join(tmpdir(), 'first-sign-in-'))
-  state.sqliteFile = join(dir, 'replica.db')
-  state.device.clear()
 })
 afterEach(async () => {
   cleanup()
   await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
-  vi.restoreAllMocks()
+  setActiveServerRuntime(undefined, null)
   vi.unstubAllGlobals()
-  ;(Platform as { OS: string }).OS = originalOS
-  rmSync(dir, { recursive: true, force: true })
+  rmSync(directory, { recursive: true, force: true })
 })
 
-describe('a profile write after the phone signs in (POD-6913)', () => {
-  it.each([
-    ['a profile that already names its member', true],
-    ['a first sign-in that records the member', false],
-  ] as const)('keeps the signed-in app for %s', async (_, memberRecorded) => {
-    const { recorded } = await bootSignedIn({ memberRecorded })
-    expect(recorded).toContain('alice')
-    expect(screen.queryByTestId('render-error')).toBeNull()
-    expect(screen.getByTestId('app')).toBeTruthy()
-    expect(consoleErrors.filter((line) => line.includes('Cannot update a component'))).toEqual([])
+it.each([
+  'open',
+  'protected',
+] as const)('opens Work on the first %s sign-in with empty native storage and no outbox double-consumption', async (mode) => {
+  device.protected = mode === 'protected'
+  expect(device.metadata.size).toBe(0)
+  expect(device.keychain.size).toBe(0)
+  expect(existsSync(device.database)).toBe(false)
+  render(
+    <FailureBoundary>
+      <ServerProfileGate>
+        <AuthGate>
+          <MobileClientProvider>
+            <Work />
+          </MobileClientProvider>
+        </AuthGate>
+      </ServerProfileGate>
+    </FailureBoundary>,
+  )
+  fireEvent.click(await screen.findByLabelText('Enter server address'))
+  fireEvent.change(screen.getByPlaceholderText('https://podium.example'), {
+    target: { value: 'https://first.example' },
   })
+  fireEvent.click(screen.getByLabelText('Check server'))
+  fireEvent.click(await screen.findByLabelText('Connect'))
+  if (device.protected) {
+    fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'test-only' } })
+    fireEvent.click(screen.getByLabelText('Log in'))
+  }
+  expect(await screen.findByTestId('work', undefined, { timeout: 10_000 })).toBeTruthy()
+  await waitFor(async () => {
+    const stored = await loadServerProfiles()
+    expect(stored.profiles).toHaveLength(1)
+    expect(stored.profiles[0]).toMatchObject({
+      userId: 'first-member',
+      memberId: 'first-member',
+      syncBoundaryId: 'fresh-boundary',
+    })
+  })
+  // Recording the principal updates the gate and rechecks auth. Let those
+  // updates commit before judging whether the first store survived.
+  await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+  expect(screen.getByTestId('work')).toBeTruthy()
+  expect(device.failures).toEqual([])
+  expect([...device.keychain.values()]).toEqual(device.protected ? ['first-token'] : [])
+})
 
-  it('boots once under StrictMode double render and effect replay', async () => {
-    await bootSignedIn({ memberRecorded: false, strict: true })
-    expect(screen.queryByTestId('render-error')).toBeNull()
-    expect(screen.getByTestId('app')).toBeTruthy()
-  })
+it('opens a new outbox when the first bearer reaches an already-booted clean profile', async () => {
+  device.protected = true
+  const noOperation = async () => {}
+  const profile: ServerProfileContextValue = {
+    profile: {
+      id: 'first-profile',
+      name: 'First server',
+      httpOrigin: 'https://first.example',
+      mode: 'protected',
+      transport: 'trusted-https',
+      createdAt: '2026-11-13T00:00:00.000Z',
+      updatedAt: '2026-11-13T00:00:00.000Z',
+    },
+    profiles: [],
+    config: {
+      httpOrigin: 'https://first.example',
+      wsClientUrl: 'wss://first.example/client',
+      override: false,
+    },
+    bearer: null,
+    activation: 'verified',
+    runtimeKey: 'first-profile:0',
+    isEphemeralOverride: false,
+    beginAddServer: () => {},
+    switchProfile: noOperation,
+    renameProfile: noOperation,
+    removeProfile: noOperation,
+    updateCredential: noOperation,
+    recordUser: noOperation,
+    revalidateOfflineProfile: noOperation,
+  }
+  const status = {
+    needsAuth: true,
+    authed: true,
+    userId: asUserId('first-member'),
+    memberId: 'first-member',
+    syncBoundaryId: 'fresh-boundary',
+  }
+  setActiveServerRuntime(profile.config, null)
+  const tree = (bearer: string | null) => (
+    <FailureBoundary>
+      <ServerProfileContext.Provider value={{ ...profile, bearer }}>
+        <AuthStatusContext.Provider value={status}>
+          <MobileClientProvider>
+            <Work />
+          </MobileClientProvider>
+        </AuthStatusContext.Provider>
+      </ServerProfileContext.Provider>
+    </FailureBoundary>
+  )
+  expect(existsSync(device.database)).toBe(false)
+  const view = render(tree(null))
+  await screen.findByTestId('work', undefined, { timeout: 10_000 })
+  expect(device.runtimes.size).toBe(1)
+
+  // Native credential publication can replace the API while React still
+  // holds the first replica. The old outbox must never see that new API.
+  view.rerender(tree('first-token'))
+  await waitFor(() => expect(device.runtimes.size).toBe(2))
+  expect(screen.getByTestId('work')).toBeTruthy()
+  expect(device.failures).toEqual([])
 })

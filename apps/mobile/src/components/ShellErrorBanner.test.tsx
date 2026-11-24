@@ -16,10 +16,11 @@ import { useChatSends } from '@podium/client-core/react'
  */
 
 import { asSessionId, type SessionMeta, UNADDRESSABLE_SEND_REASON } from '@podium/model'
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, renderHook, screen, waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { Text } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useShellErrorChannel } from '../client/shell-surface'
 import { renderWithMobileStore } from '../client/test-support'
 
 afterEach(cleanup)
@@ -95,6 +96,9 @@ describe('phone error notices', () => {
     expect(banner.textContent).toBe(
       'Message not sent — the session no longer exists: “Write the numbers from 1 to 400”',
     )
+    // The root banner must start below the compact navigation button row so
+    // a failed launch can be left with Back before dismissing its error.
+    expect(banner.parentElement?.style.paddingTop).toBe('95px')
     // The route is still there under it: the notice is drawn OVER the screen
     // the operator is on, not instead of it.
     expect(screen.getByText('Session deleted. It was removed on the server.')).toBeTruthy()
@@ -123,5 +127,22 @@ describe('phone error notices', () => {
 
     fireEvent.click(screen.getByLabelText('Dismiss error'))
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+  })
+})
+
+describe('launch notice ids on the phone error channel (ed4f38b45a)', () => {
+  it('clears only the notice an accepted retry names, never a newer error', () => {
+    const { result } = renderHook(() => useShellErrorChannel())
+    act(() => result.current.notices.error("Couldn't start the agent", 'launch:s1'))
+    expect(result.current.error?.message).toBe("Couldn't start the agent")
+    act(() => result.current.notices.dismissError?.('launch:other'))
+    expect(result.current.error?.message).toBe("Couldn't start the agent")
+    act(() => result.current.notices.dismissError?.('launch:s1'))
+    expect(result.current.error).toBeNull()
+
+    act(() => result.current.notices.error("Couldn't start the agent", 'launch:s2'))
+    act(() => result.current.notices.error('A different request failed'))
+    act(() => result.current.notices.dismissError?.('launch:s2'))
+    expect(result.current.error?.message).toBe('A different request failed')
   })
 })

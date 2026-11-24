@@ -1,7 +1,7 @@
-import type { ConversationFile, ConversationMessage } from './contracts'
 import type { TranscriptTag } from '@podium/model'
 import { deadLetterDeliveryLine, MessageDelivery, readDeliveryStatus } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
+import type { ConversationFile, ConversationMessage } from './contracts'
 
 /**
  * A message this device is sending, from the composer until the server's
@@ -18,6 +18,9 @@ export interface ConversationPendingTurn {
   /** Exact payload delivered to the agent. Retry never reconstructs it from `text`. */
   wire: string
   at: number
+  /** Transcript tail when this device sent it. Null means an empty transcript;
+   * undefined is an older/restored send whose position was not captured. */
+  afterTranscriptId?: string | null
   state: 'sending' | 'queued' | 'sent' | 'failed' | 'interrupted' | 'retracted'
   kind: 'message' | 'offer'
   error?: string
@@ -67,6 +70,9 @@ export type ConversationBubbleState =
 /** One bubble below the transcript. */
 export interface ConversationBubble extends Omit<ConversationPendingTurn, 'state'> {
   state: ConversationBubbleState
+  /** A later server record's exact echo, used for restored notices with no
+   * local anchor. Only server record times are compared to derive it. */
+  beforeTranscriptId?: string
   /** The server's record of the message, once the feed carries it. */
   record?: ConversationMessage
   /** The sender may still take it back: its status still allows a retract to
@@ -99,6 +105,8 @@ export interface ConversationProjectionInput {
   readonly seenOpen: ReadonlySet<string>
   /** Entries this view already rendered remain acknowledged after windowing. */
   readonly seenHistory?: ReadonlySet<string>
+  /** A named compaction receipt also needs its grouped manual trigger. */
+  readonly receiptIsProven?: (record: ConversationMessage) => boolean
   /** Message ids being dismissed right now: hidden meanwhile. */
   readonly hidden: ReadonlySet<string>
   /** This device's retracts still waiting for their answer to reach the record,
@@ -162,12 +170,18 @@ function recordShows(
   onScreen: Pick<ReadonlySet<string>, 'has'>,
   seenOpen: ReadonlySet<string>,
   seenHistory?: ReadonlySet<string>,
+  receiptIsProven?: (record: ConversationMessage) => boolean,
 ): boolean {
   // Only a read by id carries a dismissal (POD-4811): the feed lets one go.
   if (record.noticeDismissedAt !== undefined) return false
+  // The authoritative terminal outcome wins even if a history receipt was
+  // previously shown. A contradictory receipt must never erase a failure.
+  if (record.status === 'failed' || record.status === 'expired' || record.status === 'cancelled')
+    return true
   if (
     record.transcriptItem &&
-    (onScreen.has(record.transcriptItem.id) || seenHistory?.has(record.transcriptItem.id))
+    (seenHistory?.has(record.transcriptItem.id) ||
+      (onScreen.has(record.transcriptItem.id) && receiptIsProven?.(record) !== false))
   )
     return false
   if (record.status !== 'confirmed') return true
@@ -244,13 +258,16 @@ export function projectConversation(input: ConversationProjectionInput): Convers
       continue
     }
     if (record === undefined) {
-      bubbles.push(withLocalRetract({
-        ...turn,
-        retractable: turn.reconcile !== 'initial-prompt' && LOCAL_RETRACTABLE.has(turn.state),
-      }))
+      bubbles.push(
+        withLocalRetract({
+          ...turn,
+          retractable: turn.reconcile !== 'initial-prompt' && LOCAL_RETRACTABLE.has(turn.state),
+        }),
+      )
       continue
     }
-    if (!recordShows(record, onScreen, input.seenOpen, input.seenHistory)) continue
+    if (!recordShows(record, onScreen, input.seenOpen, input.seenHistory, input.receiptIsProven))
+      continue
     const fromServer = withLocalRetract(fromRecord(record))
     bubbles.push(
       turn.state === 'interrupted'
@@ -261,6 +278,9 @@ export function projectConversation(input: ConversationProjectionInput): Convers
             text: turn.text,
             wire: turn.wire,
             at: turn.at,
+            ...(turn.afterTranscriptId !== undefined
+              ? { afterTranscriptId: turn.afterTranscriptId }
+              : {}),
             kind: turn.kind,
             ...(turn.tags ? { tags: turn.tags } : {}),
             ...(turn.files ? { files: turn.files } : {}),
@@ -273,8 +293,49 @@ export function projectConversation(input: ConversationProjectionInput): Convers
   }
   for (const record of input.records) {
     if (covered.has(record.id) || input.hidden.has(record.id)) continue
-    if (!recordShows(record, onScreen, input.seenOpen, input.seenHistory)) continue
+    if (!recordShows(record, onScreen, input.seenOpen, input.seenHistory, input.receiptIsProven))
+      continue
     bubbles.push(withLocalRetract(fromRecord(record)))
   }
+  // A restored notice may predate messages already confirmed in the transcript.
+  // Its server record and the confirmed record share a clock; the phone's send
+  // time and the agent transcript timestamps do not.
+  const restored = bubbles.filter(
+    (bubble) => bubble.afterTranscriptId === undefined && bubble.record,
+  )
+  if (restored.length) {
+    const echoes = input.records
+      .filter(
+        (record) =>
+          record.status === 'confirmed' &&
+          record.transcriptItem &&
+          onScreen.has(record.transcriptItem.id),
+      )
+      .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
+    for (const bubble of restored) {
+      const createdAt = Date.parse(bubble.record?.createdAt ?? '')
+      const next = echoes.find((record) => Date.parse(record.createdAt) > createdAt)
+      if (next?.transcriptItem) bubble.beforeTranscriptId = next.transcriptItem.id
+    }
+  }
   return bubbles.sort((left, right) => left.at - right.at || left.id.localeCompare(right.id))
+}
+
+/** Address an unresolved send in a transcript without sorting transcript rows
+ * or comparing timestamps from different machines. The viewport keeps its
+ * settled row indices; it draws the bubble just before the returned slot. */
+export function conversationBubblePosition(
+  bubble: Pick<ConversationBubble, 'afterTranscriptId' | 'beforeTranscriptId'>,
+  positionOfItem: (id: string) => number | undefined,
+): number | undefined {
+  if (bubble.beforeTranscriptId !== undefined) {
+    const before = positionOfItem(bubble.beforeTranscriptId)
+    if (before !== undefined) return before
+  }
+  if (bubble.afterTranscriptId === null) return 0
+  if (bubble.afterTranscriptId !== undefined) {
+    const after = positionOfItem(bubble.afterTranscriptId)
+    if (after !== undefined) return after + 1
+  }
+  return undefined
 }

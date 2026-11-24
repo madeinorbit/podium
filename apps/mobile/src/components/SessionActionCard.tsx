@@ -2,11 +2,19 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import { segmentOfferText } from '@podium/client-core/values'
 import type { SessionOffer } from '@podium/model'
 import { useState } from 'react'
-import { AccessibilityInfo, StyleSheet, Text, TextInput, View } from 'react-native'
+import {
+  AccessibilityInfo,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from 'react-native'
 import { followPodiumLink } from '../lib/podium-link'
-import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
+import { color, font, leading, radius, sans, space } from '../theme/theme'
+import { decisionTile } from './decision-tile'
 import { Icon } from './Icon'
-import { Lightbulb, X } from './icons'
+import { X } from './icons'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
 import { PressableScale } from './PressableScale'
 
@@ -19,33 +27,7 @@ function errorText(error: unknown, fallback: string): string {
   return (message || fallback).replace(/[.!?]+$/, '')
 }
 
-/**
- * A session-owned offer, kept in the transcript flow. This is deliberately a
- * compact action block rather than a Tray card or persistent bottom accessory:
- * the session is both the source of the decision and where its answer goes.
- *
- * A BLOCK IN THE DOCUMENT, NOT A CARD — the same move the desktop bar made
- * [POD-725], arrived at here for the same reason. This was an accent-rimmed,
- * accent-washed, rounded panel: a 3pt accent edge, an accent wash and an accent
- * button, three signals for one request, in an app whose whole palette spends
- * the accent exactly once. The block now earns its weight typographically — a
- * rule marking where the answer ended and the question began, a bisque eyebrow,
- * and a headline set larger than the transcript prose above it — and the single
- * accented object left on screen is the button the operator is meant to press.
- *
- * `onDismiss` is the THIRD answer, matching the web bar's x [POD-771]: none of
- * these. Without it the phone could only answer an offer or wait for the
- * conversation to move past it, so a question already decided against sat at the
- * end of the transcript — and on a session that can no longer take a turn, it sat
- * there with no reachable exit at all.
- *
- * THE EVIDENCE IS IN THE BLOCK, not behind a link [POD-120]. The offered
- * artifacts used to be a "2 artifacts →" control that opened the task peek —
- * the whole issue, to look at two files the agent had already named. The
- * desktop answers this with {@link OfferArtifactStrip} inside the offer itself,
- * and so does this now; `onOpenEvidence` survives as the strip's overflow
- * target, which is the one case where the full list still beats the strip.
- */
+/** A session offer uses the approved ChatAsk tile, with evidence above its actions. */
 export function SessionActionCard({
   offer,
   issue,
@@ -66,6 +48,7 @@ export function SessionActionCard({
   /** Open the task's full artifact list — reached from the strip's "+N" only. */
   onOpenEvidence?: () => void
 }) {
+  const { fontScale } = useWindowDimensions()
   const [inputAction, setInputAction] = useState<number | null>(null)
   const [feedback, setFeedback] = useState('')
   const [sending, setSending] = useState(false)
@@ -109,38 +92,31 @@ export function SessionActionCard({
 
   return (
     <View style={styles.block} testID="session-action-card">
-      <View style={styles.headingRow}>
-        <Icon as={Lightbulb} size={11} color={color.needsYouText} />
-        <Text style={styles.label}>Offer · needs you</Text>
-        {/* An explicit spacer rather than `marginLeft: 'auto'` on each status
-            text: the x below needs the far end unconditionally, and two auto
-            margins in one row split the slack between them instead. */}
-        <View style={styles.headingSpacer} />
+      {/* THE TILE (boards Chat/ChatAsk, POD-2380): the headline is the title,
+          on the card colour, no eyebrow. Sending and the decline share its row:
+          the decline is the control that says the question needs no answer,
+          so it sits apart from the answers, faint and without the accent. */}
+      <View style={[styles.titleRow, onDismiss && styles.titleWithDismiss]}>
+        <Text style={styles.headline}>{headline}</Text>
         {sending ? <Text style={styles.meta}>sending…</Text> : null}
-        {/* THE DECLINE, AT THE LABEL ROW'S FAR END — same place the web bar puts
-            it. It sits with the eyebrow and not among the buttons because the
-            buttons are answers to the question and this is the control that says
-            the question needs none. Faint, and it takes no accent: the block
-            spends its one attention colour on the action meant to be pressed.
-            NOT gated on `sending`'s disabled treatment the way the buttons are —
-            an offer on a session that cannot take a turn is exactly the one that
-            needs its way out. 13pt of ink, 33pt of thumb once hitSlop counts. */}
-        {onDismiss ? (
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel="Dismiss offer"
-            accessibilityHint="Takes this offer off every surface without answering it"
-            testID="offer-dismiss"
-            disabled={dismissing || sending}
-            hitSlop={10}
-            onPress={() => void dismiss()}
-            style={[styles.dismiss, (dismissing || sending) && styles.muted]}
-          >
-            <Icon as={X} size={13} color={color.textFaint} />
-          </PressableScale>
-        ) : null}
       </View>
-      <Text style={styles.headline}>{headline}</Text>
+      {onDismiss ? (
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss offer"
+          accessibilityHint="Takes this offer off every surface without answering it"
+          testID="offer-dismiss"
+          disabled={dismissing || sending}
+          onPress={() => void dismiss()}
+          style={[
+            styles.dismiss,
+            { top: space.md + (20 * fontScale - 44) / 2 },
+            (dismissing || sending) && styles.muted,
+          ]}
+        >
+          <Icon as={X} size={14} color={color.textFaint} />
+        </PressableScale>
+      ) : null}
       {body ? (
         <Text style={styles.body} numberOfLines={2}>
           {/* The URLs an agent wrote are the same links the desktop bar makes
@@ -168,6 +144,7 @@ export function SessionActionCard({
       ) : null}
       {issue ? (
         <OfferArtifactStrip
+          presentation="tile"
           offer={offer}
           issue={issue}
           {...(lastInputAt ? { lastInputAt } : {})}
@@ -232,8 +209,9 @@ export function SessionActionCard({
               accessibilityRole="button"
               accessibilityLabel={action.label}
               disabled={sending}
+              hitSlop={6}
               style={[
-                index === 0 ? [styles.button, styles.primary] : styles.textAction,
+                [styles.button, index === 0 ? styles.primary : styles.secondary],
                 sending && styles.muted,
               ]}
               onPress={() => {
@@ -260,108 +238,71 @@ export function SessionActionCard({
 }
 
 const styles = StyleSheet.create({
-  block: {
-    // The rule IS the container. It marks where the answer ended and the
-    // question began; no fill, no radius, and no horizontal padding, so the
-    // offer keeps the transcript's own column instead of floating above it.
-    borderTopWidth: 1,
-    borderTopColor: color.hairline,
-    paddingTop: space.md,
-  },
-  headingRow: {
+  // Card colour, card radius 8, 12pt inset: the board's .tile.
+  block: decisionTile.card,
+  titleRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  label: {
-    ...monoLabel(),
-    color: color.needsYouText,
-  },
-  headingSpacer: {
-    flex: 1,
+    alignItems: 'flex-start',
+    gap: space.sm,
   },
   meta: {
     color: color.textDim,
     fontSize: font.tiny,
+    lineHeight: 20,
   },
   error: {
     color: color.dangerText,
     fontSize: font.tiny,
     lineHeight: leading(font.tiny, 'prose'),
-    marginTop: 6,
   },
+  titleWithDismiss: { paddingRight: 32 },
   dismiss: {
-    // Negative vertical margin keeps the 13pt glyph from growing the eyebrow row.
-    marginVertical: -space.xs,
-    padding: space.xs,
+    // The 44pt target overlaps the tile padding; it adds no title-row height.
+    position: 'absolute',
+    zIndex: 1,
+    right: 0,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
   headline: {
     ...sans(600),
+    flex: 1,
     color: color.text,
-    // Set ABOVE the transcript prose it follows: with the accent wash gone, the
-    // question's weight is what marks it as the thing that needs you.
-    fontSize: font.body,
-    lineHeight: leading(font.body, 'prose'),
-    marginTop: space.sm + 2,
+    fontSize: font.small,
+    lineHeight: 20,
   },
   body: {
     color: color.textDim,
-    fontSize: font.small,
-    lineHeight: leading(font.small, 'prose'),
-    marginTop: 5,
+    fontSize: 14,
+    lineHeight: 20,
   },
   link: {
     color: color.info,
     textDecorationLine: 'underline',
   },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    // Keep enough air between the filled recommendation and its quieter
-    // alternatives that the controls remain easy to scan as separate choices.
-    columnGap: space.sm,
-    rowGap: space.xs,
-    marginTop: space.md,
-  },
-  button: {
-    // 44pt is the platform floor, and this is the one control meant to be hit
-    // without looking.
-    minHeight: 44,
-    borderRadius: radius.sm,
-    paddingHorizontal: space.lg,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-  },
+  actions: decisionTile.actions,
+  button: { ...decisionTile.button, flexDirection: 'row', alignItems: 'center', gap: space.xs },
   primary: {
     backgroundColor: color.accent,
   },
-  /** ONE STRONG BUTTON, THEN QUIET BUTTONS. A low-contrast surface gives the
-   *  alternatives a visible tap shape without challenging the filled accent
-   *  recommendation for priority. */
-  textAction: {
-    minHeight: 44,
-    borderRadius: radius.sm,
-    paddingHorizontal: space.md,
-    backgroundColor: color.surface,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
+  secondary: {
+    backgroundColor: color.fill,
   },
   primaryText: {
-    ...sans(600),
+    ...sans(500),
     color: color.onAccent,
-    fontSize: font.small,
+    fontSize: 14,
+    lineHeight: 20,
+    flexShrink: 1,
   },
   secondaryText: {
     ...sans(500),
-    color: color.textDim,
-    fontSize: font.small,
+    color: color.text,
+    fontSize: 14,
+    lineHeight: 20,
+    flexShrink: 1,
   },
   inputMark: {
     color: color.textDim,
@@ -384,16 +325,14 @@ const styles = StyleSheet.create({
   },
   inputBlock: {
     gap: space.sm,
-    marginTop: space.md,
   },
   input: {
     minHeight: 58,
     borderWidth: 1,
     borderColor: color.border,
     borderRadius: radius.sm,
-    // A raised fill, not the page colour: with the block's own surface gone,
-    // `bg` would leave the field indistinguishable from the transcript behind it.
-    backgroundColor: color.surface,
+    // A fill on the tile, not the tile's own colour, or the field disappears.
+    backgroundColor: color.quaternaryFill,
     color: color.text,
     fontSize: font.small,
     paddingHorizontal: space.md,

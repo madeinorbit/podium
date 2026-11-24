@@ -128,3 +128,14 @@ export function followPodiumLink(href: string): void {
   const externalHref = formatExternalHttpLink(link.href, activeOrigin) ?? link.href
   void Linking.openURL(externalHref).catch(() => {})
 }
+
+/**
+ * Open a target this app already parsed — a `POD-13` or `POD-13-A` ref chip in
+ * a transcript (POD-2444). Same activator as a followed link, so a ref and a
+ * link to the same task land on the same screen; a ref that names nothing this
+ * phone holds opens nothing rather than a browser.
+ */
+export function openPodiumTarget(target: PodiumTarget): void {
+  if (!activator) return
+  void Promise.resolve(activator(target)).catch(() => {})
+}

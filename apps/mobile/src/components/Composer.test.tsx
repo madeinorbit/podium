@@ -4,6 +4,15 @@ import type { View } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { COMPOSER_LINE, COMPOSER_MAX_LINES } from './composer-height'
 
+const dimensions = vi.hoisted(() => ({ fontScale: 1 }))
+vi.mock('react-native', async (original) => {
+  const rn = await original<typeof import('react-native')>()
+  return {
+    ...rn,
+    useWindowDimensions: () => ({ ...rn.useWindowDimensions(), fontScale: dimensions.fontScale }),
+  }
+})
+
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
 }))
@@ -37,7 +46,10 @@ const { Composer, composerVoiceStatus } = await import('./Composer')
  * [data-testid=composer-voice]" — a failure about leaked DOM that reads exactly
  * like a failure about the composer rendering two microphones.
  */
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  dimensions.fontScale = 1
+})
 
 interface FakeVoiceResult {
   isFinal: boolean
@@ -64,6 +76,13 @@ class FakeSpeechRecognition {
 }
 
 describe('Composer activity caption', () => {
+  it('caps a pinned-question draft at three lines and restores the usual six-line cap', () => {
+    const view = render(<Composer placeholder="Long draft" onSend={() => {}} maxLines={3} />)
+    const field = screen.getByLabelText('Long draft')
+    expect(field.style.maxHeight).toBe(`${COMPOSER_LINE * 3}px`)
+    view.rerender(<Composer placeholder="Long draft" onSend={() => {}} />)
+    expect(field.style.maxHeight).toBe(`${COMPOSER_LINE * COMPOSER_MAX_LINES}px`)
+  })
   it('shares the composer bar and disappears without reserving a row', () => {
     const { rerender } = render(
       <Composer placeholder="Message the agent…" onSend={vi.fn()} caption="working" />,
@@ -109,6 +128,28 @@ describe('Composer floating dock', () => {
     expect(dockOf(container)?.style.paddingBottom).toBe('42px')
   })
 
+  it('gives the Send key equal right and bottom insets inside the composer', () => {
+    render(<Composer placeholder="Message" value="Reply" onSend={vi.fn()} />)
+    const surface = getComputedStyle(screen.getByTestId('composer-bar'))
+    const send = screen.getByRole('button', { name: 'Send' })
+    const controls = getComputedStyle(send.parentElement as HTMLElement)
+    const target = getComputedStyle(send)
+    const key = getComputedStyle(send.firstElementChild as HTMLElement)
+    const right =
+      Number.parseFloat(surface.paddingRight) +
+      Number.parseFloat(controls.marginRight || controls.marginInlineEnd || controls.marginInline) +
+      Number.parseFloat(target.width) -
+      Number.parseFloat(key.left) -
+      Number.parseFloat(key.width)
+    const bottom =
+      Number.parseFloat(surface.paddingBottom) +
+      Number.parseFloat(target.height) -
+      Number.parseFloat(key.top) -
+      Number.parseFloat(key.height)
+    expect(bottom).toBe(10)
+    expect(right).toBe(bottom)
+  })
+
   it('renders a leading slot inside the control row, ahead of send', () => {
     const { container } = render(
       <Composer
@@ -123,6 +164,48 @@ describe('Composer floating dock', () => {
     // Inside the capsule now, not slung under it [POD-1677].
     expect(container.querySelector('[data-testid="composer-bar"]')?.contains(slot)).toBe(true)
     expect(slot.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('moves session info above controls when Dynamic Type grows and restores it when reduced', () => {
+    const props = {
+      placeholder: 'Message the agent…',
+      onSend: vi.fn(),
+      leading: <div data-testid="model-info">Opus 5.5 · Medium</div>,
+      stackLeadingAtLargeText: true,
+    }
+    const view = render(<Composer {...props} />)
+    const label = () => screen.getByTestId('model-info')
+    const controls = () => screen.getByRole('button', { name: 'Send' }).parentElement
+    expect(controls()?.contains(label())).toBe(true)
+
+    dimensions.fontScale = 3.12
+    view.rerender(<Composer {...props} />)
+    const info = screen.getByTestId('composer-leading-info')
+    expect(info.contains(label())).toBe(true)
+    expect(info.parentElement).toBe(screen.getByTestId('composer-bar'))
+    expect(controls()?.contains(label())).toBe(false)
+
+    dimensions.fontScale = 1
+    view.rerender(<Composer {...props} />)
+    expect(screen.queryByTestId('composer-leading-info')).toBeNull()
+    expect(controls()?.contains(label())).toBe(true)
+  })
+
+  it('keeps other leading controls on their rail at accessibility sizes', () => {
+    dimensions.fontScale = 3.12
+    render(
+      <Composer
+        placeholder="Message the agent…"
+        onSend={vi.fn()}
+        leading={<div data-testid="model-picker">Model picker</div>}
+      />,
+    )
+    expect(screen.queryByTestId('composer-leading-info')).toBeNull()
+    expect(
+      screen
+        .getByRole('button', { name: 'Send' })
+        .parentElement?.contains(screen.getByTestId('model-picker')),
+    ).toBe(true)
   })
 
   it('lets chrome below it replace that inset rather than stacking on it', () => {
@@ -408,5 +491,36 @@ describe('Composer return key', () => {
     const input = typeInto(container, '   ')
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(onSend).not.toHaveBeenCalled()
+  })
+})
+
+describe('Composer send guard (POD-2423)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('sends a prompt once when the same words are pressed twice in a row', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: true,
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+    }))
+    const onSend = vi.fn()
+    // A parent that refills the field (or has not re-rendered yet) leaves the
+    // same words under the second press.
+    const { container } = render(
+      <Composer
+        placeholder="Message…"
+        onSend={onSend}
+        value="a long prompt"
+        onChangeText={() => {}}
+      />,
+    )
+    const input = container.querySelector('textarea') as HTMLTextAreaElement
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onSend).toHaveBeenCalledTimes(1)
+    expect(onSend).toHaveBeenCalledWith('a long prompt', undefined)
   })
 })

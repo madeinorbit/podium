@@ -131,12 +131,17 @@ export const ISSUE_STUB_FIELDS: readonly string[] = recordOf('issueProjection').
 /**
  * The stub part of an issue record: its declared stub fields, picked from the
  * slim issue record, so state and parent have one home.
+ *
+ * `type` joined the stub after servers were already sending stubs without it
+ * (POD-2659), so it may be absent on the wire: a phone updated before its
+ * server must still finish its first download (POD-2666). Readers already
+ * treat a stub with no type as one whose shape has not reloaded yet.
  */
 export const IssueStubWire = SlimIssueProjection.pick(
   Object.fromEntries(ISSUE_STUB_FIELDS.map((field) => [field, true])) as {
     [K in keyof z.infer<typeof SlimIssueProjection>]?: true
   },
-)
+).partial({ type: true })
 export type IssueStubWire = z.infer<typeof IssueStubWire>
 
 /** One issue at stub level: the issue record's own entity, with only its stub part. */
