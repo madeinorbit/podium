@@ -700,6 +700,23 @@ describe('binding inventory facts', () => {
     expect((await sessions.getSession(asSessionId('child')))?.delegation).toEqual(delegation)
   })
 
+  it('reports a handoff in flight as raw server input, only when one is (POD-7534)', async () => {
+    await put({ id: 'settled', machineId: asMachineId('machine-b') })
+    await put({
+      id: 'moving',
+      machineId: asMachineId('machine-a'),
+      handoffTargetMachineId: asMachineId('machine-b'),
+    })
+    const facts = await sessions.bindingConfirmations(['settled', 'moving'])
+    expect(facts.settled).toEqual({ owner: ALICE, machineId: 'machine-b', closed: false })
+    expect(facts.moving).toEqual({
+      owner: ALICE,
+      machineId: 'machine-a',
+      closed: false,
+      handoffInFlight: true,
+    })
+  })
+
   it('answers every requested id across machines and distinguishes tombstones from absence', async () => {
     await put({ id: 'here', machineId: asMachineId('machine-a') })
     await put({ id: 'moved', machineId: asMachineId('machine-b'), ownerUserId: BOB })

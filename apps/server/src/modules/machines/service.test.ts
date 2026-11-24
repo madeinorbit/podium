@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { bundledDescriptorFor } from '@podium/harness/browser'
 import type { AgentKind, Inventory, UserId } from '@podium/model'
 import {
+  asAgentIdentityId,
   asMachineId,
   asSessionId,
   asUserId,
@@ -27,7 +28,12 @@ import { EventBus } from '../bus'
 import { machinesForPrincipal } from '../sessions/command-ctx'
 import type { Send } from '../sessions/session'
 import { sha256 } from './enrollment'
-import { type MachinesDeps, MachinesService, type PairingGrant } from './service'
+import {
+  disclosedBindingFacts,
+  type MachinesDeps,
+  MachinesService,
+  type PairingGrant,
+} from './service'
 
 /** Only the socket bookkeeping is exercised here — none of these paths touch the store. */
 function makeService(): MachinesService {
@@ -2214,5 +2220,58 @@ describe('administrator client registration recovery', () => {
       f.svc.dispose()
       await f.store.close()
     }
+  })
+})
+
+describe('disclosedBindingFacts: handoff history retirement (POD-7534)', () => {
+  const here = asMachineId('machine-a')
+  const elsewhere = asMachineId('machine-b')
+  const owner = asUserId('mem_owner')
+  const delegation = {
+    actor: asAgentIdentityId('moved'),
+    onBehalfOf: owner,
+    grantedScope: { kind: 'none' as const },
+    parentBindingId: null,
+    revision: 1,
+  }
+  const moved = { owner, machineId: elsewhere, closed: false, delegation }
+  const UNKNOWN = { owner: null, machineId: null, closed: false }
+
+  test('authorizes only an open, delegated session placed elsewhere with no handoff in flight', () => {
+    const facts = disclosedBindingFacts(
+      {
+        moved,
+        inFlight: { ...moved, handoffInFlight: true },
+        closed: { ...moved, closed: true },
+        undelegated: { owner, machineId: elsewhere, closed: false },
+        local: { ...moved, machineId: here },
+        localInFlight: { ...moved, machineId: here, handoffInFlight: true },
+        unknown: UNKNOWN,
+      },
+      here,
+      owner,
+    )
+    expect(facts).toEqual({
+      moved: { ...moved, retireHandoffHistory: true },
+      inFlight: moved,
+      closed: { ...moved, closed: true },
+      undelegated: { owner, machineId: elsewhere, closed: false },
+      local: { ...moved, machineId: here },
+      localInFlight: { ...moved, machineId: here },
+      unknown: UNKNOWN,
+    })
+    // The raw in-flight bit is server input and never leaves.
+    expect(JSON.stringify(facts)).not.toContain('handoffInFlight')
+  })
+
+  test('an undisclosed session answers like an unknown id, with no authorization', () => {
+    expect(
+      disclosedBindingFacts(
+        { theirs: moved, inFlight: { ...moved, handoffInFlight: true } },
+        here,
+        asUserId('mem_someone_else'),
+      ),
+    ).toEqual({ theirs: UNKNOWN, inFlight: UNKNOWN })
+    expect(disclosedBindingFacts({ orphaned: moved }, here, null)).toEqual({ orphaned: UNKNOWN })
   })
 })

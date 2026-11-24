@@ -23,12 +23,15 @@ const serverDelegation = (
   parentBindingId: null,
   revision: 1,
 })
+
 import {
   BINDING_STORE_SCHEMA_VERSION,
   BindingStore,
   type BindingStoreAuthoritySnapshotError,
   BindingStoreVersionError,
+  HANDOFF_HISTORY_RETENTION_MS,
   SESSION_BINDING_SCHEMA_VERSION,
+  type SessionBindingRecord,
 } from './binding-store'
 
 const roots: string[] = []
@@ -1264,5 +1267,321 @@ describe('pending receipt fencing (POD-4299)', () => {
     const frames: import('@podium/protocol/daemon').DaemonMessage[] = []
     expect(await store.replayPendingReceiptsForOwner(alice, (frame) => frames.push(frame))).toBe(1)
     expect(frames).toMatchObject([{ resume: { value: 'native-new' } }])
+  })
+})
+
+describe('handoff history retirement (POD-7534)', () => {
+  const destination = asMachineId('machine-b')
+  const moved = asSessionId('moved-away')
+  const settledAt = '2026-07-31T12:00:00.000Z'
+  const afterRetention = new Date(
+    Date.parse(settledAt) + HANDOFF_HISTORY_RETENTION_MS,
+  ).toISOString()
+  const authorized = {
+    owner: alice,
+    machineId: destination,
+    closed: false,
+    delegation: serverDelegation(moved, alice),
+    retireHandoffHistory: true as const,
+  }
+  const noProcess = async () => false
+
+  /** A store whose clock the test moves, holding one committed source export. */
+  async function exportedStore(clock = { now: afterRetention }) {
+    const root = await tempRoot()
+    const receipts = join(root, 'receipts')
+    await mkdir(receipts)
+    const store = await BindingStore.open({ dir: root, now: () => clock.now })
+    await store.ensureBinding({
+      sessionId: moved,
+      agentKind: 'codex',
+      claimantMachineId: machine,
+      delegation: serverDelegation(moved, alice),
+    })
+    for (const phase of ['claim', 'commit'] as const) {
+      expect(
+        await store.transition({
+          event: 'adopt',
+          transitionId: `outbound:${phase}`,
+          sessionId: moved,
+          machineAccess: 'allowed',
+          transferId: 'outbound',
+          role: 'source',
+          phase,
+          fromMachineId: machine,
+          toMachineId: destination,
+          at: settledAt,
+        }),
+      ).toMatchObject({ status: 'applied' })
+    }
+    return { root, receipts, store, clock }
+  }
+
+  async function connect(
+    store: BindingStore,
+    receipts: string,
+    fact: Record<string, unknown> = authorized,
+  ) {
+    await store.inventory(receipts)
+    store.confirmInventory(machine, { [moved]: fact as never })
+  }
+
+  async function patchRecord(store: BindingStore, patch: Partial<SessionBindingRecord>) {
+    const current = requiredBinding(await store.read(moved))
+    await writeFile(store.pathFor(moved), JSON.stringify({ ...current, ...patch }))
+  }
+
+  it('retires an authorized committed export after retention and lifts its fence', async () => {
+    const { store, receipts } = await exportedStore()
+    const logs = recoveryLogs()
+    await connect(store, receipts)
+    expect(store.isQuarantined(moved)).toBe(true)
+    expect(await store.retireHandoffHistory(noProcess, receipts)).toEqual({
+      retired: 1,
+      heldForRetention: 0,
+      heldForEvidence: 0,
+      heldForProcess: 0,
+      heldForChange: 0,
+      notAuthorized: 0,
+    })
+    expect(await store.read(moved)).toBeNull()
+    expect(store.isQuarantined(moved)).toBe(false)
+    expect(store.quarantinedCount).toBe(0)
+    expect(await store.inventory(receipts)).toEqual([])
+    // Machine-wide diagnostics only: no session, owner, destination or transfer.
+    expect(logs.map((entry) => entry.reason)).toContain('handoff history retired')
+    const serialized = JSON.stringify(logs)
+    for (const privateValue of [moved, alice, destination, 'outbound']) {
+      expect(serialized).not.toContain(privateValue)
+    }
+  })
+
+  it('keeps the record within the retention window and retires it on a later connect', async () => {
+    const clock = { now: new Date(Date.parse(afterRetention) - 1).toISOString() }
+    const { store, receipts } = await exportedStore(clock)
+    await connect(store, receipts)
+    expect(await store.retireHandoffHistory(noProcess, receipts)).toMatchObject({
+      retired: 0,
+      heldForRetention: 1,
+    })
+    expect(await store.read(moved)).not.toBeNull()
+    expect(store.isQuarantined(moved)).toBe(true)
+    clock.now = afterRetention
+    await connect(store, receipts)
+    expect(await store.retireHandoffHistory(noProcess, receipts)).toMatchObject({ retired: 1 })
+  })
+
+  it('treats an unreadable or future settle time as retention not elapsed', async () => {
+    const { store, receipts } = await exportedStore({ now: settledAt })
+    await connect(store, receipts)
+    expect(await store.retireHandoffHistory(noProcess, receipts)).toMatchObject({
+      heldForRetention: 1,
+    })
+    const current = requiredBinding(await store.read(moved))
+    await patchRecord(store, {
+      transfer: { ...requiredBinding(current.transfer), settledAt: 'not a time' },
+    })
+    await connect(store, receipts)
+    expect(await store.retireHandoffHistory(noProcess, receipts, 0)).toMatchObject({
+      heldForRetention: 1,
+    })
+    expect(await store.read(moved)).not.toBeNull()
+  })
+
+  it.each([
+    ['no server authorization (old server)', { ...authorized, retireHandoffHistory: undefined }],
+    ['undisclosed facts', { owner: null, machineId: null, closed: false }],
+  ])('keeps the record with %s', async (_name, fact) => {
+    const { store, receipts } = await exportedStore()
+    await connect(store, receipts, fact)
+    const result = await store.retireHandoffHistory(noProcess, receipts)
+    expect(result.retired).toBe(0)
+    expect(await store.read(moved)).not.toBeNull()
+    expect(store.isQuarantined(moved)).toBe(true)
+  })
+
+  it('keeps the record when the connect sent no facts at all', async () => {
+    const { store, receipts } = await exportedStore()
+    await store.inventory(receipts)
+    store.confirmInventory(machine, undefined)
+    expect(await store.retireHandoffHistory(noProcess, receipts)).toMatchObject({ retired: 0 })
+    expect(await store.read(moved)).not.toBeNull()
+  })
+
+  it('keeps the record while a source process is alive', async () => {
+    const { store, receipts } = await exportedStore()
+    await connect(store, receipts)
+    expect(await store.retireHandoffHistory(async () => true, receipts)).toMatchObject({
+      heldForProcess: 1,
+    })
+    expect(await store.read(moved)).not.toBeNull()
+  })
+
+  it.each([
+    [
+      'a pending server acknowledgement',
+      async (store: BindingStore) => {
+        const current = requiredBinding(await store.read(moved))
+        await patchRecord(store, {
+          observations: [
+            ...current.observations,
+            {
+              observationId: 'pending',
+              channel: 'resume-ref',
+              value: 'source-thread',
+              nativeKind: 'codex-thread',
+              confidence: 'exact',
+              source: 'native-hook',
+              observedAt: settledAt,
+              recordedAt: settledAt,
+              supersedes: null,
+              pendingServerAck: { nativeKind: 'codex-thread', value: 'source-thread' },
+            },
+          ],
+        })
+      },
+    ],
+    [
+      'a terminal proof watch',
+      async (store: BindingStore) =>
+        patchRecord(store, {
+          terminalProofWatches: [{ turnId: 'turn', text: 'typed', typingStartedAt: settledAt }],
+        }),
+    ],
+    [
+      'a spooled Codex receipt',
+      async (_store: BindingStore, receipts: string) =>
+        writeFile(join(receipts, `${moved}.json`), JSON.stringify({ session_id: 'thread' })),
+    ],
+  ])('keeps the record with %s outstanding', async (_name, arrange) => {
+    const { store, receipts } = await exportedStore()
+    await arrange(store, receipts)
+    await connect(store, receipts)
+    expect(store.isQuarantined(moved)).toBe(true)
+    expect(await store.retireHandoffHistory(noProcess, receipts)).toMatchObject({
+      heldForEvidence: 1,
+    })
+    expect(await store.read(moved)).not.toBeNull()
+  })
+
+  it('keeps a record rewritten by a later transfer since inventory', async () => {
+    const { store, receipts } = await exportedStore()
+    await connect(store, receipts)
+    const current = requiredBinding(await store.read(moved))
+    await patchRecord(store, {
+      transfer: { ...requiredBinding(current.transfer), transferId: 'later-transfer' },
+    })
+    expect(await store.retireHandoffHistory(noProcess, receipts)).toMatchObject({
+      heldForChange: 1,
+    })
+    expect(await store.read(moved)).toMatchObject({ transfer: { transferId: 'later-transfer' } })
+  })
+
+  it('keeps the bound target record of a return handoff (A to B to A)', async () => {
+    const { store, receipts } = await exportedStore()
+    await connect(store, receipts)
+    // The session came back before this pass ran: the record is a target claim now.
+    await patchRecord(store, {
+      state: 'bound',
+      transfer: {
+        transferId: 'return',
+        side: 'target',
+        phase: 'committed',
+        fromMachineId: destination,
+        toMachineId: machine,
+        claimedAt: afterRetention,
+        settledAt: afterRetention,
+        priorState: 'exported',
+      },
+    })
+    expect(await store.retireHandoffHistory(noProcess, receipts)).toMatchObject({
+      heldForChange: 1,
+    })
+    expect(await store.read(moved)).toMatchObject({ state: 'bound', transfer: { side: 'target' } })
+  })
+
+  it('lets a return handoff adopt a fresh row after retirement', async () => {
+    const { store, receipts } = await exportedStore()
+    await connect(store, receipts)
+    expect(
+      await store.transition({
+        event: 'adopt',
+        transitionId: 'return:claim-early',
+        sessionId: moved,
+        machineAccess: 'allowed',
+        transferId: 'return',
+        role: 'target',
+        phase: 'claim',
+        fromMachineId: destination,
+        toMachineId: machine,
+        at: afterRetention,
+      }),
+    ).toMatchObject({ status: 'rejected', reason: 'binding-missing' })
+    expect(await store.retireHandoffHistory(noProcess, receipts)).toMatchObject({ retired: 1 })
+    for (const phase of ['claim', 'commit'] as const) {
+      expect(
+        await store.transition({
+          event: 'adopt',
+          transitionId: `return:${phase}`,
+          sessionId: moved,
+          machineAccess: 'allowed',
+          transferId: 'return',
+          role: 'target',
+          phase,
+          fromMachineId: destination,
+          toMachineId: machine,
+          at: afterRetention,
+          ...(phase === 'claim'
+            ? {
+                adoption: {
+                  serverDelegation: authorized.delegation,
+                  agentKind: 'codex',
+                  observationGeneration: 1,
+                  delegation: authorized.delegation,
+                  observations: [
+                    { channel: 'resume-ref', nativeKind: 'codex-thread', value: 'return-thread' },
+                  ],
+                },
+              }
+            : {}),
+        }),
+      ).toMatchObject({ status: 'applied' })
+    }
+    expect(await store.read(moved)).toMatchObject({
+      state: 'bound',
+      claimantMachineId: machine,
+      transfer: { side: 'target', phase: 'committed', transferId: 'return' },
+    })
+  })
+
+  it('aborts the pass when a reconnect starts a new inventory', async () => {
+    const { store, receipts } = await exportedStore()
+    await connect(store, receipts)
+    let reconnect: Promise<unknown> | undefined
+    const result = await store.retireHandoffHistory(async () => {
+      // A new connect inventories while the pass is mid-flight.
+      reconnect = store.inventory(receipts)
+      await reconnect
+      return false
+    }, receipts)
+    await reconnect
+    expect(result.retired).toBe(0)
+    expect(await store.read(moved)).not.toBeNull()
+  })
+
+  it('never retires an unresolved quarantined row or a confirmed local binding', async () => {
+    const { store, receipts } = await exportedStore()
+    // Placement back on this machine: confirmed, not history.
+    await connect(store, receipts, { ...authorized, machineId: machine })
+    expect(store.isQuarantined(moved)).toBe(false)
+    expect(await store.retireHandoffHistory(noProcess, receipts)).toMatchObject({ retired: 0 })
+    // A target copy placed elsewhere: unresolved quarantine, not history.
+    await patchRecord(store, {
+      transfer: { ...requiredBinding((await store.read(moved))?.transfer ?? null), side: 'target' },
+    })
+    await connect(store, receipts)
+    expect(store.quarantinedCount).toBe(1)
+    expect(await store.retireHandoffHistory(noProcess, receipts)).toMatchObject({ retired: 0 })
+    expect(await store.read(moved)).not.toBeNull()
   })
 })

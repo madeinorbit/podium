@@ -41,6 +41,33 @@ const log = createLogger('daemon:binding-store')
 type BindingRecoveryState = 'confirmed' | 'quarantined' | 'retained-handoff-history'
 
 /**
+ * How long a committed source record of a session that moved away is kept
+ * after its transfer settled, at minimum (POD-7534). After that it is retired
+ * at the first connect whose server authorization and local checks pass.
+ */
+export const HANDOFF_HISTORY_RETENTION_MS = 14 * 24 * 60 * 60 * 1000
+
+/** One retirement pass, as machine-wide counts only (no session identities). */
+export interface HandoffHistoryRetirement {
+  retired: number
+  /** Within the retention window, or the settle time is unreadable or in the future. */
+  heldForRetention: number
+  /** A pending server acknowledgement, terminal proof watch or spooled receipt. */
+  heldForEvidence: number
+  heldForProcess: number
+  /** The record changed since inventory (a later transfer or a return adoption). */
+  heldForChange: number
+  /** This connect's server facts did not authorize retirement. */
+  notAuthorized: number
+}
+
+/** Inventory's view of one committed source export: the exact transfer it saw. */
+interface InventoriedExport {
+  machineId: MachineId
+  transferId: string
+}
+
+/**
  * `exporting` and `adopting` are deliberately NON-LIVE ownership states.
  * During a handoff there may be a durable row on both machines, but never two
  * rows entitled to launch the agent. `exported` is terminal on that host until
@@ -954,6 +981,16 @@ async function readDirectory(dir: string): Promise<Dirent<string>[]> {
   }
 }
 
+/** The spooled Codex receipt and claim files a session still has in `dir`. */
+async function spooledReceiptNames(dir: string, sessionId: SessionId): Promise<string[]> {
+  return (await readDirectory(dir))
+    .filter((entry) => {
+      const match = RECEIPT_NAME.exec(entry.name) ?? CLAIM_NAME.exec(entry.name)
+      return entry.isFile() && match?.[1] === sessionId
+    })
+    .map((entry) => entry.name)
+}
+
 interface LegacyReceipt {
   sessionId: SessionId
   nativeId: string
@@ -1050,7 +1087,9 @@ export class BindingStore {
   private recoveryReasons = new Map<SessionId, string>()
   private closedBindings = new Set<SessionId>()
   /** Parsed evidence from this connect inventory, never execution authority. */
-  private inventoriedExports = new Map<SessionId, MachineId>()
+  private inventoriedExports = new Map<SessionId, InventoriedExport>()
+  /** History ids this connect's server facts authorized for retirement (POD-7534). */
+  private retirementAuthorized = new Set<SessionId>()
   private malformedBindings = new Set<SessionId>()
 
   /** History keeps the same execution fence as unresolved recovery. */
@@ -1083,7 +1122,7 @@ export class BindingStore {
 
   async inventory(codexReceiptDir: string): Promise<SessionId[]> {
     const ids = new Set<SessionId>()
-    const committedExports = new Map<SessionId, MachineId>()
+    const committedExports = new Map<SessionId, InventoriedExport>()
     const malformed = new Set<SessionId>()
     this.confirmedMachineId = undefined
     const generation = ++this.recoveryGeneration
@@ -1096,7 +1135,11 @@ export class BindingStore {
       try {
         const binding = await this.read(id)
         if (binding && binding.sessionId !== id) throw new Error('binding identity mismatch')
-        if (binding && committedSourceExport(binding)) committedExports.set(id, binding.claimantMachineId)
+        if (binding && committedSourceExport(binding))
+          committedExports.set(id, {
+            machineId: binding.claimantMachineId,
+            transferId: binding.transfer?.transferId ?? '',
+          })
       } catch {
         malformed.add(id)
       }
@@ -1104,6 +1147,7 @@ export class BindingStore {
     for (const receipt of await legacyReceipts(codexReceiptDir)) ids.add(receipt.sessionId)
     if (generation !== this.recoveryGeneration) return [...ids].sort()
     this.inventoriedExports = committedExports
+    this.retirementAuthorized.clear()
     this.malformedBindings = malformed
     this.recovery = new Map([...ids].map((id) => [id, 'quarantined']))
     for (const id of this.recoveryReasons.keys()) {
@@ -1116,6 +1160,7 @@ export class BindingStore {
   confirmInventory(machineId: MachineId, facts?: BindingConfirmations): void {
     this.confirmedMachineId = facts === undefined ? undefined : machineId
     // A missing field means an old server: skip recovery, preserving its behavior.
+    this.retirementAuthorized.clear()
     if (facts === undefined) {
       for (const id of this.recovery.keys())
         this.setRecovery(id, undefined, 'confirmation unavailable')
@@ -1146,8 +1191,9 @@ export class BindingStore {
         this.setRecovery(id, 'confirmed', 'placement confirmed')
         continue
       }
-      if (this.inventoriedExports.get(id) === machineId) {
+      if (this.inventoriedExports.get(id)?.machineId === machineId) {
         this.setRecovery(id, 'retained-handoff-history', 'retained handoff history')
+        if (fact.retireHandoffHistory === true) this.retirementAuthorized.add(id)
       } else {
         this.setRecovery(id, 'quarantined', 'placement mismatch')
       }
@@ -1176,6 +1222,106 @@ export class BindingStore {
       }
       this.setRecovery(id, undefined, 'deletion confirmed')
       this.closedBindings.delete(id)
+    }
+  }
+
+  /**
+   * RETIRE HANDOFF HISTORY (POD-7534). Remove the committed source record of a
+   * session that moved to another machine, once all of these hold:
+   *
+   * - this connect's server facts authorized it (`retireHandoffHistory`: open,
+   *   owned, delegated, placed elsewhere, no handoff in flight);
+   * - no source process is alive;
+   * - inside the session's write chain, the record is still the exact committed
+   *   export inventory saw (same transfer), so a later transfer or a return
+   *   adoption is never removed;
+   * - no local evidence is outstanding (pending server acknowledgement, terminal
+   *   proof watch, spooled Codex receipt or claim);
+   * - `retentionMs` has elapsed since the transfer settled.
+   *
+   * Call it only right after a connect's recovery: the authorization is that
+   * connect's server read. A reconnect (new inventory) aborts the pass.
+   */
+  async retireHandoffHistory(
+    hasProcess: (id: SessionId) => Promise<boolean>,
+    receiptDir: string,
+    retentionMs: number = HANDOFF_HISTORY_RETENTION_MS,
+  ): Promise<HandoffHistoryRetirement> {
+    const generation = this.recoveryGeneration
+    const result: HandoffHistoryRetirement = {
+      retired: 0,
+      heldForRetention: 0,
+      heldForEvidence: 0,
+      heldForProcess: 0,
+      heldForChange: 0,
+      notAuthorized: 0,
+    }
+    const candidates = [...this.recovery]
+      .filter(([, state]) => state === 'retained-handoff-history')
+      .map(([id]) => id)
+    for (const id of candidates) {
+      if (generation !== this.recoveryGeneration) break
+      const seen = this.inventoriedExports.get(id)
+      if (!this.retirementAuthorized.has(id) || !seen) {
+        result.notAuthorized += 1
+        continue
+      }
+      const stillAuthorized = () =>
+        generation === this.recoveryGeneration &&
+        this.recovery.get(id) === 'retained-handoff-history' &&
+        this.retirementAuthorized.has(id)
+      const outcome = await this.serialized(id, async () => {
+        if (!stillAuthorized()) return 'aborted' as const
+        let current: SessionBindingRecord | null
+        try {
+          current = await this.read(id)
+        } catch {
+          return 'heldForChange' as const
+        }
+        if (
+          !current ||
+          current.sessionId !== id ||
+          !committedSourceExport(current) ||
+          current.claimantMachineId !== seen.machineId ||
+          current.transfer?.transferId !== seen.transferId
+        )
+          return 'heldForChange' as const
+        if (
+          current.observations.some((entry) => entry.pendingServerAck !== undefined) ||
+          (current.terminalProofWatches?.length ?? 0) > 0 ||
+          (await spooledReceiptNames(receiptDir, id)).length > 0
+        )
+          return 'heldForEvidence' as const
+        const settled = Date.parse(current.transfer?.settledAt ?? '')
+        const now = Date.parse(this.now())
+        if (!Number.isFinite(settled) || !Number.isFinite(now) || now - settled < retentionMs)
+          return 'heldForRetention' as const
+        if (await hasProcess(id)) return 'heldForProcess' as const
+        // The probe is asynchronous: a reconnect may have re-inventoried meanwhile.
+        if (!stillAuthorized()) return 'aborted' as const
+        await rm(this.pathFor(id), { force: true })
+        this.retirementAuthorized.delete(id)
+        this.inventoriedExports.delete(id)
+        this.closedBindings.delete(id)
+        this.setRecovery(id, undefined, 'handoff history retired')
+        return 'retired' as const
+      })
+      if (outcome === 'aborted') break
+      result[outcome] += 1
+    }
+    if (candidates.length > 0) log.info('handoff history retirement pass', { ...result })
+    return result
+  }
+
+  /** Run `work` in the session's write chain, after any write already queued. */
+  private async serialized<T>(sessionId: SessionId, work: () => Promise<T>): Promise<T> {
+    const prior = this.writes.get(sessionId) ?? Promise.resolve()
+    const next = prior.catch(() => undefined).then(work)
+    this.writes.set(sessionId, next)
+    try {
+      return await next
+    } finally {
+      if (this.writes.get(sessionId) === next) this.writes.delete(sessionId)
     }
   }
 

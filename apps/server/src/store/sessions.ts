@@ -207,6 +207,7 @@ const bindingFactsOfIds = preparedFamily((db, t, size: number) =>
       machineId: t.sessions.machineId,
       deletedAt: t.sessions.deletedAt,
       delegation: t.sessions.delegation,
+      handoffTargetMachineId: t.sessions.handoffTargetMachineId,
     })
     .from(t.sessions)
     .where(inWorkspace(t.sessions, inListOf(t.sessions.id, size)))
@@ -1734,6 +1735,16 @@ const upsertDraftDoc = prepared((db, t) =>
 /** Run a session-row write as a change-log commit: a liveness change moves
  *  the session's confirmed message window, and the commit drains the
  *  database's change capture in the same transaction (POD-6920). */
+/**
+ * The raw placement facts of named sessions. `handoffInFlight` is server-only
+ * input to the connect disclosure (`disclosedBindingFacts`): it never travels as
+ * is, and is present only when a handoff of the session has not yet settled.
+ */
+export type RawBindingConfirmations = Record<
+  string,
+  import('@podium/protocol').BindingConfirmation & { handoffInFlight?: true }
+>
+
 export type SessionMessageWindowWrite = (write: () => Promise<void>) => Promise<void>
 
 export class SessionsRepository {
@@ -1828,10 +1839,8 @@ export class SessionsRepository {
   /** The placement facts of the requested ids, across machines. Raw facts: the
    * connect path discloses only what the machine may learn
    * (`disclosedBindingFacts`, `modules/machines/service.ts`, POD-6286). */
-  async bindingConfirmations(
-    ids: readonly string[],
-  ): Promise<import('@podium/protocol').BindingConfirmations> {
-    const result: import('@podium/protocol').BindingConfirmations = Object.fromEntries(
+  async bindingConfirmations(ids: readonly string[]): Promise<RawBindingConfirmations> {
+    const result: RawBindingConfirmations = Object.fromEntries(
       ids.map((id) => [id, { owner: null, machineId: null, closed: false }]),
     )
     if (ids.length === 0) return result
@@ -1845,6 +1854,7 @@ export class SessionsRepository {
         machineId: row.machineId,
         closed: row.deletedAt !== null,
         ...(row.delegation ? { delegation: row.delegation } : {}),
+        ...(row.handoffTargetMachineId ? { handoffInFlight: true as const } : {}),
       }
     return result
   }

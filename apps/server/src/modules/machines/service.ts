@@ -41,6 +41,7 @@ import {
   type UserId,
 } from '@podium/model'
 import type {
+  BindingConfirmation,
   BindingConfirmations,
   DaemonHandshake,
   DaemonPtyInputBatch,
@@ -83,6 +84,7 @@ import { enrollSetupMachine, readSetupEnrollment } from '../../setup-enrollment'
 import type { MachineRecord, SessionStore } from '../../store'
 import { afterCommit, spanOpen } from '../../store/executor/executor'
 import type { CompareMachineRecords } from '../../store/machine-record-writes'
+import type { RawBindingConfirmations } from '../../store/sessions'
 import type { SettingsAuditRow } from '../../store/settings-audit'
 import type { SyncCommandWriter } from '../../write-contexts'
 import type { EventBus } from '../bus'
@@ -456,20 +458,35 @@ export interface MachinesDeps {
  * cannot learn another person's sessions by naming them. The daemon confirms a
  * binding only when its fact names this machine, so a withheld fact only ever
  * means "quarantine", never "run".
+ *
+ * RETIREMENT (POD-7534). A disclosed fact may also authorize the machine to
+ * retire its committed source record of a session that moved away: the session
+ * is open, owned, delegated, placed on ANOTHER machine, and no handoff of it is
+ * in flight (a return to this machine included). The daemon still checks its
+ * own evidence before removing anything. An undisclosed id never carries it.
  */
 export function disclosedBindingFacts(
-  facts: BindingConfirmations,
+  facts: RawBindingConfirmations,
   machineId: MachineId,
   custodian: UserId | null,
 ): BindingConfirmations {
   return Object.fromEntries(
-    Object.entries(facts).map(([id, fact]) => [
-      id,
-      fact.machineId === machineId ||
-      (fact.owner !== null && isPrivateOwner(custodian, asUserId(fact.owner)))
-        ? fact
-        : { owner: null, machineId: null, closed: false },
-    ]),
+    Object.entries(facts).map(([id, raw]): [string, BindingConfirmation] => {
+      const { handoffInFlight, ...fact } = raw
+      if (
+        fact.machineId !== machineId &&
+        (fact.owner === null || !isPrivateOwner(custodian, asUserId(fact.owner)))
+      )
+        return [id, { owner: null, machineId: null, closed: false }]
+      const retirable =
+        fact.owner !== null &&
+        fact.machineId !== null &&
+        fact.machineId !== machineId &&
+        !fact.closed &&
+        fact.delegation !== undefined &&
+        handoffInFlight !== true
+      return [id, retirable ? { ...fact, retireHandoffHistory: true } : fact]
+    }),
   )
 }
 

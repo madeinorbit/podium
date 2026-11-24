@@ -286,6 +286,14 @@ export const BindingConfirmation = z.object({
   owner: z.string().min(1).nullable(),
   machineId: z.string().min(1).nullable(),
   closed: z.boolean(),
+  /**
+   * Server authorization (POD-7534) for the receiving machine to retire its
+   * committed SOURCE record of this session: the session is open, owned,
+   * delegated, placed on another machine, and no handoff of it is in flight.
+   * Only ever set on a fact the server discloses to that machine; absent means
+   * keep the record (old servers never send it).
+   */
+  retireHandoffHistory: z.literal(true).optional(),
 })
 export type BindingConfirmation = z.infer<typeof BindingConfirmation>
 export const BindingConfirmations = z.record(z.string(), BindingConfirmation)

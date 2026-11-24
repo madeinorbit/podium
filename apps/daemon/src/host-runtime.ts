@@ -2154,6 +2154,10 @@ export async function createDaemonHostRuntime(args: {
         )
         .then(async () => {
           await reapBindings()
+          // Only here, seconds after the server's read: the authorization is this
+          // connect's (POD-7534). Metrics-push reaps never retire history.
+          if (!disposed)
+            await bindingStore.retireHandoffHistory(sessionProcessAlive, instance.codexReceiptDir)
           await dropStaleSessionInstalls()
           pushHostMetrics()
           await replayPendingBindingReceipts()
