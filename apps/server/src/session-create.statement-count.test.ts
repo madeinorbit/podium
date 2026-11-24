@@ -208,11 +208,15 @@ describe('session create: pinned statement counts at 5 and 200', () => {
   // check. Constant at 5 and 200 sessions, as before.
   // The combined tRPC pin carries both deltas (51 + 7 + 31 = 89);
   // this merge resolution does not remeasure it.
+  // Feature policy now reads this workspace's settings instead of a boot snapshot.
+  // Launch instructions check both workflows and Concertmaster, so a create needs
+  // two more statements and round trips. Another process can change either flag;
+  // keeping the old in-memory feature policy would miss that change.
   it('in process, a draft session in a repo', async () => {
     // POD-6920 derived capture had put this at 41; the current resolver is measured below.
     // Credential resolution replaced the old accounts environment lookup (POD-6890).
     // The no-credential path no longer reads accounts, but still checks native opt-in.
-    const counts = await expectConstantStatements(draft, 40)
+    const counts = await expectConstantStatements(draft, 42)
     for (const tally of [counts.small, counts.large]) {
       expect([...tally.byQuery.keys()].some((key) => /from "accounts"/.test(key))).toBe(false)
       expect(
@@ -220,11 +224,17 @@ describe('session create: pinned statement counts at 5 and 200', () => {
           .filter(([key]) => /from "native_login_opt_ins"/.test(key))
           .reduce((n, [, count]) => n + count, 0),
       ).toBe(1)
+      // Four existing settings/model-catalog reads, plus the two live feature checks.
+      expect(
+        [...tally.byQuery]
+          .filter(([key]) => /from "workspace_meta"/.test(key))
+          .reduce((n, [, count]) => n + count, 0),
+      ).toBe(6)
     }
   })
 
   it('in-process pin is armed', async () => {
-    await expectArmed(draft, 40, plantPerSession)
+    await expectArmed(draft, 42, plantPerSession)
   })
 
   // ROUND TRIPS ON HOSTED POSTGRES [POD-6992, POD-6958 design 2.11]: the driver calls that
@@ -232,7 +242,7 @@ describe('session create: pinned statement counts at 5 and 200', () => {
   // statement or with the workspace lock, one per statement, one per COMMIT). About 2.6 ms
   // each on hosted Postgres; docs/measurements/pod-6958-hosted-round-trips.md.
   it('in process, a draft session in a repo: round trips', async () => {
-    await expectConstantRoundTrips(draft, 48)
+    await expectConstantRoundTrips(draft, 50)
   }, 60_000)
 
   it('in process, a session on an issue', async () => {
@@ -247,7 +257,7 @@ describe('session create: pinned statement counts at 5 and 200', () => {
           }),
       ),
       // POD-6890: the credential resolver removes the old accounts environment read: 46 -> 45.
-      45,
+      47,
     )
   })
 
@@ -266,11 +276,11 @@ describe('session create: pinned statement counts at 5 and 200', () => {
 
   onSqliteFeedTiming('over tRPC', async () => {
     // POD-6890: the same removed accounts environment read applies over tRPC: 106 -> 105.
-    await expectConstantStatements(trpc, 105)
+    await expectConstantStatements(trpc, 107)
   })
 
   onSqliteFeedTiming('tRPC pin is armed', async () => {
-    await expectArmed(trpc, 105, plantPerSession)
+    await expectArmed(trpc, 107, plantPerSession)
   })
 
   onSqliteFeedTiming(
@@ -278,7 +288,7 @@ describe('session create: pinned statement counts at 5 and 200', () => {
     async () => {
       // The session's activity publication runs on a timer the create starts; at 200 rows
       // the create outlasts its delay, and its root read lands inside the window.
-      await expectConstantRoundTrips(trpc, 143, undefined, /idx_sessions_pending_activity/)
+      await expectConstantRoundTrips(trpc, 145, undefined, /idx_sessions_pending_activity/)
     },
     60_000,
   )

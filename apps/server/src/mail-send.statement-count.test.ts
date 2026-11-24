@@ -227,13 +227,28 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   // check and for the handler) 53 -> 66, 61 -> 74, 19 -> 26; mailSend 25 -> 26.
   // POD-6864: re-measured on integrate/6253-sync-log 964ad37114 at both
   // sizes: to a session 119 -> 118, its issue holding mail 126 -> 125.
+  // Feature policy now reads this workspace's settings rather than a boot snapshot.
+  // DeliveredMessageWatch checks the Concertmaster flag after a session delivery
+  // commits, even when it is off. That required live read adds one statement and
+  // one round trip to each session send; issue-only sends do not deliver a session.
   it('over tRPC, to a running session', async () => {
     // POD-6920: derived change capture (no build before the write; one drain after it): tRPC messages.send to a session 118 -> 92.
-    await expectConstantStatements(trpcToSession, 92)
+    const counts = await expectConstantStatements(trpcToSession, 93)
+    for (const tally of [counts.small, counts.large]) {
+      expect(
+        [...tally.byQuery]
+          .filter(([key]) => /from "workspace_meta"/.test(key))
+          .reduce((n, [, count]) => n + count, 0),
+      ).toBe(1)
+      // A shell send never starts native-login propagation.
+      expect([...tally.byQuery.keys()].some((key) => /from "native_login_opt_ins"/.test(key))).toBe(
+        false,
+      )
+    }
   })
 
   it('tRPC pin is armed', async () => {
-    await expectArmed(trpcToSession, 92, plantPerSession)
+    await expectArmed(trpcToSession, 93, plantPerSession)
   })
 
   // ROUND TRIPS ON HOSTED POSTGRES [POD-6992, POD-6958 design 2.11]: the driver calls that
@@ -241,7 +256,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   // statement or with the workspace lock, one per statement, one per COMMIT). About 2.6 ms
   // each on hosted Postgres; docs/measurements/pod-6958-hosted-round-trips.md.
   it('over tRPC, to a running session: round trips', async () => {
-    await expectConstantRoundTrips(trpcToSession, 134)
+    await expectConstantRoundTrips(trpcToSession, 135)
   }, 60_000)
 
   // The pass attempts every held message, and each attempt read the issue's
@@ -269,7 +284,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
         async (f) => await f.call.messages.send({ to: f.target, body: 'counted' }),
       ),
       // POD-6920: derived change capture (no build before the write; one drain after it): 125 -> 99.
-      99,
+      100,
     )
   })
 
@@ -280,7 +295,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
         async (f) => await relay(f, 'send', { to: f.target, body: 'counted' }),
       ),
       // POD-6920: derived change capture (no build before the write; one drain after it): 117 -> 91.
-      91,
+      92,
     )
   })
 
@@ -336,15 +351,15 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
 
   it('through the agent relay, to a running session', async () => {
     // POD-6920: derived change capture (no build before the write; one drain after it): relayed messages.send to a session 110 -> 84.
-    await expectConstantStatements(relayToSession, 84)
+    await expectConstantStatements(relayToSession, 85)
   })
 
   it('relay pin is armed', async () => {
-    await expectArmed(relayToSession, 84, plantPerSession)
+    await expectArmed(relayToSession, 85, plantPerSession)
   })
 
   it('through the agent relay, to a running session: round trips (POD-6992)', async () => {
-    await expectConstantRoundTrips(relayToSession, 120)
+    await expectConstantRoundTrips(relayToSession, 121)
   }, 60_000)
 
   it('through the agent relay, to its own issue', async () => {
