@@ -13,8 +13,10 @@ import '@/test-support/mock-core-store-handle'
  * of the fix: the coordinator is not offered, and the screen SAYS SO — because a
  * silently empty picker is the same defect wearing a different face.
  */
-import { cleanup, render, screen } from '@testing-library/react'
+import { liveFixture } from '@podium/client-graph/live-fixture'
+import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { syncPoolFixture } from '@/test-support/pool-fixture'
 import { RepoScanFlow } from './RepoScanFlow'
 
 const browse = vi.fn(async (input?: { path?: string; machineId?: string }) => ({
@@ -136,13 +138,20 @@ describe('the empty state says WHICH situation the operator is in', () => {
   })
 
   it.each([
-    { presence: 'Offline', machine: SLEEPING },
-    { presence: 'Reconnecting', machine: { ...SLEEPING, onlineKnown: false } },
+    { presence: 'Offline', stale: false },
+    { presence: 'Reconnecting', stale: true },
   ])('capable machine $presence: keeps it selected and names its presence', async ({
     presence,
-    machine,
+    stale,
   }) => {
-    open([machine])
+    open([SLEEPING])
+    // onlineKnown is derived from the live reading. A lost connection makes
+    // that reading stale; a field on the synced machine row cannot do so.
+    if (stale) {
+      act(() =>
+        liveFixture(syncPoolFixture(store as never)).lost(Date.parse(SLEEPING.lastSeenAt) + 1_000),
+      )
+    }
     // A capable host stays selected. Fresh offline and stale presence have
     // different labels (POD-7540), but neither may browse or suggest pairing.
     const notice = await screen.findByText(/folders can't be browsed right now/)
