@@ -196,11 +196,20 @@ moment, so it checkpoints the WAL and copies the database file. Every way of rea
 binary takes it: a managed update, a desktop update, a manual install or a source run. A
 routine restart with no pending migrations does not.
 
-A managed update does not copy the database before the restart. When it reaches its
-**server** step, the old server only checks that the disk can hold the new server's
-snapshot (the database and its sidecars plus 10%). If it cannot, the update fails there and
-the old server keeps running; nothing has stopped yet. The new server repeats the same check
-before copying and refuses to migrate if the disk filled in between.
+When a managed update reaches its **server** step, the old server first checks that the
+disk can hold the new server's snapshot (the database and its sidecars plus 10%). If it
+cannot, the update fails there and the old server keeps running; nothing has stopped yet.
+The new server repeats the same check before copying and refuses to migrate if the disk
+filled in between.
+
+If the release may migrate (it declares a migration this database has not applied, or
+declares none), the old server then copies the database file to `podium.db.backup-seed`
+while it still serves, and flushes it to disk. The new server's snapshot starts from that
+file: it compares it with the database block by block and rewrites only the blocks that
+changed since, so the snapshot holds the same bytes a full copy would, but the server is
+not down for the whole copy. The seed is never restored or listed as a snapshot. A
+missing or damaged seed only means more is rewritten, and a seed that no boot uses (a
+canceled update, a release with no migration) is removed.
 
 Snapshots use names such as `podium.db.backup-vdrizzle-<applied-count>-<timestamp>`; older
 installations may also hold `podium.db.backup-vupdate-<from>-to-<target>-<timestamp>` files

@@ -220,6 +220,8 @@ export async function openPgStoreLifecycle(
     },
     async retireImportedIdentityStorage() {},
     preflightUpdateBackup: () => ({ ok: true }),
+    seedUpdateBackup: async () => ({ seeded: false, reason: 'no boot backup on Postgres', ms: 0 }),
+    discardUpdateBackupSeed: () => {},
     latestDatabaseSnapshot: () => undefined,
     discoverDatabaseSnapshots: () => false,
     async closeSnapshots() {},

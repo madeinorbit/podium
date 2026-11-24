@@ -1407,6 +1407,10 @@ export async function startServer(
       serverPlacement,
       ...(desktopSupervised ? { desktopSupervised: true } : {}),
       preflightDatabaseBackup: async () => registry.sessionStore.preflightUpdateBackup(),
+      seedDatabaseBackup: async (target) => {
+        await registry.sessionStore.seedUpdateBackup(target)
+      },
+      discardDatabaseBackupSeed: () => registry.sessionStore.discardUpdateBackupSeed(),
       latestDatabaseSnapshot: () => registry.sessionStore.latestDatabaseSnapshot(),
       ...(prepareCoordinatorUpdate ? { prepareCoordinatorUpdate } : {}),
       legacyTransferActive: () => legacyTransferInProgress(stateDir()),

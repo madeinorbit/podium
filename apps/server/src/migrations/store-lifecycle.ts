@@ -19,10 +19,12 @@
  */
 import { mkdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { createLogger } from '@podium/logger'
 import type { WorkspaceId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import { MACHINE_UPDATE_GRANT_ENV, readMachineUpdateJournal } from '@podium/runtime/machine-update'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+import { releaseCarriesNewMigrations } from '@podium/runtime/update-schema'
 import {
   importUpdateSigningKey,
   readOrCreateUpdateSigningKey,
@@ -39,9 +41,12 @@ import { sweepOldNativeLoginTransfers } from '../store/native-login-transfer-swe
 import { openStoreDatabase, storeEngineFor } from '../store-database'
 import { dropChangeCapture, installChangeCapture } from '../sync/capture-triggers'
 import { type BackupPreflight, backupSpaceShortfall, measureBackupSpace } from './backup'
+import { type BackupSeedOutcome, discardBackupSeed, writeBackupSeed } from './backup-seed'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
-import { latestAppliedMigration, runDrizzleMigrations } from './index'
+import { appliedDrizzleNames, latestAppliedMigration, runDrizzleMigrations } from './index'
 import { SnapshotVerifier, type SnapshotVerifierDeps } from './snapshot-verifier'
+
+const log = createLogger('server:migrations')
 
 /** The executor's report sinks, which the store defines once for every engine. */
 export type StoreLifecycleSinks = Pick<
@@ -112,6 +117,16 @@ export interface StoreLifecycle {
   retireImportedIdentityStorage(): Promise<void>
   /** Can this disk hold the pre-migration backup the successor takes at boot? */
   preflightUpdateBackup(): BackupPreflight
+  /**
+   * Copy the database, while it serves, into the seed the successor's boot backup
+   * starts from (`backup-seed.ts`), when the release declares a migration this
+   * database has not applied (or declares nothing). Best effort; never throws.
+   */
+  seedUpdateBackup(target: {
+    schema?: { migrations?: readonly string[] }
+  }): Promise<BackupSeedOutcome>
+  /** Remove a seed an update that will not restart has left behind. */
+  discardUpdateBackupSeed(): void
   /** The newest verified recovery snapshot's path, from metadata only. */
   latestDatabaseSnapshot(): string | undefined
   /** Reconcile the snapshot catalogue and queue at most one verifier; whether one started. */
@@ -240,6 +255,19 @@ export async function openSqliteStoreLifecycle(
       const shortfall = backupSpaceShortfall(measureBackupSpace(path))
       return shortfall === undefined ? { ok: true } : { ok: false, detail: shortfall }
     },
+    async seedUpdateBackup(target) {
+      if (memory) return { seeded: false, reason: 'in-memory store', ms: 0 }
+      const outcome = await seedBackupFor(resolve(path), target, async () => [
+        ...(await store.exclusive(async () => appliedDrizzleNames(db))),
+      ])
+      if (outcome.seeded)
+        log.info('pre-migration backup seed written', { bytes: outcome.bytes, ms: outcome.ms })
+      else log.info('no pre-migration backup seed', { reason: outcome.reason, ms: outcome.ms })
+      return outcome
+    },
+    discardUpdateBackupSeed() {
+      if (!memory) discardBackupSeed(resolve(path))
+    },
     latestDatabaseSnapshot() {
       return memory ? undefined : snapshotVerifier.verifiedFallbackPath()
     },
@@ -253,6 +281,29 @@ export async function openSqliteStoreLifecycle(
     // always read it.
     updateSigningKey: async (opts) => readOrCreateUpdateSigningKey(stateDir(), opts),
   }
+}
+
+/**
+ * Seed the successor's boot backup unless the release provably carries no migration
+ * this database lacks: then the successor boots with nothing pending and takes no
+ * backup. A release that declares nothing is seeded (it may migrate).
+ */
+async function seedBackupFor(
+  dbPath: string,
+  target: { schema?: { migrations?: readonly string[] } },
+  readApplied: () => Promise<string[]>,
+): Promise<BackupSeedOutcome> {
+  const started = performance.now()
+  if (releaseCarriesNewMigrations(target, await readApplied()) === false) {
+    discardBackupSeed(dbPath)
+    return {
+      seeded: false,
+      reason: 'the release carries no new migration',
+      ms: performance.now() - started,
+    }
+  }
+  // The successor's boot backup names the database by its resolved path.
+  return await writeBackupSeed(dbPath)
 }
 
 /** Connection setup and migration bracket, owned by the exclusive boot lane. */

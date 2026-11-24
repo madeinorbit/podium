@@ -1495,6 +1495,16 @@ export interface UpdateOperationContext {
    * refuses the update before any downtime instead of after.
    */
   preflightDatabaseBackup?: () => Promise<{ ok: true } | { ok: false; detail: string }>
+  /**
+   * Copy the database into the seed of the successor's pre-migration backup while
+   * this server still serves (POD-7576, `migrations/backup-seed.ts`). The boot
+   * backup inside the handover gap then rewrites only what changed since, instead
+   * of copying and flushing the whole file there. Best effort: it never fails the
+   * step, and the boot backup is byte-exact with or without a seed.
+   */
+  seedDatabaseBackup?: (target: UpdateTarget) => Promise<void>
+  /** Remove a seed when this attempt ends without restarting the server. */
+  discardDatabaseBackupSeed?: () => void
   /** Verified recovery point to carry into a new operation's failure guidance. */
   latestDatabaseSnapshot?: () => string | undefined
   legacyTransferActive?: () => boolean
@@ -2531,6 +2541,22 @@ async function runCoordinatorReplacement(
         return preflightFailure(describeError(error))
       }
       if (!preflight.ok) return preflightFailure(preflight.detail)
+      // BEFORE THE RECEIPT (POD-7576): an adopted run with this grant's receipt
+      // has already been through here and does not copy the database again.
+      if (context.seedDatabaseBackup) {
+        context.report?.(operation.id, stepId, {
+          state: 'running',
+          detail: 'Copying the database ahead of its pre-migration backup…',
+        })
+        try {
+          await context.seedDatabaseBackup(details.target)
+        } catch (error) {
+          log.warn('pre-migration backup seed failed; the boot backup copies in full', {
+            operationId: operation.id,
+            err: error,
+          })
+        }
+      }
       if (grant) {
         try {
           await recordOperationDetails(operation.id, { coordinatorSnapshotGrantId: grant.grantId })
@@ -2562,6 +2588,8 @@ async function runCoordinatorReplacement(
     if (prepared && heldCoordinatorUpdates.get(operation.id) === prepared) {
       heldCoordinatorUpdates.delete(operation.id)
     }
+    // A database-sized seed is only worth its disk while a restart is coming.
+    if (!activated) context.discardDatabaseBackupSeed?.()
     if (!activated && prepared) {
       log.warn('coordinator preparation abandoned before activation', {
         operationId: operation.id,

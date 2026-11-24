@@ -1364,6 +1364,8 @@ interface HarnessOptions {
   requestCoordinatorRestart?: UpdateOperationContext['requestCoordinatorRestart']
   prepareCoordinatorUpdate?: UpdateOperationContext['prepareCoordinatorUpdate']
   preflightDatabaseBackup?: UpdateOperationContext['preflightDatabaseBackup']
+  seedDatabaseBackup?: UpdateOperationContext['seedDatabaseBackup']
+  discardDatabaseBackupSeed?: UpdateOperationContext['discardDatabaseBackupSeed']
   latestDatabaseSnapshot?: () => string | undefined
   legacyTransferActive?: () => boolean
   preparation?: () => { webReady: boolean; bundleReady: boolean; failureDetail?: string }
@@ -1469,6 +1471,10 @@ async function harness(options: HarnessOptions = {}) {
     appVersion: () => options.appVersion ?? '0.4.1',
     serverPlacement: options.serverPlacement ?? { kind: 'fleet', machineId: 'test-server' },
     preflightDatabaseBackup: options.preflightDatabaseBackup ?? (async () => ({ ok: true })),
+    ...(options.seedDatabaseBackup ? { seedDatabaseBackup: options.seedDatabaseBackup } : {}),
+    ...(options.discardDatabaseBackupSeed
+      ? { discardDatabaseBackupSeed: options.discardDatabaseBackupSeed }
+      : {}),
     latestDatabaseSnapshot: options.latestDatabaseSnapshot ?? (() => undefined),
     ...(options.legacyTransferActive ? { legacyTransferActive: options.legacyTransferActive } : {}),
     // Wired exactly as `updateOperationContext` wires it: the `…Locked` form,
@@ -1906,6 +1912,99 @@ describe('the step runners', () => {
     expect(order).toEqual(['preflight', 'restart:running'])
     // No snapshot was made, so none is recorded beyond what planning found.
     expect((await h.read()).details?.databaseSnapshotPath).toBeUndefined()
+  })
+
+  /**
+   * POD-7576. The successor's boot backup sits in the handover gap, so the old
+   * server copies the database into its seed while it still serves: after the
+   * free-space preflight (a full disk still refuses first) and before the
+   * restart. The seed is best effort, and an attempt that does not restart
+   * removes it.
+   */
+  it('server: seeds the boot backup after the preflight and before the restart', async () => {
+    const order: string[] = []
+    const discard = vi.fn()
+    const h = await harness({
+      machines: [],
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      preflightDatabaseBackup: async () => {
+        order.push('preflight')
+        return { ok: true }
+      },
+      seedDatabaseBackup: async (target) => {
+        order.push(`seed:${target.version}`)
+      },
+      discardDatabaseBackupSeed: discard,
+      requestCoordinatorRestart: async () => {
+        order.push('restart')
+      },
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect(order).toEqual(['preflight', `seed:${packedTarget().version}`, 'restart'])
+    expect(discard).not.toHaveBeenCalled()
+  })
+
+  it('server: a seed that fails still restarts, and the boot backup copies in full', async () => {
+    const atRestart: string[] = []
+    const h = await harness({
+      machines: [],
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      seedDatabaseBackup: async () => {
+        throw new Error('ENOSPC: no space left on device')
+      },
+      requestCoordinatorRestart: async () => {
+        const operation = await h.read()
+        atRestart.push(
+          `${stepState(operation, UPDATE_STEP_SERVER) ?? 'absent'}:${operation.error?.code ?? 'no-error'}`,
+        )
+      },
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect(atRestart).toEqual(['running:no-error'])
+  })
+
+  it('server: no seed when the disk is too full for the boot backup', async () => {
+    const seed = vi.fn(async () => {})
+    const discard = vi.fn()
+    const h = await harness({
+      machines: [],
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      preflightDatabaseBackup: async () => ({ ok: false, detail: 'Not enough disk space' }),
+      seedDatabaseBackup: seed,
+      discardDatabaseBackupSeed: discard,
+      requestCoordinatorRestart: async () => {},
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect((await h.read()).state).toBe('failed')
+    expect(seed).not.toHaveBeenCalled()
+    // Whatever an earlier attempt left is removed too: no restart is coming.
+    expect(discard).toHaveBeenCalled()
+  })
+
+  it('server: a refused restart removes the seed it wrote', async () => {
+    const seed = vi.fn(async () => {})
+    const discard = vi.fn()
+    const h = await harness({
+      machines: [],
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      seedDatabaseBackup: seed,
+      discardDatabaseBackupSeed: discard,
+      requestCoordinatorRestart: async () => {
+        throw new Error('supervisor refused the restart')
+      },
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect((await h.read()).state).toBe('failed')
+    expect(seed).toHaveBeenCalledTimes(1)
+    expect(discard).toHaveBeenCalled()
   })
 
   it('server: places the exact installed target before the preflight and restart', async () => {

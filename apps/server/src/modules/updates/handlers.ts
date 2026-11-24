@@ -295,6 +295,8 @@ export function updateOperationContext(input: {
   servedMobileWeb?: () => MobileWebIdentity
   prepareCoordinatorUpdate?: PrepareCoordinatorUpdate
   preflightDatabaseBackup: NonNullable<UpdateOperationContext['preflightDatabaseBackup']>
+  seedDatabaseBackup?: UpdateOperationContext['seedDatabaseBackup']
+  discardDatabaseBackupSeed?: UpdateOperationContext['discardDatabaseBackupSeed']
   latestDatabaseSnapshot?: () => string | undefined
   legacyTransferActive?: () => boolean
   requestCoordinatorRestart?: () => void | Promise<void>
@@ -325,6 +327,10 @@ export function updateOperationContext(input: {
       ? { prepareCoordinatorUpdate: input.prepareCoordinatorUpdate }
       : {}),
     preflightDatabaseBackup: input.preflightDatabaseBackup,
+    ...(input.seedDatabaseBackup ? { seedDatabaseBackup: input.seedDatabaseBackup } : {}),
+    ...(input.discardDatabaseBackupSeed
+      ? { discardDatabaseBackupSeed: input.discardDatabaseBackupSeed }
+      : {}),
     ...(input.latestDatabaseSnapshot
       ? { latestDatabaseSnapshot: input.latestDatabaseSnapshot }
       : {}),
@@ -362,7 +368,13 @@ export function updateOperationContext(input: {
 export interface UpdateStartPorts {
   readonly updates: UpdatesService
   readonly operations: OperationsModule
-  readonly store: Pick<SessionStore, 'preflightUpdateBackup' | 'latestDatabaseSnapshot'>
+  readonly store: Pick<
+    SessionStore,
+    | 'preflightUpdateBackup'
+    | 'latestDatabaseSnapshot'
+    | 'seedUpdateBackup'
+    | 'discardUpdateBackupSeed'
+  >
   readonly serverPlacement: ServerPlacement
   readonly serverInstallKind?: Context['serverInstallKind']
   readonly desktopSupervised?: boolean
@@ -438,6 +450,11 @@ async function contextFromPorts(
     // The server step's only pre-restart database work: room for the
     // successor's boot backup, which is the recovery point (POD-6255).
     preflightDatabaseBackup: async () => ports.store.preflightUpdateBackup(),
+    // Off the gap (POD-7576): the bytes of that backup, copied while serving.
+    seedDatabaseBackup: async (target) => {
+      await ports.store.seedUpdateBackup(target)
+    },
+    discardDatabaseBackupSeed: () => ports.store.discardUpdateBackupSeed(),
     // Snapshot DISCOVERY is now metadata + `stat` (POD-3068), so it is cheap
     // enough for a request; it is still gated to the confirmed-operation path
     // because a polled startability preview has no use for restore guidance.

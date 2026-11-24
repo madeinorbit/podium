@@ -65,6 +65,7 @@ import { fileKeyProvider, resolveVaultKeyPath } from '@podium/runtime/vault-key'
 import { SyncRepository } from '@podium/sync'
 import { isFeatureEnabled } from './features'
 import type { BackupPreflight } from './migrations/backup'
+import type { BackupSeedOutcome } from './migrations/backup-seed'
 import { measureCompactionSpace } from './migrations/legacy-compaction-space'
 import {
   planSnapshotScrub,
@@ -873,6 +874,23 @@ export class StoreDatabase {
   }
 
   /**
+   * Write the seed of the successor's pre-migration backup while this server still
+   * serves (POD-7576, `migrations/backup-seed.ts`), so the boot backup inside the
+   * handover gap rewrites only what changed since. Best effort: an outcome, never a
+   * throw, and the boot backup is exact with or without it.
+   */
+  async seedUpdateBackup(target: {
+    schema?: { migrations?: readonly string[] }
+  }): Promise<BackupSeedOutcome> {
+    return await this.lifecycle.seedUpdateBackup(target)
+  }
+
+  /** Remove a seed an update that will not restart left behind. */
+  discardUpdateBackupSeed(): void {
+    this.lifecycle.discardUpdateBackupSeed()
+  }
+
+  /**
    * Newest VERIFIED recovery point, read from metadata and a `stat` only.
    *
    * Deliberately inert: this is called from update planning, which is a request
@@ -1518,6 +1536,16 @@ export class SessionStore {
 
   preflightUpdateBackup(): BackupPreflight {
     return this.database.preflightUpdateBackup()
+  }
+
+  async seedUpdateBackup(target: {
+    schema?: { migrations?: readonly string[] }
+  }): Promise<BackupSeedOutcome> {
+    return await this.database.seedUpdateBackup(target)
+  }
+
+  discardUpdateBackupSeed(): void {
+    this.database.discardUpdateBackupSeed()
   }
 
   latestDatabaseSnapshot(): string | undefined {
