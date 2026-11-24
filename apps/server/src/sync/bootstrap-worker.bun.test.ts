@@ -157,7 +157,7 @@ async function fixture() {
     principal: async () => principal,
     serving: {
       identity: async () => ({ feedId: 'fixture-feed', epoch: 'fixture-epoch' }),
-      retentionFloor: async () => (await store.sync.minChangeSeq()) ?? 1,
+      retentionFloor: async () => await store.sync.minAvailableSeq(),
       accessMovedAfter: async () => false,
     },
   })
@@ -224,7 +224,10 @@ describe('cursor expiry worker reload', () => {
         '/sync/delta',
         '/sync/bootstrap',
       ])
-      expect(requests[1]).toBe('/sync/bootstrap')
+      // POD-7552: the bootstrap names the cursor the device held, and nothing else.
+      expect(requests[1]).toBe(
+        '/sync/bootstrap?sinceFeedId=fixture-feed&sinceEpoch=fixture-epoch&since=0',
+      )
       for (const request of requests.slice(2))
         expect(['/sync/collections', '/sync/delta']).toContain(request.split('?')[0])
       expect(admitted).toHaveBeenCalledTimes(1)
@@ -236,6 +239,82 @@ describe('cursor expiry worker reload', () => {
       replica.transportDisconnected()
       builds.mockRestore()
       admitted.mockRestore()
+    } finally {
+      await f.close()
+    }
+  })
+
+  // POD-7593: a log the age budget emptied before the planners kept the head row.
+  // Its floor is head + 1, and a bootstrap stamped at the head with that floor was
+  // refused by both client validators, so every stale device reloaded in a loop.
+  it('reloads once from a FULLY pruned log, then a head cursor catches up without a reload', async () => {
+    const f = await fixture()
+    try {
+      await f.seedIssue('current')
+      await f.moveHead()
+      await f.moveHead()
+      const head = await f.store.sync.maxChangeSeq()
+      await f.store.sync.pruneChangeBatch({ thresholdSeq: head }, 100)
+      expect(await f.store.sync.minChangeSeq()).toBeNull()
+      expect(await f.store.sync.minAvailableSeq()).toBe(head + 1)
+      const requests: string[] = []
+      const deps = {
+        origin: 'https://example.test',
+        streamingFetch: {
+          fetch: async (url: string, init: RequestInit) => {
+            requests.push(new URL(url).pathname)
+            const headers = new Headers(init.headers)
+            headers.set('accept-encoding', 'identity')
+            return await f.app.fetch(new Request(url, { ...init, headers }))
+          },
+        },
+      }
+      const replicaOver = (store: InMemoryReplicaStore) => {
+        const bootstraps = new HttpBootstrapSource(deps)
+        const deltas = new HttpDeltaSource(deps)
+        const replica = new Replica({
+          store: store.cache,
+          unitOfWork: store.unitOfWork,
+          authority: {
+            bootstrap: bootstraps.bootstrap.bind(bootstraps),
+            changesRange: deltas.changesRange.bind(deltas),
+          },
+        })
+        return { replica, store }
+      }
+
+      // A stale device: its heal is refused, it bootstraps ONCE, and it is live.
+      const held = new InMemoryReplicaStore()
+      held.cache.installSnapshot(
+        [],
+        { feedId: 'fixture-feed', epoch: 'fixture-epoch', seq: 0 },
+        [],
+        undefined,
+        { kindTokens: {} },
+      )
+      const stale = replicaOver(held)
+      stale.replica.connect()
+      await stale.replica.settled()
+      expect(requests.slice(0, 2)).toEqual(['/sync/delta', '/sync/bootstrap'])
+      expect(requests.filter((path) => path === '/sync/bootstrap')).toHaveLength(1)
+      expect(stale.replica.posture).toBe('live')
+      expect(stale.replica.cursor?.seq).toBe(head)
+      expect(stale.store.cache.read('issueProjection', 'current')?.value).toMatchObject({
+        id: 'current',
+      })
+      stale.replica.transportDisconnected()
+
+      // The same device restarted at the head: the equal-endpoint delta installs
+      // and nothing reloads.
+      requests.length = 0
+      const current = replicaOver(stale.store)
+      current.replica.connect()
+      await current.replica.settled()
+      expect(requests[0]).toBe('/sync/delta')
+      expect(requests).not.toContain('/sync/bootstrap')
+      expect(current.replica.posture).toBe('live')
+      expect(current.replica.cursor?.seq).toBe(head)
+      current.replica.transportDisconnected()
     } finally {
       await f.close()
     }

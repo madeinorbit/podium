@@ -42,6 +42,20 @@ interface AnswerRange {
 }
 
 /**
+ * The floor a range stamped at `seq` advertises (POD-7593): the true floor, but
+ * never above `seq`. A log pruned to empty has floor `seq + 1`, and every
+ * client's frame validator refuses `minAvailableSeq > seq`, so an honest
+ * `seq + 1` turned each bootstrap of an idle workspace into another bootstrap.
+ * The clamp only understates the floor by one for the client's own pre-check:
+ * a frame at `seq` certifies a cursor at `seq`, which needs `floor <= seq + 1`,
+ * and every refusal (this worker's and socket resume's) reads the true floor.
+ * The prune planners no longer empty a log; this covers logs emptied before.
+ */
+function advertisedFloor(floorSeq: number, seq: number): number {
+  return Math.min(floorSeq, seq)
+}
+
+/**
  * One output of the collection fetch as wire lines (POD-7085): whole records
  * in `feedBootstrap` chunks, issue stubs in `feedStubs` chunks, markers in a
  * `collectionComplete` line, every one stamped with the answer's feed number.
@@ -166,12 +180,14 @@ async function* produceRecords(
       workspaceId: jobWorkspaceId(job),
     })
     const context = await bundle.context
-    const { headSeq: seq, floorSeq: minAvailableSeq } = await context.sync.readFeedState()
+    const { headSeq: seq, floorSeq } = await context.sync.readFeedState()
     phase('capture', capture)
     if (job.mode === 'delta') {
       const target = job.to ?? seq
       if (job.from > seq || target > seq) throw new SyncWorkerError('future-cursor')
-      if (minAvailableSeq > job.from + 1) throw new SyncWorkerError('compacted-or-unknown')
+      // The refusal reads the TRUE floor; only the advertised one is clamped.
+      if (floorSeq > job.from + 1) throw new SyncWorkerError('compacted-or-unknown')
+      const minAvailableSeq = advertisedFloor(floorSeq, target)
       const { policy, anchors, sync } = context
       const kindTokens = await readKindTokens(sync, options.effectKinds)
       const iterator = scopeChangesRange(
@@ -223,7 +239,8 @@ async function* produceRecords(
             epoch: job.epoch,
             fromSeq: delivery.fromSeq,
             seq: delivery.throughSeq,
-            minAvailableSeq,
+            // Each frame at its own stamp, so no frame can carry a floor above it.
+            minAvailableSeq: advertisedFloor(floorSeq, delivery.throughSeq),
             changes,
             // The principal's access moved in this range (POD-6947): the same
             // feed fact the main thread's frame carries.
@@ -267,6 +284,7 @@ async function* produceRecords(
     check()
     // The first download is the policy's collections in its order (POD-7085).
     const syncPolicy = policyFor(job.clientType)
+    const minAvailableSeq = advertisedFloor(floorSeq, seq)
     const meta: SyncMetaSummary = {
       type: 'syncMeta',
       formatVersion: 1,
