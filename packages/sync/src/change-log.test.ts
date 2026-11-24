@@ -1,7 +1,13 @@
 import { asMutationId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { ChangeLogReadRow } from './authority/change-lifecycle'
-import { type ChangeLogStore, ChangeRangeBootstrapRequired, readChangesRange } from './change-log'
+import {
+  type ChangeLogStore,
+  ChangeRangeBootstrapRequired,
+  minAvailableSeq,
+  readChangesRange,
+  retainsAfter,
+} from './change-log'
 import { ModelAuthority as Authority } from './conformance/model-records'
 import {
   DEVICE_GRADE_PRINCIPAL,
@@ -161,6 +167,8 @@ describe('bounded change-log ranges', () => {
     for (const rows of [[], [row(3)]]) {
       const f = fixture()
       f.rows.splice(0, f.rows.length, ...rows)
+      // The head stays at 3: the rows were pruned, not never written.
+      f.store.maxChangeSeq = vi.fn(async () => 3)
       await expect(collect(readChangesRange(f.store, 0, 3, 1))).rejects.toBeInstanceOf(
         ChangeRangeBootstrapRequired,
       )
@@ -173,6 +181,7 @@ describe('bounded change-log ranges', () => {
     for (const rows of [[], [row(3)]]) {
       const f = fixture()
       f.rows.splice(0, f.rows.length, ...rows)
+      f.store.maxChangeSeq = vi.fn(async () => 3)
       await expect(
         collect(f.authority.changesRange(DEVICE_GRADE_PRINCIPAL, 0, 3, 1)),
       ).rejects.toBeInstanceOf(ChangeRangeBootstrapRequired)
@@ -183,6 +192,21 @@ describe('bounded change-log ranges', () => {
       ChangeRangeBootstrapRequired,
     )
     expect(await f.authority.changesSince(4, DEVICE_GRADE_PRINCIPAL)).toBeNull()
+  })
+
+  // POD-7593: one rule on the TOTAL floor. A log pruned to empty at head 5 has
+  // floor 6: it serves a cursor at the head and refuses every one below it.
+  it('reads a fully pruned log as floor head + 1, the same rule as socket resume', async () => {
+    const f = fixture(0)
+    f.store.maxChangeSeq = vi.fn(async () => 5)
+    expect(await minAvailableSeq(f.store)).toBe(6)
+    expect(await retainsAfter(f.store, 5)).toBe(true)
+    expect(await retainsAfter(f.store, 4)).toBe(false)
+    // A store that holds the floor answers in one read and is not second-guessed.
+    vi.mocked(f.store.minChangeSeq).mockClear()
+    const held = { ...f.store, minAvailableSeq: vi.fn(async () => 3) }
+    expect(await minAvailableSeq(held)).toBe(3)
+    expect(f.store.minChangeSeq).not.toHaveBeenCalled()
   })
 
   it.each([

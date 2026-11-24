@@ -983,6 +983,16 @@ export class SyncRepository {
     return (await this.readFeedState()).headSeq
   }
 
+  /**
+   * ADR 2 D5's total floor in one statement (POD-7593): `floor_seq` is
+   * `coalesce(min(seq), head + 1)` by construction (seeded so, and moved only by
+   * the prune in the same transaction as its delete), so a fully pruned log
+   * reads `head + 1` here and never a null a caller must interpret.
+   */
+  async minAvailableSeq(): Promise<number> {
+    return (await this.readFeedState()).floorSeq
+  }
+
   /** Lowest RETAINED seq, or null when the log is empty. */
   async minChangeSeq(): Promise<number | null> {
     const { headSeq, floorSeq } = await this.readFeedState()

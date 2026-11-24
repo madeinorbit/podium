@@ -68,11 +68,6 @@ export * from './adapters/sqlite/sync-repository'
  * replacement would have made this issue's diff the migration of every call site.
  */
 export * from './authority/index'
-// POD-7593: the one reader of the retention floor a FeedRetentionPort is wired
-// to. It is total (a fully pruned log reads `head + 1`), where the store's
-// `minChangeSeq` is null for an empty log and a consumer has to guess what null
-// means.
-export { minAvailableSeq } from './change-log'
 /**
  * The feed's PRODUCING half (POD-306/POD-1077, consumed at POD-1203).
  *

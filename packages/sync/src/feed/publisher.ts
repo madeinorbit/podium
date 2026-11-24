@@ -92,8 +92,9 @@ export interface FeedRetentionPort {
   /**
    * The lowest seq the log can still deliver. TOTAL (POD-7593): a fully pruned
    * log answers `head + 1`, never null or 0, because the age budget can empty
-   * the log and an empty log has lost everything before its head. Wire it to
-   * `minAvailableSeq(store)` from `change-log.ts`.
+   * the log and an empty log has lost everything before its head. The server
+   * wires it to `SyncRepository.minAvailableSeq()`, `sync_feed.floor_seq` in one
+   * statement.
    */
   minAvailableSeq(): number | Promise<number>
 }

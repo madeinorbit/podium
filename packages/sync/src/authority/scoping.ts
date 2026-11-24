@@ -46,7 +46,7 @@
  */
 
 import type { Principal } from '@podium/protocol'
-import { type ChangeLogStore, readChangesRange } from '../change-log'
+import { type ChangeLogStore, type FloorReadable, readChangesRange } from '../change-log'
 import type {
   EntityRef,
   FeedVisibilityPolicy,
@@ -391,7 +391,7 @@ function anchorFor(
 
 /** Shared bounded range semantics for the live authority and a worker snapshot. */
 export async function* scopeChangesRange(
-  store: Pick<ChangeLogStore, 'minChangeSeq' | 'changesInRange'>,
+  store: FloorReadable & Pick<ChangeLogStore, 'changesInRange'>,
   deps: ScopingDeps,
   principal: Principal,
   from: number,

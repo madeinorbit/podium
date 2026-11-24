@@ -41,6 +41,14 @@ export interface ChangeLogStore {
   maxChangeSeq(): Promise<number>
   /** Lowest RETAINED seq, or null when the log is empty. */
   minChangeSeq(): Promise<number | null>
+  /**
+   * POD-7593 — ADR 2 D5's total floor in ONE read: the lowest seq the log can
+   * still deliver, `head + 1` once it is fully pruned. The repository keeps it
+   * as `sync_feed.floor_seq`. Absent (the in-memory fakes),
+   * {@link minAvailableSeq} derives it from the two reads above, which is the
+   * same value but not one snapshot.
+   */
+  minAvailableSeq?(): Promise<number>
   /** Plain range read: rows with seq > cursor, in seq order. */
   changesSince(cursor: number): Promise<readonly ChangeLogReadRow[]>
   /** Rows in (from, through], ascending and bounded by limit. */
@@ -134,26 +142,27 @@ export async function pruneChangeLog(
  * Both are SAFE (the authority's answer is authoritative either way; a needless
  * bootstrap is always legal), but the exact form is free.
  */
-export async function minAvailableSeq(
-  store: Pick<ChangeLogStore, 'maxChangeSeq' | 'minChangeSeq'>,
-): Promise<number> {
+export async function minAvailableSeq(store: FloorReadable): Promise<number> {
+  if (store.minAvailableSeq !== undefined) return await store.minAvailableSeq()
+  // Two reads of one row, not one snapshot. A commit between them can only RAISE
+  // the answer by one, which refuses a cursor one reconnect early: conservative.
   return (await store.minChangeSeq()) ?? (await store.maxChangeSeq()) + 1
 }
 
+/** What {@link minAvailableSeq} reads: the one-read floor, or the two it derives from. */
+export type FloorReadable = Pick<
+  ChangeLogStore,
+  'maxChangeSeq' | 'minChangeSeq' | 'minAvailableSeq'
+>
+
 /**
- * POD-7593 — whether the log still holds every change above `from`, read from
- * {@link ChangeLogStore.minChangeSeq} in one statement. It is
- * {@link minAvailableSeq}'s rule `from + 1 >= floor` for a caller that needs
- * rows: such a caller asks for `(from, through]` with `from < through <= head`,
- * so a null floor (a fully pruned log, floor `head + 1`) always refuses, and
- * never reads as "nothing pruned".
+ * POD-7593 — whether the log still holds every change above `from`: D5's rule
+ * `from + 1 >= floor` on the TOTAL floor, the same predicate socket resume and
+ * the worker apply, so the readers cannot drift. A fully pruned log (floor
+ * `head + 1`) refuses every `from` below the head and serves the head itself.
  */
-export async function retainsAfter(
-  store: Pick<ChangeLogStore, 'minChangeSeq'>,
-  from: number,
-): Promise<boolean> {
-  const floor = await store.minChangeSeq()
-  return floor !== null && floor <= from + 1
+export async function retainsAfter(store: FloorReadable, from: number): Promise<boolean> {
+  return from + 1 >= (await minAvailableSeq(store))
 }
 
 /** A range cannot be certified; the caller must request a bootstrap. */
@@ -192,7 +201,7 @@ export class ChangeRangeBootstrapRequired extends Error {
  * one caller renamed the id back.
  */
 export async function* readChangesRange(
-  store: Pick<ChangeLogStore, 'minChangeSeq' | 'changesInRange'>,
+  store: FloorReadable & Pick<ChangeLogStore, 'changesInRange'>,
   from: number,
   through: number,
   pageRows: number,
