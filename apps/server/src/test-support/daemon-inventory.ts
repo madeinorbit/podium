@@ -27,7 +27,7 @@
  */
 
 import { asMachineId, HarnessAgent, type Inventory, type MachineId } from '@podium/model'
-import { CAP_SESSION_ACCESS } from '@podium/protocol'
+import { CAP_REPO_ROOT_CHECK, CAP_SESSION_ACCESS } from '@podium/protocol'
 import { type DaemonLink, IN_PROCESS_DAEMON_LINK } from '../gateway/daemon-link-kind'
 import type { DaemonControlPeer } from '../gateway/daemon-ports'
 import type { SessionRegistry } from '../relay'
@@ -71,8 +71,13 @@ export async function attachDaemonWithInventory(
       ? transport
       : confirmingRetirement(registry, machineId, transport)
   // As the socket accept path does: the link first, then the attach. A daemon
-  // of this build takes a session's credential (`CAP_SESSION_ACCESS`).
+  // of this build takes a session's credential (`CAP_SESSION_ACCESS`) and
+  // checks a root against its repository (`CAP_REPO_ROOT_CHECK`).
   registry.daemonLinks.connected(asMachineId(machineId), opts.link ?? IN_PROCESS_DAEMON_LINK, peer)
-  await registry.gateway.attachDaemon(machineId, peer, opts.caps ?? [CAP_SESSION_ACCESS])
+  await registry.gateway.attachDaemon(
+    machineId,
+    peer,
+    opts.caps ?? [CAP_SESSION_ACCESS, CAP_REPO_ROOT_CHECK],
+  )
   await registry.modules.machines.recordInventory(asMachineId(machineId), inventory)
 }

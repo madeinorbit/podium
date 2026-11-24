@@ -183,7 +183,9 @@ export async function buildSuperagentTools(
         // statement — the POD-7027 audit's `issuesByIds [1]` burst of ~7,200
         // single-row reads, the whole table row by row.
         const owners = await issues.reports.issuesForCwds(listed.map((s) => s.cwd))
-        const ownerIds = [...new Set([...owners.values()].filter((id): id is IssueId => id !== null))]
+        const ownerIds = [
+          ...new Set([...owners.values()].filter((id): id is IssueId => id !== null)),
+        ]
         const ownerRows = await store.issues.getIssues(ownerIds)
         return JSON.stringify(
           await Promise.all(
@@ -351,15 +353,11 @@ export async function buildSuperagentTools(
         // principal (never the operator) — the message is ledgered and lands
         // enveloped, so the receiver sees who is speaking.
         if (!ownerUserId) return 'unknown superagent thread'
-        const r = await modules.messages.send(
-          writer,
-          superagentFrom(ownerUserId),
-          {
-            to: { kind: 'session', id: sessionIdArg(args.sessionId) },
-            body: str(args.text) ?? '',
-            urgency: 'next-turn',
-          },
-        )
+        const r = await modules.messages.send(writer, superagentFrom(ownerUserId), {
+          to: { kind: 'session', id: sessionIdArg(args.sessionId) },
+          body: str(args.text) ?? '',
+          urgency: 'next-turn',
+        })
         return r.ok ? 'sent' : 'failed: session not running'
       },
     },
@@ -762,17 +760,13 @@ export async function buildSuperagentTools(
         // Same substrate as podium session ask: a question message through the
         // one send path (clamps/cooldown apply), then a bounded ack wait.
         if (!ownerUserId) return 'unknown superagent thread'
-        const r = await modules.messages.send(
-          writer,
-          superagentFrom(ownerUserId),
-          {
-            to: { kind: 'session', id: sessionId },
-            body: question,
-            kind: 'question',
-            urgency: 'next-turn',
-            lifecycle: 'wake',
-          },
-        )
+        const r = await modules.messages.send(writer, superagentFrom(ownerUserId), {
+          to: { kind: 'session', id: sessionId },
+          body: question,
+          kind: 'question',
+          urgency: 'next-turn',
+          lifecycle: 'wake',
+        })
         const timeoutMs = Math.min(300, Math.max(0, num(args.timeoutSeconds) ?? 30)) * 1000
         const ack = await modules.messages.awaitAck(r.message.id, {
           timeoutMs,
@@ -894,7 +888,7 @@ export async function buildSuperagentTools(
         if (op !== 'status' && op !== 'log' && op !== 'branches') return 'invalid op'
         // The default machine's checkouts are its users' (POD-6284).
         if (!(await ownerAccess.mayReadMachineFiles())) return 'failed: no such checkout'
-        const r = await rpc.repoOp(op, str(args.cwd) ?? '')
+        const r = await rpc.rootRepoOp(op, str(args.cwd) ?? '')
         return r.ok ? r.output || '(clean)' : `failed: ${r.output}`
       },
     },
@@ -917,7 +911,7 @@ export async function buildSuperagentTools(
         if (!repoPath || !branch) return 'missing repoPath/branch'
         const safe = branch.replace(/[^a-zA-Z0-9._-]+/g, '-')
         const path = `${repoPath}-${safe}`
-        const r = await rpc.repoOp('worktreeAdd', repoPath, { path, branch })
+        const r = await rpc.rootRepoOp('worktreeAdd', repoPath, { path, branch })
         if (r.ok) {
           // A worktree created behind the apps' backs is a change of the machine's
           // checkouts: it is scanned, and the new `checkout` record reaches every

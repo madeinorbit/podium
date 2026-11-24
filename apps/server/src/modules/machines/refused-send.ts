@@ -14,3 +14,8 @@ export class RefusedSendError extends Error {
 
 export const isRefusedSend = (error: unknown): error is RefusedSendError =>
   error instanceof RefusedSendError
+
+/** Why a root-addressed file or repo-op request did not go to a connected daemon:
+ *  it predates the on-disk check of a root against its repository (POD-7503). */
+export const REPO_ROOT_UNCHECKED =
+  "this machine's Podium is too old to check a folder against its repository; update Podium on it"

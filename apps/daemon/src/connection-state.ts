@@ -16,6 +16,7 @@ import {
   CAP_MACHINE_PROCESSES_V1,
   CAP_MACHINE_UNINSTALL,
   CAP_OAUTH_LOOPBACK,
+  CAP_REPO_ROOT_CHECK,
   CAP_SESSION_ACCESS,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
@@ -1173,6 +1174,9 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         // "Uninstall Podium" (`machineUninstallRequest`).
         CAP_MACHINE_UNINSTALL,
         CAP_TRANSCRIPT_PATHS,
+        // POD-7503: root-addressed file and repo-op requests are checked against
+        // their repository on disk; the server sends them only when accepted.
+        CAP_REPO_ROOT_CHECK,
       ],
       ...(reportUpdateIdentity ? { build: deps.build } : {}),
       claims: {

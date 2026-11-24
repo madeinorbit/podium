@@ -71,6 +71,7 @@ import type {
 } from '@podium/protocol'
 import {
   CAP_HARNESS_INSTALLS,
+  CAP_REPO_ROOT_CHECK,
   CAP_TRANSCRIPT_PATHS,
   type HarnessActionResult,
   type HarnessInstallAction,
@@ -114,6 +115,7 @@ import { type HandoffStageToken, stageTokenAsFrozenWireField } from '../sessions
 import { sessionPostureFor } from '../sessions/session-posture'
 import { mergeLatestTranscriptPage } from '../sessions/terminal'
 import type { ServerPlacement } from '../updates/service'
+import { isRefusedSend, REPO_ROOT_UNCHECKED } from './refused-send'
 
 const SCAN_TIMEOUT_MS = 10_000
 const FILE_RPC_TIMEOUT_MS = 10_000
@@ -250,8 +252,8 @@ interface DaemonRpcDeps {
   getSession(sessionId: SessionId): Promise<RpcSessionView | undefined>
   portableStateFence?: PortableStateWriteFence
   /** The registered repository roots on a machine (POD-7501). A root-addressed file
-   *  request carries the one its root is under, for the daemon's realpath check;
-   *  absent, every root-addressed request is refused. */
+   *  or repo-op request carries the one its root is under, for the daemon's
+   *  realpath check; absent, every root-addressed request is refused. */
   repoPaths?(machineId: MachineId): Promise<string[]>
 }
 
@@ -979,7 +981,41 @@ export class DaemonRpcService {
     )
   }
 
-  /** Allowlisted git op on a dev machine (superagent tools). */
+  /**
+   * {@link repoOp} IN A FOLDER A CALLER NAMED (POD-7503): the git panel, file
+   * search and the superagent's tools. The folder must sit under a registered
+   * repository, and the daemon resolves both and refuses a folder outside it, so
+   * a symlink inside a repository cannot point git at another checkout. Server
+   * records (issue worktrees, registered repositories, session folders) keep
+   * {@link repoOp}: a worktree may live outside every registered repository.
+   */
+  async rootRepoOp(
+    op: RepoOp,
+    root: string,
+    args?: Record<string, string>,
+    machineId?: MachineId,
+  ): Promise<OpResult> {
+    return await this.rootRequest(
+      {
+        kind: REPO_OP,
+        timeoutMs: 35_000,
+        onTimeout: () => ({ ok: false, output: 'no daemon answered the git request in time' }),
+        refuse: (error) => ({ ok: false, output: error }),
+        root,
+        machineId: asMachineId(machineId ?? (await this.deps.resolveMachine(undefined, root))),
+      },
+      (requestId, repoRoot) => ({
+        type: 'repoOpRequest',
+        requestId,
+        op,
+        cwd: root,
+        ...(args ? { args } : {}),
+        repoRoot,
+      }),
+    )
+  }
+
+  /** Allowlisted git op on a dev machine, in a folder the server holds on record. */
   async repoOp(
     op: RepoOp,
     cwd: string,
@@ -2067,20 +2103,54 @@ export class DaemonRpcService {
   }
 
   /**
-   * THE MACHINE AND REGISTERED REPOSITORY a root-addressed file request is for
-   * (POD-7501). The callers' allowlists match the root as text; the daemon is
-   * the one that can see a symlinked root, so it is handed the repository the
-   * root matched and checks both realpaths. A root under no registered
-   * repository is refused here, before any daemon is asked.
+   * A REQUEST ADDRESSED BY A CALLER'S ROOT (POD-7501, POD-7503): a file read,
+   * write or listing, or a repo op whose folder came from a caller. The callers'
+   * allowlists match the root as text; the daemon is the one that can see a
+   * symlinked root, so the frame names the registered repository the root
+   * matched and the daemon checks both realpaths.
+   *
+   * Refused here, as `refuse(reason)`, before any daemon is asked: a root under
+   * no registered repository, and a connected daemon that predates the check
+   * (it would drop `repoRoot` unseen and follow the link). The machines service
+   * judges the frame again at the send, so a daemon that changed in between, or
+   * none at all, refuses it there rather than parking it.
    */
-  private async fileRoot(
-    root: string,
-    machineId: MachineId | undefined,
-  ): Promise<{ machineId: MachineId; repoRoot: string } | undefined> {
-    const target = machineId ?? asMachineId(await this.deps.defaultMachine())
-    const repoPaths = (await this.deps.repoPaths?.(target)) ?? []
-    const repoRoot = inferRepoFromRoots(repoPaths, root)
-    return repoRoot === undefined ? undefined : { machineId: target, repoRoot }
+  private async rootRequest<T>(
+    spec: {
+      kind: DaemonRequestKind<T>
+      timeoutMs: number
+      onTimeout: () => T
+      refuse: (error: string) => T
+      root: string
+      machineId: MachineId
+    },
+    build: (requestId: string, repoRoot: string) => ControlMessage,
+  ): Promise<T> {
+    const { machineId } = spec
+    const repoRoot = inferRepoFromRoots((await this.deps.repoPaths?.(machineId)) ?? [], spec.root)
+    if (repoRoot === undefined) return spec.refuse(UNKNOWN_ROOT)
+    if (
+      this.deps.hasDaemon(machineId) &&
+      this.deps.daemonSupports?.(machineId, CAP_REPO_ROOT_CHECK) !== true
+    )
+      return spec.refuse(REPO_ROOT_UNCHECKED)
+    try {
+      return await this.request(
+        spec.kind,
+        spec.timeoutMs,
+        spec.onTimeout,
+        (requestId) => build(requestId, repoRoot),
+        machineId,
+      )
+    } catch (error) {
+      if (isRefusedSend(error)) return spec.refuse(error.message)
+      throw error
+    }
+  }
+
+  /** The machine a root-addressed file request goes to, named or the default. */
+  private async fileMachine(machineId: MachineId | undefined): Promise<MachineId> {
+    return machineId ?? asMachineId(await this.deps.defaultMachine())
   }
 
   async listDir(input: {
@@ -2089,20 +2159,22 @@ export class DaemonRpcService {
     path?: string
   }): Promise<Omit<DirListResultMessage, 'type' | 'requestId'>> {
     const path = input.path ?? input.root
-    const target = await this.fileRoot(input.root, input.machineId)
-    if (!target) return { ok: false, path, entries: [], error: UNKNOWN_ROOT }
-    return await this.request(
-      DIR_LIST,
-      FILE_RPC_TIMEOUT_MS,
-      () => ({ ok: false, path, entries: [], error: 'timeout' }),
-      (requestId) => ({
+    return await this.rootRequest(
+      {
+        kind: DIR_LIST,
+        timeoutMs: FILE_RPC_TIMEOUT_MS,
+        onTimeout: () => ({ ok: false, path, entries: [], error: 'timeout' }),
+        refuse: (error) => ({ ok: false, path, entries: [], error }),
+        root: input.root,
+        machineId: await this.fileMachine(input.machineId),
+      },
+      (requestId, repoRoot) => ({
         type: 'dirListRequest',
         requestId,
         root: input.root,
         path,
-        repoRoot: target.repoRoot,
+        repoRoot,
       }),
-      target.machineId,
     )
   }
 
@@ -2130,21 +2202,23 @@ export class DaemonRpcService {
         session.machineId,
       )
     }
-    const target = await this.fileRoot(input.root, input.machineId)
-    if (!target) return { ok: false, path: input.path, error: UNKNOWN_ROOT }
-    return await this.request(
-      FILE_READ,
-      FILE_RPC_TIMEOUT_MS,
-      () => ({ ok: false, path: input.path, error: 'timeout' }),
-      (requestId) => ({
+    return await this.rootRequest(
+      {
+        kind: FILE_READ,
+        timeoutMs: FILE_RPC_TIMEOUT_MS,
+        onTimeout: () => ({ ok: false, path: input.path, error: 'timeout' }),
+        refuse: (error) => ({ ok: false, path: input.path, error }),
+        root: input.root,
+        machineId: await this.fileMachine(input.machineId),
+      },
+      (requestId, repoRoot) => ({
         type: 'fileReadRequest',
         requestId,
         cwd: input.root,
         path: input.path,
         knownPath: false,
-        repoRoot: target.repoRoot,
+        repoRoot,
       }),
-      target.machineId,
     )
   }
 
@@ -2185,23 +2259,25 @@ export class DaemonRpcService {
     // daemon sandbox as fileReadRequest — cwd = the worktree root. Artifact paths
     // may be worktree-relative; the daemon realpaths them, so absolutize here.
     const absPath = resolveMachinePath(input.root, input.path)
-    const target = await this.fileRoot(input.root, input.machineId)
-    if (!target) return { ok: false, path: input.path, error: UNKNOWN_ROOT }
-    return await this.request(
-      FILE_ASSET,
-      FILE_RPC_TIMEOUT_MS,
-      () => ({ ok: false, path: input.path, error: 'timeout' }),
-      (requestId) => ({
+    return await this.rootRequest(
+      {
+        kind: FILE_ASSET,
+        timeoutMs: FILE_RPC_TIMEOUT_MS,
+        onTimeout: () => ({ ok: false, path: input.path, error: 'timeout' }),
+        refuse: (error) => ({ ok: false, path: input.path, error }),
+        root: input.root,
+        machineId: await this.fileMachine(input.machineId),
+      },
+      (requestId, repoRoot) => ({
         type: 'fileAssetRequest',
         requestId,
         cwd: input.root,
         path: absPath,
         knownPath: false,
-        repoRoot: target.repoRoot,
+        repoRoot,
         ...(input.offset !== undefined ? { offset: input.offset } : {}),
         ...(input.length !== undefined ? { length: input.length } : {}),
       }),
-      target.machineId,
     )
   }
 
@@ -2230,14 +2306,16 @@ export class DaemonRpcService {
         session.machineId,
       )
     }
-    const target = await this.fileRoot(input.root, input.machineId)
-    if (!target) return { ok: false, error: UNKNOWN_ROOT }
-    return await this.request(
-      FILE_WRITE,
-      FILE_RPC_TIMEOUT_MS,
-      () => ({ ok: false, error: 'timeout' }),
-      (requestId) => build(requestId, input.root, target.repoRoot),
-      target.machineId,
+    return await this.rootRequest(
+      {
+        kind: FILE_WRITE,
+        timeoutMs: FILE_RPC_TIMEOUT_MS,
+        onTimeout: () => ({ ok: false, error: 'timeout' }),
+        refuse: (error) => ({ ok: false, error }),
+        root: input.root,
+        machineId: await this.fileMachine(input.machineId),
+      },
+      (requestId, repoRoot) => build(requestId, input.root, repoRoot),
     )
   }
 

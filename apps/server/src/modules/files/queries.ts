@@ -109,7 +109,7 @@ export const FILE_QUERIES = {
       const key = { machineId, root: input.root }
       const paths = await PATH_INDEX.paths(
         key,
-        async () => await state.rpc.repoOp('lsFiles', input.root, undefined, machineId),
+        async () => await state.rpc.rootRepoOp('lsFiles', input.root, undefined, machineId),
       )
       return { paths: rankPaths(paths, input.query.trim(), input.limit).map((hit) => hit.path) }
     },

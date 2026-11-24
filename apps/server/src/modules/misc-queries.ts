@@ -119,7 +119,9 @@ const repoOp = (op: GitPanelOp) => {
       const args: Record<string, string> = {}
       if (needs.includes('path')) args.path = input.path as string
       if (needs.includes('sha')) args.sha = input.sha as string
-      return await s.modules.rpc.repoOp(
+      // The root is the caller's text: the daemon checks it against the matched
+      // repository on disk (POD-7503).
+      return await s.modules.rpc.rootRepoOp(
         op,
         input.root,
         needs.length > 0 ? args : undefined,

@@ -27,6 +27,7 @@ import {
   CAP_HARNESS_INSTALLS,
   CAP_MACHINE_PROCESSES_V1,
   CAP_MACHINE_UNINSTALL,
+  CAP_REPO_ROOT_CHECK,
   CAP_SESSION_ACCESS,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
@@ -161,6 +162,9 @@ const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): Handsha
       // this to uninstall Podium from its machine (the machine menu).
       CAP_MACHINE_UNINSTALL,
       CAP_TRANSCRIPT_PATHS,
+      // POD-7503: root-addressed file and repo-op requests are checked against
+      // their repository on disk; the server sends them only when accepted.
+      CAP_REPO_ROOT_CHECK,
     ],
     transport: {
       endpoint: '/daemon',

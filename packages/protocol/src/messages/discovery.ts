@@ -220,6 +220,11 @@ export const RepoOpRequestMessage = z.object({
   cwd: z.string(),
   // op-specific extras (worktreeAdd: { path, branch }).
   args: z.record(z.string()).optional(),
+  /** Set when `cwd` came from a caller rather than a server record (the git
+   *  panel, file search, superagent tools): the registered repository the server
+   *  matched it to. The daemon refuses unless `cwd` resolves to that repository
+   *  or inside it, and runs git in the resolved folder (POD-7503). */
+  repoRoot: z.string().optional(),
 })
 export const RepoOpResultMessage = z.object({
   type: z.literal('repoOpResult'),

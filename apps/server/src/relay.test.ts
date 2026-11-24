@@ -21,6 +21,7 @@ import {
 } from '@podium/model'
 import {
   asDelegationRef,
+  CAP_SESSION_ACCESS,
   CLIENT_WIRE_VERSION,
   DriverSelectedMessage,
   type ServerMessage,
@@ -39,6 +40,7 @@ import { fixtureWriteScope } from '@podium/sync/testing'
 import { resolvePrincipalAsync, userCommandPrincipal } from './command-principal'
 import { feedPrincipalOf } from './gateway/client-principal'
 import { CredentialHealth } from './modules/credentials/health'
+import { REPO_ROOT_UNCHECKED } from './modules/machines/refused-send'
 import { MessageDeliveryService } from './modules/messages/service'
 import { sessionCommandCtx } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand } from './modules/sessions/command-plane'
@@ -7242,6 +7244,75 @@ describe('listDir routing', () => {
     expect(daemon.filter((m) => m.type.startsWith('file') || m.type === 'dirListRequest')).toEqual(
       [],
     )
+  })
+
+  // POD-7503: the git panel and file search name a folder by the caller's text too.
+  it('hands a caller-rooted repo op its repository, and a server-record op none', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    await attachHostDaemon(reg, (m) => daemon.push(m))
+    const machineId = reg.sessionStore.hostMachine!.id
+    await reg.sessionStore.repos.addRepo('/w', machineId)
+    void reg.modules.rpc.rootRepoOp('lsFiles', '/w/escape', undefined, machineId)
+    void reg.modules.rpc.repoOp('statusProbe', '/worktrees/elsewhere', undefined, machineId)
+    await expect.poll(() => daemon.filter((m) => m.type === 'repoOpRequest').length).toBe(2)
+    const ops = daemon.filter((m) => m.type === 'repoOpRequest')
+    expect(ops.find((m) => m.op === 'lsFiles')).toMatchObject({ cwd: '/w/escape', repoRoot: '/w' })
+    expect(ops.find((m) => m.op === 'statusProbe')).not.toHaveProperty('repoRoot')
+    expect(await reg.modules.rpc.rootRepoOp('lsFiles', '/elsewhere', undefined, machineId)).toEqual(
+      { ok: false, output: 'root is not a known repository path' },
+    )
+  })
+
+  // An older daemon drops `repoRoot` unseen and would follow the link, so nothing
+  // root-addressed goes to it; a server-record op still does.
+  it('refuses root-addressed requests to a daemon that cannot check them', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    await attachHostDaemon(reg, (m) => daemon.push(m), { caps: [CAP_SESSION_ACCESS] })
+    const machineId = reg.sessionStore.hostMachine!.id
+    await reg.sessionStore.repos.addRepo('/w', machineId)
+    const root = '/w'
+    const error = REPO_ROOT_UNCHECKED
+    const rpc = reg.modules.rpc
+    expect(await rpc.listDir({ machineId, root })).toMatchObject({ ok: false, error })
+    expect(await rpc.readFile({ machineId, root, path: '/w/a' })).toMatchObject({
+      ok: false,
+      error,
+    })
+    expect(await rpc.readAsset({ machineId, root, path: 'a.png' })).toMatchObject({
+      ok: false,
+      error,
+    })
+    expect(await rpc.writeFile({ machineId, root, path: '/w/a', content: 'x' })).toMatchObject({
+      ok: false,
+      error,
+    })
+    expect(await rpc.rootRepoOp('logPanel', root, undefined, machineId)).toEqual({
+      ok: false,
+      output: error,
+    })
+    expect(daemon.filter((m) => 'repoRoot' in m)).toEqual([])
+    void rpc.repoOp('statusProbe', root, undefined, machineId)
+    await expect.poll(() => daemon.some((m) => m.type === 'repoOpRequest')).toBe(true)
+  })
+
+  it('never parks a root-addressed request for whichever daemon attaches next', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    await assignHostMachine(reg.sessionStore)
+    const machineId = reg.sessionStore.hostMachine!.id
+    await reg.sessionStore.repos.addRepo('/w', machineId)
+    expect(await reg.modules.rpc.listDir({ machineId, root: '/w' })).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/no daemon is connected/),
+    })
+    expect(await reg.modules.rpc.rootRepoOp('lsFiles', '/w', undefined, machineId)).toMatchObject({
+      ok: false,
+      output: expect.stringMatching(/no daemon is connected/),
+    })
+    const daemon: ControlMessage[] = []
+    await attachHostDaemon(reg, (m) => daemon.push(m), { caps: [CAP_SESSION_ACCESS] })
+    expect(daemon.filter((m) => 'repoRoot' in m)).toEqual([])
   })
 })
 

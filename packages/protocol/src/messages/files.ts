@@ -1,6 +1,19 @@
 import { SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
+/**
+ * THIS DAEMON CHECKS A ROOT AGAINST ITS REPOSITORY ON DISK (POD-7503).
+ *
+ * The server matches a caller's root against the registered repositories as
+ * text; a symlink inside a repository passes that match and points anywhere.
+ * A daemon offering this resolves `repoRoot` and the root and refuses a root
+ * outside the repository, on root-addressed file requests and on repo ops that
+ * carry `repoRoot`, and refuses a listing without `repoRoot`. An older daemon
+ * drops the field unseen, so the server sends root-addressed file and repo-op
+ * requests only to a daemon that accepted this.
+ */
+export const CAP_REPO_ROOT_CHECK = 'files.repoRoot.v1'
+
 // ---- Daemon <-> server: file/directory ops on a session's host ----
 export const FileReadRequestMessage = z.object({
   type: z.literal('fileReadRequest'),
@@ -56,8 +69,9 @@ export const DirListRequestMessage = z.object({
   /** Directory to list; equal to or nested under `root`. */
   path: z.string(),
   /** The registered repository the server matched `root` to; the daemon refuses
-   *  unless `root` resolves to it or inside it. Optional only for servers that
-   *  predate it; this server sends it on every listing. */
+   *  unless `root` resolves to it or inside it, and refuses a listing without it
+   *  (POD-7503). Optional in the schema only so an older server's frame parses and
+   *  is answered with that refusal rather than dropped. */
   repoRoot: z.string().optional(),
 })
 export type DirListRequestMessage = z.infer<typeof DirListRequestMessage>

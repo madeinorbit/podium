@@ -137,7 +137,7 @@ describe('MU-08: real raw-git and file routes resolve the actor and the checkout
     const alice = (await f.as('alice')).trpc
     const bob = (await f.as('bob')).trpc
     const git = vi
-      .spyOn(registry().modules.rpc, 'repoOp')
+      .spyOn(registry().modules.rpc, 'rootRepoOp')
       .mockResolvedValue({ ok: true, output: '' })
     const write = vi.spyOn(registry().modules.rpc, 'writeFile').mockResolvedValue({ ok: true })
     const input = { machineId: f.machines.alice, root: REPO_PATH }
@@ -199,7 +199,7 @@ describe('MU-08: real raw-git and file routes resolve the actor and the checkout
     const alice = (await f.as('alice')).trpc
     const bob = (await f.as('bob')).trpc
     const git = vi
-      .spyOn(registry().modules.rpc, 'repoOp')
+      .spyOn(registry().modules.rpc, 'rootRepoOp')
       .mockResolvedValue({ ok: true, output: '' })
     const write = vi.spyOn(registry().modules.rpc, 'writeFile').mockResolvedValue({ ok: true })
     await expect(
@@ -344,7 +344,7 @@ describe('MU-08: real raw-git and file routes resolve the actor and the checkout
       requested ? asMachineId(requested) : selected,
     )
     const repo = vi
-      .spyOn(registry().modules.rpc, 'repoOp')
+      .spyOn(registry().modules.rpc, 'rootRepoOp')
       .mockImplementation(async (_op, _root, _args, machineId) => ({
         ok: true,
         output: `${(machineId ?? selected) === f.machines.alice ? 'alice-private-plan' : 'bob-own-file'}.txt\0`,

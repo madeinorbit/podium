@@ -52,6 +52,7 @@ import type {
 } from '@podium/protocol'
 import {
   CAP_CREDENTIAL_IDENTITY_GUARD,
+  CAP_REPO_ROOT_CHECK,
   CAP_SESSION_ACCESS,
   SERVER_MOVE_CAPABILITY,
   supervisorGenerationOf,
@@ -96,7 +97,7 @@ import {
   reportsManagedInstalls,
 } from './install-notices'
 import { storedMachineRecordFacts } from './record-facts'
-import { RefusedSendError } from './refused-send'
+import { REPO_ROOT_UNCHECKED, RefusedSendError } from './refused-send'
 import { supersedeMachine } from './supersession'
 import { UpdateSpaceRequests } from './update-space-requests'
 import { deriveVersionState } from './version-state'
@@ -168,6 +169,12 @@ const SENT: Promise<void> = Promise.resolve()
  * reads the link's kind first (credential management §7, §8; POD-7484): an
  * access with a secret, a login-file export or install, a server promotion.
  */
+/** A root-addressed file or repo-op frame: it names the repository its root must
+ *  resolve inside, which only a daemon with {@link CAP_REPO_ROOT_CHECK} checks. */
+function carriesRepoRoot(message: ControlMessage): boolean {
+  return 'repoRoot' in message && message.repoRoot !== undefined
+}
+
 function judgedAtSend(message: ControlMessage): boolean {
   return (
     message.type === 'credentialExportRequest' ||
@@ -1303,6 +1310,19 @@ export class MachinesService {
       (!this.daemons.has(machineId) || !this.daemonSupports(machineId, CAP_CONTEXT_READ_V1))
     )
       throw new RefusedSendError('Context read transport is disconnected or unsupported')
+    // A ROOT CHECKED AGAINST ITS REPOSITORY IS NEVER QUEUED (POD-7503). The frame
+    // names the repository so the daemon can refuse a symlinked root; an older
+    // daemon drops that field unseen and would follow the link. Parked, the frame
+    // would reach whatever daemon attaches next, older or not.
+    if (
+      carriesRepoRoot(msg) &&
+      (!this.daemons.has(machineId) || !this.daemonSupports(machineId, CAP_REPO_ROOT_CHECK))
+    )
+      throw new RefusedSendError(
+        this.daemons.has(machineId)
+          ? REPO_ROOT_UNCHECKED
+          : `no daemon is connected to ${machineId}`,
+      )
     // A LOGIN FILE CROSSES ONLY A SAFE LINK AND IS NEVER QUEUED (credential
     // management §8; POD-6906 S2). The install carries the file; the export asks
     // the daemon to send it back over the same link. Both are judged at the send,

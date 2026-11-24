@@ -240,12 +240,13 @@
         "cwd": "cwd",
         "args": {
           "args.key": "args.args.key"
-        }
+        },
+        "repoRoot": "repoRoot"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"repoOpRequest\",\"requestId\":\"requestId\",\"op\":\"clone\",\"cwd\":\"cwd\",\"args\":{\"args.key\":\"args.args.key\"}}"
+      "encoded": "{\"type\":\"repoOpRequest\",\"requestId\":\"requestId\",\"op\":\"clone\",\"cwd\":\"cwd\",\"args\":{\"args.key\":\"args.args.key\"},\"repoRoot\":\"repoRoot\"}"
     },
     {
       "schema": "RepoOpResultMessage",

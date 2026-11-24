@@ -8,7 +8,7 @@
  * repository, so a change to either side that stops agreeing fails here rather
  * than in a browser.
  *
- * The socket is the only thing stubbed: `rpc.repoOp` runs the command locally
+ * The socket is the only thing stubbed: `rpc.rootRepoOp` runs the command locally
  * instead of asking a daemon to. Nothing about the command, the parsing or the
  * ranking is faked.
  */
@@ -45,7 +45,7 @@ const stateFor = (allowedRoots: string[]): FileState =>
     access: { ownsSession: async () => false, mayReadMachineFiles: async () => true },
     rpc: {
       answeringMachineId: async () => asMachineId('fixture-machine'),
-      repoOp: async (op: string) => {
+      rootRepoOp: async (op: string) => {
         if (op !== 'lsFiles') return { ok: false, output: `unexpected op ${op}` }
         const { stdout } = await execFileAsync('git', ['-C', ROOT, ...LS_FILES], {
           maxBuffer: 8 * 1024 * 1024,

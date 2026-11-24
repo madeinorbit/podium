@@ -5,37 +5,68 @@ import { DaemonRpcService, type RpcSessionView, type TranscriptSlice } from './r
 const sessionId = asSessionId('history-session')
 const machineId = asMachineId('machine')
 const reader = { kind: 'user' as const, id: firstAdminMemberId() }
-const daemonRow: TranscriptItem = { id: 'daemon-stable', cursor: 'daemon-cursor', role: 'assistant', text: 'hello' }
-const lakeRow: TranscriptItem = { id: 'lake-stable', cursor: 'lake-cursor', role: 'assistant', text: 'lake hello' }
+const daemonRow: TranscriptItem = {
+  id: 'daemon-stable',
+  cursor: 'daemon-cursor',
+  role: 'assistant',
+  text: 'hello',
+}
+const lakeRow: TranscriptItem = {
+  id: 'lake-stable',
+  cursor: 'lake-cursor',
+  role: 'assistant',
+  text: 'lake hello',
+}
 const input = { sessionId, direction: 'before' as const, limit: 2 }
 
 function setup(opts?: { predecessors?: boolean; online?: boolean }) {
   const session: RpcSessionView = {
-    id: sessionId, machineId, cwd: '/repo', agentKind: 'codex',
-    driverId: 'codex-app-server', status: 'live',
-    transcriptItems: () => [], runtimeTranscriptItems: () => [],
+    id: sessionId,
+    machineId,
+    cwd: '/repo',
+    agentKind: 'codex',
+    driverId: 'codex-app-server',
+    status: 'live',
+    transcriptItems: () => [],
+    runtimeTranscriptItems: () => [],
   }
   const memory = {
     canReadSession: vi.fn(async () => true),
     transcriptPathHint: vi.fn(async () => undefined),
     transcriptHasPredecessors: vi.fn(async () => opts?.predecessors ?? false),
-    readTranscriptFromLake: vi.fn(async (): Promise<TranscriptSlice | undefined> => ({ items: [lakeRow], head: 'archive-head', tail: 'archive-tail', hasMore: false })),
+    readTranscriptFromLake: vi.fn(
+      async (): Promise<TranscriptSlice | undefined> => ({
+        items: [lakeRow],
+        head: 'archive-head',
+        tail: 'archive-tail',
+        hasMore: false,
+      }),
+    ),
   }
   const toMachine = vi.fn()
   const online = vi.fn(() => opts?.online ?? true)
   const rpc = new DaemonRpcService({
-    memory, toMachine, hasDaemon: online,
-    defaultMachine: () => machineId, resolveMachine: () => machineId,
-    machineName: async () => 'machine', machineNames: async (ids) => new Map(ids.map((id) => [id, 'machine'])), onlineMachineIds: () => [machineId],
+    memory,
+    toMachine,
+    hasDaemon: online,
+    defaultMachine: () => machineId,
+    resolveMachine: () => machineId,
+    machineName: async () => 'machine',
+    machineNames: async (ids) => new Map(ids.map((id) => [id, 'machine'])),
+    onlineMachineIds: () => [machineId],
     getSession: async () => session,
     repoPaths: async () => ['/repo', String.raw`C:\repo`],
+    daemonSupports: () => true,
   })
   const answerDaemon = (items: TranscriptItem[]) => {
     toMachine.mockImplementation((machine, message) => {
       if (message.type === 'transcriptRead') {
         rpc.settleDaemonReply(machine, {
-          type: 'transcriptReadResult', requestId: message.requestId,
-          sessionId, items, hasMore: false,
+          type: 'transcriptReadResult',
+          requestId: message.requestId,
+          sessionId,
+          items,
+          hasMore: false,
         })
       }
     })
@@ -101,7 +132,11 @@ describe('single Store transcript read path', () => {
     const { rpc, memory, toMachine, answerDaemon } = setup()
     answerDaemon([daemonRow])
     await rpc.readTranscript({ ...input, direction: 'after', anchor: 'native-anchor' }, reader)
-    expect(toMachine.mock.calls[0]?.[1]).toMatchObject({ type: 'transcriptRead', anchor: 'native-anchor', direction: 'after' })
+    expect(toMachine.mock.calls[0]?.[1]).toMatchObject({
+      type: 'transcriptRead',
+      anchor: 'native-anchor',
+      direction: 'after',
+    })
     expect(memory.readTranscriptFromLake).not.toHaveBeenCalled()
   })
 
@@ -110,7 +145,8 @@ describe('single Store transcript read path', () => {
     answerDaemon([daemonRow])
     for (const direction of ['before', 'after'] as const) {
       const page = await rpc.readTranscript(
-        { ...input, direction, anchor: 'runtime-history:garbage' }, reader,
+        { ...input, direction, anchor: 'runtime-history:garbage' },
+        reader,
       )
       expect(page).toMatchObject({ reset: true, items: [daemonRow] })
     }
@@ -125,7 +161,9 @@ describe('single Store transcript read path', () => {
   it('checks permission before any daemon, lake, or cursor operation', async () => {
     const { rpc, memory, toMachine } = setup()
     memory.canReadSession.mockResolvedValue(false)
-    expect(await rpc.readTranscript({ ...input, anchor: 'runtime-history:garbage' }, reader)).toEqual({ items: [], hasMore: false })
+    expect(
+      await rpc.readTranscript({ ...input, anchor: 'runtime-history:garbage' }, reader),
+    ).toEqual({ items: [], hasMore: false })
     expect(toMachine).not.toHaveBeenCalled()
     expect(memory.readTranscriptFromLake).not.toHaveBeenCalled()
     expect(memory.transcriptHasPredecessors).not.toHaveBeenCalled()
@@ -142,7 +180,6 @@ describe('single Store transcript read path', () => {
   })
 })
 
-
 it.each([
   ['/repo', 'shots/a.png', '/repo/shots/a.png'],
   [String.raw`C:\repo`, 'shots/a.png', String.raw`C:\repo\shots\a.png`],
@@ -150,8 +187,22 @@ it.each([
 ])('machine paths: remote asset request resolves against %s', async (root, path, expected) => {
   const { rpc, toMachine } = setup()
   toMachine.mockImplementation((machine, message) => {
-    expect(message).toMatchObject({ type: 'fileAssetRequest', cwd: root, path: expected, repoRoot: root })
-    rpc.settleDaemonReply(machine, { type: 'fileAssetResult', requestId: message.requestId, path: expected, ok: false, error: 'fixture' })
+    expect(message).toMatchObject({
+      type: 'fileAssetRequest',
+      cwd: root,
+      path: expected,
+      repoRoot: root,
+    })
+    rpc.settleDaemonReply(machine, {
+      type: 'fileAssetResult',
+      requestId: message.requestId,
+      path: expected,
+      ok: false,
+      error: 'fixture',
+    })
   })
-  expect(await rpc.readAsset({ machineId, root, path })).toMatchObject({ path: expected, ok: false })
+  expect(await rpc.readAsset({ machineId, root, path })).toMatchObject({
+    path: expected,
+    ok: false,
+  })
 })

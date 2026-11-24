@@ -8,6 +8,7 @@ import type { UsageBucketWire, UsageSourceWire } from '@podium/model'
 import type { QuotaHistorySampleWire } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { executeBufferedHarnessTurn } from '../buffered-harness.js'
+import { sandboxRoot } from '../file-access'
 import { githubCliClone, githubCliList, githubCliStatus } from '../github-cli'
 import { bundleStagePath } from '../handoff-package'
 import type { HarnessManagementContext } from '../harness-management.js'
@@ -51,6 +52,25 @@ async function runRepoOp(
     ctx.send({ type: 'repoOpResult', requestId: msg.requestId, ok: false, output: cmd.error })
     return
   }
+  /**
+   * A CALLER'S ROOT IS CHECKED ON DISK (POD-7503).
+   *
+   * `repoRoot` arrives when `cwd` is a caller's text (the git panel, file
+   * search) rather than a server record. The server matched it against the
+   * registered repositories as text, which a symlink inside a repository passes
+   * while pointing at another checkout. Both are resolved here, a `cwd` outside
+   * the repository is refused, and git runs in the resolved folder so the link
+   * cannot be swapped between this check and the command.
+   */
+  let cwd = msg.cwd
+  if (msg.repoRoot !== undefined) {
+    const sandbox = await sandboxRoot(msg.cwd, msg.repoRoot)
+    if (!sandbox.ok) {
+      ctx.send({ type: 'repoOpResult', requestId: msg.requestId, ok: false, output: sandbox.error })
+      return
+    }
+    cwd = sandbox.real
+  }
   try {
     if (msg.op === 'clone' && msg.args?.path) {
       mkdirSync(dirname(msg.args.path), { recursive: true, mode: 0o700 })
@@ -58,7 +78,7 @@ async function runRepoOp(
     if (msg.op === 'bundleCreate' && args.out) {
       mkdirSync(dirname(args.out), { recursive: true, mode: 0o700 })
     }
-    const runArgs = cmd.bin === 'git' ? ['-C', msg.cwd, ...cmd.argv] : cmd.argv
+    const runArgs = cmd.bin === 'git' ? ['-C', cwd, ...cmd.argv] : cmd.argv
     const opts =
       cmd.bin === 'git'
         ? {
@@ -74,7 +94,7 @@ async function runRepoOp(
             maxBuffer: msg.op === 'lsFiles' ? 8 * 1024 * 1024 : 1024 * 1024,
             ...(msg.op === 'clone' ? { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } } : {}),
           }
-        : { cwd: msg.cwd, timeout: 120_000, maxBuffer: 1024 * 1024 }
+        : { cwd, timeout: 120_000, maxBuffer: 1024 * 1024 }
     const { stdout, stderr } = await execFileAsync(cmd.bin, runArgs, opts)
     ctx.send({
       type: 'repoOpResult',

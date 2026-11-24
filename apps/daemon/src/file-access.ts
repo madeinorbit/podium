@@ -47,7 +47,7 @@ const sig = (s: { mtimeMs: number; size: number }): string => `${s.mtimeMs}:${s.
  * resolve to the repository or a folder inside it, both resolved here. A
  * session request carries no `repoRoot`: its sandbox is the session's own cwd.
  */
-async function sandboxRoot(
+export async function sandboxRoot(
   root: string,
   repoRoot: string | undefined,
 ): Promise<{ ok: true; real: string } | { ok: false; error: string }> {
@@ -340,6 +340,11 @@ export async function listDirSandboxed(opts: {
   error?: string
 }> {
   const target = opts.path ?? opts.root
+  // Every listing is root-addressed, so it names its repository (POD-7503). A
+  // frame without one comes from a server that predates the check; listing its
+  // root unchecked would follow a symlinked root anywhere.
+  if (opts.repoRoot === undefined)
+    return { ok: false, path: target, entries: [], error: 'repository root required' }
   const sandbox = await sandboxRoot(opts.root, opts.repoRoot)
   if (!sandbox.ok) return { ok: false, path: target, entries: [], error: sandbox.error }
   const realRoot = sandbox.real

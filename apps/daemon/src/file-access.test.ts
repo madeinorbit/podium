@@ -203,7 +203,7 @@ describe('listDirSandboxed', () => {
     await mkdir(join(dir, 'src'))
     await writeFile(join(dir, 'b.ts'), 'b')
     await writeFile(join(dir, 'a.md'), 'a')
-    const r = await listDirSandboxed({ root: dir })
+    const r = await listDirSandboxed({ root: dir, repoRoot: dir })
     expect(r.ok).toBe(true)
     expect(r.entries).toEqual([
       { name: 'src', isDir: true },
@@ -216,7 +216,7 @@ describe('listDirSandboxed', () => {
     const dir = await mkdtemp(join(tmpdir(), 'pod-ls-'))
     await mkdir(join(dir, 'src'))
     await writeFile(join(dir, 'src', 'index.ts'), 'x')
-    const r = await listDirSandboxed({ root: dir, path: join(dir, 'src') })
+    const r = await listDirSandboxed({ root: dir, repoRoot: dir, path: join(dir, 'src') })
     expect(r.ok).toBe(true)
     expect(r.entries).toEqual([{ name: 'index.ts', isDir: false }])
   })
@@ -224,15 +224,24 @@ describe('listDirSandboxed', () => {
   it('rejects a path outside root', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'pod-ls-'))
     const outside = await mkdtemp(join(tmpdir(), 'pod-out-'))
-    const r = await listDirSandboxed({ root: dir, path: outside })
+    const r = await listDirSandboxed({ root: dir, repoRoot: dir, path: outside })
     expect(r).toMatchObject({ ok: false, error: 'outside workspace' })
+  })
+
+  it('refuses a listing that names no repository (an older server, POD-7503)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pod-ls-'))
+    expect(await listDirSandboxed({ root: dir })).toMatchObject({
+      ok: false,
+      entries: [],
+      error: 'repository root required',
+    })
   })
 
   it('returns ok:false when the path is not a directory', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'pod-ls-'))
     const f = join(dir, 'a.ts')
     await writeFile(f, 'x')
-    const r = await listDirSandboxed({ root: dir, path: f })
+    const r = await listDirSandboxed({ root: dir, repoRoot: dir, path: f })
     expect(r.ok).toBe(false)
   })
 })

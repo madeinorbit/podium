@@ -26,7 +26,7 @@
  */
 
 import { firstAdminMemberId, type MachineId } from '@podium/model'
-import { CAP_SESSION_ACCESS } from '@podium/protocol'
+import { CAP_REPO_ROOT_CHECK, CAP_SESSION_ACCESS } from '@podium/protocol'
 import { type DaemonLink, IN_PROCESS_DAEMON_LINK } from '../gateway/daemon-link-kind'
 import type { ControlSend, DaemonControlPeer } from '../gateway/daemon-ports'
 import type { SessionRegistry } from '../relay'
@@ -53,7 +53,8 @@ export async function attachHostDaemon(
     repos?: readonly string[]
     confirmRetirement?: boolean
     /** What this daemon negotiated. Default: a daemon of this build, which
-     *  takes a session's credential (`CAP_SESSION_ACCESS`). `[]`: an older one. */
+     *  takes a session's credential (`CAP_SESSION_ACCESS`) and checks a root
+     *  against its repository (`CAP_REPO_ROOT_CHECK`). `[]`: an older one. */
     caps?: readonly string[]
     /** How the server judged its connection. Default: never leaves the computer. */
     link?: DaemonLink
@@ -69,7 +70,11 @@ export async function attachHostDaemon(
       : confirmingRetirement(registry, machineId, transport)
   // The socket accept path records the link before the attach; so does this.
   registry.daemonLinks.connected(machineId, opts.link ?? IN_PROCESS_DAEMON_LINK, peer)
-  await registry.gateway.attachDaemon(machineId, peer, opts.caps ?? [CAP_SESSION_ACCESS])
+  await registry.gateway.attachDaemon(
+    machineId,
+    peer,
+    opts.caps ?? [CAP_SESSION_ACCESS, CAP_REPO_ROOT_CHECK],
+  )
 }
 
 /**
