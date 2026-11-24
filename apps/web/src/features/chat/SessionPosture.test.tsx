@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it } from 'vitest'
 import { PostureNotices, SessionModeChip } from './SessionPosture'
 
@@ -39,10 +40,13 @@ describe('SessionModeChip', () => {
   })
 
   it('gives keyboard users the same practical help as the tooltip', async () => {
+    const user = userEvent.setup()
     render(<SessionModeChip session={{ agentKind: 'codex', observedMode: 'on-request' }} />)
     const chip = screen.getByTestId('session-mode')
-    fireEvent.focus(chip)
-    const tooltip = await screen.findByRole('tooltip')
+    await user.tab()
+    const tooltip = await screen.findByText(
+      "Can edit within its allowed folders; asks you before running beyond its limits. Use /permissions in Codex's terminal to change permissions.",
+    )
     expect(chip.getAttribute('aria-label')).toBe(`Permissions: on-request. ${tooltip.textContent}`)
     expect(tooltip.textContent).toContain('asks you before running beyond its limits')
   })

@@ -36,10 +36,12 @@ try {
     (await page.locator('#control-help-cases').textContent()) ?? '[]',
   ) as HelpCase[]
   for (const example of cases) {
+    console.log(`Capturing ${example.id}`)
     const query = new URLSearchParams({ help: example.id })
     if (example.catalog) query.set('catalog', example.catalog)
     await page.goto(`${base}?${query}`)
     await page.locator(`[data-help-case="${example.id}"]`).waitFor()
+    await page.mouse.move(850, 520)
     let text: string
     if (example.target) {
       const trigger = page.locator(example.target)
@@ -49,9 +51,15 @@ try {
         text = (await page.getByRole('menu').innerText()).trim()
       } else {
         if (await trigger.isDisabled()) await trigger.locator('..').hover()
-        else await trigger.focus()
-        const tooltip = page.getByRole('tooltip')
-        await tooltip.waitFor()
+        else await trigger.hover()
+        const tooltip = page.locator('[data-slot="tooltip-content"]')
+        await tooltip.waitFor({ timeout: 5_000 }).catch(async (error: unknown) => {
+          await page.screenshot({ path: join(out, 'capture-failure.png') })
+          console.log('Browser errors:', errors)
+          console.log('Page:', await page.locator('body').innerText())
+          console.log('Trigger:', await trigger.evaluate((element) => element.outerHTML))
+          throw error
+        })
         text = (await tooltip.innerText()).trim()
         const description = await trigger.getAttribute('aria-description')
         const name = await trigger.getAttribute('aria-label')

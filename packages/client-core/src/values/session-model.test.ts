@@ -12,6 +12,7 @@ describe('thinking-time help', () => {
     ['high', 'Uses more thinking time for difficult tasks, which can take longer.'],
     ['xhigh', 'Uses extra thinking time for difficult tasks, which can take longer.'],
     ['max', 'Uses the most thinking time available, which can take longer.'],
+    ['ultra', 'Uses extended thinking time for the hardest tasks, which can take longer.'],
     ['future', 'Uses the agent\'s "future" thinking setting.'],
   ])('explains %s and the next-message action', (value, meaning) => {
     expect(effortControlHelp(value, 'ready', true)).toBe(
@@ -49,6 +50,9 @@ describe('model help', () => {
   })
 
   it('keeps each unconfirmed choice explicit, even when the other is confirmed', () => {
+    expect(modelReadoutHelp({ model: 'opus', effort: 'high' }, 'no', 'Opus')).toContain(
+      'Opus is selected for this session with more thinking time for difficult tasks, which can take longer (not yet confirmed).',
+    )
     expect(
       modelReadoutHelp({ observedModel: 'opus', requestedEffort: 'low' }, 'no', 'Opus'),
     ).toContain(

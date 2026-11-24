@@ -99,12 +99,14 @@ export const controlHelpCases: HelpCase[] = [
     control: <SessionModelChip session={{ ...base, configureFields: ['model'] }} />,
     target: 'button[aria-label="Effort"]',
   },
-  ...['auto', 'none', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((value) => ({
-    id: `thinking-${value}`,
-    label: `Thinking time · ${value}`,
-    control: <EffortPicker agentKind="claude-code" model={MODEL} value={value} onChange={noop} />,
-    target: 'button[aria-label="Effort"]',
-  })),
+  ...['auto', 'none', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].map(
+    (value) => ({
+      id: `thinking-${value}`,
+      label: `Thinking time · ${value}`,
+      control: <EffortPicker agentKind="claude-code" model={MODEL} value={value} onChange={noop} />,
+      target: 'button[aria-label="Effort"]',
+    }),
+  ),
   {
     id: 'effort-choose-model',
     label: 'Thinking time · Choose a model first',

@@ -117,6 +117,7 @@ const EFFORT_HELP: Readonly<Record<string, string>> = {
   high: 'more thinking time for difficult tasks, which can take longer',
   xhigh: 'extra thinking time for difficult tasks, which can take longer',
   max: 'the most thinking time available, which can take longer',
+  ultra: 'extended thinking time for the hardest tasks, which can take longer',
 }
 
 function effortMeaning(value: string): string {
@@ -156,7 +157,9 @@ export function modelControlHelp(
 ): string {
   const meaning = automatic
     ? 'Auto lets the agent choose which model generates its replies.'
-    : `${label} generates the agent's replies.`
+    : availability === 'pending'
+      ? `${label} is selected for your next reply while the change is being applied.`
+      : `${label} generates the agent's replies.`
   const action =
     availability === 'pending'
       ? 'Wait for your current change to finish before choosing again.'
@@ -182,7 +185,9 @@ export function modelReadoutHelp(
           ? `${label ?? raw} is selected for your next reply but is not yet confirmed`
           : `${label ?? raw} was selected for this session but is not yet confirmed`
   const effort = readoutEffort(session)
-  if (effort) {
+  if (raw && raw !== 'auto' && !session.observedModel && effort && !session.observedEffort) {
+    meaning = `${label ?? raw} is selected for ${session.requestedModel ? 'your next reply' : 'this session'} with ${effortMeaning(effort)} (not yet confirmed)`
+  } else if (effort) {
     meaning += `, with ${effortMeaning(effort)}${session.observedEffort ? '' : ' (selected, not yet confirmed)'}`
   }
   const action =
