@@ -25666,18 +25666,18 @@
       "file": "packages/client-graph/src/automation-targets.ts",
       "holder": "createAutomationTargets/worktrees",
       "rule": "reader-summary",
-      "tokens": "603568ef9ecbddd7f1173535d47a973fb8374ad89a5d913e856458213b2ff643",
+      "tokens": "84d02d83396e3b636deadb5b0498b99e9dbcd09b1143464e75066508eeba2b1f",
       "gate": [],
       "origin": [
         "6e471a1dbf091e151a8806ef1d25cf9a9d565ccdddc41697efb49425a9c110e4"
       ],
-      "fingerprint": "61e29c69762a95ade7b23fd760961197b1c42d513caa9b6c1c505d894ed9b9a9",
+      "fingerprint": "48e614912afef9105c1049cc26c6068924098506a1a6d91c23953e7dce794bf8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5571",
       "trigger": "Setup/automation choice derivation while mounted",
       "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
-      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair. POD-7196: worktrees now has a structurally compared keyed computation, so unchanged roots retain their query across scalar repository edits. The indirect cache/memo summary paths moved here; their remaining picker-demand debt is retained, not waived.",
+      "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair. POD-7196: worktrees now has a structurally compared keyed computation, so unchanged roots retain their query across scalar repository edits. The indirect cache/memo summary paths moved here; their remaining picker-demand debt is retained, not waived. POD-7549 refreshes the propagated reader fingerprint after adding development diagnostics; the existing classification, bounds and repair status are unchanged.",
       "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
     },
     {
@@ -27307,19 +27307,19 @@
       "file": "packages/client-graph/src/issue-board-layout.ts",
       "holder": "createBoardLayout/columnCount",
       "rule": "reader-summary",
-      "tokens": "3315f6fc1b2e5ffe57e56ca7e2d331a1fb5e3e1bcd80829d29b389a39a146b58",
+      "tokens": "e4b29ce5a9589d55cc202a0620f4906e7c54f7893f15b044782b7f7f75a38d88",
       "gate": [],
       "origin": [
         "0f4c22afb8213bed43337f0e829fcab4b21d465596eaeed43e50361f98285881",
         "3384e5005fa3242c66cf11df7175a23b01deed0cc2ace87dd75d0bf21e1d4024"
       ],
-      "fingerprint": "92724479ca70e42b56c2d5dcc3d63da03e864ddce3db377227968fc40da6a952",
+      "fingerprint": "13cbc0f1255104cb5be3da1c52f8e16450c091936dd9cd34c324c9609d093404",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7088",
       "trigger": "Reading a board column's count, or the proposal deck's total, while the stubs answer it.",
       "bound": "One pass over the device's stub table per stub-table version and test key, memoized (`PoolCollections.countStubs`); the stub table is the design's one structure that grows with history (POD-7059 \"Parts\"), and no record is loaded.",
-      "reason": "POD-7088: counts over all history read the stubs (design \"Counts\"), never the records in memory. POD-7175: a text filter whose search answer is complete counts the column's own cards (its candidates are the search hits). POD-7166: tracked marker freshness adds a board summary read; formatting changes parenthesized board expressions and propagated origins. The existing collection bound and classification are unchanged. Predecessor: 0531f93a6b6d318d68f5090e55a745d55b8e9936dc8a4ef17ff07260ecb4be89.",
+      "reason": "POD-7088: counts over all history read the stubs (design \"Counts\"), never the records in memory. POD-7175: a text filter whose search answer is complete counts the column's own cards (its candidates are the search hits). POD-7166: tracked marker freshness adds a board summary read; formatting changes parenthesized board expressions and propagated origins. The existing collection bound and classification are unchanged. Predecessor: 0531f93a6b6d318d68f5090e55a745d55b8e9936dc8a4ef17ff07260ecb4be89. POD-7549 refreshes the propagated reader fingerprint after adding development diagnostics; the existing classification, bounds and repair status are unchanged.",
       "guard": "moved-readers.test.ts compares these counts with the old answers on one fixture and fails on a planted wrong stub."
     },
     {
@@ -40924,18 +40924,18 @@
       "file": "packages/client-graph/src/issue-board-layout.ts",
       "holder": "createBoardLayout/columnHeld",
       "rule": "reader-summary",
-      "tokens": "d7c73a68e1bb8fee8d5b1c4391c68eab34e4e6a02dfaf2743ed1890058133cd9",
+      "tokens": "2ee1d79a12bbd919c81496e38fbb5ec1095648f5a12a285f7bffcea400e3d8d6",
       "gate": [],
       "origin": [
         "921eee7a4cd72dbd92da67cc7c32c2249093e33f96027c8e6c7df28b69ce67e0"
       ],
-      "fingerprint": "c23b1bfa78f245dde2f10dd327535d803925c5ea9f2ae9df2604ca42d2d6b35c",
+      "fingerprint": "776e17e4e21cc04beae42a51c3038da088b81c74b6918f2f8066ef12483d771e",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7548",
       "trigger": "Reading the held/completion answer for one board stage page.",
       "bound": "One boolean holding read for the named page instance; this origin adds no record enumeration or history-sized collection.",
-      "reason": "The source-only census treats PoolCollections.held as a collections table property, but this origin is a scalar boolean for one page and its keyed memo callers.",
+      "reason": "The source-only census treats PoolCollections.held as a collections table property, but this origin is a scalar boolean for one page and its keyed memo callers. POD-7549 refreshes the propagated reader fingerprint after adding development diagnostics; the existing classification, bounds and repair status are unchanged.",
       "guard": "PoolCollections.held has a boolean return contract; loaderless-collections.test.ts guards the board holding read and collections.test.ts guards instance-scoped holds. Exact fingerprint and multiplicity remain enforced."
     },
     {
@@ -41017,6 +41017,42 @@
       "bound": "One boolean holding read for the named page instance; this origin adds no record enumeration or history-sized collection.",
       "reason": "The source-only census treats PoolCollections.held as a collections table property, but this origin is a scalar boolean for one page and its keyed memo callers.",
       "guard": "PoolCollections.held has a boolean return contract; loaderless-collections.test.ts guards the board holding read and collections.test.ts guards instance-scoped holds. Exact fingerprint and multiplicity remain enforced."
+    },
+    {
+      "file": "packages/client-graph/src/collections.ts",
+      "holder": "BodyReadWarnings",
+      "rule": "materialize:Map",
+      "tokens": "086d1b1f6a8b95a6b7e6ed02a6d6e4f3b4ee6b484342c5860d7dee29e737b44f",
+      "gate": [],
+      "origin": [
+        "0657b10276bfa8f15e2a5cf8251e6b80181c0db422047089ac15b2a05ffd5d8d"
+      ],
+      "fingerprint": "25e7e02adce36dd6a7f4430f8a64dfb395507cf6f2e597794ed2b505ab3d667a",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7549",
+      "trigger": "Constructing collection diagnostics once per pool in a development build.",
+      "bound": "The fixed body record declarations and their collection definitions; independent of the number of issues or rows on the device.",
+      "reason": "Development-only collection-to-kind lookup built once per pool from the fixed record declarations, never from device rows.",
+      "guard": "NODE_ENV excludes BodyReadWarnings from production; read-warnings.test.ts checks production code elimination and absence of diagnostic fields. Exact fingerprints and multiplicity remain enforced."
+    },
+    {
+      "file": "packages/client-graph/src/collections.ts",
+      "holder": "BodyReadWarnings/flatMap:callback",
+      "rule": "consume:map",
+      "tokens": "67561fdc174dca4ea78d86f84e843bd8445e85582afe901a4f9c8db1c15926cc",
+      "gate": [],
+      "origin": [
+        "0657b10276bfa8f15e2a5cf8251e6b80181c0db422047089ac15b2a05ffd5d8d"
+      ],
+      "fingerprint": "7e70345a6b7020b9b98f30d70418c98aeb942e412aafd5191c3a4c2aa5d9f043",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7549",
+      "trigger": "Constructing collection diagnostics once per pool in a development build.",
+      "bound": "The fixed body record declarations and their collection definitions; independent of the number of issues or rows on the device.",
+      "reason": "Development-only mapping of each declared body kind to its fixed collection definitions; work is bounded by schema size, not issue history.",
+      "guard": "NODE_ENV excludes BodyReadWarnings from production; read-warnings.test.ts checks production code elimination and absence of diagnostic fields. Exact fingerprints and multiplicity remain enforced."
     }
   ]
 }
