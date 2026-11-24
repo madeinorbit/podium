@@ -276,16 +276,72 @@ describe("an exited session's credential on reattach", () => {
 
   it('resolves the credential at the bind, so a grant that ended meanwhile is refused', async () => {
     const f = fixture(1, 'exited')
+    const session = f.sessions[0]!
     await f.reconciler.onAttached(principal)
+    const refusedFor: string[] = []
+    f.ports.accessRefused = async (s, refused) => {
+      refusedFor.push(`${s.sessionId}:${refused.refused}`)
+    }
     f.ports.accessRefresh = async (s) => {
       f.order.push(`refused:${s.sessionId}`)
-      return undefined
+      return { refused: 'not-yours', credentialId: null }
     }
-    await f.reconciler.onBound(f.sessions[0]!, machine, 'exited')
-    expect(f.order).toEqual([
-      `reattach:${f.sessions[0]!.sessionId}`,
-      `refused:${f.sessions[0]!.sessionId}`,
+    await f.reconciler.onBound(session, machine, 'exited')
+    expect(f.order).toEqual([`reattach:${session.sessionId}`, `refused:${session.sessionId}`])
+    // POD-7591: the bound process is handed on to be stopped.
+    expect(refusedFor).toEqual([`${session.sessionId}:not-yours`])
+    // Review N2: one refusal ends the debt; a later bind resolves nothing again.
+    await f.reconciler.onBound(session, machine, 'exited')
+    expect(f.order).toHaveLength(2)
+    expect(refusedFor).toHaveLength(1)
+  })
+
+  // Review N1: two binds of a still-exited row can arrive together.
+  it('sends an owed refresh once when two binds arrive together', async () => {
+    const f = fixture(1, 'exited')
+    const session = f.sessions[0]!
+    await f.reconciler.onAttached(principal)
+    const refresh = f.ports.accessRefresh!
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    f.ports.accessRefresh = async (s, id) => {
+      await gate
+      return await refresh(s, id)
+    }
+    const first = f.reconciler.onBound(session, machine, 'exited')
+    const second = f.reconciler.onBound(session, machine, 'exited')
+    release()
+    await Promise.all([first, second])
+    expect(sent(f.order)).toEqual([
+      `audit:${session.sessionId}`,
+      `sessionAccessRefresh:${session.sessionId}`,
     ])
+    // A failed attempt still frees the marker: the debt can be paid by the next bind.
+    const again = fixture(1, 'exited')
+    await again.reconciler.onAttached(principal)
+    const ok = again.ports.accessRefresh!
+    again.ports.accessRefresh = async () => {
+      throw new Error('vault unavailable')
+    }
+    await again.reconciler.onBound(again.sessions[0]!, machine, 'exited')
+    again.ports.accessRefresh = ok
+    await again.reconciler.onBound(again.sessions[0]!, machine, 'exited')
+    expect(sent(again.order)).toEqual([
+      `audit:${again.sessions[0]!.sessionId}`,
+      `sessionAccessRefresh:${again.sessions[0]!.sessionId}`,
+    ])
+  })
+
+  it('a refusal hand-off that throws does not break the bind', async () => {
+    const f = fixture(1, 'exited')
+    await f.reconciler.onAttached(principal)
+    f.ports.accessRefresh = async () => ({ refused: 'revoked', credentialId: null })
+    f.ports.accessRefused = async () => {
+      throw new Error('interaction store down')
+    }
+    await expect(f.reconciler.onBound(f.sessions[0]!, machine, 'exited')).resolves.toBeUndefined()
   })
 
   // Review F2: only a proven PTY defers; everything else keeps its refresh first.
@@ -440,5 +496,64 @@ describe('reattach messages built a chunk at a time', () => {
     await f.reconciler.onAttached(principal)
     expect(f.order.filter((entry) => entry.startsWith('reattach:'))).toHaveLength(3)
     expect(f.ports.reattachMessage).toHaveBeenCalledTimes(3)
+  })
+})
+
+// POD-7591: a survivor whose refresh is refused still has its reattach sent, so
+// the daemon binds what survives; the refusal is handed on at that bind.
+describe('a refused refresh for a process that may still run', () => {
+  function refusing(count: number) {
+    const f = fixture(count)
+    const handed: string[] = []
+    f.ports.accessRefresh = async (s) => {
+      f.order.push(`refused:${s.sessionId}`)
+      return { refused: 'machine-not-allowed', credentialId: null }
+    }
+    f.ports.accessRefused = async (s, refused) => {
+      handed.push(`${s.sessionId}:${refused.refused}`)
+    }
+    return { ...f, handed }
+  }
+
+  it('sends the reattach without a credential and hands the refusal on at the bind', async () => {
+    const f = refusing(1)
+    const survivor = f.sessions[0]!
+    await f.reconciler.onAttached(principal)
+    expect(f.order).toEqual([`refused:${survivor.sessionId}`, `reattach:${survivor.sessionId}`])
+    expect(f.handed).toEqual([])
+    await f.reconciler.onBound(survivor, machine, 'live')
+    expect(f.handed).toEqual([`${survivor.sessionId}:machine-not-allowed`])
+    // Once: the next bind hands nothing on and resolves nothing.
+    await f.reconciler.onBound(survivor, machine, 'live')
+    expect(f.handed).toHaveLength(1)
+    expect(f.order).toHaveLength(2)
+  })
+
+  it('drops the refusal for a launch bind, another machine, and after a detach', async () => {
+    const f = refusing(3)
+    await f.reconciler.onAttached(principal)
+    const [launched, foreign, detached] = f.sessions as [Session, Session, Session]
+    // The row was taken out of its probed status by a launch, which judged its own credential.
+    await f.reconciler.onBound(launched, machine, 'starting')
+    await f.reconciler.onBound(launched, machine, 'live')
+    await f.reconciler.onBound(foreign, asMachineId('reconnect-other-machine'), 'live')
+    f.reconciler.onDetached(principal)
+    await f.reconciler.onBound(detached, machine, 'live')
+    expect(f.handed).toEqual([])
+  })
+
+  it('hands on a refusal from the census revive at the revived process bind', async () => {
+    const f = refusing(1)
+    const parked = f.sessions[0]!
+    parked.status = 'exited'
+    parked.awaitingRebind = false
+    parked.boundDriverId = 'generic-pty'
+    f.ports.write = async (s, mutate) => {
+      mutate(s as never)
+    }
+    await f.reconciler.reviveParkedButAlive(parked, machine, 'census', { measuredPtyHost: true })
+    expect(f.order).toEqual([`refused:${parked.sessionId}`, `reattach:${parked.sessionId}`])
+    await f.reconciler.onBound(parked, machine, 'live')
+    expect(f.handed).toEqual([`${parked.sessionId}:machine-not-allowed`])
   })
 })

@@ -17,6 +17,7 @@ import { firstAdminMemberId, type MachineId, type SessionId } from '@podium/mode
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { sealCredentialSecret } from '../../apps/server/src/modules/credentials/vault'
 import {
+  isRefreshRefused,
   type MachineReconcilerPorts,
   type ParkedOnMachine,
   SessionMachineReconciler,
@@ -56,7 +57,7 @@ const unpaced: ProbeLoop['probeEach'] = async function (this: ProbeLoop, probes,
       const refresh = await this.ports.accessRefresh?.(s, machineId)
       const awaiting = s.awaitingRebind === true && (s.status === 'live' || s.status === 'starting')
       if (s.machineId !== machineId || s.archived || (!awaiting && s.status !== 'exited')) return
-      if (refresh) this.ports.toMachine(machineId, refresh)
+      if (refresh && !isRefreshRefused(refresh)) this.ports.toMachine(machineId, refresh)
       this.ports.toMachine(machineId, message)
     })
   }

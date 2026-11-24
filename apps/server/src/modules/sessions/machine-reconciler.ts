@@ -36,7 +36,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { MachineId } from '@podium/model'
+import type { AccessRefusal, CredentialId, MachineId } from '@podium/model'
 import type { MachinePrincipal } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { runTimeBudgetedJob } from '@podium/runtime/time-budget'
@@ -52,6 +52,24 @@ export type ParkedOnMachine = Pick<
 > &
   /** Resident sessions only: a parked row read from the database never runs. */
   Partial<Pick<Session, 'awaitingRebind'>>
+
+/**
+ * A refresh the resolver refused (POD-7591): why, and the credential it judged
+ * (null: a legacy account that resolved to no Podium credential). The process
+ * the reattach binds may still hold the secret from before, so the refusal is
+ * handed on at that bind ({@link MachineReconcilerPorts.accessRefused}).
+ */
+export interface RefreshRefused {
+  readonly refused: AccessRefusal
+  readonly credentialId: CredentialId | null
+}
+
+/** What judging a survivor's credential again answers: a frame to send, a refusal, or nothing. */
+export type AccessRefreshResult = ControlMessage | RefreshRefused | undefined
+
+export function isRefreshRefused(result: AccessRefreshResult): result is RefreshRefused {
+  return result !== undefined && 'refused' in result
+}
 
 /**
  * Still running, and no daemon has bound it since its daemon left or the server
@@ -125,11 +143,19 @@ export interface MachineReconcilerPorts {
    * The survivor's credential again (credential management §8): a restarted
    * daemon holds none, so a session on a vault credential gets
    * `sessionAccessRefresh` just before its reattach, on the same ordered
-   * socket. Undefined: the session runs on no credential, or it was refused
-   * (the refusal is on the trail; the daemon's next turn waits, then fails).
-   * Absent (unit fixtures): nothing is refreshed.
+   * socket. Undefined: the session runs on no credential. A refusal is on the
+   * trail and is returned as such: the daemon gets nothing (its next process
+   * start waits, then fails), and the bound process is handed to
+   * {@link accessRefused}. Absent (unit fixtures): nothing is refreshed.
    */
-  accessRefresh?(session: Session, machineId: MachineId): Promise<ControlMessage | undefined>
+  accessRefresh?(session: Session, machineId: MachineId): Promise<AccessRefreshResult>
+  /**
+   * A bound process's credential was refused when judged again (POD-7591). The
+   * composition root hands it to credential health, which flags and stops a
+   * session whose right was withdrawn at its next turn boundary. Called after
+   * the bind committed, so the session reads live; never for a launch's bind.
+   */
+  accessRefused?(session: Session, refused: RefreshRefused): Promise<void>
   /**
    * This machine's sessions that do not run, parked ones read from the
    * database (POD-6160 D2g): what the attach probe and the census look at.
@@ -192,6 +218,19 @@ export class SessionMachineReconciler {
    * restart loses it, and the next attach probes again.
    */
   private readonly refreshOnBind = new Map<Session['sessionId'], MachineId>()
+  /**
+   * Sessions whose refresh was refused at the probe or the census revive while
+   * their reattach still went out (POD-7591): the refusal is acted on at the bind
+   * that proves the process, without a second resolve. `status` is the row's
+   * status when it was refused; a bind that finds another one answers a launch,
+   * which judged its own credential, and drops it. Forgotten like the debt above.
+   */
+  private readonly refusedOnBind = new Map<
+    Session['sessionId'],
+    { machineId: MachineId; refused: RefreshRefused; status: Session['status'] }
+  >()
+  /** Owed refreshes being resolved and sent now (review N1): a second bind sends nothing. */
+  private readonly owedInFlight = new Set<Session['sessionId']>()
 
   constructor(private readonly ports: MachineReconcilerPorts) {}
 
@@ -403,21 +442,61 @@ export class SessionMachineReconciler {
     machineId: MachineId,
     statusBeforeBind: Session['status'],
   ): Promise<void> {
-    if (this.refreshOnBind.get(session.sessionId) !== machineId) return
+    const sessionId = session.sessionId
+    const refused = this.refusedOnBind.get(sessionId)
+    if (refused && refused.machineId === machineId) {
+      this.refusedOnBind.delete(sessionId)
+      if (statusBeforeBind !== refused.status) return
+      if (session.machineId !== machineId || session.archived) return
+      await this.handOnRefusal(session, refused.refused)
+      return
+    }
+    if (this.refreshOnBind.get(sessionId) !== machineId) return
     if (statusBeforeBind !== 'exited') {
-      this.refreshOnBind.delete(session.sessionId)
+      this.refreshOnBind.delete(sessionId)
       return
     }
     if (session.machineId !== machineId || session.archived) return
+    // Review N1: frames are not serialized, so two binds of a still-exited row
+    // can arrive together. The first resolves and sends; the second sends nothing.
+    if (this.owedInFlight.has(sessionId)) return
+    this.owedInFlight.add(sessionId)
     try {
       const refresh = await this.ports.accessRefresh?.(session, machineId)
-      if (!refresh || session.machineId !== machineId || session.archived) return
+      if (isRefreshRefused(refresh)) {
+        // Review N2: one refusal, one refuse row, and the debt ends. A withdrawal
+        // stops the process; a delivery condition is retried by the machine's
+        // next attach probe, or by a renewal's restart.
+        this.refreshOnBind.delete(sessionId)
+        await this.handOnRefusal(session, refresh)
+        return
+      }
+      if (!refresh) {
+        this.refreshOnBind.delete(sessionId)
+        return
+      }
+      if (session.machineId !== machineId || session.archived) return
       await this.ports.toMachine(machineId, refresh)
-      this.refreshOnBind.delete(session.sessionId)
+      this.refreshOnBind.delete(sessionId)
     } catch (err) {
       log.warn('the credential owed at bind was not sent; kept for the next bind', {
-        sessionId: session.sessionId,
+        sessionId,
         machineId,
+        err,
+      })
+    } finally {
+      this.owedInFlight.delete(sessionId)
+    }
+  }
+
+  /** Hand a bound process's refusal on to credential health; never throws, so the bind goes on. */
+  private async handOnRefusal(session: Session, refused: RefreshRefused): Promise<void> {
+    try {
+      await this.ports.accessRefused?.(session, refused)
+    } catch (err) {
+      log.warn('a refused credential was not acted on for its bound session', {
+        sessionId: session.sessionId,
+        refusal: refused.refused,
         err,
       })
     }
@@ -427,6 +506,9 @@ export class SessionMachineReconciler {
   private forgetOwedRefreshes(machineId: MachineId): void {
     for (const [sessionId, owedOn] of this.refreshOnBind) {
       if (owedOn === machineId) this.refreshOnBind.delete(sessionId)
+    }
+    for (const [sessionId, refused] of this.refusedOnBind) {
+      if (refused.machineId === machineId) this.refusedOnBind.delete(sessionId)
     }
   }
 
@@ -499,7 +581,12 @@ export class SessionMachineReconciler {
         }
         const refresh = await this.ports.accessRefresh?.(s, machineId)
         if (!probed()) return
-        if (refresh) {
+        if (isRefreshRefused(refresh)) {
+          // The reattach still goes out, so the daemon binds what survives; the
+          // refusal is acted on at that bind (POD-7591). A dead process answers
+          // reattachFailed and holds nothing.
+          this.refusedOnBind.set(s.sessionId, { machineId, refused: refresh, status: s.status })
+        } else if (refresh) {
           // The access's link is judged at the send, which reads the settings;
           // the reattach follows only a refresh that went out, for a session
           // that is still this machine's.
@@ -655,7 +742,14 @@ export class SessionMachineReconciler {
     const rebinding = () =>
       session.machineId === machineId && !session.archived && awaitsRebind(session)
     if (!rebinding()) return
-    if (refresh) {
+    if (isRefreshRefused(refresh)) {
+      // As in the probe above: acted on at the bind of the revived process.
+      this.refusedOnBind.set(session.sessionId, {
+        machineId,
+        refused: refresh,
+        status: session.status,
+      })
+    } else if (refresh) {
       // Judged at the send, as in the probe above.
       await this.ports.toMachine(machineId, refresh)
       if (!rebinding()) return
