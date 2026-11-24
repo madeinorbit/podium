@@ -83,6 +83,13 @@ export const RAW_RELATION_READERS: readonly RawRelationReader[] = [
     'get rules() { return this.view.readRulesIssue(this.id) }',
   ),
   ...reader(
+    'MissionIssueReader@*.earliestChild',
+    ['issue.children'],
+    'POD-7580',
+    'mission-view.ts',
+    '@lazy get earliestChild() {',
+  ),
+  ...reader(
     'MissionIssueReader@*.issue',
     ['issue.treeChildren', 'issue.pageDependents'],
     'POD-7580',
