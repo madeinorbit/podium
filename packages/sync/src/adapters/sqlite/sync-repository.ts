@@ -253,6 +253,23 @@ const changesAfter = prepared((db, t) =>
     .prepare(),
 )
 
+/** POD-7585 — {@link changesBetween} without the payloads: a replay of the access moves. */
+const changeRefsBetween = prepared((db, t) =>
+  db
+    .select({ seq: t.changes.seq, entity: t.changes.entity, entityId: t.changes.entityId })
+    .from(t.changes)
+    .where(
+      inWorkspace(
+        t.changes,
+        gt(t.changes.seq, param(t.changes.seq, 'from')),
+        lte(t.changes.seq, param(t.changes.seq, 'through')),
+      ),
+    )
+    .orderBy(asc(t.changes.seq))
+    .limit(sql.placeholder('limit'))
+    .prepare(),
+)
+
 const changesBetween = prepared((db, t) =>
   db
     .select({
@@ -990,6 +1007,16 @@ export class SyncRepository {
       limit,
     })
     return rows.map((r) => mapChangeLogReadRow(r))
+  }
+
+  /** POD-7585 — exactly (from, through] by name only, with a bounded page size. One statement. */
+  async changeRefsInRange(
+    from: number,
+    through: number,
+    limit: number,
+  ): Promise<{ seq: number; entity: string; entityId: string }[]> {
+    const rows = await changeRefsBetween(this.db).all({ from, through, limit })
+    return rows.map((r) => ({ seq: Number(r.seq), entity: r.entity, entityId: r.entityId }))
   }
 
   /**

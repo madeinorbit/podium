@@ -649,7 +649,7 @@ describe('the recorded-through mark: a move whose pass never ran is not lost (PO
     expect(log.rows.get('#through')).toBe(2)
   })
 
-  it('a pass that failed leaves a gap the next pass replays before its own batch', async () => {
+  it('a pass that failed leaves a gap: the next pass records its own moves at once, a catch-up closes it', async () => {
     const store = memoryStore()
     const tables = state()
     let failing = false
@@ -667,9 +667,66 @@ describe('the recorded-through mark: a move whose pass never ran is not lost (PO
     // The mark does not follow a batch whose moves were not written.
     expect(authority.accessMovesRecordedThrough()).toBe(0)
     failing = false
-    await authority.save([upsert('plain', {})])
+    tables.edge(ref('grant'), ['lin'], [])
+    await authority.save([upsert('grant', {})])
+    // This batch's own move is written without waiting for the gap, and without a mark.
+    expect(log.writes[0]).toEqual({ moves: [['lin', 2]] })
+    expect(await authority.whenAccessMovesRecordedThrough(2, 1_000)).toBe(2)
     expect(log.rows.get('ada')).toBe(1)
-    expect(authority.accessMovesRecordedThrough()).toBe(2)
+    expect(log.rows.get('#through')).toBe(2)
+  })
+
+  it('a prune during the replay: the page after it is not trusted, recording starts after the tail', async () => {
+    const store = memoryStore()
+    const tables = state()
+    const a = processOver(store, tables, moveLog().port, () => {})
+    tables.edge(ref('revoke'), ['ada'], [])
+    await a.save([upsert('plain', {}), upsert('revoke', {}), upsert('later', {})])
+    // The maintenance prune commits between the replay's first floor read and its page.
+    let floor: number | null = 1
+    let reads = 0
+    const pruning: ChangeLogStore = {
+      ...store,
+      minChangeSeq: async () => {
+        reads += 1
+        if (reads === 2) floor = 3
+        return floor
+      },
+    }
+    const log = moveLog()
+    const b = processOver(pruning, tables, log.port)
+    await b.catchUpAccessMoves()
+    // Nothing was written past the prune as recorded; old cursors cannot be told.
+    expect(log.writes).toEqual([])
+    expect(log.rows.get('')).toBe(3)
+    expect(log.rows.get('#through')).toBe(3)
+    expect(b.accessMovesRecordedThrough()).toBe(3)
+  })
+
+  it('wakes a waiter when the mark reaches its seq, and answers the mark after the bound', async () => {
+    const store = memoryStore()
+    const tables = state()
+    const authority = processOver(store, tables, moveLog().port)
+    await authority.catchUpAccessMoves()
+    expect(await authority.whenAccessMovesRecordedThrough(1, 0)).toBe(0)
+    const waiting = authority.whenAccessMovesRecordedThrough(1, 60_000)
+    await authority.save([upsert('plain', {})])
+    expect(await waiting).toBe(1)
+    const started = performance.now()
+    expect(await authority.whenAccessMovesRecordedThrough(5, 20)).toBe(1)
+    expect(performance.now() - started).toBeGreaterThanOrEqual(15)
+  })
+
+  it('a clean shutdown does not wait past its bound for a stuck pass', async () => {
+    const log = moveLog()
+    const authority = processOver(memoryStore(), state(), log.port)
+    await authority.catchUpAccessMoves()
+    await authority.save([upsert('plain', {})])
+    expect(log.rows.get('#through')).toBeUndefined()
+    // A later pass that never finishes.
+    Object.assign(authority, { settled: () => new Promise<void>(() => {}) })
+    await authority.flushAccessMoves(20)
+    expect(log.rows.get('#through')).toBe(1)
   })
 
   it('quiet passes move the mark in memory and write nothing; a moving pass carries it in its upsert', async () => {

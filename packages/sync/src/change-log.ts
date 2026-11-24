@@ -27,6 +27,13 @@ export interface ChangePrunePlan {
  * (`op: string` vs the global op union; missing provenance) and from each
  * other. One definition site cannot disagree with itself.
  */
+/** POD-7585 — one change-log row by name: its seq, kind and id. */
+export interface ChangeRef {
+  readonly seq: number
+  readonly entity: string
+  readonly entityId: string
+}
+
 export interface ChangeLogStore {
   /** Append pre-diffed rows atomically; returns their contiguous seqs. */
   appendChanges(rows: readonly ChangeLogWriteRow[], eventTime: number): Promise<number[]>
@@ -38,6 +45,12 @@ export interface ChangeLogStore {
   changesSince(cursor: number): Promise<readonly ChangeLogReadRow[]>
   /** Rows in (from, through], ascending and bounded by limit. */
   changesInRange(from: number, through: number, limit: number): Promise<readonly ChangeLogReadRow[]>
+  /**
+   * POD-7585 — the same range, naming each row only (no payloads): what a
+   * replay of the access moves evaluates. Absent, the replay reads
+   * {@link changesInRange}.
+   */
+  changeRefsInRange?(from: number, through: number, limit: number): Promise<readonly ChangeRef[]>
   /** Snapshot the head-only retention threshold once per job. */
   planChangePrune(opts: {
     keepRows: number

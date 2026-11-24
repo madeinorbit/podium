@@ -278,6 +278,15 @@ export function describeSyncRepositoryGolden(open: OpenSyncRepositoryFixture): v
       expect((await repo.changesInRange(0, 2, 10)).map((r) => r.seq)).toEqual([1, 2])
       expect((await repo.changesInRange(1, 3, 1)).map((r) => r.seq)).toEqual([2])
       expect(await repo.changesInRange(2, 2, 10)).toEqual([])
+      // POD-7585: the same range by name only, for a replay of the access moves.
+      expect(await repo.changeRefsInRange(0, 3, 2)).toEqual([
+        { seq: 1, entity: 'issueProjection', entityId: 'i1' },
+        { seq: 2, entity: 'issueProjection', entityId: 'i2' },
+      ])
+      expect(await repo.changeRefsInRange(2, 3, 10)).toEqual([
+        { seq: 3, entity: 'issueProjection', entityId: 'i3' },
+      ])
+      expect(await repo.changeRefsInRange(3, 3, 10)).toEqual([])
     })
 
     it('leaves NOTHING behind when a later chunk of one append fails', async () => {

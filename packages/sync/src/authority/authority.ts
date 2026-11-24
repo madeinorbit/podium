@@ -86,8 +86,8 @@
 
 import { createLogger } from '@podium/logger'
 import type { ChangeProvenanceFields } from '@podium/model'
-import { type MetadataEntityKind, type Principal, principalRoutingId } from '@podium/protocol'
-import { type ChangeLogStore, ChangeRangeBootstrapRequired, readChangesRange } from '../change-log'
+import { MetadataEntityKind, type Principal, principalRoutingId } from '@podium/protocol'
+import { type ChangeLogStore, ChangeRangeBootstrapRequired, type ChangeRef } from '../change-log'
 import type {
   FeedScopingGrade,
   FeedVisibilityPolicy,
@@ -134,6 +134,12 @@ export const ACCESS_MOVE_REPLAY_BOUND = 20_000
 
 /** POD-7585 — the page a replay of the access moves reads the log in. */
 const ACCESS_MOVE_REPLAY_PAGE = 1_000
+
+/**
+ * POD-7585 — how long a clean shutdown waits for the queued delivery passes
+ * before it raises the durable mark to wherever this process's mark is then.
+ */
+export const ACCESS_MOVE_FLUSH_WAIT_MS = 2_000
 
 export interface AuthorityDeps {
   /** The durable change log. Narrow by design — see `ChangeStorePort`. */
@@ -495,10 +501,38 @@ export class Authority implements AuthorityPort {
   private durableThrough = 0
   private catchUp: Promise<void> | undefined
   private catchUpFailed = false
+  /** Who waits for the mark to reach a seq ({@link whenAccessMovesRecordedThrough}). */
+  private readonly markWaiters = new Set<{ readonly seq: number; readonly wake: () => void }>()
 
   /** See {@link AuthorityPort.accessMovesRecordedThrough}. */
   accessMovesRecordedThrough(): number | null {
     return this.deps.accessMoves === undefined ? null : this.recordedThrough
+  }
+
+  /** See {@link AuthorityPort.whenAccessMovesRecordedThrough}. */
+  async whenAccessMovesRecordedThrough(seq: number, withinMs: number): Promise<number | null> {
+    const reached = () => {
+      const mark = this.accessMovesRecordedThrough()
+      return mark !== null && mark >= seq
+    }
+    if (this.deps.accessMoves === undefined || withinMs <= 0 || reached()) {
+      return this.accessMovesRecordedThrough()
+    }
+    await new Promise<void>((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const waiter = {
+        seq,
+        wake: () => {
+          clearTimeout(timer)
+          this.markWaiters.delete(waiter)
+          resolve()
+        },
+      }
+      timer = setTimeout(waiter.wake, withinMs)
+      timer.unref?.()
+      this.markWaiters.add(waiter)
+    })
+    return this.accessMovesRecordedThrough()
   }
 
   /**
@@ -541,10 +575,20 @@ export class Authority implements AuthorityPort {
    * that raises the durable mark to this process's, so the next start has no
    * tail to replay. Best effort; a failure leaves the replay to the next start.
    */
-  async flushAccessMoves(): Promise<void> {
+  async flushAccessMoves(waitMs = ACCESS_MOVE_FLUSH_WAIT_MS): Promise<void> {
     if (this.deps.accessMoves === undefined) return
     try {
-      await this.settled()
+      // Bounded: a pass stuck on the database must not hold the shutdown. The
+      // mark is a true prefix at every moment, so persisting it early is safe.
+      let timer: ReturnType<typeof setTimeout> | undefined
+      await Promise.race([
+        this.settled(),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, waitMs)
+          timer.unref?.()
+        }),
+      ])
+      clearTimeout(timer)
       await this.persistRecordedThrough()
     } catch (err) {
       log.warn('raising the recorded-through mark at shutdown failed', { err })
@@ -552,7 +596,9 @@ export class Authority implements AuthorityPort {
   }
 
   private advanceRecordedThrough(prefix: number): void {
-    this.recordedThrough = Math.max(this.recordedThrough ?? prefix, prefix)
+    const mark = Math.max(this.recordedThrough ?? prefix, prefix)
+    this.recordedThrough = mark
+    for (const waiter of this.markWaiters) if (waiter.seq <= mark) waiter.wake()
   }
 
   private async persistRecordedThrough(): Promise<void> {
@@ -565,11 +611,18 @@ export class Authority implements AuthorityPort {
 
   /**
    * Record the moves of every change in `(from, through]` from the log, as the
-   * pass that should have recorded them would have: the same edges, read over
-   * the retained rows as a heal reads them. Only the kinds whose edges move
-   * access are evaluated. A range the log no longer holds, or one longer than
-   * {@link ACCESS_MOVE_REPLAY_BOUND}, is not replayed: recording is declared
-   * to start after it instead, the conservative "cannot tell".
+   * pass that should have recorded them would have: the same edges, over the
+   * retained rows. The rows are read by name only (no payloads), and only the
+   * kinds whose edges move access are evaluated. A range the log no longer
+   * holds, or one longer than {@link ACCESS_MOVE_REPLAY_BOUND}, is not
+   * replayed: recording is declared to start after it instead, the
+   * conservative "cannot tell".
+   *
+   * THE FLOOR IS READ AGAIN AFTER EVERY PAGE, before that page's mark is
+   * written. A prune that ran during the replay deletes rows below the next
+   * page without an error, and a page read after it would silently skip them.
+   * The prune moves the floor in the same transaction as its delete, so a
+   * floor above the page's start means the page may have missed rows.
    */
   private async replayAccessMoves(from: number, through: number): Promise<void> {
     const port = this.deps.accessMoves
@@ -577,46 +630,61 @@ export class Authority implements AuthorityPort {
     if (through - from > ACCESS_MOVE_REPLAY_BOUND) {
       log.warn(
         'the unrecorded access-move tail is past the replay bound; recording starts after it',
-        {
-          from,
-          through,
-        },
+        { from, through },
       )
       await this.raiseRecordingStart(through)
       return
     }
-    try {
-      for await (const page of readChangesRange(
-        this.deps.store,
-        from,
-        through,
-        ACCESS_MOVE_REPLAY_PAGE,
-      )) {
-        const relevant = page.filter((change) => port.movesAccess?.(change.entity) !== false)
-        const edges =
-          relevant.length === 0
-            ? []
-            : await this.deps.anchors.visibilityEdges(
-                relevant.map(({ entity, entityId, seq }) => ({ entity, entityId, seq })),
-              )
-        const moves = this.movesOf(relevant, edges)
-        const end = page[page.length - 1]?.seq
-        if (moves.size === 0 || end === undefined) continue
+    let at = from
+    while (at < through) {
+      const floor = await this.deps.store.minChangeSeq()
+      const refs = floor === null || floor > at + 1 ? null : await this.changeRefs(at, through)
+      // After the read: a prune that committed before it has moved the floor.
+      const after = refs === null ? floor : await this.deps.store.minChangeSeq()
+      if (refs === null || after === null || after > at + 1) {
+        log.warn(
+          'the unrecorded access-move tail is no longer in the log; recording starts after it',
+          { from, at, through, floor: after },
+        )
+        await this.raiseRecordingStart(through)
+        return
+      }
+      const end = refs[refs.length - 1]?.seq
+      if (end === undefined) return
+      const relevant: SequencedChange[] = []
+      for (const ref of refs) {
+        if (!MetadataEntityKind.safeParse(ref.entity).success) continue
+        if (port.movesAccess?.(ref.entity) === false) continue
+        relevant.push({
+          seq: ref.seq,
+          entity: ref.entity as MetadataEntityKind,
+          entityId: ref.entityId,
+          op: 'upsert',
+        })
+      }
+      const edges =
+        relevant.length === 0
+          ? []
+          : await this.deps.anchors.visibilityEdges(
+              relevant.map(({ entity, entityId, seq }) => ({ entity, entityId, seq })),
+            )
+      const moves = this.movesOf(relevant, edges)
+      if (moves.size > 0) {
         await port.recordAccessMoves(moves, end)
         this.durableThrough = Math.max(this.durableThrough, end)
       }
-    } catch (error) {
-      if (!(error instanceof ChangeRangeBootstrapRequired)) throw error
-      log.warn(
-        'the unrecorded access-move tail is no longer in the log; recording starts after it',
-        {
-          from,
-          through,
-          reason: error.message,
-        },
-      )
-      await this.raiseRecordingStart(through)
+      at = end
     }
+  }
+
+  /** One page of `(from, through]` by name: the narrow read where the store has it. */
+  private async changeRefs(from: number, through: number): Promise<readonly ChangeRef[]> {
+    const store = this.deps.store
+    if (store.changeRefsInRange !== undefined) {
+      return await store.changeRefsInRange(from, through, ACCESS_MOVE_REPLAY_PAGE)
+    }
+    const rows = await store.changesInRange(from, through, ACCESS_MOVE_REPLAY_PAGE)
+    return rows.map(({ seq, entity, entityId }) => ({ seq, entity, entityId }))
   }
 
   private async raiseRecordingStart(seq: number): Promise<void> {
@@ -788,11 +856,14 @@ export class Authority implements AuthorityPort {
    * is logged and does not hold the delivery back; the rows are durable, and
    * a device within retention still learns of the move from them.
    *
-   * POD-7585 — and the recorded-through mark: changes between the mark and
-   * this batch (a pass that failed, another process's writes) are replayed
-   * first, and the mark follows this batch only once its moves are written.
-   * The durable mark rides in the moves' own upsert, so a quiet batch still
-   * writes nothing.
+   * POD-7585 — and the recorded-through mark. When this batch follows the
+   * mark on, the mark follows it once its moves are written, and the durable
+   * mark rides in the moves' own upsert, so a quiet batch still writes
+   * nothing. When changes lie between the mark and this batch (a pass that
+   * failed, another process's writes), this batch's moves are still written
+   * at once, without a mark, and a catch-up in the background replays the gap:
+   * live delivery never waits on a replay, and a failed replay never holds
+   * back this batch's moves.
    */
   private async recordAccessMoves(
     changes: readonly SequencedChange[],
@@ -802,14 +873,15 @@ export class Authority implements AuthorityPort {
     const first = changes[0]?.seq
     const last = changes[changes.length - 1]?.seq
     if (port === undefined || first === undefined || last === undefined) return
-    if (this.recordedThrough === null && this.catchUpFailed && this.catchUp === undefined) {
+    const mark = this.recordedThrough
+    const followsOn = mark !== null && mark >= first - 1
+    const gap = mark !== null && !followsOn
+    if ((gap || (mark === null && this.catchUpFailed)) && this.catchUp === undefined) {
       this.catchUpAccessMoves().catch(() => undefined)
     }
     try {
-      const mark = this.recordedThrough
-      if (mark !== null && mark < first - 1) await this.replayAccessMoves(mark, first - 1)
       const moves = this.movesOf(changes, prepared.edges)
-      const through = mark === null ? undefined : last
+      const through = followsOn ? last : undefined
       if (moves.size > 0) await port.recordAccessMoves(moves, through)
       if (through !== undefined) {
         if (moves.size > 0) this.durableThrough = Math.max(this.durableThrough, through)

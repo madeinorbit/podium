@@ -303,6 +303,14 @@ export interface AuthorityPort {
   accessMovesRecordedThrough?(): number | null
 
   /**
+   * POD-7585 — {@link accessMovesRecordedThrough}, once it has reached `seq`
+   * or `withinMs` have passed, whichever is first. It waits on the mark itself,
+   * not on every queued pass. A serving edge that records access moves
+   * answers "moved" when its port lacks this.
+   */
+  whenAccessMovesRecordedThrough?(seq: number, withinMs: number): Promise<number | null>
+
+  /**
    * Catch-up read, FOR ONE PRINCIPAL. `null` means "I cannot serve you a delta —
    * re-bootstrap" (bootstrap / compacted-past-cursor / future cursor / corrupt
    * row).
