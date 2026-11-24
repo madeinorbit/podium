@@ -123,10 +123,9 @@ describe('bounded change-log ranges', () => {
     let reads = 0
     const read = f.store.changesInRange
     f.store.changesInRange = vi.fn(async (from, through, limit) => {
-      const page = await read(from, through, limit)
-      // After the first page: the head prune deletes seqs 1 and 2.
-      if (++reads === 1) f.rows.splice(0, 2)
-      return page
+      // Between the first page and the second: the head prune deletes seqs 1 and 2.
+      if (++reads === 2) f.rows.splice(0, 2)
+      return await read(from, through, limit)
     })
     const iterator = readChangesRange(f.store, 0, 4, 1)[Symbol.asyncIterator]()
     expect((await iterator.next()).value).toMatchObject([{ seq: 1 }])
