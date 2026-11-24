@@ -37,6 +37,7 @@ import { userCommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
+import { seedAgentSessions } from '../../test-support/agent-session-rows'
 import { OPERATOR } from '../../test-support/capabilities'
 import { openTestStore } from '../../test-support/open-test-store'
 import { machineUseGateFor } from './handoff/access'
@@ -1043,7 +1044,9 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
     )
 
     const agent = await handoffFixture()
+    await seedAgentSessions(agent.reg.sessionStore, ['sess-agent-7'])
     const agentCapability = {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'admin' as const,
       scope: { kind: 'all' as const },
       actorSessionId: asSessionId('sess-agent-7'),

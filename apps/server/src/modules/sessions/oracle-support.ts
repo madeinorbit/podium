@@ -1,4 +1,4 @@
-import { type CommandPrincipal, resolvePrincipal } from '../../command-principal'
+import type { CommandPrincipal } from '../../command-principal'
 import { attachTestClient } from '../../test-support/client-transport'
 import { clientSessionViews } from '../../test-support/session-views'
 /**
@@ -317,9 +317,7 @@ export async function makeOracle(
   // The oracle's own teardown is `reg.dispose()`; adoption is what makes that
   // stop the turn reaper too (POD-2772).
   reg.adoptSuperagent(superagent)
-  const principal = resolvePrincipal(reg.workspaceId, OPERATOR, {
-    parentSessionOf: () => undefined,
-  })
+  const principal = await reg.modules.sessions.principalFor(OPERATOR)
   const call = appRouter.createCaller({
     registry: reg,
     repos,

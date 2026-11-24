@@ -30,6 +30,7 @@ import { type WorkflowCaller, WorkflowService } from './service'
 import { driveWorkflows } from './test-support'
 import { openTestStore } from '../../test-support/open-test-store'
 import { storeSql } from '../../test-support/store-sql'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 
 const NOW = '2026-07-30T00:00:00.000Z'
 const ALICE = 'user:alice'
@@ -141,6 +142,7 @@ function twoUserPolicy() {
         ...(sessionId
           ? {
               capability: {
+                workspaceId: SELF_HOSTED_WORKSPACE_ID,
                 role: 'worker' as const,
                 scope: {
                   kind: 'subtree' as const,

@@ -67,7 +67,13 @@ function delegatedAgent(sessionId: SessionId, onBehalfOf: UserId): AgentCommandP
     onBehalfOf,
     // A persisted unscoped delegation, held to its own human's member rights
     // (design §2.3, §4.1; POD-6288). It names its human, not the first admin.
-    capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: sessionId, onBehalfOf },
+    capability: {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      role: 'admin',
+      scope: { kind: 'all' },
+      actorSessionId: sessionId,
+      onBehalfOf,
+    },
     chain: [],
   }
 }
@@ -178,7 +184,11 @@ describe('oracle: two-user SessionService fixture', () => {
     expect(await f.o.reg.modules.sessions.sessionOwner(f.bob.sessionId)).toEqual({ owner: BOB })
     const narrowBob: SessionStatePrincipal = {
       ...sessionStatePrincipal(f.agents.bob),
-      capability: { role: 'worker', scope: { kind: 'self', userId: BOB } },
+      capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'worker',
+        scope: { kind: 'self', userId: BOB },
+      },
     }
     expect(
       (await f.o.reg.modules.sessions.listSessions(narrowBob, 'rpc'))

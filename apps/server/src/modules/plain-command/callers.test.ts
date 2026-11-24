@@ -34,12 +34,9 @@ import {
   firstAdminMemberId,
 } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import {
-  type CommandPrincipal,
-  resolvePrincipal,
-  userCommandPrincipal,
-} from '../../command-principal'
+import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
+import { permissiveFixturePrincipal } from '../../test-support/capabilities'
 import { EventBus } from '../bus'
 import { CREDENTIAL_COMMANDS_TRPC } from '../credentials/commands'
 import { NativeLoginService } from '../credentials/native-login'
@@ -83,6 +80,7 @@ const TARGET_CHECKS = new Map<string, PlainTargetCheck>(
 
 const MEMBER = asUserId('user:caller-member')
 const memberCapability: Capability = {
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   role: 'worker',
   scope: { kind: 'owned', userId: MEMBER },
   actorUser: MEMBER,
@@ -90,6 +88,7 @@ const memberCapability: Capability = {
 }
 /** The capability `SessionAuthz.capabilityForSession` mints for a relayed agent. */
 const agentCapability: Capability = {
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   role: 'worker',
   scope: { kind: 'subtree', rootId: asIssueId('iss_caller_table') },
   actorSessionId: asSessionId('ses_caller_table'),
@@ -100,13 +99,13 @@ const PRINCIPALS = {
   /** The web app (and mobile, desktop, operator CLI) signed in as an admin. */
   admin: userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin'),
   /** The same apps signed in as a member: `userCommandPrincipal`'s member arm. */
-  member: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, memberCapability, {
+  member: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, memberCapability, {
     parentSessionOf: () => undefined,
   }),
   /** First-run setup: `server.ts` resolves the earliest admin account. */
   bootstrap: userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin'),
   /** An agent session acting for an admin, as the relay presents it. */
-  agent: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, agentCapability, {
+  agent: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, agentCapability, {
     parentSessionOf: () => undefined,
   }),
 } satisfies Record<string, CommandPrincipal>

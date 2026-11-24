@@ -3,6 +3,8 @@ import { asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
 
 import { SessionRegistry } from '../../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
+import { seedAgentSessions } from '../../test-support/agent-session-rows'
 import { OPERATOR } from '../../test-support/capabilities'
 import { NO_SUCH_PROCEDURE } from '../issues/relay-gate'
 import { lockRegistry } from './registry'
@@ -19,13 +21,21 @@ const registry = await SessionRegistry.create(undefined, undefined, { instanceId
 // A lock's repo resolves only through a machine that reported it (2b803efb5),
 // so the fixture repo is reported by the host machine.
 await registry.sessionStore.repos.addRepo('/repo', registry.sessionStore.hostMachine!.id)
+// The agents these tests act as, owned by the first admin (POD-7558).
+await seedAgentSessions(registry.sessionStore, ['sess_agent', 'sess_h', 'sess_w'])
 afterAll(() => registry.dispose())
 
 const dispatch = async (
   caller: Parameters<SessionRegistry['modules']['lockCommands']['dispatch']>[0],
   proc: string,
   input: unknown,
-) => await registry.modules.lockCommands.dispatch(caller, proc, input)
+) =>
+  await registry.modules.lockCommands.dispatch(
+    caller,
+    proc,
+    input,
+    async () => await registry.modules.sessions.principalFor(caller.capability),
+  )
 
 describe('lock registry', () => {
   it('defines exactly the canonical LOCK_COMMAND_NAMES', () => {
@@ -52,6 +62,7 @@ describe('lock registry', () => {
   it('a relayed agent call is stamped with ITS session id from the capability', async () => {
     const caller = {
       capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'worker' as const,
         scope: { kind: 'none' as const },
         actorSessionId: asSessionId('sess_agent'),
@@ -73,6 +84,7 @@ describe('lock registry', () => {
   it('viewers are role-gated out of writes but may read status', async () => {
     const viewer = {
       capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'viewer' as const,
         scope: { kind: 'none' as const },
         actorUser: firstAdminMemberId(),
@@ -95,6 +107,7 @@ describe('lock registry', () => {
     // must NOT be able to release/renew the operator's lock.
     const ghost = {
       capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'worker' as const,
         scope: { kind: 'none' as const },
         actorUser: firstAdminMemberId(),
@@ -160,6 +173,7 @@ describe('lock registry', () => {
   it('cancel round-trips: a queued caller can leave the queue', async () => {
     const holder = {
       capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'worker' as const,
         scope: { kind: 'none' as const },
         actorSessionId: asSessionId('sess_h'),
@@ -169,6 +183,7 @@ describe('lock registry', () => {
     }
     const waiter = {
       capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'worker' as const,
         scope: { kind: 'none' as const },
         actorSessionId: asSessionId('sess_w'),

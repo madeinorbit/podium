@@ -37,7 +37,7 @@ import { clientSessionViews } from './test-support/session-views'
 const TEST_MACHINE = asMachineId('machine-under-test')
 
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { resolvePrincipalAsync, userCommandPrincipal } from './command-principal'
+import { userCommandPrincipal } from './command-principal'
 import { feedPrincipalOf } from './gateway/client-principal'
 import { CredentialHealth } from './modules/credentials/health'
 import { REPO_ROOT_UNCHECKED } from './modules/machines/refused-send'
@@ -50,6 +50,7 @@ import { SessionRegistry } from './relay'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { SessionRow } from './store'
 import { SessionStore } from './store'
+import { permissiveFixturePrincipalAsync } from './test-support/capabilities'
 import { captureLogs } from './test-support/capture-logs'
 import { attachTestClient } from './test-support/client-transport'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
@@ -895,11 +896,15 @@ describe('SessionRegistry', () => {
     const coordinatorCaller = {
       actor: { kind: 'session' as const, id: coordinator },
       capability: coordinatorCapability,
-      principal: await resolvePrincipalAsync(SELF_HOSTED_WORKSPACE_ID, coordinatorCapability, {
-        parentSessionOf: () => undefined,
-        onBehalfOfFor: async (candidate) =>
-          (await reg.modules.sessions.sessionOwner(candidate))?.owner,
-      }),
+      principal: await permissiveFixturePrincipalAsync(
+        SELF_HOSTED_WORKSPACE_ID,
+        coordinatorCapability,
+        {
+          parentSessionOf: () => undefined,
+          onBehalfOfFor: async (candidate) =>
+            (await reg.modules.sessions.sessionOwner(candidate))?.owner,
+        },
+      ),
       onBehalfOf: firstAdminMemberId(),
     }
     await reg.modules.workflows.execute(coordinatorCaller, 'assignStep', {
@@ -912,11 +917,15 @@ describe('SessionRegistry', () => {
       {
         actor: { kind: 'session', id: worker },
         capability: workerCapability,
-        principal: await resolvePrincipalAsync(SELF_HOSTED_WORKSPACE_ID, workerCapability, {
-          parentSessionOf: () => undefined,
-          onBehalfOfFor: async (candidate) =>
-            (await reg.modules.sessions.sessionOwner(candidate))?.owner,
-        }),
+        principal: await permissiveFixturePrincipalAsync(
+          SELF_HOSTED_WORKSPACE_ID,
+          workerCapability,
+          {
+            parentSessionOf: () => undefined,
+            onBehalfOfFor: async (candidate) =>
+              (await reg.modules.sessions.sessionOwner(candidate))?.owner,
+          },
+        ),
         onBehalfOf: firstAdminMemberId(),
       },
       'checkpoint',

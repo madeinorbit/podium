@@ -150,7 +150,13 @@ const human = (id: UserId, role: 'admin' | 'worker' = 'admin'): CommandPrincipal
   // a colleague's box and the D20 oracle pin below would be unstatable.
   // Worker by explicit opt-in for the machine-oracle case, mirroring
   // command-plane.test.ts. Scope stays `all`.
-  capability: { role, scope: { kind: 'owned', userId: id }, actorUser: id, onBehalfOf: id },
+  capability: {
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
+    role,
+    scope: { kind: 'owned', userId: id },
+    actorUser: id,
+    onBehalfOf: id,
+  },
 })
 
 const agentFor = (sessionId: string, onBehalfOf: UserId): AgentCommandPrincipal => ({
@@ -159,6 +165,7 @@ const agentFor = (sessionId: string, onBehalfOf: UserId): AgentCommandPrincipal 
   agentSessionId: asSessionId(sessionId),
   onBehalfOf,
   capability: {
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     role: 'admin',
     scope: { kind: 'owned', userId: onBehalfOf },
     onBehalfOf,
@@ -439,6 +446,7 @@ describe('AC2 · framework idempotency is the single implementation', () => {
       workspaceId: SELF_HOSTED_WORKSPACE_ID,
       userId: asUserId('user:stranger'),
       capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'worker' as const,
         scope: { kind: 'owned' as const, userId: asUserId('user:stranger') },
       },
@@ -1109,7 +1117,11 @@ describe('AC7 · the command surface is not an existence oracle', () => {
       {
         workspaceId: SELF_HOSTED_WORKSPACE_ID,
         userId: asUserId('user:stranger'),
-        capability: { role: 'worker', scope: { kind: 'owned', userId: asUserId('user:stranger') } },
+        capability: {
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
+          role: 'worker',
+          scope: { kind: 'owned', userId: asUserId('user:stranger') },
+        },
         onBehalfOf: asUserId('user:stranger'),
         humanDirect: true,
       },

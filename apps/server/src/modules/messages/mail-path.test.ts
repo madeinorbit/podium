@@ -24,9 +24,9 @@ import {
   type SessionId,
 } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { resolvePrincipalAsync } from '../../command-principal'
 import { failureNoticeId } from '../../message-ids'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
+import { permissiveFixturePrincipalAsync } from '../../test-support/capabilities'
 import {
   disposeOracles,
   makeOracle as makeBareOracle,
@@ -545,7 +545,7 @@ describe("an await's claim retirement is its own write", () => {
 
     const retire = vi.spyOn(f.o.reg.modules.messageGate, 'retireParentNudge')
     const principalOf = async (sessionId: SessionId) =>
-      await resolvePrincipalAsync(
+      await permissiveFixturePrincipalAsync(
         SELF_HOSTED_WORKSPACE_ID,
         await f.o.reg.modules.sessions.capabilityForSession(sessionId),
         {

@@ -23,6 +23,7 @@ import {
 } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import type { MessageRow, SessionRow } from '../../store/types'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -167,6 +168,7 @@ describe('a device’s own messages, by id', () => {
 
 describe('mail.records, through the gate the tRPC router reaches', () => {
   const person = (user: UserId): Capability => ({
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     role: 'worker',
     scope: { kind: 'owned', userId: user },
     actorUser: user,

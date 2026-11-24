@@ -46,6 +46,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { firstAdminMemberId } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { OPERATOR } from '../../test-support/capabilities'
 import { type AnyIssueCommandDef, issueRegistry } from '../issues/registry'
 import { type AnyLockCommandDef, lockRegistry } from '../lock/registry'
@@ -130,6 +131,8 @@ describe('oracle: the authenticated admin seam', () => {
     // The context capability the router is constructed with IS the constant.
     // POD-6288: the member scope plus the admin role; no person carries `all`.
     expect(OPERATOR).toEqual({
+      // Issued in the fixture's workspace (POD-7558).
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'admin',
       scope: { kind: 'owned', userId: firstAdminMemberId() },
       actorUser: firstAdminMemberId(),

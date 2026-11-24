@@ -19,12 +19,12 @@ import {
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { resolvePrincipal } from '../../../command-principal'
 import { SessionRegistry } from '../../../relay'
 import { RepoRegistry } from '../../../repo-registry'
 import { appRouter } from '../../../router'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../../self-hosted-workspace'
 import { memberFacts } from '../../../store/fixtures/test-support'
+import { permissiveFixturePrincipal } from '../../../test-support/capabilities'
 import { SuperagentService } from '../../superagent'
 import { FAKE_ACCOUNT, FAKE_CLIENT_ID, fakeOpenAi } from './fake-openai'
 
@@ -32,6 +32,7 @@ const OWNER = asUserId('user:chatgpt-cmd-owner')
 const STRANGER = asUserId('user:chatgpt-cmd-stranger')
 
 const member = (userId: UserId): Capability => ({
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   role: 'worker',
   scope: { kind: 'owned', userId },
   actorUser: userId,
@@ -40,6 +41,7 @@ const member = (userId: UserId): Capability => ({
 
 /** A relayed agent session acting for the owner. */
 const AGENT_FOR_OWNER: Capability = {
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   role: 'worker',
   scope: { kind: 'subtree', rootId: asIssueId('iss_chatgpt_commands') },
   actorSessionId: asSessionId('ses_chatgpt_commands'),
@@ -86,7 +88,7 @@ async function harness() {
       users: store.users,
       loginRequired: async () => true,
       capability,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
         parentSessionOf: () => undefined,
       }),
     })

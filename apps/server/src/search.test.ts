@@ -3,7 +3,7 @@ import { SearchResultWire } from '@podium/protocol'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { resolvePrincipal, userCommandPrincipal } from './command-principal'
+import { userCommandPrincipal } from './command-principal'
 import { MEMORY_EXISTENCE_POLICY, MemoryVisibilityPolicy } from './modules/memory/visibility'
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
@@ -11,7 +11,7 @@ import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { memberFacts } from './store/fixtures/test-support'
-import { OPERATOR } from './test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipal } from './test-support/capabilities'
 import { fixtureInventory } from './test-support/daemon-inventory'
 import { forceFeature } from './test-support/features'
 import { attachHostDaemon, confirmingRetirement } from './test-support/host-daemon'
@@ -625,7 +625,7 @@ describe('search.query tRPC', () => {
         repos,
         superagent,
         capability: OPERATOR,
-        principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
           parentSessionOf: () => undefined,
         }),
       }),

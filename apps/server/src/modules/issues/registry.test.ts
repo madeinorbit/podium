@@ -12,6 +12,7 @@ import { z } from 'zod'
 import { SessionRegistry } from '../../relay'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { INLINE_BODY_MAX } from '../../store/messages'
+import { seedAgentSessions } from '../../test-support/agent-session-rows'
 import { OPERATOR } from '../../test-support/capabilities'
 import { executionFactsOf } from '../../test-support/execution-facts'
 import { attachHostDaemon } from '../../test-support/host-daemon'
@@ -28,6 +29,15 @@ import { guardIssueCommand, issueRegistry } from './registry'
 async function reportingRegistry(): Promise<SessionRegistry> {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
+  // The agents these tests act as: each needs its session row, owned by the
+  // first admin, for its capability to resolve (POD-7558).
+  await seedAgentSessions(registry.sessionStore, [
+    'comment-agent',
+    'issueless-agent',
+    'sess_agent_creator',
+    'sess_coord',
+    'sess_types_agent',
+  ])
   return registry
 }
 
@@ -346,7 +356,9 @@ describe('guardIssueCommand authorization matrix', () => {
 
   it('reads pass for any role; writes are role-gated (viewer FORBIDDEN)', async () => {
     const reg = await fresh()
-    const viewer = { capability: { role: 'viewer', scope: { kind: 'all' } } } as const
+    const viewer = {
+      capability: { workspaceId: SELF_HOSTED_WORKSPACE_ID, role: 'viewer', scope: { kind: 'all' } },
+    } as const
     await expect(
       guardIssueCommand(viewer, commandAccess(reg.issues), 'list', issueRegistry.defs.list, {}),
     ).resolves.toBeUndefined()
@@ -372,7 +384,11 @@ describe('guardIssueCommand authorization matrix', () => {
       startNow: false,
     })
     const scoped = {
-      capability: { role: 'worker' as const, scope: { kind: 'subtree' as const, rootId: a.id } },
+      capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'worker' as const,
+        scope: { kind: 'subtree' as const, rootId: a.id },
+      },
     }
     await expect(
       guardIssueCommand(scoped, commandAccess(reg.issues), 'update', issueRegistry.defs.update, {
@@ -405,7 +421,11 @@ describe('guardIssueCommand authorization matrix', () => {
       startNow: false,
     })
     const scoped = {
-      capability: { role: 'worker' as const, scope: { kind: 'subtree' as const, rootId: a.id } },
+      capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'worker' as const,
+        scope: { kind: 'subtree' as const, rootId: a.id },
+      },
     }
     // The agent's own issue addressed by bare display seq must NOT trip the gate.
     await expect(
@@ -435,10 +455,18 @@ describe('guardIssueCommand authorization matrix', () => {
       startNow: false,
     })
     const scoped = {
-      capability: { role: 'worker' as const, scope: { kind: 'subtree' as const, rootId: epic.id } },
+      capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'worker' as const,
+        scope: { kind: 'subtree' as const, rootId: epic.id },
+      },
     }
     const viewer = {
-      capability: { role: 'viewer' as const, scope: { kind: 'all' as const } },
+      capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'viewer' as const,
+        scope: { kind: 'all' as const },
+      },
     }
     const cases = [
       ['archive', { id: child.id }, { id: outside.id }],
@@ -494,7 +522,11 @@ describe('guardIssueCommand authorization matrix', () => {
       startNow: false,
     })
     const scoped = {
-      capability: { role: 'worker' as const, scope: { kind: 'subtree' as const, rootId: a.id } },
+      capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'worker' as const,
+        scope: { kind: 'subtree' as const, rootId: a.id },
+      },
     }
     // mailSend addressed OUTSIDE the subtree passes (no target extractor).
     await expect(
@@ -567,6 +599,7 @@ describe('Shipping command boundary', () => {
     }))
     const dispatcher = new IssueCommandDispatcher({
       workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      principalFor: async (capability) => await registry.modules.sessions.principalFor(capability),
       issues: registry.issues,
       directWriter: registry.issues.reports.store.serverWriter,
       shipping: {
@@ -594,6 +627,7 @@ describe('Shipping command boundary', () => {
   const agentCaller = (rootId: string, overrideScope = false) => {
     const actorSessionId = asSessionId('shipping-agent')
     const capability = {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'worker' as const,
       scope: { kind: 'subtree' as const, rootId: asIssueId(rootId) },
       actorSessionId,
@@ -720,7 +754,11 @@ describe('Shipping command boundary', () => {
     await expect(
       guardIssueCommand(
         {
-          capability: { role: 'viewer', scope: { kind: 'all' } },
+          capability: {
+            workspaceId: SELF_HOSTED_WORKSPACE_ID,
+            role: 'viewer',
+            scope: { kind: 'all' },
+          },
           overrideScope: true,
         },
         commandAccess(registry.issues),
@@ -1054,6 +1092,7 @@ describe('issue spawn provenance', () => {
       await registry.issueCommands.dispatch(
         {
           capability: {
+            workspaceId: SELF_HOSTED_WORKSPACE_ID,
             role: 'worker',
             scope: { kind: 'subtree', rootId: issue.id },
             actorSessionId: asSessionId('comment-agent'),
@@ -1106,6 +1145,7 @@ describe('issue spawn provenance', () => {
       await registry.issueCommands.dispatch(
         {
           capability: {
+            workspaceId: SELF_HOSTED_WORKSPACE_ID,
             role: 'worker',
             scope: { kind: 'subtree', rootId: issue.id },
             actorSessionId: asSessionId('comment-agent'),
@@ -1119,6 +1159,7 @@ describe('issue spawn provenance', () => {
       await registry.issueCommands.dispatch(
         {
           capability: {
+            workspaceId: SELF_HOSTED_WORKSPACE_ID,
             role: 'worker',
             scope: { kind: 'none' },
             actorSessionId: asSessionId('issueless-agent'),
@@ -1162,6 +1203,7 @@ describe('issue spawn provenance', () => {
       ).sessionId
       const caller = {
         capability: {
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
           role: 'worker',
           scope: { kind: 'subtree', rootId: issue.id },
           actorSessionId: parent,
@@ -1214,6 +1256,7 @@ describe('issue spawn provenance', () => {
       // Agent create → bare actor session id.
       const agentCaller = {
         capability: {
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
           role: 'worker' as const,
           scope: { kind: 'none' as const },
           actorSessionId: asSessionId('sess_agent_creator'),
@@ -1233,6 +1276,7 @@ describe('issue spawn provenance', () => {
       const claimed = (await registry.issueCommands.dispatch(
         {
           capability: {
+            workspaceId: SELF_HOSTED_WORKSPACE_ID,
             role: 'worker',
             scope: { kind: 'subtree', rootId: asIssueId(created.id) },
             actorSessionId: asSessionId('sess_coord'),
@@ -1343,6 +1387,7 @@ describe('issue mail read state is per reading session [POD-1379]', () => {
       const agent = (sessionId: string) =>
         ({
           capability: {
+            workspaceId: SELF_HOSTED_WORKSPACE_ID,
             role: 'worker' as const,
             scope: { kind: 'subtree' as const, rootId: issue.id },
             actorSessionId: asSessionId(sessionId),
@@ -1396,6 +1441,7 @@ describe('agent close while a session on the issue works [POD-5762]', () => {
     registries.push(registry)
     const dispatcher = new IssueCommandDispatcher({
       workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      principalFor: async (capability) => await registry.modules.sessions.principalFor(capability),
       issues: registry.issues,
       directWriter: registry.issues.reports.store.serverWriter,
       shipping: {} as never,
@@ -1430,6 +1476,7 @@ describe('agent close while a session on the issue works [POD-5762]', () => {
 
   const agentCaller = (rootId: string) => {
     const capability = {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'worker' as const,
       scope: { kind: 'subtree' as const, rootId: asIssueId(rootId) },
       actorSessionId: self,
@@ -1509,6 +1556,7 @@ describe('issue types and labels [POD-6106]', () => {
   const operator = { capability: OPERATOR }
   const agentOn = (rootId: string) => ({
     capability: {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'worker' as const,
       scope: { kind: 'subtree' as const, rootId: asIssueId(rootId) },
       actorSessionId: asSessionId('sess_types_agent'),

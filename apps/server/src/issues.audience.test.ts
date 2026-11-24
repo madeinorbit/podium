@@ -10,12 +10,11 @@ import type { IssueReport } from '@podium/model'
  */
 import { asSessionId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { resolvePrincipal } from './command-principal'
 import type { Capability } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
-import { OPERATOR } from './test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipal } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 
 const ctx = (registry: SessionRegistry, rawCapability: Capability) => {
@@ -36,7 +35,7 @@ const ctx = (registry: SessionRegistry, rawCapability: Capability) => {
     repos: {} as never,
     superagent: {} as never,
     capability,
-    principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+    principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
       parentSessionOf: () => undefined,
     }),
   })
@@ -79,7 +78,11 @@ describe('issues.create provenance (#198)', () => {
     try {
       const op = ctx(reg, OPERATOR)
       const epic = await op.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
-      const worker = ctx(reg, { role: 'worker', scope: { kind: 'subtree', rootId: epic.id } })
+      const worker = ctx(reg, {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'worker',
+        scope: { kind: 'subtree', rootId: epic.id },
+      })
       const created = await worker.issues.create({
         repoPath: '/r',
         title: 'agent-filed top-level work',
@@ -103,7 +106,11 @@ describe('issues.create provenance (#198)', () => {
     try {
       const op = ctx(reg, OPERATOR)
       const epic = await op.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
-      const worker = ctx(reg, { role: 'worker', scope: { kind: 'subtree', rootId: epic.id } })
+      const worker = ctx(reg, {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'worker',
+        scope: { kind: 'subtree', rootId: epic.id },
+      })
       const created = await worker.issues.create({
         repoPath: '/r',
         title: 'cannot hide top-level as internal',
@@ -125,7 +132,11 @@ describe('issues.create provenance (#198)', () => {
     try {
       const op = ctx(reg, OPERATOR)
       const epic = await op.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
-      const worker = ctx(reg, { role: 'worker', scope: { kind: 'subtree', rootId: epic.id } })
+      const worker = ctx(reg, {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'worker',
+        scope: { kind: 'subtree', rootId: epic.id },
+      })
       const created = await worker.issues.create({
         repoPath: '/r',
         title: 'a human-facing deliverable the agent cut',
@@ -147,7 +158,11 @@ describe('issues.create provenance (#198)', () => {
     try {
       const op = ctx(reg, OPERATOR)
       const epic = await op.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
-      const worker = ctx(reg, { role: 'worker', scope: { kind: 'subtree', rootId: epic.id } })
+      const worker = ctx(reg, {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'worker',
+        scope: { kind: 'subtree', rootId: epic.id },
+      })
       const created = await worker.issues.create({
         repoPath: '/r',
         title: 'decomposition step',
@@ -170,7 +185,11 @@ describe('issues.create provenance (#198)', () => {
     try {
       const op = ctx(reg, OPERATOR)
       const epic = await op.issues.create({ repoPath: '/r', title: 'epic', startNow: false })
-      const worker = ctx(reg, { role: 'worker', scope: { kind: 'subtree', rootId: epic.id } })
+      const worker = ctx(reg, {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'worker',
+        scope: { kind: 'subtree', rootId: epic.id },
+      })
       const mid = await worker.issues.create({
         repoPath: '/r',
         title: 'mid',
@@ -196,13 +215,18 @@ describe('issues.create provenance (#198)', () => {
     try {
       const op = ctx(reg, OPERATOR)
       const root = await op.issues.create({ repoPath: '/r', title: 'root', startNow: false })
-      const worker = ctx(reg, { role: 'worker', scope: { kind: 'subtree', rootId: root.id } })
+      const worker = ctx(reg, {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'worker',
+        scope: { kind: 'subtree', rootId: root.id },
+      })
       const proposal = await worker.issues.create({
         repoPath: '/r',
         title: 'proposal',
         startNow: false,
       })
       const proposalWorker = ctx(reg, {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'worker',
         scope: { kind: 'subtree', rootId: proposal.id },
       })
@@ -227,7 +251,11 @@ describe('proposed lane bypass paths are closed (B1-B4)', () => {
     const reg = await registryWithRepo()
     const op = ctx(reg, OPERATOR)
     const root = await op.issues.create({ repoPath: '/r', title: 'root', startNow: false })
-    const worker = ctx(reg, { role: 'worker', scope: { kind: 'subtree', rootId: root.id } })
+    const worker = ctx(reg, {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      role: 'worker',
+      scope: { kind: 'subtree', rootId: root.id },
+    })
     const proposal = await worker.issues.create({
       repoPath: '/r',
       title: 'proposal',
@@ -235,6 +263,7 @@ describe('proposed lane bypass paths are closed (B1-B4)', () => {
     })
     expect(proposal.stage).toBe('proposed')
     const proposalWorker = ctx(reg, {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'worker',
       scope: { kind: 'subtree', rootId: proposal.id },
     })
@@ -352,6 +381,7 @@ describe('proposed lane bypass paths are closed (B1-B4)', () => {
         issueId: proposal.id,
       })
       const proposalWorker = ctx(reg, {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'worker',
         scope: { kind: 'subtree', rootId: proposal.id },
         actorSessionId: actor.sessionId,

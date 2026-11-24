@@ -8,7 +8,6 @@ import type {
   CloudRuntime,
   CloudRuntimeProvider,
 } from './cloud-runtime'
-import { resolvePrincipal } from './command-principal'
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -16,7 +15,7 @@ import { appRouter } from './router'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { SessionStore } from './store'
 import { memberFacts } from './store/fixtures/test-support'
-import { OPERATOR } from './test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipal } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openWorkspaceStores } from './test-support/workspace-stores'
 
@@ -43,6 +42,8 @@ async function caller(
   await attachHostDaemon(registry, onDaemon)
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
+  // The operator as the edge of this registry's workspace mints it (POD-7558).
+  const operator = { ...OPERATOR, workspaceId: registry.workspaceId }
   const call = appRouter.createCaller({
     registry,
     repos,
@@ -51,10 +52,8 @@ async function caller(
     ...(options.bound === 'none' ? {} : { boundWorkspace: registry.sessionStore.workspaceId }),
     superagent,
     cloud,
-    capability: OPERATOR,
-    principal: resolvePrincipal(registry.workspaceId, OPERATOR, {
-      parentSessionOf: () => undefined,
-    }),
+    capability: operator,
+    principal: permissiveFixturePrincipal(registry.workspaceId, operator),
   })
   return { call, registry }
 }

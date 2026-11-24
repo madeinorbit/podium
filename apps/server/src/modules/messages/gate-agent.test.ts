@@ -18,6 +18,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Capability } from '../../issue-authz'
 import { isMemberCwd, sessionsForIssue } from '../../issue-util'
 import type { SessionStore } from '../../store'
+import { permissiveFixturePrincipalAsync } from '../../test-support/capabilities'
 import { openTestStore } from '../../test-support/open-test-store'
 import { metasAsFacts } from '../../test-support/session-facts'
 import type { IssueService } from '../issues/service'
@@ -80,12 +81,14 @@ function fakeIssues(
 }
 
 const OPERATOR: Capability = {
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   role: 'admin',
   scope: { kind: 'all' },
   actorUser: firstAdminMemberId(),
   onBehalfOf: firstAdminMemberId(),
 }
 const PARENT: Capability = {
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   role: 'worker',
   scope: { kind: 'subtree', rootId: asIssueId(SENDER_ISSUE.id) },
   actorSessionId: asSessionId('sParent'),
@@ -157,6 +160,9 @@ async function harness(opts?: {
   }
   const gate = new MessageGate({
     workspaceId: SELF_HOSTED_WORKSPACE_ID,
+    // Every capability in this file acts for the first admin (see below).
+    principalFor: async (capability) =>
+      await permissiveFixturePrincipalAsync(SELF_HOSTED_WORKSPACE_ID, capability),
     messages: svc,
     directWriter: messageTestWriter(),
     issues,
@@ -1079,6 +1085,7 @@ describe('agent await (bounded, never hangs)', () => {
   it('the parent relationship alone authorizes await; strangers hit the scope gate', async () => {
     const { gate } = await harness({ sessions: [child({})] })
     const stranger: Capability = {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'worker',
       scope: { kind: 'subtree', rootId: asIssueId(SENDER_ISSUE.id) },
       actorSessionId: asSessionId('sStranger'),
@@ -1526,6 +1533,7 @@ describe('mail dismiss — recipient-only clear', () => {
       { to: { kind: 'issue', id: ISSUE.id }, body: 'dismiss me' },
     )
     const recipient: Capability = {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'worker',
       scope: { kind: 'subtree', rootId: asIssueId(ISSUE.id) },
       actorSessionId: asSessionId('sRecipient'),

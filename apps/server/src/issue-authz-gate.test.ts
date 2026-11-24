@@ -1,11 +1,11 @@
 import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
-import { firstAdminMemberId, resolvePrincipal } from './command-principal'
+import { firstAdminMemberId } from './command-principal'
 import type { Capability } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
-import { OPERATOR } from './test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipal } from './test-support/capabilities'
 
 // The gate only exercises `issues.*`, which touches `ctx.registry.issues` (an in-memory
 // :memory: store). `repos`/`superagent` are unused on this path, so they're stubbed —
@@ -40,7 +40,7 @@ async function caller(rawCapability: Capability, shared?: SessionRegistry) {
     repos: {} as never,
     superagent: {} as never,
     capability,
-    principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+    principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
       parentSessionOf: () => undefined,
     }),
   })
@@ -50,8 +50,16 @@ afterEach(async () => {
   for (const r of registries.splice(0)) await r.dispose()
 })
 
-const viewer: Capability = { role: 'viewer', scope: { kind: 'all' } }
-const worker: Capability = { role: 'worker', scope: { kind: 'all' } }
+const viewer: Capability = {
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
+  role: 'viewer',
+  scope: { kind: 'all' },
+}
+const worker: Capability = {
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
+  role: 'worker',
+  scope: { kind: 'all' },
+}
 
 describe('issues.* capability gate', () => {
   it('viewer may query but not mutate', async () => {
@@ -91,7 +99,11 @@ describe('issues.* capability gate', () => {
     const outsider = await op.issues.create({ repoPath: '/r', title: 'Outside', startNow: false })
 
     const scoped = await caller(
-      { role: 'worker', scope: { kind: 'subtree', rootId: epic.id } },
+      {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'worker',
+        scope: { kind: 'subtree', rootId: epic.id },
+      },
       registry,
     )
     // In-subtree child: clears BOTH gates (role + scope) with no --outside-scope override.

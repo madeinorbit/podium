@@ -21,6 +21,7 @@ import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
 import { testWorkspaceId } from './test-support/workspace-binding'
+import { bindToRegistry } from './test-support/ws-binding'
 
 let server: Pick<NativeServer<never>, 'port' | 'stop'> | undefined
 let handle: WsHandle | undefined
@@ -51,6 +52,7 @@ async function start(
   handle = attachWebSockets(
     registry,
     {
+      bindWorkspace: bindToRegistry(registry),
       authorizeClient,
       ...(principalForClient ? { principalForClient } : {}),
       userForClient: () => firstAdminMemberId(),
@@ -83,6 +85,7 @@ async function startNotReady() {
   store = await openTestStore(':memory:')
   registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   handle = attachWebSockets(registry, {
+    bindWorkspace: bindToRegistry(registry),
     readinessForClient: () => ({
       state: 'activation_pending',
       reason: 'restart_required',
@@ -418,7 +421,7 @@ describe('/client WS auth gate', () => {
 describe('the workspace binding of an upgrade (POD-7309)', () => {
   /** A server whose upgrades are bound by `bind`; answers its base URL. */
   async function startBound(
-    bind: NonNullable<WsAuthOptions['bindWorkspace']>,
+    bind: WsAuthOptions['bindWorkspace'],
     principalForClient?: WsAuthOptions['principalForClient'],
   ) {
     store = await openTestStore(':memory:')

@@ -11,18 +11,18 @@ import { asIssueId, asSessionId, asUserId, firstAdminMemberId } from '@podium/mo
 import { hashPassword } from '@podium/runtime/auth-store'
 import { TRPCError } from '@trpc/server'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { resolvePrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { memberFacts } from '../../store/fixtures/test-support'
-import { OPERATOR } from '../../test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipal } from '../../test-support/capabilities'
 import { sealCredentialSecret, withSecret } from '../credentials/vault'
 import { SuperagentService } from '../superagent'
 
 const MEMBER = asUserId('user:vault-family-member')
 const MEMBER_CAPABILITY: Capability = {
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   role: 'worker',
   scope: { kind: 'owned', userId: MEMBER },
   actorUser: MEMBER,
@@ -31,6 +31,7 @@ const MEMBER_CAPABILITY: Capability = {
 
 /** A relayed agent acting for the first admin, as `capabilityForSession` mints it. */
 const AGENT_FOR_ADMIN: Capability = {
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   role: 'worker',
   scope: { kind: 'subtree', rootId: asIssueId('iss_vault_family') },
   actorSessionId: asSessionId('ses_vault_family'),
@@ -59,7 +60,7 @@ async function harness(capability: Capability) {
     users,
     loginRequired: async () => true,
     capability,
-    principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+    principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
       parentSessionOf: () => undefined,
     }),
   })

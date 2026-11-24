@@ -9,7 +9,6 @@ import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import { type ParentRequest, setParentControlLink } from '@podium/runtime/parent-control'
 import { confirmSetupEnrollment, prepareSetupEnrollment } from '@podium/runtime/setup-enrollment'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { resolvePrincipal } from './command-principal'
 import { desktopUpdaterEndpoint, InstanceService } from './modules/instance/service'
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
@@ -18,7 +17,7 @@ import { appRouter } from './router'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { HostedModeRefusal, type ServerMode, serverCapabilities } from './server-mode'
 import { createServerReadiness } from './server-readiness'
-import { OPERATOR } from './test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipal } from './test-support/capabilities'
 import { openTestStore } from './test-support/open-test-store'
 import { openTestIdentity } from './test-support/test-identity'
 
@@ -100,7 +99,7 @@ async function makeHarness(
       superagent,
       users,
       capability: OPERATOR,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
         parentSessionOf: () => undefined,
       }),
       ...(options.readiness ? { readiness: options.readiness } : {}),
@@ -141,7 +140,7 @@ async function activationHarness(opts: {
     superagent,
     users,
     capability: OPERATOR,
-    principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+    principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
       parentSessionOf: () => undefined,
     }),
     readiness: opts.readiness,
@@ -260,7 +259,7 @@ describe('setup tRPC', () => {
       superagent,
       users: registry.sessionStore.users,
       capability: OPERATOR,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
         parentSessionOf: () => undefined,
       }),
       connect: { check: vi.fn(), publicUrlChanged },

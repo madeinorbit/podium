@@ -99,7 +99,7 @@ async function revocableStack() {
  *
  * This distinction decides whether this whole file proves anything, and it caught
  * me: every revocation test below FIRST passed with `OPERATOR` because
- * `OPERATOR` is `{ role: 'admin', scope: { kind: 'all' } }`, and `authorize()`
+ * `OPERATOR` is `{ workspaceId: SELF_HOSTED_WORKSPACE_ID, role: 'admin', scope: { kind: 'all' } }`, and `authorize()`
  * returns `allow` for a scope of `all` BEFORE it ever reads the target's owner. A
  * revocation test built on it is vacuous — it would pass against an
  * implementation with no ownership check at all. POD-380's own presence tests
@@ -114,7 +114,11 @@ const humanScoped = (userId: string): CommandPrincipal => ({
   kind: 'user',
   workspaceId: SELF_HOSTED_WORKSPACE_ID,
   user: userId as UserId,
-  capability: { role: 'worker', scope: { kind: 'owned', userId: asUserId(userId) } },
+  capability: {
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
+    role: 'worker',
+    scope: { kind: 'owned', userId: asUserId(userId) },
+  },
 })
 
 const human = humanScoped(firstAdminMemberId())

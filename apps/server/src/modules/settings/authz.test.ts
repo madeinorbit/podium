@@ -52,7 +52,7 @@ const person: CommandPrincipal = {
   kind: 'user',
   workspaceId: SELF_HOSTED_WORKSPACE_ID,
   user: firstAdminMemberId(),
-  capability: { role: 'admin', scope: { kind: 'all' } },
+  capability: { workspaceId: SELF_HOSTED_WORKSPACE_ID, role: 'admin', scope: { kind: 'all' } },
 }
 
 /** An AGENT delegating from a human — the arm whose rights are its human's, so a
@@ -62,7 +62,7 @@ const agent: CommandPrincipal = {
   workspaceId: SELF_HOSTED_WORKSPACE_ID,
   agentSessionId: asSessionId('sess-1'),
   onBehalfOf: firstAdminMemberId(),
-  capability: { role: 'admin', scope: { kind: 'all' } },
+  capability: { workspaceId: SELF_HOSTED_WORKSPACE_ID, role: 'admin', scope: { kind: 'all' } },
   chain: [],
 }
 

@@ -1,5 +1,13 @@
-import type { Capability } from '@podium/model'
+import type { Capability, WorkspaceId } from '@podium/model'
 import { firstAdminMemberId } from '@podium/model'
+import {
+  type AsyncDelegationIndex,
+  type CommandPrincipal,
+  type DelegationIndex,
+  resolvePrincipal,
+  resolvePrincipalAsync,
+} from '../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 
 /**
  * THE UNCONSTRAINED ADMIN CAPABILITY — a TEST FIXTURE, and only that.
@@ -48,10 +56,60 @@ import { firstAdminMemberId } from '@podium/model'
  * there later. See `scripts/audit-ambient-principals.ts` BASELINE.
  */
 export const OPERATOR: Capability = {
+  // The workspace a fixture's store opens by default: a test of another
+  // workspace stamps its own (POD-7558).
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   role: 'admin',
   // A person carries the member scope, admins included (design §4.1,
   // POD-6288): this fixture is the first admin as production mints it.
   scope: { kind: 'owned', userId: firstAdminMemberId() },
   actorUser: firstAdminMemberId(),
   onBehalfOf: firstAdminMemberId(),
+}
+
+/**
+ * A PERMISSIVE FIXTURE PRINCIPAL (POD-7558), named so at every call site.
+ * Production resolves a capability in a store, against that store's member
+ * rows and session owners (`SessionAuthz.principalFor`). A test that builds a
+ * context by hand has no such rows to ask, so this answers the way such a
+ * fixture means it, and that is weaker than production on purpose:
+ *  - every person is a member (no membership check);
+ *  - an agent acts for the human its capability names: the on-behalf-of
+ *    fallback production removed, kept here only for fixtures with no
+ *    session rows;
+ *  - a session has no parent.
+ * So a test that uses it proves nothing about delegation or membership. Those
+ * rules are tested through the served resolver (`capability-workspace.test.ts`,
+ * `capability-principal.test.ts`) and the resolver itself
+ * (`command-principal.test.ts`). A test that needs real answers passes its own
+ * index members, which replace these.
+ *
+ * The workspace check is NOT relaxed: a capability of another workspace is
+ * refused here exactly as in production.
+ */
+export function permissiveFixturePrincipal(
+  workspaceId: WorkspaceId,
+  capability: Capability,
+  delegations: Partial<DelegationIndex> = {},
+): CommandPrincipal {
+  return resolvePrincipal(workspaceId, capability, {
+    parentSessionOf: () => undefined,
+    onBehalfOfFor: () => capability.onBehalfOf,
+    isMember: () => true,
+    ...delegations,
+  })
+}
+
+/** {@link permissiveFixturePrincipal} over an index whose members answer asynchronously. */
+export async function permissiveFixturePrincipalAsync(
+  workspaceId: WorkspaceId,
+  capability: Capability,
+  delegations: Partial<AsyncDelegationIndex> = {},
+): Promise<CommandPrincipal> {
+  return await resolvePrincipalAsync(workspaceId, capability, {
+    parentSessionOf: () => undefined,
+    onBehalfOfFor: () => capability.onBehalfOf,
+    isMember: () => true,
+    ...delegations,
+  })
 }

@@ -71,7 +71,13 @@ const human = (id: UserId, role: 'admin' | 'worker' = 'worker'): CommandPrincipa
   // and the D20 invisible-identical-to-nonexistent pin below would be
   // unstatable. Scope stays `all` — the operator channel the router resolves —
   // and the human halves are stamped as `userCommandPrincipal` stamps them.
-  capability: { role, scope: { kind: 'all' }, actorUser: id, onBehalfOf: id },
+  capability: {
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
+    role,
+    scope: { kind: 'all' },
+    actorUser: id,
+    onBehalfOf: id,
+  },
 })
 
 const agentFor = (
@@ -85,7 +91,12 @@ const agentFor = (
   onBehalfOf,
   // Worker, as above: the delegation tests pin the `absent` answer after the
   // human's grant is revoked, which an admin-human agent could never produce.
-  capability: { role: 'worker', scope: { kind: 'all' }, actorSessionId: asSessionId(sessionId) },
+  capability: {
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
+    role: 'worker',
+    scope: { kind: 'all' },
+    actorSessionId: asSessionId(sessionId),
+  },
   chain,
 })
 
@@ -170,7 +181,7 @@ async function ctxFor(
       modules.messageGate.dispatch(
         'capability' in principal
           ? principal.capability
-          : { role: 'admin', scope: { kind: 'all' } },
+          : { workspaceId: SELF_HOSTED_WORKSPACE_ID, role: 'admin', scope: { kind: 'all' } },
         undefined,
         'send',
         input,

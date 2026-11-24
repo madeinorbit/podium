@@ -16,7 +16,7 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
-import { resolvePrincipal, userCommandPrincipal } from './command-principal'
+import { userCommandPrincipal } from './command-principal'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { loggedRows } from './test-support/logged-rows'
 import { StoreModelLedger as Ledger } from './test-support/model-ledger'
@@ -28,7 +28,7 @@ const AS_OPERATOR = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMem
 import type { Capability } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
-import { OPERATOR } from './test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipal } from './test-support/capabilities'
 import { attachTestClient } from './test-support/client-transport'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
@@ -267,7 +267,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
         parentSessionOf: () => undefined,
       }),
     })
@@ -697,7 +697,7 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
         repos: {} as never,
         superagent: {} as never,
         capability: OPERATOR,
-        principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
           parentSessionOf: () => undefined,
         }),
       })
@@ -707,7 +707,7 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
           repos: {} as never,
           superagent: {} as never,
           capability,
-          principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+          principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
             parentSessionOf: () => undefined,
           }),
           overrideScope,
@@ -720,6 +720,7 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
       })
       const otherUser = asUserId('user:other')
       const other = caller({
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'admin',
         scope: { kind: 'all' },
         actorUser: otherUser,
@@ -734,12 +735,14 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
       const mailC = await seedMailboxRow(reg.sessionStore, C.id, 'operator', 'for C')
 
       const worker = caller({
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'worker',
         scope: { kind: 'subtree', rootId: A.id },
         actorUser: firstAdminMemberId(),
         onBehalfOf: firstAdminMemberId(),
       })
       const viewer = caller({
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'viewer',
         scope: { kind: 'all' },
         actorUser: firstAdminMemberId(),
@@ -772,6 +775,7 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
       // paths — and never the FORBIDDEN ones.
       const overridden = caller(
         {
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
           role: 'worker',
           scope: { kind: 'subtree', rootId: A.id },
           actorUser: firstAdminMemberId(),
@@ -788,6 +792,7 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
       expect(await outcome(overridden.issues.mailClaim({ messageId: mailB.id }))).toBe('OK')
       const overriddenViewer = caller(
         {
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
           role: 'viewer',
           scope: { kind: 'all' },
           actorUser: firstAdminMemberId(),

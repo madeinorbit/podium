@@ -12,10 +12,10 @@
 import type { Capability } from '@podium/model'
 import { asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { resolvePrincipal } from '../../command-principal'
 import { currentPlainCommand } from '../../plain-command-scope'
 import { appRouter } from '../../router'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
+import { permissiveFixturePrincipal } from '../../test-support/capabilities'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 
 afterEach(() => disposeOracles())
@@ -40,6 +40,7 @@ function scopeOf<T extends object, K extends keyof T>(target: T, key: K) {
 }
 
 const VIEWER: Capability = {
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   role: 'viewer',
   scope: { kind: 'none' },
   actorUser: firstAdminMemberId(),
@@ -84,7 +85,7 @@ describe('lock writes on the plain path', () => {
     const viewer = appRouter.createCaller({
       registry: o.reg,
       capability: VIEWER,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, VIEWER, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, VIEWER, {
         parentSessionOf: () => undefined,
       }),
     } as never)
@@ -157,6 +158,7 @@ describe('host and update panel commands on the plain path', () => {
     const o = await makeOracle()
     const member = asUserId('usr_member_6419_updates')
     const capability: Capability = {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'worker',
       scope: { kind: 'owned', userId: member },
       actorUser: member,
@@ -165,7 +167,7 @@ describe('host and update panel commands on the plain path', () => {
     const caller = appRouter.createCaller({
       registry: o.reg,
       capability,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
         parentSessionOf: () => undefined,
       }),
     } as never)

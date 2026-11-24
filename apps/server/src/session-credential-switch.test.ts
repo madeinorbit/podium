@@ -26,14 +26,13 @@ import {
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
-import { resolvePrincipal } from './command-principal'
 import { ACCESS_REFUSAL_MESSAGES } from './modules/credentials/access'
 import { sealCredentialSecret } from './modules/credentials/vault'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { SessionStore } from './store'
-import { OPERATOR } from './test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipal } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 
@@ -190,7 +189,7 @@ async function fixture(
         repos: {} as never,
         superagent: {} as never,
         capability: OPERATOR,
-        principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
           parentSessionOf: () => undefined,
         }),
       }),

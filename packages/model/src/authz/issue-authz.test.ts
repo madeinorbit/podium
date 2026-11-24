@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { asIssueId, asSessionId, asUserId } from '../ids/brands'
-import { type AuthDecision, authorize, type Capability, type IssueScope } from './issue-authz'
+import { type AuthDecision, authorize, type CapabilityRights, type IssueScope } from './issue-authz'
 
 /**
  * A member id, as a FIXTURE (A2). This package has no database and opens no
@@ -20,13 +20,13 @@ const A_MEMBER = asUserId('mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv')
  * tests `authorize()` itself, so it builds its own subject rather than importing
  * one from a layer above.
  */
-const UNCONSTRAINED_ADMIN: Capability = {
+const UNCONSTRAINED_ADMIN: CapabilityRights = {
   role: 'admin',
   scope: { kind: 'all' },
   actorUser: A_MEMBER,
   onBehalfOf: A_MEMBER,
 }
-const cap = (scope: IssueScope, role: Capability['role'] = 'worker'): Capability => ({
+const cap = (scope: IssueScope, role: CapabilityRights['role'] = 'worker'): CapabilityRights => ({
   role,
   scope,
 })
@@ -171,7 +171,7 @@ describe('the scope set is CLOSED, with compiler-enforced totality (POD-299)', (
   })
 
   it('preserves Capability.actorSessionId — the ACTOR half of §3.1.3 A3 attribution', () => {
-    const withActor: Capability = {
+    const withActor: CapabilityRights = {
       role: 'worker',
       scope: { kind: 'subtree', rootId: asIssueId('root') },
       actorSessionId: asSessionId('s1'),
@@ -349,7 +349,7 @@ describe('a legacy persisted `all` is the member rule, not a bypass', () => {
   it('an old persisted delegation with scope `all` gives admin Alice’s agent nothing on Bob’s private resources', () => {
     // The shape a `sessions.delegation` row written before POD-6288 parses to:
     // an agent session of Alice, an admin, with the old unscoped `all`.
-    const alicesAgent: Capability = {
+    const alicesAgent: CapabilityRights = {
       role: 'admin',
       scope: { kind: 'all' },
       actorSessionId: asSessionId('alice-agent'),
@@ -373,7 +373,7 @@ describe('a legacy persisted `all` is the member rule, not a bypass', () => {
   })
 
   it('decides exactly as the member scope of the same human', () => {
-    const member: Capability = {
+    const member: CapabilityRights = {
       ...UNCONSTRAINED_ADMIN,
       scope: { kind: 'owned', userId: A_MEMBER },
     }
@@ -401,7 +401,7 @@ describe('agent reads intersect the delegating member’s rights', () => {
   const alice = asUserId('alice')
   const bob = asUserId('bob')
   it.each(['none', 'subtree'] as const)('%s never widens ownership or per-user access', (kind) => {
-    const agent: Capability = {
+    const agent: CapabilityRights = {
       role: 'worker',
       scope: kind === 'none' ? { kind } : { kind, rootId: asIssueId('root') },
       actorSessionId: asSessionId('alice-agent'),
@@ -437,7 +437,7 @@ describe('agent reads intersect the delegating member’s rights', () => {
 describe('unscoped write overrides intersect the member’s rights (POD-6924)', () => {
   const alice = asUserId('alice')
   const bob = asUserId('bob')
-  const agent: Capability = {
+  const agent: CapabilityRights = {
     role: 'worker',
     scope: { kind: 'none' },
     actorSessionId: asSessionId('alice-agent'),
@@ -448,7 +448,7 @@ describe('unscoped write overrides intersect the member’s rights (POD-6924)', 
     'write',
     'manage',
   ] as const)('%s to another member’s data is never overridable', (action) => {
-    const caller: Capability = { ...agent, role: action === 'manage' ? 'admin' : 'worker' }
+    const caller: CapabilityRights = { ...agent, role: action === 'manage' ? 'admin' : 'worker' }
     for (const target of [
       { kind: 'owned', id: 'bobs-data', owner: bob },
       { kind: 'per-user-row', userId: bob },

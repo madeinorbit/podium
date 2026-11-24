@@ -12,6 +12,8 @@ import { CLIENT_WIRE_VERSION } from '@podium/protocol'
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
+import { noUpgradeExpected } from '../test-support/ws-binding'
 import {
   ACCEPT_PLAIN_DAEMON_LINKS,
   DaemonLinks,
@@ -40,7 +42,13 @@ async function handlerWithBuckets(): Promise<{
   const { attachWebSockets } = await import('./ws-server')
   const buckets: string[] = []
   accounting.addLoopAccounting({ attribute: (bucket) => buckets.push(bucket) })
-  const handle = attachWebSockets({} as never, {}, { timers: SILENT_TIMERS })
+  const handle = attachWebSockets(
+    {} as never,
+    { bindWorkspace: noUpgradeExpected },
+    {
+      timers: SILENT_TIMERS,
+    },
+  )
   return {
     message: (native, frame) =>
       (handle.websocket.message as (n: unknown, f: string) => void)(native, frame),
@@ -98,7 +106,14 @@ describe('native message attribution', () => {
 describe('HTTP sync capability cutover', () => {
   it('refuses cap-less client attaches with 426 and accepts the upgraded client', async () => {
     const { attachWebSockets } = await import('./ws-server')
-    const handle = attachWebSockets({} as never, {}, { timers: SILENT_TIMERS })
+    // The upgrade is bound to the registry's workspace before anything else.
+    const handle = attachWebSockets(
+      { sessionStore: { workspaceId: SELF_HOSTED_WORKSPACE_ID } } as never,
+      { bindWorkspace: async () => ({ workspaceId: SELF_HOSTED_WORKSPACE_ID }) },
+      {
+        timers: SILENT_TIMERS,
+      },
+    )
     const upgrade = vi.fn(() => true)
     const server = { upgrade, port: 0, stop() {} }
     try {
@@ -139,13 +154,14 @@ describe('a daemon on a plain link from another computer', () => {
   const linksRegistry = () =>
     ({
       daemonLinks: new DaemonLinks({ trustedNetworks: async () => [], kindChanged: () => {} }),
+      sessionStore: { workspaceId: SELF_HOSTED_WORKSPACE_ID },
     }) as never
 
   async function upgradeFrom(peer: string, accept: boolean | undefined, path = '/daemon') {
     const { attachWebSockets } = await import('./ws-server')
     const handle = attachWebSockets(
       linksRegistry(),
-      {},
+      { bindWorkspace: async () => ({ workspaceId: SELF_HOSTED_WORKSPACE_ID }) },
       {
         timers: SILENT_TIMERS,
         daemonLink: (request) => daemonLinkFactsOf(request, peer, 0),

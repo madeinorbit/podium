@@ -1,5 +1,5 @@
 import { firstAdminMemberId } from '@podium/model'
-import { MIN_CLIENT_WIRE_VERSION, CLIENT_WIRE_VERSION, DAEMON_WIRE_VERSION } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION, DAEMON_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { afterEach, describe, expect, test } from 'vitest'
 import { WebSocket } from 'ws'
 import {
@@ -11,6 +11,7 @@ import {
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { bindToRegistry } from './test-support/ws-binding'
 
 let server: Pick<NativeServer<never>, 'port' | 'stop'> | undefined
 let handle: WsHandle | undefined
@@ -30,6 +31,7 @@ async function start(): Promise<string> {
   store = await openTestStore(':memory:')
   registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   handle = attachWebSockets(registry, {
+    bindWorkspace: bindToRegistry(registry),
     userForClient: () => firstAdminMemberId(),
     roleForClient: () => 'admin',
   })
@@ -87,8 +89,11 @@ describe('WS version gate (?v with ?pv alias)', () => {
   })
 })
 
-
-test.each(['/client', '/daemon', '/machine'])('accepts an overlapping newer range on %s', async (path) => {
+test.each([
+  '/client',
+  '/daemon',
+  '/machine',
+])('accepts an overlapping newer range on %s', async (path) => {
   const base = await start()
   const max = path === '/client' ? CLIENT_WIRE_VERSION : DAEMON_WIRE_VERSION
   expect(await attempt(`${base}${path}?v=${max + 1}&vmin=1`)).toBe('open')

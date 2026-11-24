@@ -125,6 +125,7 @@ describe('binding receipt crash durability', () => {
           agentSessionId: sessionId,
           onBehalfOf: delegation.onBehalfOf,
           capability: {
+            workspaceId: SELF_HOSTED_WORKSPACE_ID,
             role: 'worker',
             scope: delegation.grantedScope,
             actorSessionId: sessionId,

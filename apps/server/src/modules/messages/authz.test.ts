@@ -47,6 +47,7 @@ import { fixtureWriteScope } from '@podium/sync/testing'
 import { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { MessageRow } from '../../store'
 import { OPERATOR } from '../../test-support/capabilities'
 import { messageTestWriter } from '../../test-support/message-writer'
@@ -485,6 +486,7 @@ describe('inbox scope arithmetic — own consumes, in-scope peeks do not (A4)', 
     expect(rows.map((m) => [m.deliveryStatus, m.readAt !== null])).toEqual([['confirmed', true]])
 
     const noMailbox: Capability = {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'worker',
       scope: { kind: 'none' },
       actorUser: firstAdminMemberId(),

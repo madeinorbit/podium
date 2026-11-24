@@ -26,7 +26,7 @@ const user = (id: UserId): CommandPrincipal => ({
   workspaceId: SELF_HOSTED_WORKSPACE_ID,
   user: id,
   // An administrator may inspect the fleet; these refusals exercise a regular member.
-  capability: { role: 'worker', scope: { kind: 'all' } },
+  capability: { workspaceId: SELF_HOSTED_WORKSPACE_ID, role: 'worker', scope: { kind: 'all' } },
 })
 
 /**

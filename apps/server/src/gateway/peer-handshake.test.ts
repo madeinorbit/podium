@@ -201,7 +201,7 @@ const binaryFrame = (metadata: unknown, payload = new Uint8Array()): Buffer => {
 const authenticatedSocket = async (caps: string[]) => {
   const reg = await registryWithMachine()
   const ws = fakeWs()
-  wireDaemonSocket(ws as never, reg)
+  wireDaemonSocket(ws as never, reg, reg.workspaceId)
   await ws.emit(
     'message',
     frame({
@@ -349,7 +349,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     const reg = await registryWithMachine()
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
     await ws.emit(
       'message',
       frame({
@@ -375,7 +375,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     const reg = await registryWithMachine()
     const route = vi.spyOn(reg.gateway, 'routeDaemonOutput').mockImplementation(() => {})
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
     await ws.emit(
       'message',
       frame({
@@ -405,7 +405,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     const reg = await registryWithMachine()
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
     await ws.emit(
       'message',
       frame({
@@ -438,8 +438,8 @@ describe('the daemon socket speaks the permanent envelope', () => {
     const route = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockResolvedValue(undefined)
     const bad = fakeWs()
     const healthy = fakeWs()
-    wireDaemonSocket(bad as never, reg)
-    wireDaemonSocket(healthy as never, reg)
+    wireDaemonSocket(bad as never, reg, reg.workspaceId)
+    wireDaemonSocket(healthy as never, reg, reg.workspaceId)
     await bad.emit('message', Buffer.from([0, 0, 0, 0]))
     expect(bad.terminate).toHaveBeenCalledOnce()
     await healthy.emit(
@@ -469,7 +469,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
       return await authenticate(request)
     })
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
 
     const credentialFrame = ws.emit(
       'message',
@@ -547,7 +547,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
   it('publishes the current server key on an ordinary reconnect', async () => {
     const reg = await registryWithMachine('m1', 'tok', 'server-key-1')
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
     await ws.emit(
       'message',
       frame({
@@ -568,7 +568,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     const reg = await registryWithMachine()
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
     await ws.emit(
       'message',
       frame({
@@ -588,7 +588,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     const reg = await registryWithMachine()
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
     await ws.emit(
       'message',
       frame({
@@ -607,7 +607,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     const reg = await registryWithMachine()
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
     await ws.emit(
       'message',
       frame({
@@ -628,7 +628,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     const reg = await registryWithMachine()
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
     await ws.emit(
       'message',
       frame({
@@ -653,7 +653,7 @@ describe('handshake order at the real gateway', () => {
   it('refuses a second handshake on a live connection instead of re-authenticating', async () => {
     const reg = await registryWithMachine()
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
     await ws.emit(
       'message',
       frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }),
@@ -674,7 +674,7 @@ describe('handshake order at the real gateway', () => {
     const reg = await registryWithMachine()
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
     // Wrong token first …
     await ws.emit(
       'message',
@@ -694,7 +694,7 @@ describe('handshake order at the real gateway', () => {
     const reg = await registryWithMachine()
     const onMsg = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockResolvedValue(undefined)
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
     await ws.emit(
       'message',
       frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }),
@@ -703,6 +703,8 @@ describe('handshake order at the real gateway', () => {
     expect(onMsg).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'machine', machine: 'm1' }),
       expect.objectContaining({ type: 'agentExit' }),
+      // The socket's bound workspace travels with every frame (POD-7558).
+      reg.workspaceId,
     )
   })
 })
@@ -845,7 +847,7 @@ describe('payload identity is inert at the real MachinesService', () => {
     await reg.modules.machines.listMachines() // warm the cache; irrelevant to the assertion
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
     await ws.emit(
       'message',
       frame({ type: 'hello', machineId: 'm-someone-elses', token: 'tok', hostname: 'evil' }),
@@ -1065,7 +1067,7 @@ describe('legacy binding ownership handoff', () => {
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     try {
       const ws = fakeWs()
-      wireDaemonSocket(ws as never, registry)
+      wireDaemonSocket(ws as never, registry, registry.workspaceId)
       const dialer = createHandshakeDialer({
         credential: { kind: 'machineToken', token: 'tok', machineHint: 'm1' },
         claims: { machineId: 'm2' },
@@ -1081,7 +1083,7 @@ describe('legacy binding ownership handoff', () => {
         unknown: { owner: null, machineId: null, closed: false },
       })
       const rejected = fakeWs()
-      wireDaemonSocket(rejected as never, registry)
+      wireDaemonSocket(rejected as never, registry, registry.workspaceId)
       await rejected.emit(
         'message',
         frame({

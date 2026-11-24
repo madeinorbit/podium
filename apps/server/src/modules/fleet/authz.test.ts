@@ -1,5 +1,4 @@
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { resolvePrincipal } from '../../command-principal'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { memberFacts } from '../../store/fixtures/test-support'
 /**
@@ -48,7 +47,7 @@ import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../machine-a
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
-import { OPERATOR } from '../../test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipal } from '../../test-support/capabilities'
 import { renameMachine } from '../../test-support/machine-records'
 import { openTestStore } from '../../test-support/open-test-store'
 import { SuperagentService } from '../superagent'
@@ -62,7 +61,7 @@ const user = (id: UserId): CommandPrincipal => ({
   kind: 'user',
   workspaceId: SELF_HOSTED_WORKSPACE_ID,
   user: id,
-  capability: { role: 'worker', scope: { kind: 'all' } },
+  capability: { workspaceId: SELF_HOSTED_WORKSPACE_ID, role: 'worker', scope: { kind: 'all' } },
 })
 
 /** One machine, `laptop`, owned by OWNER — plus whatever grants a test sets. */
@@ -177,7 +176,12 @@ describe('the role floor is read from the contract', () => {
       agentSessionId: asSessionId('leaf'),
       chain: [],
       onBehalfOf: OWNER,
-      capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: asSessionId('leaf') },
+      capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'admin',
+        scope: { kind: 'all' },
+        actorSessionId: asSessionId('leaf'),
+      },
     }
     const asAgent = { ...deps(user(OWNER), { role: 'admin' }), principal: agent }
     expect(await fleetAuthzFailure('machines.pairingCode', {}, asAgent)).toMatchObject({
@@ -308,7 +312,12 @@ describe('the machine verb is read from the contract, per command', () => {
       agentSessionId: asSessionId('leaf'),
       chain: [asSessionId('parent')],
       onBehalfOf: COLLEAGUE,
-      capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: asSessionId('leaf') },
+      capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'admin',
+        scope: { kind: 'all' },
+        actorSessionId: asSessionId('leaf'),
+      },
     }
     const narrowed = {
       ...admin,
@@ -437,7 +446,7 @@ describe('the machine verb is read from the contract, per command', () => {
       kind: 'user',
       workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: COLLEAGUE,
-      capability: { role: 'worker', scope: { kind: 'all' } },
+      capability: { workspaceId: SELF_HOSTED_WORKSPACE_ID, role: 'worker', scope: { kind: 'all' } },
     }
     const unownedMember = deps(memberPrincipal, { owner: null, role: 'member' })
     expect(
@@ -478,7 +487,7 @@ describe('the machine verb is read from the contract, per command', () => {
       kind: 'user',
       workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: COLLEAGUE,
-      capability: { role: 'worker', scope: { kind: 'all' } },
+      capability: { workspaceId: SELF_HOSTED_WORKSPACE_ID, role: 'worker', scope: { kind: 'all' } },
     }
     const member = deps(memberPrincipal, { owner: null, role: 'member' })
     const refusal = await fleetAuthzFailure('machines.adopt', input, member)
@@ -667,7 +676,7 @@ describe('the derived fleet router actually calls the gate', () => {
         repos,
         superagent,
         capability: OPERATOR,
-        principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
           parentSessionOf: () => undefined,
         }),
       }),

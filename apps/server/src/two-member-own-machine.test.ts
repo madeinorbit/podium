@@ -22,11 +22,11 @@ import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
 import { createTRPCClient, httpLink } from '@trpc/client'
 import { TRPCError } from '@trpc/server'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { resolvePrincipal } from './command-principal'
 import { SuperagentService } from './modules/superagent'
 import { RepoRegistry } from './repo-registry'
 import { type AppRouter, appRouter } from './router'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
+import { permissiveFixturePrincipal } from './test-support/capabilities'
 import {
   MEMBERS,
   type MemberName,
@@ -137,6 +137,7 @@ describe('an agent may not mint an enrollment code', () => {
       registry.sessionStore,
     )
     const capability = {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role,
       scope: { kind: 'owned' as const, userId: onBehalfOf },
       actorSessionId: f.sessions.bob,
@@ -147,7 +148,7 @@ describe('an agent may not mint an enrollment code', () => {
       repos,
       superagent,
       capability,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
         parentSessionOf: () => undefined,
         onBehalfOfFor: () => onBehalfOf,
       }),

@@ -14,12 +14,12 @@ import type { Capability } from '@podium/model'
 import { asIssueId, asSessionId, asUserId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { type CommandPrincipal, resolvePrincipal, systemPrincipal } from '../../command-principal'
+import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
-import { OPERATOR } from '../../test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipal } from '../../test-support/capabilities'
 import { openTestStore } from '../../test-support/open-test-store'
 import { openTestIdentity } from '../../test-support/test-identity'
 import { SECRET_SURFACE_ABSENT } from '../settings/authz'
@@ -66,6 +66,7 @@ const PLAIN_COMMANDS = [
 
 const MEMBER = asUserId('user:plain-family-member')
 const MEMBER_CAPABILITY: Capability = {
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   role: 'worker',
   scope: { kind: 'owned', userId: MEMBER },
   actorUser: MEMBER,
@@ -74,6 +75,7 @@ const MEMBER_CAPABILITY: Capability = {
 
 /** The capability `SessionAuthz.capabilityForSession` mints for a relayed agent. */
 const AGENT_CAPABILITY: Capability = {
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   role: 'worker',
   scope: { kind: 'subtree', rootId: asIssueId('iss_plain_family') },
   actorSessionId: asSessionId('ses_plain_family'),
@@ -106,7 +108,7 @@ async function harness(opts: { capability: Capability; principal?: CommandPrinci
     capability: opts.capability,
     principal:
       opts.principal ??
-      resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, opts.capability, {
+      permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, opts.capability, {
         parentSessionOf: () => undefined,
       }),
   })

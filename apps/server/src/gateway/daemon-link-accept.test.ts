@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../relay'
 import { resolveTrustedProxyHops } from '../server'
 import { openTestStore } from '../test-support/open-test-store'
+import { bindToRegistry } from '../test-support/ws-binding'
 import { daemonLinkFactsOf } from './daemon-link-kind'
 import { attachWebSockets } from './ws-server'
 
@@ -43,7 +44,7 @@ async function setup(link: { peer: string; hops: number } = { peer: PEER, hops: 
   registries.push(reg)
   const handle = attachWebSockets(
     reg,
-    {},
+    { bindWorkspace: bindToRegistry(reg) },
     {
       timers: SILENT_TIMERS,
       daemonLink: (request) => daemonLinkFactsOf(request, link.peer, link.hops),

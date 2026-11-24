@@ -17,10 +17,9 @@ import { asMutationId, asSessionId, type SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { resolvePrincipalAsync } from '../../command-principal'
 import { appRouter } from '../../router'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
-import { OPERATOR } from '../../test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipalAsync } from '../../test-support/capabilities'
 import { confirmingRetirement } from '../../test-support/host-daemon'
 import { scopedMutationId } from '../sync-write/legacy-receipt'
 import { envelope, expectAppliedOnPath, rowsOf, submit } from '../sync-write/outbox-test-support'
@@ -290,7 +289,7 @@ describe('the relay chat sends are on the sync write entry point (POD-6591)', ()
     it(`${proc}: as the calling agent, under the CLI's message id; a replay runs nothing`, async () => {
       const o = await makeOracle()
       const { caller: agent } = await caller(o)
-      const principal = await resolvePrincipalAsync(
+      const principal = await permissiveFixturePrincipalAsync(
         SELF_HOSTED_WORKSPACE_ID,
         await o.reg.modules.sessions.capabilityForSession(agent),
         { parentSessionOf: async () => undefined },
@@ -334,7 +333,7 @@ describe('the relay chat sends are on the sync write entry point (POD-6591)', ()
   it("a send outside the agent's scope is refused in the plane's words; --outside-scope confirms it", async () => {
     const o = await makeOracle()
     const { caller: agent, b } = await caller(o)
-    const principal = await resolvePrincipalAsync(
+    const principal = await permissiveFixturePrincipalAsync(
       SELF_HOSTED_WORKSPACE_ID,
       await o.reg.modules.sessions.capabilityForSession(agent),
       { parentSessionOf: async () => undefined },

@@ -16,6 +16,8 @@ import {
   WS_COMPRESSION_MIN_BYTES,
 } from './gateway/ws-send'
 import { attachWebSockets } from './gateway/ws-server'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
+import { noUpgradeExpected } from './test-support/ws-binding'
 
 function fakeSocket(readyState = 1) {
   return { readyState, ping: vi.fn(), terminate: vi.fn() }
@@ -71,8 +73,15 @@ describe('native websocket upgrade compatibility', () => {
       },
       clearInterval: () => {},
     }
-    const registry = {} as unknown as Parameters<typeof attachWebSockets>[0]
-    const handle = attachWebSockets(registry, {}, { timers })
+    // The upgrade is bound to the registry's workspace before anything else.
+    const registry = {
+      sessionStore: { workspaceId: SELF_HOSTED_WORKSPACE_ID },
+    } as unknown as Parameters<typeof attachWebSockets>[0]
+    const handle = attachWebSockets(
+      registry,
+      { bindWorkspace: async () => ({ workspaceId: SELF_HOSTED_WORKSPACE_ID }) },
+      { timers },
+    )
     const upgrade = vi.fn(() => true)
     const endpoint = new URL('http://127.0.0.1/client')
     endpoint.searchParams.set('v', String(CLIENT_WIRE_VERSION))
@@ -409,7 +418,11 @@ describe('plane liveness policy', () => {
 
     it('schedules the client sweep at 15s and the daemon sweep at 10s', async () => {
       const { scheduled, timers } = fakeTimers()
-      const handle = attachWebSockets(unusedRegistry, {}, { timers })
+      const handle = attachWebSockets(
+        unusedRegistry,
+        { bindWorkspace: noUpgradeExpected },
+        { timers },
+      )
       expect(scheduled.map((s) => s.ms)).toEqual([15_000, 10_000])
       void (await handle.close())
     })
@@ -418,7 +431,11 @@ describe('plane liveness policy', () => {
       // A leaked sweep keeps terminating sockets on a gateway that is shutting
       // down, and (before `unref`) would hold the process open.
       const { scheduled, timers } = fakeTimers()
-      const handle = attachWebSockets(unusedRegistry, {}, { timers })
+      const handle = attachWebSockets(
+        unusedRegistry,
+        { bindWorkspace: noUpgradeExpected },
+        { timers },
+      )
       void (await handle.close())
       expect(scheduled.map((s) => s.cleared)).toEqual([true, true])
     })

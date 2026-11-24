@@ -14,13 +14,13 @@ import { join } from 'node:path'
 import type { Capability } from '@podium/model'
 import { asUserId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { resolvePrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { memberFacts } from '../../store/fixtures/test-support'
+import { permissiveFixturePrincipal } from '../../test-support/capabilities'
 import { acceptingProviderFetch } from '../../test-support/fake-provider'
 import { SuperagentService } from '../superagent'
 import { withSecret } from './vault'
@@ -31,6 +31,7 @@ const RENEWED = 'FAKE-sk-ant-plant-6891-renewed'
 const CANARY = 'FAKE-canary-6891-label'
 
 const owner: Capability = {
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   role: 'worker',
   scope: { kind: 'owned', userId: OWNER },
   actorUser: OWNER,
@@ -97,7 +98,7 @@ describe('acceptance 4: no secret leaves add or renew', () => {
       users: store.users,
       loginRequired: async () => true,
       capability: owner,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, owner, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, owner, {
         parentSessionOf: () => undefined,
       }),
     })

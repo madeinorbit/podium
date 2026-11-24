@@ -1,12 +1,12 @@
 import { asIssueId, asSessionId, subscriptionRowIdOf } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { firstAdminMemberId, resolvePrincipal } from './command-principal'
+import { firstAdminMemberId } from './command-principal'
 import type { Capability } from './issue-authz'
 import { issueRegistry } from './modules/issues/registry'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
-import { OPERATOR } from './test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipal } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { seedMailboxRow } from './test-support/seed-issue-mail'
 
@@ -93,7 +93,7 @@ describe('issues.* subtree scope (P1a)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
         parentSessionOf: () => undefined,
       }),
     })
@@ -123,7 +123,7 @@ describe('issues.* subtree scope (P1a)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
         parentSessionOf: () => undefined,
       }),
       overrideScope,
@@ -138,7 +138,7 @@ describe('issues.* subtree scope (P1a)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
         parentSessionOf: () => undefined,
       }),
     })
@@ -155,24 +155,40 @@ describe('issues.* subtree scope (P1a)', () => {
   })
 
   it('worker may write inside its subtree', async () => {
-    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } })
+    const c = callerWith({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      role: 'worker',
+      scope: { kind: 'subtree', rootId: asIssueId(A.id) },
+    })
     await expect(c.issues.update({ id: A.id, patch: { brief: 'x' } })).resolves.toBeTruthy()
   })
 
   it('worker writing outside its subtree is rejected until overridden', async () => {
-    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } })
+    const c = callerWith({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      role: 'worker',
+      scope: { kind: 'subtree', rootId: asIssueId(A.id) },
+    })
     await expect(c.issues.update({ id: B.id, patch: { brief: 'x' } })).rejects.toThrow(
       /outside your subtree/,
     )
     const c2 = callerWith(
-      { role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } },
+      {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'worker',
+        scope: { kind: 'subtree', rootId: asIssueId(A.id) },
+      },
       true,
     )
     await expect(c2.issues.update({ id: B.id, patch: { brief: 'x' } })).resolves.toBeTruthy()
   })
 
   it('worker may always create and always read', async () => {
-    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } })
+    const c = callerWith({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      role: 'worker',
+      scope: { kind: 'subtree', rootId: asIssueId(A.id) },
+    })
     await expect(
       c.issues.create({ repoPath: '/r', title: 'filed', startNow: false }),
     ).resolves.toBeTruthy()
@@ -185,7 +201,7 @@ describe('issues.* subtree scope (P1a)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
         parentSessionOf: () => undefined,
       }),
     })
@@ -193,7 +209,11 @@ describe('issues.* subtree scope (P1a)', () => {
   })
 
   it('setNeedsHuman is scope-gated like other writes', async () => {
-    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } })
+    const c = callerWith({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      role: 'worker',
+      scope: { kind: 'subtree', rootId: asIssueId(A.id) },
+    })
     await expect(c.issues.setNeedsHuman({ id: A.id, question: 'q' })).resolves.toBeTruthy()
     await expect(c.issues.setNeedsHuman({ id: B.id, question: 'q' })).rejects.toThrow(
       /outside your subtree/,
@@ -206,7 +226,7 @@ describe('issues.* subtree scope (P1a)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
         parentSessionOf: () => undefined,
       }),
     })
@@ -223,6 +243,7 @@ describe('issues.* subtree scope (P1a)', () => {
   it('askedBy is server-authoritative for agents: own session only (issue #53 review)', async () => {
     const worker = (actorSessionId: string) =>
       callerWith({
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'worker',
         scope: { kind: 'subtree', rootId: asIssueId(A.id) },
         actorSessionId: asSessionId(actorSessionId),
@@ -252,6 +273,7 @@ describe('issues.* subtree scope (P1a)', () => {
   // delivered'). What stays here is the delivery rule.
   it('answerQuestion never clears on failed delivery (issue #53)', async () => {
     const c = callerWith({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'worker',
       scope: { kind: 'subtree', rootId: asIssueId(A.id) },
       actorSessionId: asSessionId('sess_gone'),
@@ -272,7 +294,7 @@ describe('issues.* subtree scope (P1a)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
         parentSessionOf: () => undefined,
       }),
     })
@@ -284,7 +306,11 @@ describe('issues.* subtree scope (P1a)', () => {
   })
 
   it('issues.prime binds to the capability subtree root', async () => {
-    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } })
+    const c = callerWith({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      role: 'worker',
+      scope: { kind: 'subtree', rootId: asIssueId(A.id) },
+    })
     const out = await c.issues.prime({ repoPath: '/r' })
     expect(out).toContain(A.title)
   })
@@ -321,6 +347,7 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
     const cap = await registry.modules.sessions.capabilityForSession(sid)
     // actorSessionId is stamped so close/unblock events can name their causer (#116).
     expect(cap).toEqual({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'worker',
       scope: { kind: 'subtree', rootId: i.id },
       actorSessionId: sid,
@@ -332,6 +359,7 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
       agentKind: 'shell',
     })
     expect(await registry.modules.sessions.capabilityForSession(sid2)).toEqual({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'worker',
       scope: { kind: 'none' },
       actorSessionId: sid2,
@@ -342,6 +370,7 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
     expect(
       await registry.modules.sessions.capabilityForSession(asSessionId('no-such-session')),
     ).toEqual({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'worker',
       scope: { kind: 'none' },
     })
@@ -452,7 +481,7 @@ describe('issues.mail* (agent mail #103)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
         parentSessionOf: () => undefined,
       }),
     })
@@ -482,7 +511,7 @@ describe('issues.mail* (agent mail #103)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
         parentSessionOf: () => undefined,
       }),
       overrideScope,
@@ -490,7 +519,11 @@ describe('issues.mail* (agent mail #103)', () => {
   }
 
   const scopedToA = () =>
-    callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } })
+    callerWith({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      role: 'worker',
+      scope: { kind: 'subtree', rootId: asIssueId(A.id) },
+    })
 
   it('mailSend to ANOTHER issue needs no --outside-scope; sender is issue:#<seq>', async () => {
     const m = await scopedToA().issues.mailSend({ id: B.id, body: 'heads up' })
@@ -519,6 +552,7 @@ describe('issues.mail* (agent mail #103)', () => {
     expect(opInbox[0]).toMatchObject({ status: 'unread', wasUnread: true })
     // other agent peek (reads are scope-free)
     const scopedToB = callerWith({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'worker',
       scope: { kind: 'subtree', rootId: asIssueId(B.id) },
     })
@@ -531,7 +565,11 @@ describe('issues.mail* (agent mail #103)', () => {
   })
 
   it('mailInbox with no id and no bound issue is a BAD_REQUEST', async () => {
-    const c = callerWith({ role: 'worker', scope: { kind: 'none' } })
+    const c = callerWith({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      role: 'worker',
+      scope: { kind: 'none' },
+    })
     await expect(c.issues.mailInbox()).rejects.toThrow(/no issue bound/)
   })
 
@@ -552,7 +590,11 @@ describe('issues.mail* (agent mail #103)', () => {
       /outside your subtree/,
     )
     const c2 = callerWith(
-      { role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } },
+      {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'worker',
+        scope: { kind: 'subtree', rootId: asIssueId(A.id) },
+      },
       true,
     )
     await expect(c2.issues.mailClaim({ messageId: theirs.id })).resolves.toMatchObject({
@@ -590,7 +632,7 @@ describe('issues router create/list/update', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
         parentSessionOf: () => undefined,
       }),
     })
@@ -629,7 +671,7 @@ describe('issues.subscription* authz (Phase B)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
         parentSessionOf: () => undefined,
       }),
     })
@@ -659,14 +701,18 @@ describe('issues.subscription* authz (Phase B)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
         parentSessionOf: () => undefined,
       }),
       overrideScope,
     })
   }
   const scopedTo = (id: string) =>
-    callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(id) } })
+    callerWith({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      role: 'worker',
+      scope: { kind: 'subtree', rootId: asIssueId(id) },
+    })
 
   it('a subtree caller subscribes ITSELF (issue subscriber = its root)', async () => {
     const s = await scopedTo(A.id).issues.subscriptionAdd({
@@ -828,7 +874,7 @@ describe('issues.* on an issue that does not exist (POD-1926)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
         parentSessionOf: () => undefined,
       }),
     })

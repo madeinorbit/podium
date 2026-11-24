@@ -172,6 +172,7 @@ async function sqliteCorpus(): Promise<SessionStore> {
       superagent,
       // The operator as `test-support/capabilities.ts` mints it, for this store's admin.
       capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'admin',
         scope: { kind: 'owned', userId: owner },
         actorUser: owner,

@@ -1,11 +1,10 @@
 import { actorUser, firstAdminMemberId } from '@podium/model'
 import { afterEach, expect, it, vi } from 'vitest'
-import { resolvePrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { appRouter } from '../../router'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { authoritySnapshot } from '../../test-support/authority-snapshot'
-import { OPERATOR } from '../../test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipal } from '../../test-support/capabilities'
 import { TEST_MACHINE_ID } from '../../test-support/machine-id'
 import { openTestStore } from '../../test-support/open-test-store'
 import { seedRows } from '../../test-support/seed-rows'
@@ -45,7 +44,7 @@ async function fixture() {
     repos: {} as never,
     superagent: {} as never,
     capability,
-    principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+    principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
       parentSessionOf: () => undefined,
     }),
   }).issues

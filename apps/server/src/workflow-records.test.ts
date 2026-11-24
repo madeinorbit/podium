@@ -19,7 +19,7 @@ import { serverRecordBuilders } from './sync/record-builders'
 
 import { asMutationId, asUserId, firstAdminMemberId, subscriptionRowId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
-import { resolvePrincipalAsync, userCommandPrincipal } from './command-principal'
+import { userCommandPrincipal } from './command-principal'
 import { disposeOracles, makeOracle, type Oracle } from './modules/sessions/oracle-support'
 import {
   appliedReply,
@@ -29,6 +29,7 @@ import {
   submit,
 } from './modules/sync-write/outbox-test-support'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
+import { permissiveFixturePrincipalAsync } from './test-support/capabilities'
 import { seedRows } from './test-support/seed-rows'
 import { withWriteProvenance } from './write-provenance'
 
@@ -234,7 +235,7 @@ describe('agent profile records', () => {
     )
     expect(asMember.outcome).toBe('rejected')
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/a' })
-    const agent = await resolvePrincipalAsync(
+    const agent = await permissiveFixturePrincipalAsync(
       SELF_HOSTED_WORKSPACE_ID,
       await o.reg.modules.sessions.capabilityForSession(sessionId),
       { parentSessionOf: async () => undefined, onBehalfOfFor: async () => firstAdminMemberId() },

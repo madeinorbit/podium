@@ -132,7 +132,13 @@ describe('session control policy — identity + attribution', () => {
       kind: 'user',
       workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: ADMIN,
-      capability: { role: 'admin', scope: { kind: 'all' }, actorUser: ADMIN, onBehalfOf: ADMIN },
+      capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'admin',
+        scope: { kind: 'all' },
+        actorUser: ADMIN,
+        onBehalfOf: ADMIN,
+      },
     })
     expect(admin.role).toBe('admin')
     expect(mayDrive(admin, ctx({ machineUse: 'granted' }))).toBe('unauthorized')

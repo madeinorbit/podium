@@ -22,6 +22,7 @@ import {
   type Principal,
 } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { capabilityFromPrincipal } from './principal-capability'
 
 const ALL: IssueScope = { kind: 'all' }
@@ -49,12 +50,17 @@ const agentPrincipal: Principal = {
 
 describe('capabilityFromPrincipal', () => {
   it('a human is both halves of the pair, and it is still a pair', () => {
-    const capability = capabilityFromPrincipal(userPrincipal, { role: 'admin', scope: ALL })
+    const capability = capabilityFromPrincipal(userPrincipal, {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      role: 'admin',
+      scope: ALL,
+    })
     expect(capabilityAttribution(capability)).toEqual({ actor: 'usr-ada', onBehalfOf: 'usr-ada' })
   })
 
   it('an agent is the actor; its human is the on-behalf-of', () => {
     const capability = capabilityFromPrincipal(agentPrincipal, {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'worker',
       scope: { kind: 'subtree', rootId: asIssueId('iss-1') },
     })
@@ -77,7 +83,11 @@ describe('capabilityFromPrincipal', () => {
       device: asDeviceId('conn-1'),
       capability: cap,
     }
-    const capability = capabilityFromPrincipal(machine, { role: 'worker', scope: ALL })
+    const capability = capabilityFromPrincipal(machine, {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      role: 'worker',
+      scope: ALL,
+    })
     expect(capability.onBehalfOf).toBeUndefined()
     expect(capabilityAttribution(capability)).toEqual({ actor: 'mach-vps', onBehalfOf: null })
   })
@@ -85,7 +95,7 @@ describe('capabilityFromPrincipal', () => {
   it('a system job has no human and is never assigned one (D21)', () => {
     const capability = capabilityFromPrincipal(
       { kind: 'system', job: 'steward' },
-      { role: 'admin', scope: ALL },
+      { workspaceId: SELF_HOSTED_WORKSPACE_ID, role: 'admin', scope: ALL },
     )
     expect(capability.onBehalfOf).toBeUndefined()
     expect(capabilityAttribution(capability)).toEqual({ actor: 'steward', onBehalfOf: null })
@@ -93,6 +103,7 @@ describe('capabilityFromPrincipal', () => {
 
   it('the pair reaches the command layer intact — authorize() runs on this value', () => {
     const capability = capabilityFromPrincipal(agentPrincipal, {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'worker',
       scope: { kind: 'subtree', rootId: asIssueId('iss-1') },
     })
@@ -109,6 +120,7 @@ describe('capabilityFromPrincipal', () => {
     // the principal itself has none to copy (ADR 3 Am.1 D16.1).
     expect(Object.keys(agentPrincipal)).not.toContain('scope')
     const narrow = capabilityFromPrincipal(agentPrincipal, {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'worker',
       scope: { kind: 'none' },
     })

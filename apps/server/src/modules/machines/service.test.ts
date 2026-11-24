@@ -1314,7 +1314,11 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
         kind: 'user',
         workspaceId: SELF_HOSTED_WORKSPACE_ID,
         user: firstAdminMemberId(),
-        capability: { role: 'admin', scope: { kind: 'all' } },
+        capability: {
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
+          role: 'admin',
+          scope: { kind: 'all' },
+        },
       }
       const ownership: MachineOwnershipIndex = {
         rowFor: (id) =>
@@ -1374,7 +1378,12 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
         agentSessionId: asSessionId('leaf'),
         chain: [asSessionId('parent')],
         onBehalfOf: firstAdminMemberId(),
-        capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: asSessionId('leaf') },
+        capability: {
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
+          role: 'admin',
+          scope: { kind: 'all' },
+          actorSessionId: asSessionId('leaf'),
+        },
       }
       const narrowed = {
         ...granted,

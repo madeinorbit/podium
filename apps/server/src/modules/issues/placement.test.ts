@@ -14,6 +14,8 @@
 import { asIssueId, asSessionId, type Capability, firstAdminMemberId } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
+import { seedAgentSessions } from '../../test-support/agent-session-rows'
 import { OPERATOR } from '../../test-support/capabilities'
 import { TEST_MACHINE_ID } from '../../test-support/machine-id'
 
@@ -116,7 +118,9 @@ describe('issues.setPlacement', () => {
 
   it('is the operator’s decision — a scoped worker is refused', async () => {
     const { origin, found, registry } = await discovered()
+    await seedAgentSessions(registry.sessionStore, ['s-agent'])
     const worker: Capability = {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'worker',
       scope: { kind: 'subtree', rootId: asIssueId(origin.id) },
       actorSessionId: asSessionId('s-agent'),

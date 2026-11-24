@@ -338,6 +338,9 @@ describe('mail send: pinned statement counts', { timeout: fixtureTimeout }, () =
         async (f) => await relay(f, 'send', { to: f.target, body: 'counted' }),
       ),
       // POD-6920: derived change capture (no build before the write; one drain after it): 117 -> 91.
+      // POD-7558: unchanged. The relayed sender's human is checked for
+      // membership (+1), and queued input resolves through the session
+      // service's principalFor, which reads no session view (-1).
       { sqlite: 92, pg: 100, reason: pgPublicationReason },
     )
   })
@@ -391,6 +394,8 @@ describe('mail send: pinned statement counts', { timeout: fixtureTimeout }, () =
     async (f) => await relay(f, 'send', { to: f.target, body: 'counted' }),
     sessionMailOnly,
   )
+  // POD-7558: unchanged; the member read (+1) is offset by queued input resolving
+  // through principalFor instead of the session view (-1).
   const relaySessionStatements = { sqlite: 85, pg: 87, reason: pgPublicationReason }
 
   it('through the agent relay, to a running session', async () => {
@@ -404,6 +409,7 @@ describe('mail send: pinned statement counts', { timeout: fixtureTimeout }, () =
 
   it('through the agent relay, to a running session: round trips (POD-6992)', async () => {
     if (testStoreEngine() !== 'pg') {
+      // POD-7558: unchanged (member read +1, queued input via principalFor -1).
       await expectConstantRoundTrips(relayToSession, 121)
       return
     }
@@ -446,6 +452,7 @@ describe('mail send: pinned statement counts', { timeout: fixtureTimeout }, () =
         families[family] = (families[family] ?? 0) + count
       }
       expect(families, detail).toEqual({
+        // POD-7558: unchanged (member read +1, queued input via principalFor -1).
         statement: 87 + activityScans + 2 * activityWrites,
         begin: 10 + activityWrites,
         commit: 10 + activityWrites,
@@ -471,7 +478,8 @@ describe('mail send: pinned statement counts', { timeout: fixtureTimeout }, () =
         async (f) => await relay(f, 'send', { to: f.issueId, body: 'counted' }),
       ),
       // POD-6920: derived change capture (no build before the write; one drain after it): 28 -> 33.
-      33,
+      // POD-7558: the sender's human is checked for membership (one users read): 33 -> 34.
+      34,
     )
   })
 
@@ -482,7 +490,10 @@ describe('mail send: pinned statement counts', { timeout: fixtureTimeout }, () =
         async (f) => await relay(f, 'mailSend', { id: f.issueId, body: 'counted' }, 'issues'),
       ),
       // POD-6920: derived change capture (no build before the write; one drain after it): 26 -> 31.
-      31,
+      // POD-7558: the dispatcher resolves the agent in the store (its session row, its
+      // owner, the owner's member row) instead of through the session view, which also
+      // read the issue and the session's queued-message count: 31 -> 29.
+      29,
     )
   })
 })

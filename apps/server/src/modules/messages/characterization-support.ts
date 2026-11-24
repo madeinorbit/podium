@@ -32,10 +32,12 @@ import {
   type MachineId,
   type SessionId,
   type SessionMeta,
+  spawnedByParentSessionId,
   type UserId,
 } from '@podium/model'
 import type { TurnReceipt } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
+import { resolvePrincipalAsync } from '../../command-principal'
 import type { Capability } from '../../issue-authz'
 import { isMemberCwd, sessionsForIssue } from '../../issue-util'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
@@ -436,6 +438,12 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     now,
   })
 
+  const fixtureOwner =
+    opts?.sessionOwnerUserId ??
+    (async (id: SessionId) =>
+      sessions.some((s) => s.sessionId === id)
+        ? (owners.get(id) ?? firstAdminMemberId())
+        : undefined)
   const gate = new MessageGate(
     {
       workspaceId: SELF_HOSTED_WORKSPACE_ID,
@@ -470,12 +478,25 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
         : {}),
       // The session's owner, as the session's row answers it: a test's own
       // port, else the seeded fixture's owner (POD-6283).
-      sessionOwnerUserId:
-        opts?.sessionOwnerUserId ??
-        (async (id) =>
-          sessions.some((s) => s.sessionId === id)
-            ? (owners.get(id) ?? firstAdminMemberId())
-            : undefined),
+      sessionOwnerUserId: fixtureOwner,
+      // A PERMISSIVE resolver, deliberately (POD-7558). The workspace check is
+      // the served gate's. The rest is weaker than production, because this
+      // harness has no session or member rows for most of what it names: an
+      // agent session acts for the human its capability names unless it was
+      // put with an owner (the on-behalf-of fallback production removed), and
+      // every person is a member. These mail tests therefore prove nothing
+      // about delegation or membership; capability-workspace.test.ts does,
+      // through the served resolver, mail send included.
+      principalFor: async (capability) =>
+        await resolvePrincipalAsync(SELF_HOSTED_WORKSPACE_ID, capability, {
+          parentSessionOf: async (id) =>
+            spawnedByParentSessionId(sessions.find((s) => s.sessionId === id)?.spawnedBy),
+          onBehalfOfFor: async (id) =>
+            (opts?.sessionOwnerUserId ? await opts.sessionOwnerUserId(id) : undefined) ??
+            owners.get(id) ??
+            capability.onBehalfOf,
+          isMember: () => true,
+        }),
       createIssue: async (writer, input) =>
         await issues.crud.create(writer, { ...input, startNow: false }),
       appendEvent: async (e) => {
@@ -562,6 +583,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       return created
     },
     agentCap: (issueId, sessionId) => ({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'worker',
       scope: { kind: 'subtree', rootId: issueId },
       ...(sessionId ? { actorSessionId: sessionId } : {}),

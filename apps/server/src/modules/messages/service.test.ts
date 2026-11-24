@@ -21,6 +21,7 @@ import { isMemberCwd, sessionsForIssue } from '../../issue-util'
 import { failureNoticeId, spawnPromptMessageId } from '../../message-ids'
 import type { IssueRow, MessageRow, SessionStore } from '../../store'
 import { NotificationArbiter } from '../../store/notification-facts'
+import { permissiveFixturePrincipalAsync } from '../../test-support/capabilities'
 import { captureLogs } from '../../test-support/capture-logs'
 import { messageTestWriter, messageTestWriters } from '../../test-support/message-writer'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -3517,6 +3518,8 @@ describe('MessageGate.send authz (target-issue scope)', () => {
   function gateFor(svc: MessageDeliveryService, sessions: SessionMeta[] = []) {
     return new MessageGate({
       workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      principalFor: async (capability) =>
+        await permissiveFixturePrincipalAsync(SELF_HOSTED_WORKSPACE_ID, capability),
       messages: svc,
       directWriter: messageTestWriter(),
       issues: fakeIssues(),
@@ -3525,6 +3528,7 @@ describe('MessageGate.send authz (target-issue scope)', () => {
     })
   }
   const peerCap: Capability = {
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     role: 'worker',
     scope: { kind: 'subtree', rootId: asIssueId(SENDER_ISSUE.id) },
     actorSessionId: asSessionId('sX'),
@@ -3581,6 +3585,7 @@ describe('MessageGate.send authz (target-issue scope)', () => {
     expect(peek[0]?.deliveryStatus).toBe('stored')
     // The operator's peek is unrestricted.
     const operatorCap: Capability = {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'admin',
       scope: { kind: 'all' },
       actorUser: firstAdminMemberId(),

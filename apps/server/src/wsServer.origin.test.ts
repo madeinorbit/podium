@@ -14,6 +14,7 @@ import {
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { bindToRegistry } from './test-support/ws-binding'
 
 describe('isAllowedWsOrigin', () => {
   test('a request with no Origin (native client / daemon) is allowed', () => {
@@ -138,6 +139,7 @@ describe('the CSWSH guard on the real upgrade path', () => {
     handle = attachWebSockets(
       registry,
       {
+        bindWorkspace: bindToRegistry(registry),
         userForClient: () => firstAdminMemberId(),
         roleForClient: () => 'admin',
       },

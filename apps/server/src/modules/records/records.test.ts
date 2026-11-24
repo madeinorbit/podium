@@ -527,7 +527,11 @@ async function member(o: Oracle): Promise<CommandPrincipal> {
     kind: 'user',
     workspaceId: SELF_HOSTED_WORKSPACE_ID,
     user: MEMBER,
-    capability: { role: 'worker', scope: { kind: 'self', userId: MEMBER } },
+    capability: {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      role: 'worker',
+      scope: { kind: 'self', userId: MEMBER },
+    },
   }
 }
 
@@ -761,6 +765,7 @@ describe('a member writes their own per-user rows through sync.submit', () => {
       agentSessionId: agentSession,
       onBehalfOf: MEMBER,
       capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'worker',
         scope: { kind: 'subtree', rootId: issue },
         actorSessionId: agentSession,

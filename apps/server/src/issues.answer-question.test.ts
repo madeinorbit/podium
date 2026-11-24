@@ -7,7 +7,7 @@ import { IssueCommandDispatcher } from './modules/issues/dispatcher'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
-import { OPERATOR } from './test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipalAsync } from './test-support/capabilities'
 import { executionFactsOf } from './test-support/execution-facts'
 import { TEST_MACHINE_ID } from './test-support/machine-id'
 import { openTestStore } from './test-support/open-test-store'
@@ -50,6 +50,8 @@ async function harness(
   const svc = await IssueService.create(deps)
   const dispatcher = new IssueCommandDispatcher({
     workspaceId: SELF_HOSTED_WORKSPACE_ID,
+    principalFor: async (capability) =>
+      await permissiveFixturePrincipalAsync(SELF_HOSTED_WORKSPACE_ID, capability),
     issues: svc,
     // These commands run outside sync.submit here, under the service's writer.
     directWriter: svc.reports.store.serverWriter,
@@ -210,6 +212,7 @@ describe('issues.answerQuestion (issue #53)', () => {
     })
     const worker = {
       capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'worker' as const,
         scope: { kind: 'subtree' as const, rootId: a.id },
         actorSessionId: asSessionId('sess_me'),
@@ -233,6 +236,7 @@ describe('issues.answerQuestion (issue #53)', () => {
     // A session-less constrained caller cannot smuggle an attribution either.
     const sessionless = {
       capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'worker' as const,
         scope: { kind: 'subtree' as const, rootId: a.id },
         actorUser: firstAdminMemberId(),

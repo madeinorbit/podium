@@ -71,7 +71,7 @@ async function harness(machines: { id: string; token: string }[]) {
   const attach = vi.spyOn(reg.gateway, 'attachDaemon')
   const route = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockResolvedValue(undefined)
   const ws = fakeWs()
-  wireDaemonSocket(ws as never, reg)
+  wireDaemonSocket(ws as never, reg, reg.workspaceId)
   return { store, reg, ws, attach, route }
 }
 

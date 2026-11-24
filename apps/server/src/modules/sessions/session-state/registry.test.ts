@@ -81,7 +81,11 @@ async function fixture() {
   const asUser = (userId: string, scope: 'owned' | 'self'): SessionStatePrincipal => ({
     workspaceId: store.workspaceId,
     userId: asUserId(userId),
-    capability: { role: 'worker', scope: { kind: scope, userId: asUserId(userId) } },
+    capability: {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      role: 'worker',
+      scope: { kind: scope, userId: asUserId(userId) },
+    },
     onBehalfOf: asUserId(userId),
     humanDirect: true,
   })
@@ -204,7 +208,11 @@ describe('per-user writes are SELF-SCOPED', () => {
     const mismatched: SessionStatePrincipal = {
       workspaceId: SELF_HOSTED_WORKSPACE_ID,
       userId: ALICE,
-      capability: { role: 'worker', scope: { kind: 'self', userId: asUserId(BOB) } },
+      capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'worker',
+        scope: { kind: 'self', userId: asUserId(BOB) },
+      },
       onBehalfOf: ALICE,
       humanDirect: true,
     }
@@ -292,7 +300,11 @@ describe('owner-or-grant policy on the shared session writes', () => {
     const owner: SessionStatePrincipal = {
       workspaceId: SELF_HOSTED_WORKSPACE_ID,
       userId: firstAdminMemberId(),
-      capability: { role: 'worker', scope: { kind: 'owned', userId: firstAdminMemberId() } },
+      capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'worker',
+        scope: { kind: 'owned', userId: firstAdminMemberId() },
+      },
       onBehalfOf: firstAdminMemberId(),
       humanDirect: true,
     }

@@ -86,7 +86,7 @@ import {
   machineVerbsFor,
 } from './machine-access'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
-import { OPERATOR } from './test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipal } from './test-support/capabilities'
 
 // ---------------------------------------------------------------------------
 // The cast
@@ -140,6 +140,7 @@ interface Transport {
  *  and pinned against it below. A session inside an issue worktree is
  *  worker/subtree; one outside is worker/none. */
 const agentCapability = (actorSessionId: SessionId): Capability => ({
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   role: 'worker',
   scope: { kind: 'subtree', rootId: ROOT_ISSUE },
   actorSessionId,
@@ -192,6 +193,7 @@ describe('the transport table is not fiction', () => {
     // POD-6288: no person is minted with scope `all`; an admin carries the
     // member scope plus the admin role.
     expect(HUMAN_CAPABILITY).toEqual({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'admin',
       scope: { kind: 'owned', userId: OWNER },
       actorUser: OWNER,
@@ -228,7 +230,11 @@ describe('D14 — every transport resolves to a principal that names a person or
     TRANSPORTS.map((t) => [t.tag, t] as const),
   )('%s resolves a principal with a named human', (_tag, transport) => {
     const world = delegationWorld()
-    const human = resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, transport.capabilityFor(), world.index)
+    const human = permissiveFixturePrincipal(
+      SELF_HOSTED_WORKSPACE_ID,
+      transport.capabilityFor(),
+      world.index,
+    )
     expect(onBehalfOfUser(human)).not.toBeNull()
   })
 
@@ -236,7 +242,7 @@ describe('D14 — every transport resolves to a principal that names a person or
     AGENT_TRANSPORTS.map((t) => [t.tag, t] as const),
   )('%s resolves an AGENT principal whose human comes from the delegation record', (_tag, transport) => {
     const world = delegationWorld()
-    const p = resolvePrincipal(
+    const p = permissiveFixturePrincipal(
       SELF_HOSTED_WORKSPACE_ID,
       transport.capabilityFor(AGENT_OF_OTHER),
       world.index,
@@ -274,7 +280,7 @@ describe('D7.1 / D14.3 — payload identity is inert on every transport, for bot
     onBehalfOf: 'user:attacker',
     userId: 'user:attacker',
     delegation: 'delegation:attacker',
-    capability: { role: 'admin', scope: { kind: 'all' } },
+    capability: { workspaceId: SELF_HOSTED_WORKSPACE_ID, role: 'admin', scope: { kind: 'all' } },
   }
 
   it.each(
@@ -282,12 +288,16 @@ describe('D7.1 / D14.3 — payload identity is inert on every transport, for bot
   )('%s — a forged actor, onBehalfOf, user id or delegation reference changes nothing', (_tag, transport) => {
     const world = delegationWorld()
     const capability = transport.capabilityFor(AGENT_OF_OWNER)
-    const clean = resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, world.index)
+    const clean = permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, world.index)
 
     // The forgery is applied the only way a payload could reach here: spread
     // onto the input object. If any of these keys were consulted, the
     // resolution would differ.
-    const contaminated = resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, world.index)
+    const contaminated = permissiveFixturePrincipal(
+      SELF_HOSTED_WORKSPACE_ID,
+      capability,
+      world.index,
+    )
     expect(FORGED.capability).not.toEqual(capability)
     expect(onBehalfOfUser(contaminated)).toBe(onBehalfOfUser(clean))
     expect(onBehalfOfUser(contaminated)).not.toBe('user:attacker')
@@ -296,7 +306,7 @@ describe('D7.1 / D14.3 — payload identity is inert on every transport, for bot
   })
 
   it('the resolver has no payload parameter at all — inert BY CONSTRUCTION', () => {
-    // The structural half. `resolvePrincipal(workspace, capability, delegations)`
+    // The structural half. `permissiveFixturePrincipal(workspace, capability, delegations)`
     // is arity 3 (the workspace is the server's, stamped where the request was
     // bound: POD-7483), so there is no fourth seam an implementer could later
     // thread input through without this failing.
@@ -307,12 +317,12 @@ describe('D7.1 / D14.3 — payload identity is inert on every transport, for bot
     // Without this, every assertion in this describe would also pass against a
     // resolver that always returned one constant.
     const world = delegationWorld()
-    const a = resolvePrincipal(
+    const a = permissiveFixturePrincipal(
       SELF_HOSTED_WORKSPACE_ID,
       agentCapability(AGENT_OF_OWNER),
       world.index,
     )
-    const b = resolvePrincipal(
+    const b = permissiveFixturePrincipal(
       SELF_HOSTED_WORKSPACE_ID,
       agentCapability(AGENT_OF_OTHER),
       world.index,
@@ -335,7 +345,7 @@ describe('D17 — attribution is a PAIR, stamped from the transport', () => {
     AGENT_TRANSPORTS.map((t) => [t.tag, t] as const),
   )('%s stamps both halves and never collapses them', (_tag, transport) => {
     const world = delegationWorld()
-    const agent = resolvePrincipal(
+    const agent = permissiveFixturePrincipal(
       SELF_HOSTED_WORKSPACE_ID,
       transport.capabilityFor(AGENT_OF_OWNER),
       world.index,
@@ -350,7 +360,7 @@ describe('D17 — attribution is a PAIR, stamped from the transport', () => {
 
   it('a human caller still records a PAIR, so consumers never branch on shape (D17.2)', () => {
     const world = delegationWorld()
-    const human = resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, world.index)
+    const human = permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, world.index)
     const pair = attributionOf(human)
     expect(pair.actor).toBe(firstAdminMemberId())
     expect(pair.onBehalfOf).toBe(firstAdminMemberId())
@@ -370,7 +380,7 @@ describe('D17 — attribution is a PAIR, stamped from the transport', () => {
 describe('D16 — delegation resolves live over the whole chain', () => {
   it('a sub-agent inherits the human at the ROOT, not one read off its own leaf', () => {
     const world = delegationWorld()
-    const sub = resolvePrincipal(
+    const sub = permissiveFixturePrincipal(
       SELF_HOSTED_WORKSPACE_ID,
       agentCapability(SUBAGENT_OF_OWNER),
       world.index,
@@ -388,12 +398,12 @@ describe('D16 — delegation resolves live over the whole chain', () => {
     const ownership: { owner: UserId | null } = { owner: OWNER }
     const machines = machineWorld(ownership)
 
-    const agentBefore = resolvePrincipal(
+    const agentBefore = permissiveFixturePrincipal(
       SELF_HOSTED_WORKSPACE_ID,
       agentCapability(AGENT_OF_OWNER),
       world.index,
     )
-    const subBefore = resolvePrincipal(
+    const subBefore = permissiveFixturePrincipal(
       SELF_HOSTED_WORKSPACE_ID,
       agentCapability(SUBAGENT_OF_OWNER),
       world.index,
@@ -406,12 +416,12 @@ describe('D16 — delegation resolves live over the whole chain', () => {
     // nothing is swept, and no capability is invalidated, because none was stored.
     ownership.owner = OTHER
 
-    const agentAfter = resolvePrincipal(
+    const agentAfter = permissiveFixturePrincipal(
       SELF_HOSTED_WORKSPACE_ID,
       agentCapability(AGENT_OF_OWNER),
       world.index,
     )
-    const subAfter = resolvePrincipal(
+    const subAfter = permissiveFixturePrincipal(
       SELF_HOSTED_WORKSPACE_ID,
       agentCapability(SUBAGENT_OF_OWNER),
       world.index,
@@ -428,7 +438,7 @@ describe('D16 — delegation resolves live over the whole chain', () => {
       // The PARENT is narrowed away from m1; the child declares no narrowing.
       delegated: new Map([[AGENT_OF_OWNER, new Set<string>()]]),
     })
-    const sub = resolvePrincipal(
+    const sub = permissiveFixturePrincipal(
       SELF_HOSTED_WORKSPACE_ID,
       agentCapability(SUBAGENT_OF_OWNER),
       world.index,
@@ -441,14 +451,14 @@ describe('D16 — delegation resolves live over the whole chain', () => {
   it('the human is a CEILING: an agent of a non-owner cannot reach the owner’s machine', () => {
     const world = delegationWorld()
     const machines = machineWorld({ owner: OWNER })
-    const foreign = resolvePrincipal(
+    const foreign = permissiveFixturePrincipal(
       SELF_HOSTED_WORKSPACE_ID,
       agentCapability(AGENT_OF_OTHER),
       world.index,
     )
     expect(machineVerbsFor(foreign, asMachineId('m1'), machines).has('use')).toBe(false)
     // ...and the counterfactual, so the denial is the ceiling talking.
-    const mine = resolvePrincipal(
+    const mine = permissiveFixturePrincipal(
       SELF_HOSTED_WORKSPACE_ID,
       agentCapability(AGENT_OF_OWNER),
       world.index,
@@ -475,7 +485,7 @@ describe('D8 / D16.4 — apply-time re-authorization: rights revoked while offli
     const drain = (): boolean => {
       // What the authority does per D8 step 1: resolve the CURRENT principal,
       // then run the policy. Nothing from enqueue time is consulted.
-      const principal = resolvePrincipal(
+      const principal = permissiveFixturePrincipal(
         SELF_HOSTED_WORKSPACE_ID,
         agentCapability(AGENT_OF_OWNER),
         world.index,
@@ -496,7 +506,7 @@ describe('D8 / D16.4 — apply-time re-authorization: rights revoked while offli
     const grants: { grantee: string; verb: string }[] = []
     const machines = machineWorld({ owner: OTHER, grants })
     const drain = (): boolean => {
-      const principal = resolvePrincipal(
+      const principal = permissiveFixturePrincipal(
         SELF_HOSTED_WORKSPACE_ID,
         agentCapability(AGENT_OF_OWNER),
         world.index,
@@ -513,7 +523,14 @@ describe('D8 / D16.4 — apply-time re-authorization: rights revoked while offli
     // D16.1's "no capability snapshot is ever an input to an allow decision",
     // asserted on the type that would have to carry one.
     const cap = agentCapability(AGENT_OF_OWNER)
-    expect(Object.keys(cap).sort()).toEqual(['actorSessionId', 'onBehalfOf', 'role', 'scope'])
+    // The workspace it was issued in is an identity fact, not a verdict (POD-7558).
+    expect(Object.keys(cap).sort()).toEqual([
+      'actorSessionId',
+      'onBehalfOf',
+      'role',
+      'scope',
+      'workspaceId',
+    ])
   })
 })
 
@@ -564,11 +581,19 @@ describe('D19.2 — reads are scope-gated, with denial covered on trpc, cli, mcp
   })
 
   it('an ADMIN role alone does not read a private row — role and ownership are conjunctive (D15.2)', () => {
-    const scopedAdmin: Capability = { role: 'admin', scope: { kind: 'owned', userId: GRANTEE } }
+    const scopedAdmin: Capability = {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      role: 'admin',
+      scope: { kind: 'owned', userId: GRANTEE },
+    }
     expect(authorize(scopedAdmin, 'read', someoneElsesSession)).toBe('forbidden')
     // The other direction of D15.2: an owner's grant does not confer a command
     // the role floor withholds.
-    const owningViewer: Capability = { role: 'viewer', scope: { kind: 'owned', userId: OWNER } }
+    const owningViewer: Capability = {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      role: 'viewer',
+      scope: { kind: 'owned', userId: OWNER },
+    }
     expect(authorize(owningViewer, 'write', mySession)).toBe('forbidden')
     expect(authorize(owningViewer, 'read', mySession)).toBe('allow')
   })
@@ -670,7 +695,13 @@ describe('D2 — the four outcomes: allow / deny / confirm / apply-time-revoked'
   })
 
   it('DENY — a role that cannot perform the action at all, and override does not lift it', async () => {
-    const viewer = { capability: { role: 'viewer', scope: { kind: 'all' } } as Capability }
+    const viewer = {
+      capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'viewer',
+        scope: { kind: 'all' },
+      } as Capability,
+    }
     expect(
       await outcome(() => checkIssueAccess(viewer, issues, 'close', 'write', 'iss:child')),
     ).toBe('FORBIDDEN')
@@ -741,7 +772,11 @@ describe('D18 — machine access is three verbs against an owner plus a grant li
     kind: 'user',
     workspaceId: SELF_HOSTED_WORKSPACE_ID,
     user,
-    capability: { role: 'worker', scope: { kind: 'owned', userId: user } },
+    capability: {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      role: 'worker',
+      scope: { kind: 'owned', userId: user },
+    },
   })
 
   it('the OWNER holds all three verbs', () => {
@@ -925,22 +960,42 @@ describe('D20 — an invisible target fails IDENTICALLY to a nonexistent one', (
         kind: 'user',
         workspaceId: SELF_HOSTED_WORKSPACE_ID,
         user: OWNER,
-        capability: { role: 'worker', scope: { kind: 'owned', userId: OWNER } },
+        capability: {
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
+          role: 'worker',
+          scope: { kind: 'owned', userId: OWNER },
+        },
       },
       {
         kind: 'user',
         workspaceId: SELF_HOSTED_WORKSPACE_ID,
         user: GRANTEE,
-        capability: { role: 'worker', scope: { kind: 'owned', userId: GRANTEE } },
+        capability: {
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
+          role: 'worker',
+          scope: { kind: 'owned', userId: GRANTEE },
+        },
       },
       {
         kind: 'user',
         workspaceId: SELF_HOSTED_WORKSPACE_ID,
         user: OTHER,
-        capability: { role: 'worker', scope: { kind: 'owned', userId: OTHER } },
+        capability: {
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
+          role: 'worker',
+          scope: { kind: 'owned', userId: OTHER },
+        },
       },
-      resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, agentCapability(AGENT_OF_OWNER), world.index),
-      resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, agentCapability(SUBAGENT_OF_OWNER), world.index),
+      permissiveFixturePrincipal(
+        SELF_HOSTED_WORKSPACE_ID,
+        agentCapability(AGENT_OF_OWNER),
+        world.index,
+      ),
+      permissiveFixturePrincipal(
+        SELF_HOSTED_WORKSPACE_ID,
+        agentCapability(SUBAGENT_OF_OWNER),
+        world.index,
+      ),
       systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'steward'),
     ]
     let holders = 0
@@ -964,7 +1019,11 @@ describe('D20 — an invisible target fails IDENTICALLY to a nonexistent one', (
       kind: 'user',
       workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: OTHER,
-      capability: { role: 'worker', scope: { kind: 'owned', userId: OTHER } },
+      capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'worker',
+        scope: { kind: 'owned', userId: OTHER },
+      },
     }
     expect(checkMachineVerb(stranger, asMachineId('m1'), invisible, 'use')).toBe(
       checkMachineVerb(stranger, asMachineId('no-such-machine'), nonexistent, 'use'),

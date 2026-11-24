@@ -2,6 +2,7 @@ import { asIssueId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { authorize, type Capability } from './issue-authz'
 import { issueRegistry } from './modules/issues/registry'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { OPERATOR } from './test-support/capabilities'
 
 describe('OPERATOR', () => {
@@ -9,6 +10,7 @@ describe('OPERATOR', () => {
   // the admin role, which still manages every task.
   it('is the first admin: the member scope, managing every task by role', () => {
     expect(OPERATOR).toEqual({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       role: 'admin',
       scope: { kind: 'owned', userId: firstAdminMemberId() },
       actorUser: firstAdminMemberId(),
@@ -53,12 +55,25 @@ describe('registry action classification', () => {
 })
 
 const worker = (rootId: string): Capability => ({
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   role: 'worker',
   scope: { kind: 'subtree', rootId: asIssueId(rootId) },
 })
-const unbound: Capability = { role: 'worker', scope: { kind: 'none' } }
-const viewer: Capability = { role: 'viewer', scope: { kind: 'all' } }
-const admin: Capability = { role: 'admin', scope: { kind: 'all' } }
+const unbound: Capability = {
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
+  role: 'worker',
+  scope: { kind: 'none' },
+}
+const viewer: Capability = {
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
+  role: 'viewer',
+  scope: { kind: 'all' },
+}
+const admin: Capability = {
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
+  role: 'admin',
+  scope: { kind: 'all' },
+}
 
 describe('authorize', () => {
   it('reads are allowed for any role+scope', () => {

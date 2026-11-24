@@ -20,14 +20,11 @@ import {
 } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  type CommandPrincipal,
-  resolvePrincipalAsync,
-  userCommandPrincipal,
-} from '../../command-principal'
+import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
 import { currentPlainCommand } from '../../plain-command-scope'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { AutomationRow, AutomationRunRow } from '../../store/automations'
+import { permissiveFixturePrincipalAsync } from '../../test-support/capabilities'
 import { seedRows } from '../../test-support/seed-rows'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { workflowRelayWrite } from '../workflows/rpc'
@@ -414,7 +411,7 @@ describe("a worker's checkpoint and its coordinator notice", () => {
       onBehalfOf: firstAdminMemberId(),
     })
     await seedRows(o.store, async () => await o.store.workflows.assignStep(run.id, 'build', worker))
-    const principal = await resolvePrincipalAsync(
+    const principal = await permissiveFixturePrincipalAsync(
       SELF_HOSTED_WORKSPACE_ID,
       await o.reg.modules.sessions.capabilityForSession(worker),
       { parentSessionOf: async () => undefined, onBehalfOfFor: async () => firstAdminMemberId() },

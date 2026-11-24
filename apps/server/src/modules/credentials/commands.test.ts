@@ -23,14 +23,13 @@ import {
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { resolvePrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { memberFacts } from '../../store/fixtures/test-support'
-import { OPERATOR } from '../../test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipal } from '../../test-support/capabilities'
 import { acceptingProviderFetch } from '../../test-support/fake-provider'
 import { SuperagentService } from '../superagent'
 import { mayUse } from './may-use'
@@ -45,6 +44,7 @@ const MACHINE = asMachineId('machine:cred-elsewhere')
 const ORIGINAL = 'FAKE-sk-ant-original-6891'
 
 const member = (userId: UserId): Capability => ({
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   role: 'worker',
   scope: { kind: 'owned', userId },
   actorUser: userId,
@@ -53,6 +53,7 @@ const member = (userId: UserId): Capability => ({
 
 /** A relayed agent session acting for the owner, as `capabilityForSession` mints it. */
 const AGENT_FOR_OWNER: Capability = {
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   role: 'worker',
   scope: { kind: 'subtree', rootId: asIssueId('iss_cred_commands') },
   actorSessionId: asSessionId('ses_cred_commands'),
@@ -117,7 +118,7 @@ async function harness(type: string = 'anthropic.api-key'): Promise<Harness> {
       users: store.users,
       loginRequired: async () => true,
       capability,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
         parentSessionOf: () => undefined,
       }),
     })

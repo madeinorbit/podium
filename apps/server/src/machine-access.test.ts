@@ -24,7 +24,6 @@ import {
   attributionOf,
   type CommandPrincipal,
   firstAdminMemberId,
-  resolvePrincipal,
   systemPrincipal,
 } from './command-principal'
 import {
@@ -41,6 +40,7 @@ import {
 } from './machine-access'
 import { machinesForPrincipal } from './modules/sessions/command-ctx'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
+import { permissiveFixturePrincipal } from './test-support/capabilities'
 
 /** Seed the same behavioral matrix with the Stage 2 representation. The fixture
  * names its custodian, but the production gate receives only explicit edges. */
@@ -76,6 +76,7 @@ const user = (id: UserId, role: 'admin' | 'worker' = 'worker'): CommandPrincipal
   workspaceId: SELF_HOSTED_WORKSPACE_ID,
   user: id,
   capability: {
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     role,
     scope: { kind: 'all' },
     actorUser: firstAdminMemberId(),
@@ -92,7 +93,12 @@ const agent = (
   workspaceId: SELF_HOSTED_WORKSPACE_ID,
   agentSessionId: sessionId,
   onBehalfOf,
-  capability: { role: 'worker', scope: { kind: 'none' }, actorSessionId: sessionId },
+  capability: {
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
+    role: 'worker',
+    scope: { kind: 'none' },
+    actorSessionId: sessionId,
+  },
   chain,
 })
 
@@ -220,6 +226,7 @@ describe("the owner column decides: the machine's owner holds all three verbs, n
       workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: COLLEAGUE,
       capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'worker',
         scope: { kind: 'owned', userId: COLLEAGUE },
         actorUser: COLLEAGUE,
@@ -380,9 +387,14 @@ describe('the principal itself', () => {
       [asSessionId('child'), OWNER],
     ])
 
-    const principal = resolvePrincipal(
+    const principal = permissiveFixturePrincipal(
       SELF_HOSTED_WORKSPACE_ID,
-      { role: 'worker', scope: { kind: 'none' }, actorSessionId: asSessionId('child') },
+      {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'worker',
+        scope: { kind: 'none' },
+        actorSessionId: asSessionId('child'),
+      },
       { parentSessionOf: (id) => parents.get(id), onBehalfOfFor: (id) => onBehalfOf.get(id) },
     )
 
@@ -397,9 +409,10 @@ describe('the principal itself', () => {
       [asSessionId('b'), asSessionId('a')],
     ])
 
-    const principal = resolvePrincipal(
+    const principal = permissiveFixturePrincipal(
       SELF_HOSTED_WORKSPACE_ID,
       {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'worker',
         scope: { kind: 'none' },
         actorSessionId: asSessionId('a'),
@@ -412,9 +425,10 @@ describe('the principal itself', () => {
   })
 
   it('a capability with no actor session is a human; attribution is a pair either way', () => {
-    const human = resolvePrincipal(
+    const human = permissiveFixturePrincipal(
       SELF_HOSTED_WORKSPACE_ID,
       {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'admin',
         scope: { kind: 'all' },
         actorUser: firstAdminMemberId(),
@@ -428,6 +442,7 @@ describe('the principal itself', () => {
       workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: firstAdminMemberId(),
       capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'admin',
         scope: { kind: 'all' },
         actorUser: firstAdminMemberId(),
@@ -730,7 +745,11 @@ it('admins manage every machine by role, without use on an unowned or other-owne
   ).toBe('denied')
   const delegated = {
     ...agent(asSessionId('limited'), OWNER),
-    capability: { role: 'admin' as const, scope: { kind: 'all' as const } },
+    capability: {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      role: 'admin' as const,
+      scope: { kind: 'all' as const },
+    },
   }
   const limited = { ...ownership, delegatedMachines: () => new Set<string>() }
   expect(machineVerbsFor(delegated, asMachineId('orphan'), limited)).toEqual(new Set(['see']))
@@ -759,7 +778,11 @@ it('revoked machine custody remains bounded by agent delegation', () => {
   }
   const delegated = {
     ...agent(asSessionId('limited-revoked'), OWNER),
-    capability: { role: 'admin' as const, scope: { kind: 'all' as const } },
+    capability: {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      role: 'admin' as const,
+      scope: { kind: 'all' as const },
+    },
   }
   expect(machineVerbsFor(delegated, id, ownership)).toEqual(new Set(['see']))
   expect(machineVerbsFor(user(OWNER, 'admin'), id, ownership)).toEqual(new Set(['see', 'manage']))

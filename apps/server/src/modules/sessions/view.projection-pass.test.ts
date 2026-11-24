@@ -35,7 +35,7 @@ const principal: SessionStatePrincipal = {
   userId: reader,
   humanDirect: true,
   onBehalfOf: reader,
-  capability: { role: 'worker', scope: { kind: 'none' } },
+  capability: { workspaceId: SELF_HOSTED_WORKSPACE_ID, role: 'worker', scope: { kind: 'none' } },
 }
 const machineId = asMachineId('projection-machine')
 
@@ -285,6 +285,7 @@ describe('one projection pass', () => {
         ...principal,
         userId: asUserId('unrelated'),
         capability: {
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
           role: 'worker',
           scope: { kind: 'subtree', rootId: asIssueId('projection-issue') },
         },
@@ -295,7 +296,11 @@ describe('one projection pass', () => {
       const operator = {
         ...principal,
         userId: asUserId('unrelated'),
-        capability: { role: 'admin', scope: { kind: 'all' } },
+        capability: {
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
+          role: 'admin',
+          scope: { kind: 'all' },
+        },
       } as SessionStatePrincipal
       // The admin scope reaches nobody else's session (POD-6283).
       expect(

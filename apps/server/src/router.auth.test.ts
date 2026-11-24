@@ -5,13 +5,12 @@ import type { Capability } from '@podium/model'
 import { asUserId, firstAdminMemberId } from '@podium/model'
 import { loadConfig } from '@podium/runtime/config'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { resolvePrincipal } from './command-principal'
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
-import { OPERATOR } from './test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipal } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 import { openTestIdentity } from './test-support/test-identity'
@@ -47,6 +46,7 @@ async function harness(
     : asUserId('nobody')
   const capability: Capability = member
     ? {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'worker',
         scope: { kind: 'owned', userId: memberId },
         actorUser: memberId,
@@ -62,7 +62,7 @@ async function harness(
     hostLocalRequest,
     ...(loginPolicy ? { loginPolicy: async () => loginPolicy } : {}),
     capability,
-    principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+    principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
       parentSessionOf: () => undefined,
     }),
   }

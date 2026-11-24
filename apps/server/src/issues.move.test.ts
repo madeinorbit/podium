@@ -1,11 +1,10 @@
 import { SORT_KEY_MAX_LEN } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterAll, describe, expect, it } from 'vitest'
-import { resolvePrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
-import { OPERATOR } from './test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipal } from './test-support/capabilities'
 import { pinIssueFor } from './test-support/issue-pin'
 
 const registries: SessionRegistry[] = []
@@ -33,7 +32,7 @@ async function fixture() {
     repos: {} as never,
     superagent: {} as never,
     capability: OPERATOR,
-    principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+    principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
       parentSessionOf: () => undefined,
     }),
   })

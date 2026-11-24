@@ -17,6 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAgentCli } from '../../../../cli/src/agent-cli'
 import { failureNoticeId, spawnPromptMessageId } from '../../message-ids'
 import { SessionRegistry } from '../../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -534,6 +535,7 @@ describe('non-picker driver requests', () => {
             mutate: (input) =>
               reg.modules.messageGate.dispatch(
                 {
+                  workspaceId: SELF_HOSTED_WORKSPACE_ID,
                   role: 'admin',
                   scope: { kind: 'all' },
                   actorUser: firstAdminMemberId(),

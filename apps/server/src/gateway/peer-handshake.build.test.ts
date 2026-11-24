@@ -1,11 +1,11 @@
-import { firstAdminMemberId, asUserId, asMachineId } from '@podium/model'
 import { createHash } from 'node:crypto'
+import { asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 import { DAEMON_WIRE_VERSION } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../relay'
+import { openTestStore } from '../test-support/open-test-store'
 import { wireDaemonSocket } from './daemon-socket'
 import { recordHelloBuild } from './peer-handshake'
-import { openTestStore } from '../test-support/open-test-store'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
 
@@ -85,7 +85,7 @@ describe('build report on hello accept', () => {
     })
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, registry)
+    wireDaemonSocket(ws as never, registry, registry.workspaceId)
 
     await ws.emit(
       'message',

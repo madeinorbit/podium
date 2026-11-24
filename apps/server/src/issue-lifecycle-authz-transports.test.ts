@@ -5,12 +5,13 @@ import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
 import { createAgentRelayHub, startAgentRelayServer } from '../../daemon/src/agent-relay'
-import { firstAdminMemberId, resolvePrincipal } from './command-principal'
+import { firstAdminMemberId } from './command-principal'
 import { IssueToolProvider } from './issue-mcp'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
-import { OPERATOR } from './test-support/capabilities'
+import { seedAgentSessions } from './test-support/agent-session-rows'
+import { OPERATOR, permissiveFixturePrincipal } from './test-support/capabilities'
 import { confirmingRetirement } from './test-support/host-daemon'
 
 type LifecycleName = 'archive' | 'depRemove' | 'reparent' | 'supersede' | 'duplicate'
@@ -114,7 +115,7 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
         repos: {} as never,
         superagent: {} as never,
         capability: OPERATOR,
-        principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
           parentSessionOf: () => undefined,
         }),
       })
@@ -133,7 +134,9 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const f = await fixture(registry)
+      await seedAgentSessions(registry.sessionStore, ['test-agent'])
       const client = registry.issueCommands.asIssueTrpc({
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'worker',
         scope: { kind: 'subtree', rootId: asIssueId(f.root.id) },
         actorSessionId: asSessionId('test-agent'),
@@ -150,9 +153,11 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const f = await fixture(registry)
+      await seedAgentSessions(registry.sessionStore, ['test-agent'])
       const provider = new IssueToolProvider()
       provider.setClient(
         registry.issueCommands.asIssueTrpc({
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
           role: 'worker',
           scope: { kind: 'subtree', rootId: asIssueId(f.root.id) },
           actorSessionId: asSessionId('test-agent'),

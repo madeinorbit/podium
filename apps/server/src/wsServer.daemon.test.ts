@@ -60,7 +60,7 @@ describe('a dropped daemon frame that can carry a login file', () => {
     })
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
     await ws.emit(
       'message',
       frame({ type: 'hello', machineId: 'm-login', token: 'tok', hostname: 'box' }),
@@ -104,7 +104,7 @@ describe('daemon socket auth', () => {
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
 
     // First frame is junk (not a handshake) → ignored, no attach.
     await ws.emit('message', frame({ type: 'input', sessionId: asSessionId('s'), data: '' }))
@@ -138,7 +138,7 @@ describe('daemon socket auth', () => {
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const onMsg = vi.spyOn(reg.gateway, 'routeDaemonFrame')
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
 
     await ws.emit(
       'message',
@@ -174,6 +174,7 @@ describe('daemon socket auth', () => {
     expect(onMsg).toHaveBeenCalledWith(
       machinePrincipal('local'),
       expect.objectContaining({ type: 'bind', sessionId: asSessionId('s1') }),
+      reg.workspaceId,
     )
 
     // PAYLOAD IDENTITY IS INERT (ADR 3 D7). The same frame carrying a hostile
@@ -195,6 +196,7 @@ describe('daemon socket auth', () => {
     expect(onMsg).toHaveBeenCalledWith(
       machinePrincipal('local'),
       expect.objectContaining({ type: 'bind', sessionId: asSessionId('s2') }),
+      reg.workspaceId,
     )
     expect(onMsg.mock.calls[0]?.[0]).not.toBe('attacker')
   })
@@ -204,7 +206,7 @@ describe('daemon socket auth', () => {
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
 
     await ws.emit('message', frame({ type: 'hello', machineId: 'ghost', token: 'nope', hostname: 'box' }))
     expect(attach).not.toHaveBeenCalled()
@@ -221,7 +223,7 @@ describe('daemon socket auth', () => {
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const code = reg.modules.machines.mintPairingCode()
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
 
     await ws.emit(
       'message',
@@ -251,7 +253,7 @@ describe('daemon socket auth', () => {
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const detach = vi.spyOn(reg.gateway, 'detachDaemon')
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
     await ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'h' }))
     await ws.emit('close')
     // Close detaches against THIS socket's transport, so a superseded socket's late
@@ -274,7 +276,7 @@ describe('daemon socket auth', () => {
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const detach = vi.spyOn(reg.gateway, 'detachDaemon')
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
     // A failed handshake (bad token) never attaches — closing must not detach the
     // machine, which may well have a healthy daemon on another socket.
     await ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'wrong', hostname: 'h' }))
@@ -291,7 +293,7 @@ describe('revoked daemon connection', () => {
     await store.machines.upsertMachine({ id, name: 'box', hostname: 'box', tokenHash: sha256('old-token'), ownerUserId: firstAdminMemberId() })
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const ws = fakeWs()
-    wireDaemonSocket(ws as never, reg)
+    wireDaemonSocket(ws as never, reg, reg.workspaceId)
     await ws.emit('message', frame({ type: 'hello', machineId: id, token: 'old-token', hostname: 'box' }))
     expect(ws.sent.some(s => s.includes('helloOk'))).toBe(true)
     const route = vi.spyOn(reg.gateway, 'routeDaemonFrame')
@@ -300,7 +302,7 @@ describe('revoked daemon connection', () => {
     await ws.emit('message', frame({ type: 'inventoryReport', inventory: { os: 'linux', arch: 'x64', agents: [] } }))
     expect(route).not.toHaveBeenCalled()
     const retry = fakeWs()
-    wireDaemonSocket(retry as never, reg)
+    wireDaemonSocket(retry as never, reg, reg.workspaceId)
     await retry.emit('message', frame({ type: 'hello', machineId: id, token: 'old-token', hostname: 'box' }))
     expect(retry.sent.some(s => s.includes('helloRejected'))).toBe(true)
     await ws.emit('close')

@@ -46,11 +46,27 @@ async function liveSession(reg: SessionRegistry, cwd = `${REPO}/.worktrees/solo`
   return sessionId
 }
 
+/** A lock command as the relay sends it: the caller's principal resolved in the store. */
+const relayLockCommand = async (
+  reg: SessionRegistry,
+  caller: Parameters<SessionRegistry['modules']['lockCommands']['dispatch']>[0],
+  proc: string,
+  input: unknown,
+) =>
+  await reg.modules.lockCommands.dispatch(
+    caller,
+    proc,
+    input,
+    async () => await reg.modules.sessions.principalFor(caller.capability),
+  )
+
 /** Acquire `name` as the given live session via the relay dispatcher. */
 async function acquireAs(reg: SessionRegistry, sessionId: string, name: string): Promise<void> {
-  const r = (await reg.modules.lockCommands.dispatch(
+  const r = (await relayLockCommand(
+    reg,
     {
       capability: {
+        workspaceId: reg.workspaceId,
         role: 'worker',
         scope: { kind: 'none' },
         actorSessionId: asSessionId(sessionId),
@@ -77,9 +93,11 @@ describe('session.exited → lock auto-release wiring', () => {
     await acquireAs(reg, dying, 'held-by-dying')
     await acquireAs(reg, survivor, 'held-by-survivor')
     // dying also queues behind the survivor's lock
-    const q = (await reg.modules.lockCommands.dispatch(
+    const q = (await relayLockCommand(
+      reg,
       {
         capability: {
+          workspaceId: reg.workspaceId,
           role: 'worker',
           scope: { kind: 'none' },
           actorSessionId: asSessionId(dying),
@@ -120,9 +138,11 @@ describe('session.exited → lock auto-release wiring', () => {
     const victim = await liveSession(reg, `${REPO}/.worktrees/victim`)
     const waiter = await liveSession(reg, `${REPO}/.worktrees/waiter`)
     await acquireAs(reg, victim, 'merge:main')
-    await reg.modules.lockCommands.dispatch(
+    await relayLockCommand(
+      reg,
       {
         capability: {
+          workspaceId: reg.workspaceId,
           role: 'worker',
           scope: { kind: 'none' },
           actorSessionId: asSessionId(waiter),

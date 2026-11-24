@@ -14,12 +14,11 @@
 import type { IssueReport } from '@podium/model'
 import { asSessionId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { resolvePrincipal } from './command-principal'
 import type { Capability } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
-import { OPERATOR } from './test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipal } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 
 const ctx = (registry: SessionRegistry, rawCapability: Capability) => {
@@ -40,7 +39,7 @@ const ctx = (registry: SessionRegistry, rawCapability: Capability) => {
     repos: {} as never,
     superagent: {} as never,
     capability,
-    principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+    principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
       parentSessionOf: () => undefined,
     }),
   })
@@ -66,7 +65,11 @@ async function setup() {
     parentBranch: 'main',
     parentId: root.id,
   })
-  const agent = ctx(reg, { role: 'worker', scope: { kind: 'subtree', rootId: task.id } })
+  const agent = ctx(reg, {
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
+    role: 'worker',
+    scope: { kind: 'subtree', rootId: task.id },
+  })
   const proposal = await agent.issues.create({
     repoPath: '/r',
     title: 'found while working',
@@ -160,6 +163,7 @@ describe('proposal actions stay operator decisions', () => {
       })
       // Both admission and effect replay see this real proposal-scoped writer.
       const agent = ctx(reg, {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'worker',
         scope: { kind: 'subtree', rootId: proposal.id },
         actorSessionId: actor.sessionId,

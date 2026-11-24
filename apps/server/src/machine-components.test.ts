@@ -134,7 +134,11 @@ describe('desired assignment and observed availability', () => {
           kind: 'user' as const,
           workspaceId: SELF_HOSTED_WORKSPACE_ID,
           user: ownerUserId,
-          capability: { role: 'admin' as const, scope: { kind: 'all' as const } },
+          capability: {
+            workspaceId: SELF_HOSTED_WORKSPACE_ID,
+            role: 'admin' as const,
+            scope: { kind: 'all' as const },
+          },
         }
         const verbs = machineVerbsFor(principal, id, await ownershipSnapshotFromMachines(service))
         expect(verbs.has('manage')).toBe(true)

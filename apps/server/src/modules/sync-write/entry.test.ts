@@ -190,7 +190,7 @@ describe('sync write entry point: the coarse check runs before parsing', () => {
       kind: 'user',
       workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: h.adminId,
-      capability: { role: 'viewer', scope: { kind: 'all' } },
+      capability: { workspaceId: SELF_HOSTED_WORKSPACE_ID, role: 'viewer', scope: { kind: 'all' } },
     }
 
     // Malformed input from a caller who may not use the command at all: the
@@ -297,7 +297,7 @@ describe('sync write entry point: the coarse check runs before parsing', () => {
       kind: 'user',
       workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: h.adminId,
-      capability: { role: 'viewer', scope: { kind: 'all' } },
+      capability: { workspaceId: SELF_HOSTED_WORKSPACE_ID, role: 'viewer', scope: { kind: 'all' } },
     }
     const mark = (id: string, principal: CommandPrincipal, transport: 'trpc' | 'mcp') =>
       h.entry.submit(
@@ -377,7 +377,11 @@ describe('sync write entry point: the target check', () => {
       kind: 'user',
       workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: h.adminId,
-      capability: { role: 'worker', scope: { kind: 'subtree', rootId: 'iss_root' as never } },
+      capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        role: 'worker',
+        scope: { kind: 'subtree', rootId: 'iss_root' as never },
+      },
     }
     h.registry.register({
       contract: { ...putContract, name: 'test.issue' },
@@ -480,7 +484,7 @@ describe('sync write entry point: dedup, provenance and the receipt', () => {
       workspaceId: SELF_HOSTED_WORKSPACE_ID,
       agentSessionId: asSessionId('agent-original'),
       onBehalfOf: h.adminId,
-      capability: { role: 'admin', scope: { kind: 'all' } },
+      capability: { workspaceId: SELF_HOSTED_WORKSPACE_ID, role: 'admin', scope: { kind: 'all' } },
       chain: [],
     }
     for (const principal of [h.admin, agent]) {
@@ -861,7 +865,11 @@ describe('sync.submit outcome diagnostics', () => {
               kind: 'user',
               workspaceId: SELF_HOSTED_WORKSPACE_ID,
               user: h.adminId,
-              capability: { role: 'viewer', scope: { kind: 'all' } },
+              capability: {
+                workspaceId: SELF_HOSTED_WORKSPACE_ID,
+                role: 'viewer',
+                scope: { kind: 'all' },
+              },
             }
           : h.admin,
         'trpc',
@@ -964,7 +972,7 @@ describe("sync write entry point: a refusal's display message (POD-6412)", () =>
       kind: 'user',
       workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: h.adminId,
-      capability: { role: 'viewer', scope: { kind: 'all' } },
+      capability: { workspaceId: SELF_HOSTED_WORKSPACE_ID, role: 'viewer', scope: { kind: 'all' } },
     }
 
     for (const reply of [

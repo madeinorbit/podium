@@ -43,7 +43,7 @@ import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
 import { memberFacts } from '../../store/fixtures/test-support'
-import { OPERATOR } from '../../test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipal } from '../../test-support/capabilities'
 import { openTestStore } from '../../test-support/open-test-store'
 import { SuperagentService } from '../superagent'
 import { REDACTED_MESSAGE } from './audit'
@@ -87,7 +87,7 @@ async function harness(role: UserRole | undefined) {
       repos,
       superagent,
       capability,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
         parentSessionOf: () => undefined,
       }),
     }),

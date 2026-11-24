@@ -2,7 +2,6 @@ import { asMachineId, asUserId, type Capability, firstAdminMemberId } from '@pod
 import { hashPassword } from '@podium/runtime/auth-store'
 import { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
-import { resolvePrincipal } from './command-principal'
 import { PairingManager } from './hub/pairing'
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
@@ -10,7 +9,7 @@ import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { memberFacts } from './store/fixtures/test-support'
-import { OPERATOR } from './test-support/capabilities'
+import { OPERATOR, permissiveFixturePrincipal } from './test-support/capabilities'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { renameMachine } from './test-support/machine-records'
@@ -48,7 +47,7 @@ async function machineCaller() {
       repos,
       superagent,
       capability: OPERATOR,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
         parentSessionOf: () => undefined,
       }),
     }),
@@ -115,6 +114,7 @@ describe('machines router', () => {
 describe('machines.pairingCode as a member', () => {
   const MEMBER = asUserId('user:pairing-member')
   const MEMBER_CAPABILITY: Capability = {
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     role: 'worker',
     scope: { kind: 'owned', userId: MEMBER },
     actorUser: MEMBER,
@@ -161,7 +161,7 @@ describe('machines.pairingCode as a member', () => {
       repos,
       superagent,
       capability: MEMBER_CAPABILITY,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, MEMBER_CAPABILITY, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, MEMBER_CAPABILITY, {
         parentSessionOf: () => undefined,
       }),
     })
@@ -227,7 +227,7 @@ describe('sessions.create with machineId', () => {
       repos,
       superagent,
       capability: OPERATOR,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
         parentSessionOf: () => undefined,
       }),
     })
@@ -265,7 +265,7 @@ describe('sessions.create with machineId', () => {
       repos,
       superagent,
       capability: OPERATOR,
-      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+      principal: permissiveFixturePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
         parentSessionOf: () => undefined,
       }),
     })

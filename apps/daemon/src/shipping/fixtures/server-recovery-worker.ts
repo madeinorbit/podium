@@ -198,6 +198,7 @@ if (phase === 'crash') {
       workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: ownerUserId,
       capability: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         role: 'admin',
         scope: { kind: 'all' },
         actorUser: ownerUserId,

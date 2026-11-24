@@ -178,6 +178,8 @@ async function writeFrom(machineId: MachineId, sessionId: SessionId, issueId: Is
         device: expect.stringMatching(/^daemon-\d+$/),
       }),
       msg,
+      // The socket's bound workspace travels with the frame (POD-7558).
+      registry.workspaceId,
     )
     expect(reply.requestId).toBe(msg.requestId)
     const resolved = await Promise.allSettled(capabilities.mock.results.map((call) => call.value))

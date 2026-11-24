@@ -10,8 +10,8 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { resolvePrincipalAsync } from '../../command-principal'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
+import { permissiveFixturePrincipalAsync } from '../../test-support/capabilities'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { FAMILY_COMMAND_NAMES } from '../sync-write/family-commands'
 import { scopedMutationId } from '../sync-write/legacy-receipt'
@@ -61,7 +61,7 @@ describe('approvals.request on the entry point', () => {
     // its activity event once. The approval record is on the change log (an
     // `effect` row, POD-6674) with the command's causation, and the receipt is
     // at the head.
-    const principal = await resolvePrincipalAsync(
+    const principal = await permissiveFixturePrincipalAsync(
       SELF_HOSTED_WORKSPACE_ID,
       await o.reg.modules.sessions.capabilityForSession(sessionId),
       { parentSessionOf: async () => undefined },
@@ -112,7 +112,7 @@ describe('approvals.request on the entry point', () => {
     const other = (await o.reg.modules.sessions.createSession({ cwd: '/w', agentKind: 'shell' }))
       .sessionId
     const capability = await o.reg.modules.sessions.capabilityForSession(asker)
-    const principal = await resolvePrincipalAsync(SELF_HOSTED_WORKSPACE_ID, capability, {
+    const principal = await permissiveFixturePrincipalAsync(SELF_HOSTED_WORKSPACE_ID, capability, {
       parentSessionOf: async () => undefined,
     })
     const forged = envelope(

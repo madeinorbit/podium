@@ -12,6 +12,7 @@ import {
 import { attachWebSockets, serveNative } from '../../apps/server/src/gateway/ws-server'
 import type { UpdateOperationContext } from '../../apps/server/src/modules/updates/operation'
 import { SessionRegistry } from '../../apps/server/src/relay'
+import { bindToRegistry } from '../../apps/server/src/test-support/ws-binding'
 
 console.error('[machine-events] constructing registry')
 const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'blue' })
@@ -55,7 +56,8 @@ const context: UpdateOperationContext = {
   onlyMachines: [machineId],
   surface: 'policy',
 }
-const transport = attachWebSockets(registry)
+// Every socket is bound to the registry's own workspace, as the edge binds it.
+const transport = attachWebSockets(registry, { bindWorkspace: bindToRegistry(registry) })
 const server = serveNative({
   port: 0,
   hostname: '127.0.0.1',
