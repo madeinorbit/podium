@@ -15,7 +15,10 @@ import { useSettingsClient } from '@/features/settings/stable-access'
 import { FolderTrustNotice } from './folder-trust-notice'
 import { SetupBusyOverlay, SetupError } from './SetupFeedback'
 
-type IntakeMachine = Pick<MachineFacts, 'id' | 'name' | 'online' | 'inventory'>
+type IntakeMachine = Pick<
+  MachineFacts,
+  'id' | 'name' | 'online' | 'onlineKnown' | 'lastSeenAt' | 'inventory'
+>
 type Draft = { query: string; repository: string; destination: string }
 
 const serializeDraft = (draft: Draft): string => JSON.stringify(draft)

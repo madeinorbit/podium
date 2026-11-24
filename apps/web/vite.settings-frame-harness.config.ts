@@ -7,10 +7,6 @@ export default defineConfig(async (env) => {
   const real = await (base as unknown as (e: typeof env) => Promise<Record<string, unknown>>)(env)
   return {
     ...real,
-    optimizeDeps: {
-      ...(real.optimizeDeps as Record<string, unknown>),
-      entries: ['harness/settings-frame.html'],
-    },
     plugins: ((real.plugins as PluginOption[]) ?? []).filter(
       (p) =>
         !(

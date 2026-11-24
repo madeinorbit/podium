@@ -92,7 +92,7 @@ export class SettingsMachine {
   }
 
   @lazy({ equals: compareShallow }) get degradedServices(): readonly string[] {
-    if (!(machinePresence(this.machine) === 'Online')) return []
+    if (machinePresence(this.machine) !== 'Online') return []
     const { serviceAssignment: assignment, services } = this.machine
     return [
       ...(assignment?.server === true &&

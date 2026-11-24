@@ -74,7 +74,15 @@ type DirectoryListing = {
  *  and the predicate that answers it reads the structural and `use` axes. */
 type RepoPickerMachine = Pick<
   MachineFacts,
-  'id' | 'name' | 'hostname' | 'online' | 'inventory' | 'components' | 'use'
+  | 'id'
+  | 'name'
+  | 'hostname'
+  | 'online'
+  | 'onlineKnown'
+  | 'lastSeenAt'
+  | 'inventory'
+  | 'components'
+  | 'use'
 >
 
 /**

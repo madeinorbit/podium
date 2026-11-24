@@ -2,12 +2,14 @@ import { hostMemoryView } from '@podium/client-core/values'
 import { observer } from '@podium/client-graph/react'
 import { Server } from 'lucide-react'
 import { usePoolHostAggregate } from '@/app/header-data'
-import { MachineLastSeen, MachinePresenceDot } from '@/components/machine-presence'
 import { Badge } from '@/components/ui/badge'
 import { formatDisplayedVersion } from '@/lib/machine-version-skew'
 import { useMemberRoster } from '@/lib/member-roster'
-import { cn } from '@/lib/utils'
+import { MachineStatus } from './machine-status'
 import type { SettingsMachine } from './machine-view'
+
+export { MachineStatus } from './machine-status'
+
 import { EntityRow } from './sections/shared'
 
 /** Why a `plain` machine gets no credentials, and the two ways out. */
@@ -32,31 +34,6 @@ export const MachineCustodianName = observer(function MachineCustodianName({
     return <>{capitalized ? 'You' : 'you'}</>
   }
   return <>{roster?.nameOf(machine.custodian) ?? 'another member'}</>
-})
-
-export const MachineStatus = observer(function MachineStatus({ view }: { view: SettingsMachine }) {
-  const machine = view.machine
-  return (
-    <Badge
-      variant={view.status.tone === 'degraded' ? 'warning' : 'outline'}
-      className="max-w-full gap-1.5 whitespace-normal font-normal"
-      title={view.status.detail}
-    >
-      {view.status.tone === 'degraded' || view.status.tone === 'off' ? (
-        <span
-          aria-hidden="true"
-          className={cn(
-            'size-1.5 shrink-0 rounded-full',
-            view.status.tone === 'degraded' ? 'bg-warning' : 'bg-muted-foreground/50',
-          )}
-        />
-      ) : (
-        <MachinePresenceDot machine={machine} />
-      )}
-      {view.status.label}
-      <MachineLastSeen machine={machine} />
-    </Badge>
-  )
 })
 
 const MachineSummary = observer(function MachineSummary({ view }: { view: SettingsMachine }) {

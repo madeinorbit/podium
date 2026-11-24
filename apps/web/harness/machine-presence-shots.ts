@@ -8,7 +8,7 @@ const out = process.argv[2] ?? '/tmp/machine-presence-shots'
 mkdirSync(out, { recursive: true })
 const server = spawn(
   process.execPath,
-  ['--bun', 'x', 'vite', '--config', 'vite.settings-frame-harness.config.ts'],
+  ['--bun', 'x', 'vite', '--config', 'vite.machine-presence-harness.config.ts'],
   {
     cwd: new URL('..', import.meta.url),
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -21,7 +21,7 @@ server.stdout.on('data', (data) => {
 server.stderr.on('data', (data) => {
   logs += data.toString()
 })
-const origin = 'http://127.0.0.1:55652/harness/settings-frame.html'
+const origin = 'http://127.0.0.1:55652/harness/machine-presence.html'
 const cache = join(process.env.HOME ?? '', '.cache/ms-playwright')
 const shell = existsSync(cache)
   ? readdirSync(cache)
@@ -58,18 +58,18 @@ try {
   })
   try {
     for (const state of ['online', 'reconnecting', 'offline']) {
-      const page = await browser.newPage({ viewport: { width: 1200, height: 820 } })
+      const page = await browser.newPage({ viewport: { width: 980, height: 480 } })
       const errors: string[] = []
       page.on('pageerror', (error) => errors.push(error.message))
-      await page.goto(`${origin}?populated&page=machines&presence=${state}&theme=light`)
+      await page.goto(`${origin}?presence=${state}`)
       try {
         await expect(page.getByRole('heading', { name: 'Machines', exact: true })).toBeVisible({
           timeout: 90_000,
         })
         const label =
           state === 'online' ? 'Online' : state === 'offline' ? 'Offline' : 'Reconnecting'
-        await expect(page.getByTitle(label, { exact: true })).toHaveCount(3)
-        if (state !== 'online') await expect(page.getByText(/Last seen/)).toHaveCount(3)
+        await expect(page.getByTitle(label, { exact: true })).toHaveCount(1)
+        if (state !== 'online') await expect(page.getByText(/Last seen/)).toHaveCount(1)
         await page.evaluate(() => document.fonts.ready)
         await page.screenshot({
           path: join(out, `${state}.png`),
@@ -78,6 +78,7 @@ try {
         })
         if (errors.length) throw new Error(errors.join('\n'))
       } catch (error) {
+        await page.screenshot({ path: join(out, `${state}-failed.png`) })
         throw new Error(`${state}: ${String(error)}\n${errors.join('\n')}\n${logs}`)
       } finally {
         await page.close()
