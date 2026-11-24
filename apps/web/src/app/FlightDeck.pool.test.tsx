@@ -710,6 +710,11 @@ it('keeps a loaded deck on screen, refreshing, while a refused resume loads agai
         'open-child',
         issueValue('open-child', { parentId: root, title: 'Open fixture task' }),
       )
+      server.put(
+        ISSUE,
+        'leaving-child',
+        issueValue('leaving-child', { parentId: root, title: 'Leaving fixture task' }),
+      )
       server.put(ISSUE, task, finished)
     },
   })
@@ -765,6 +770,7 @@ it('keeps a loaded deck on screen, refreshing, while a refused resume loads agai
     loaded.scrollTop = 120
     const rows = rowsText()
     expect(rows).toContain('Open fixture task')
+    expect(rows).toContain('Leaving fixture task')
     expect(refresh()).toBe('here')
     expect(taskTitle()).toBe('Finished fixture task')
 
@@ -773,6 +779,12 @@ it('keeps a loaded deck on screen, refreshing, while a refused resume loads agai
     await act(async () => {
       socket.close()
       server.put(ISSUE, task, { ...finished, title: 'Finished fixture task, renamed' })
+      server.put(
+        ISSUE,
+        'open-child',
+        issueValue('open-child', { parentId: root, title: 'Open fixture task, renamed' }),
+      )
+      server.drop(ISSUE, 'leaving-child')
       server.minAvailableSeq = server.head
       server.gate = new Promise<void>((resolve) => {
         release = resolve
@@ -808,7 +820,9 @@ it('keeps a loaded deck on screen, refreshing, while a refused resume loads agai
     expect(current.getByRole('button', { name: 'Collapse' }).getAttribute('aria-expanded')).toBe(
       'true',
     )
-    expect(rowsText()).toContain('Open fixture task')
+    // The rows on screen are the replacement's: renamed, and the deleted task gone.
+    expect(rowsText()).toContain('Open fixture task, renamed')
+    expect(rowsText()).not.toContain('Leaving fixture task')
     await waitFor(() => expect(refresh()).toBe('here'))
   } finally {
     release?.()
