@@ -90,10 +90,15 @@ export interface SessionDaemonLifecyclePorts {
   onDurableSessionCensus(principal: MachinePrincipal, labels: string[]): Promise<void>
   /**
    * The daemon bound this session: send the credential its reattach probe went
-   * out without (POD-7574), before the bind drains queued input. Absent (unit
-   * fixtures): nothing is owed.
+   * out without (POD-7574), before this bind's own auto-continue and drain.
+   * `statusBeforeBind` is the row's status as the bind arrived. Never throws.
+   * Absent (unit fixtures): nothing is owed.
    */
-  onSessionBound?(session: Session, machineId: MachineId): Promise<void>
+  onSessionBound?(
+    session: Session,
+    machineId: MachineId,
+    statusBeforeBind: Session['status'],
+  ): Promise<void>
   /**
    * The Agent Runtime contract's inbound event sink (POD-1761 W3).
    *
@@ -483,6 +488,8 @@ export class SessionDaemonLifecycle {
           // standing for a driver this one may not even have bound.
           s.configureFields = msg.configureFields
           s.attachKinds = msg.attachKinds
+          // Before the write below makes it live: whether this bind answers a probe.
+          const statusBeforeBind = s.status
           /**
            * …and the DURABLE record follows the binding, not the plan (POD-2290
            * round 2). Normally they agree. Where they can differ — a launch that
@@ -516,7 +523,7 @@ export class SessionDaemonLifecycle {
               draft.requestedDriverId = msg.requestedDriverId
             s.markLive(msg.cmd, msg.geometry, draft)
           })
-          await this.ports.onSessionBound?.(s, machineId)
+          await this.ports.onSessionBound?.(s, machineId, statusBeforeBind)
           await this.autoContinue.onSessionLive(s.sessionId)
         }
         this.broadcastSessions()

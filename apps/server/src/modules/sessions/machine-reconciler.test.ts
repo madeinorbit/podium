@@ -43,6 +43,8 @@ function fixture(count: number, status: 'survivor' | 'exited' = 'survivor') {
       toDaemon() {},
     })
     if (status === 'survivor') session.markAwaitingRebind()
+    // A daemon binds a driver for every profiled agent; the row keeps it.
+    else session.boundDriverId = 'generic-pty'
     return session
   })
   const order: string[] = []
@@ -179,45 +181,83 @@ describe('time-sliced reattach probes', () => {
 // answers reattachFailed, so its credential waits for the bind that proves it.
 describe("an exited session's credential on reattach", () => {
   const other = asMachineId('reconnect-other-machine')
+  const sent = (order: string[]) => order.filter((entry) => !entry.startsWith('reattach:'))
 
   it('probes without a refresh, then sends the audited refresh when the daemon binds', async () => {
     const f = fixture(3, 'exited')
     await f.reconciler.onAttached(principal)
     expect(f.order).toEqual([2, 1, 0].map((index) => `reattach:${f.sessions[index]!.sessionId}`))
     const bound = f.sessions[1]!
-    await f.reconciler.onBound(bound, machine)
+    await f.reconciler.onBound(bound, machine, 'exited')
     expect(f.order.slice(3)).toEqual([
       `audit:${bound.sessionId}`,
       `sessionAccessRefresh:${bound.sessionId}`,
     ])
     // Owed once: a second bind of the same session sends nothing more.
-    await f.reconciler.onBound(bound, machine)
+    await f.reconciler.onBound(bound, machine, 'exited')
     expect(f.order).toHaveLength(5)
   })
 
-  it('owes nothing after reattachFailed, a detach, the next attach, or a bind from another machine', async () => {
-    const f = fixture(4, 'exited')
+  // Review F1: reattachFailed names no attempt, so it must not cancel the debt.
+  it('keeps the debt across a reattachFailed, and still sends it at the bind', async () => {
+    const f = fixture(1, 'exited')
+    const session = f.sessions[0]!
     await f.reconciler.onAttached(principal)
-    const [failed, foreign, detached, unrelated] = f.sessions as [
-      Session,
-      Session,
-      Session,
-      Session,
-    ]
-    f.reconciler.onReattachFailed(failed.sessionId, machine)
-    await f.reconciler.onBound(failed, machine)
-    await f.reconciler.onBound(foreign, other)
-    // A reattachFailed from another machine leaves this machine's debt standing.
-    f.reconciler.onReattachFailed(unrelated.sessionId, other)
-    expect(f.order.filter((entry) => !entry.startsWith('reattach:'))).toEqual([])
-    await f.reconciler.onBound(unrelated, machine)
-    expect(f.order.filter((entry) => !entry.startsWith('reattach:'))).toEqual([
-      `audit:${unrelated.sessionId}`,
-      `sessionAccessRefresh:${unrelated.sessionId}`,
+    // There is no reattachFailed hook any more: whatever the daemon answered to
+    // another reattach first, the probe's own bind still finds the debt.
+    await f.reconciler.onBound(session, machine, 'exited')
+    expect(sent(f.order)).toEqual([
+      `audit:${session.sessionId}`,
+      `sessionAccessRefresh:${session.sessionId}`,
+    ])
+  })
+
+  it('keeps the debt when the refresh throws, and the bind call itself does not throw', async () => {
+    const f = fixture(1, 'exited')
+    const session = f.sessions[0]!
+    await f.reconciler.onAttached(principal)
+    const refresh = f.ports.accessRefresh!
+    f.ports.accessRefresh = async () => {
+      throw new Error('vault unavailable')
+    }
+    await expect(f.reconciler.onBound(session, machine, 'exited')).resolves.toBeUndefined()
+    expect(sent(f.order)).toEqual([])
+    // A failed send keeps the debt too.
+    f.ports.accessRefresh = refresh
+    const toMachine = f.ports.toMachine
+    f.ports.toMachine = (id, message) => {
+      if (message.type === 'sessionAccessRefresh') throw new Error('link down')
+      return toMachine(id, message)
+    }
+    await expect(f.reconciler.onBound(session, machine, 'exited')).resolves.toBeUndefined()
+    f.ports.toMachine = toMachine
+    await f.reconciler.onBound(session, machine, 'exited')
+    expect(sent(f.order)).toEqual([
+      `audit:${session.sessionId}`,
+      `audit:${session.sessionId}`,
+      `sessionAccessRefresh:${session.sessionId}`,
+    ])
+  })
+
+  it('owes nothing to a launch bind, a bind from another machine, after a detach or the next attach', async () => {
+    const f = fixture(3, 'exited')
+    await f.reconciler.onAttached(principal)
+    const [launched, foreign, detached] = f.sessions as [Session, Session, Session]
+    // A spawn, resume or census revive took the row out of exited and sent its
+    // own credential: its bind drops the debt (review F6).
+    await f.reconciler.onBound(launched, machine, 'starting')
+    await f.reconciler.onBound(launched, machine, 'exited')
+    await f.reconciler.onBound(foreign, other, 'exited')
+    expect(sent(f.order)).toEqual([])
+    // The debt on this machine still stands after the foreign bind.
+    await f.reconciler.onBound(foreign, machine, 'exited')
+    expect(sent(f.order)).toEqual([
+      `audit:${foreign.sessionId}`,
+      `sessionAccessRefresh:${foreign.sessionId}`,
     ])
     f.reconciler.onDetached(principal)
-    await f.reconciler.onBound(detached, machine)
-    expect(f.order.filter((entry) => entry.startsWith('audit:'))).toHaveLength(1)
+    await f.reconciler.onBound(detached, machine, 'exited')
+    expect(sent(f.order)).toHaveLength(2)
 
     const again = fixture(1, 'exited')
     await again.reconciler.onAttached(principal)
@@ -227,7 +267,7 @@ describe("an exited session's credential on reattach", () => {
       `reattach:${again.sessions[0]!.sessionId}`,
     ])
     again.order.length = 0
-    await again.reconciler.onBound(again.sessions[0]!, machine)
+    await again.reconciler.onBound(again.sessions[0]!, machine, 'exited')
     expect(again.order).toEqual([
       `audit:${again.sessions[0]!.sessionId}`,
       `sessionAccessRefresh:${again.sessions[0]!.sessionId}`,
@@ -241,35 +281,71 @@ describe("an exited session's credential on reattach", () => {
       f.order.push(`refused:${s.sessionId}`)
       return undefined
     }
-    await f.reconciler.onBound(f.sessions[0]!, machine)
+    await f.reconciler.onBound(f.sessions[0]!, machine, 'exited')
     expect(f.order).toEqual([
       `reattach:${f.sessions[0]!.sessionId}`,
       `refused:${f.sessions[0]!.sessionId}`,
     ])
   })
 
-  it('keeps the refresh before the reattach for an exited row that may be server-driven', async () => {
-    const f = fixture(3, 'exited')
-    const [server, codexKind, pty] = f.sessions as [Session, Session, Session]
+  // Review F2: only a proven PTY defers; everything else keeps its refresh first.
+  it('keeps the refresh before the reattach for an exited row not proven a PTY', async () => {
+    const f = fixture(6, 'exited')
+    const [server, codexKind, embedded, unknown, shell, pty] = f.sessions as [
+      Session,
+      Session,
+      Session,
+      Session,
+      Session,
+      Session,
+    ]
     // A spawning adopt waits for the credential: it must arrive first.
     server.boundDriverId = 'codex-app-server'
+    codexKind.boundDriverId = undefined
     codexKind.resume = { kind: 'codex-thread', value: 'thread-1' }
+    // An embedded engine bound before the driver column: no driver, a resume
+    // kind whose harness declares no server driver.
+    embedded.boundDriverId = undefined
+    embedded.resume = { kind: 'claude-session', value: 'conversation-1' }
+    // A daemon that named no driver, and nothing else to go on.
+    unknown.boundDriverId = undefined
+    // A shell runs no harness engine.
+    const shellSession = new Session({
+      sessionId: shell.sessionId,
+      ownerUserId: asUserId('reconnect-owner'),
+      machineId: machine,
+      durableLabel: shell.durableLabel,
+      agentKind: 'shell',
+      cwd: '/project',
+      title: 'Reconnect fixture',
+      origin: { kind: 'spawn' },
+      createdAt: '2026-11-23T00:00:00.000Z',
+      lastActiveAt: shell.lastActiveAt,
+      geometry: { cols: 80, rows: 24 },
+      status: 'exited',
+      toDaemon() {},
+    })
+    f.sessions[4] = shellSession
     // A bound terminal driver proves the PTY even with a server-family resume kind.
-    pty.boundDriverId = 'generic-pty'
     pty.resume = { kind: 'codex-thread', value: 'thread-2' }
     await f.reconciler.onAttached(principal)
+    const refreshedFirst = (s: Session) => [
+      `audit:${s.sessionId}`,
+      `sessionAccessRefresh:${s.sessionId}`,
+      `reattach:${s.sessionId}`,
+    ]
     expect(f.order).toEqual([
       `reattach:${pty.sessionId}`,
-      `audit:${codexKind.sessionId}`,
-      `sessionAccessRefresh:${codexKind.sessionId}`,
-      `reattach:${codexKind.sessionId}`,
-      `audit:${server.sessionId}`,
-      `sessionAccessRefresh:${server.sessionId}`,
-      `reattach:${server.sessionId}`,
+      `reattach:${shellSession.sessionId}`,
+      ...refreshedFirst(unknown),
+      ...refreshedFirst(embedded),
+      ...refreshedFirst(codexKind),
+      ...refreshedFirst(server),
     ])
     // Their refresh is already delivered: a bind owes nothing more.
-    await f.reconciler.onBound(server, machine)
-    expect(f.order).toHaveLength(7)
+    await f.reconciler.onBound(server, machine, 'exited')
+    await f.reconciler.onBound(embedded, machine, 'exited')
+    expect(f.order).toHaveLength(14)
   })
 })
 
@@ -336,5 +412,33 @@ describe('reattach messages built a chunk at a time', () => {
     expect(f.order.filter((entry) => entry.startsWith('reattach:'))).toEqual([
       `reattach:${f.sessions[2]!.sessionId}`,
     ])
+  })
+
+  // Review F5: one bad row fails alone; the machine's other probes go out.
+  it('skips a session the chunk built no message for, and sends the rest', async () => {
+    const f = chunked(3, 'exited')
+    const failed = f.sessions[1]!
+    const built = f.ports.reattachMessages!
+    f.ports.reattachMessages = async (sessions, machineId) => {
+      const messages = new Map(await built(sessions, machineId))
+      messages.delete(failed.sessionId)
+      return messages
+    }
+    await f.reconciler.onAttached(principal)
+    expect(f.order.filter((entry) => entry.startsWith('reattach:'))).toEqual([
+      `reattach:${f.sessions[2]!.sessionId}`,
+      `reattach:${f.sessions[0]!.sessionId}`,
+    ])
+    expect(f.ports.reattachMessage).not.toHaveBeenCalled()
+  })
+
+  it('builds a chunk one message at a time when building it together throws', async () => {
+    const f = chunked(3, 'exited')
+    f.ports.reattachMessages = async () => {
+      throw new Error('fence transaction failed')
+    }
+    await f.reconciler.onAttached(principal)
+    expect(f.order.filter((entry) => entry.startsWith('reattach:'))).toHaveLength(3)
+    expect(f.ports.reattachMessage).toHaveBeenCalledTimes(3)
   })
 })

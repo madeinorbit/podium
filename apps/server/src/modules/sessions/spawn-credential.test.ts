@@ -956,68 +956,112 @@ describe('after the daemon reconnects (Task 5)', () => {
 
   // POD-7574: an exited row's reattach is a passive probe that almost always
   // fails, so its credential is read and audited only once the daemon binds it.
-  it('an exited session is probed without its access, and gets it only when the daemon binds it', async () => {
+  describe('an exited session on a terminal driver', () => {
+    const bindFrame = (sessionId: SessionId) => ({
+      type: 'bind' as const,
+      sessionId,
+      cmd: 'claude',
+      cwd: '/p',
+      agentKind: 'claude-code' as const,
+      geometry: { cols: 80, rows: 24 },
+      // A daemon binds a driver for every profiled agent: this one proves a PTY.
+      driverId: 'generic-pty',
+    })
+
+    async function exitedSessions(count: number) {
+      const store = await openTestStore(':memory:')
+      const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
+      const { reg } = await makeRegistry(store)
+      const host = store.hostMachine!.id
+      const sessionIds: SessionId[] = []
+      for (let n = 0; n < count; n++) {
+        const { sessionId } = await reg.modules.sessions.createSession({
+          agentKind: 'claude-code',
+          cwd: '/p',
+          credentialId: id,
+        })
+        await reg.gateway.routeDaemonFrame(host, bindFrame(sessionId))
+        await reg.gateway.routeDaemonFrame(host, { type: 'agentExit', sessionId, code: 0 })
+        sessionIds.push(sessionId)
+      }
+      const before = (await store.settingsAudit.list(100)).length
+      const audit = async (command: string) =>
+        (await store.settingsAudit.list(100)).slice(before).filter((row) => row.command === command)
+      return { store, id, reg, host, sessionIds, audit }
+    }
+
+    it('is probed without its access, and gets it only when the daemon binds it', async () => {
+      const { id, reg, host, sessionIds, audit } = await exitedSessions(2)
+      const [alive, dead] = sessionIds as [SessionId, SessionId]
+      const after = await reconnect(reg)
+
+      for (const sessionId of [alive, dead]) {
+        expect(indexOf(after, 'reattach', sessionId)).toBeGreaterThanOrEqual(0)
+        expect(indexOf(after, 'sessionAccessRefresh', sessionId)).toBe(-1)
+      }
+      expect(JSON.stringify(after)).not.toContain(FAKE_A)
+      expect(await audit('credentials.deliver')).toHaveLength(0)
+
+      // The dead one answers reattachFailed: nothing is read or recorded for it.
+      // So does another reattach of the live one, before its probe's bind
+      // (review F1): the frame names no attempt, and the debt stands.
+      for (const sessionId of [dead, alive]) {
+        await reg.gateway.routeDaemonFrame(host, {
+          type: 'reattachFailed',
+          sessionId,
+          reason: 'session not found',
+        })
+      }
+      // The live one binds: its access follows, after its audit row.
+      await reg.gateway.routeDaemonFrame(host, bindFrame(alive))
+      expect(indexOf(after, 'sessionAccessRefresh', alive)).toBeGreaterThan(
+        indexOf(after, 'reattach', alive),
+      )
+      expect(after[indexOf(after, 'sessionAccessRefresh', alive)]).toEqual({
+        type: 'sessionAccessRefresh',
+        sessionId: alive,
+        access: {
+          credentialId: id,
+          delivery: { kind: 'env', variable: 'ANTHROPIC_API_KEY', secret: FAKE_A },
+        },
+      })
+      expect(indexOf(after, 'sessionAccessRefresh', dead)).toBe(-1)
+      const delivered = await audit('credentials.deliver')
+      expect(delivered).toHaveLength(1)
+      expect(delivered[0]!.detail).toMatchObject({ sessionId: alive })
+      // Owed once: the next bind sends nothing more.
+      await reg.gateway.routeDaemonFrame(host, bindFrame(alive))
+      expect(after.filter((m) => m.type === 'sessionAccessRefresh')).toHaveLength(1)
+    })
+
+    // Review F8: the credential is judged at the bind, not at the probe.
+    it('is refused at the bind when its credential was revoked after the probe', async () => {
+      const { store, id, reg, host, sessionIds, audit } = await exitedSessions(1)
+      const [alive] = sessionIds as [SessionId]
+      const after = await reconnect(reg)
+      expect(indexOf(after, 'reattach', alive)).toBeGreaterThanOrEqual(0)
+      await store.credentials.setStatus(id, 'revoked')
+      await reg.gateway.routeDaemonFrame(host, bindFrame(alive))
+      expect(after.filter((m) => m.type === 'sessionAccessRefresh')).toHaveLength(0)
+      expect(JSON.stringify(after)).not.toContain(FAKE_A)
+      expect(await audit('credentials.deliver')).toHaveLength(0)
+      expect((await audit('credentials.refuse')).length).toBeGreaterThan(0)
+    })
+  })
+
+  // Review F2: an exited row not proven a PTY keeps its refresh first, because
+  // its reattach may be an engine adopt that waits for the credential.
+  it('an exited session bound to no named driver gets its access before its reattach', async () => {
     const store = await openTestStore(':memory:')
     const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
     const { reg } = await makeRegistry(store)
     const host = store.hostMachine!.id
-    const [alive, dead] = [await liveSession(reg, id), await liveSession(reg, id)]
-    for (const sessionId of [alive, dead])
-      await reg.gateway.routeDaemonFrame(host, { type: 'agentExit', sessionId, code: 0 })
-    const before = (await store.settingsAudit.list(100)).length
-    const deliveries = async () =>
-      (await store.settingsAudit.list(100))
-        .slice(before)
-        .filter((row) => row.command === 'credentials.deliver')
+    const sessionId = await liveSession(reg, id)
+    await reg.gateway.routeDaemonFrame(host, { type: 'agentExit', sessionId, code: 0 })
     const after = await reconnect(reg)
-
-    for (const sessionId of [alive, dead]) {
-      expect(indexOf(after, 'reattach', sessionId)).toBeGreaterThanOrEqual(0)
-      expect(indexOf(after, 'sessionAccessRefresh', sessionId)).toBe(-1)
-    }
-    expect(JSON.stringify(after)).not.toContain(FAKE_A)
-    expect(await deliveries()).toHaveLength(0)
-
-    // The dead one answers reattachFailed: nothing is read or recorded for it.
-    await reg.gateway.routeDaemonFrame(host, {
-      type: 'reattachFailed',
-      sessionId: dead,
-      reason: 'session not found',
-    })
-    // The live one binds: its access follows, after its audit row.
-    await reg.gateway.routeDaemonFrame(host, {
-      type: 'bind',
-      sessionId: alive,
-      cmd: 'claude',
-      cwd: '/p',
-      agentKind: 'claude-code',
-      geometry: { cols: 80, rows: 24 },
-    })
-    expect(indexOf(after, 'sessionAccessRefresh', alive)).toBeGreaterThan(
-      indexOf(after, 'reattach', alive),
-    )
-    expect(after[indexOf(after, 'sessionAccessRefresh', alive)]).toEqual({
-      type: 'sessionAccessRefresh',
-      sessionId: alive,
-      access: {
-        credentialId: id,
-        delivery: { kind: 'env', variable: 'ANTHROPIC_API_KEY', secret: FAKE_A },
-      },
-    })
-    expect(indexOf(after, 'sessionAccessRefresh', dead)).toBe(-1)
-    const delivered = await deliveries()
-    expect(delivered).toHaveLength(1)
-    expect(delivered[0]!.detail).toMatchObject({ sessionId: alive })
-    // Owed once: the next bind sends nothing more.
-    await reg.gateway.routeDaemonFrame(host, {
-      type: 'bind',
-      sessionId: alive,
-      cmd: 'claude',
-      cwd: '/p',
-      agentKind: 'claude-code',
-      geometry: { cols: 80, rows: 24 },
-    })
-    expect(after.filter((m) => m.type === 'sessionAccessRefresh')).toHaveLength(1)
+    const refresh = indexOf(after, 'sessionAccessRefresh', sessionId)
+    expect(refresh).toBeGreaterThanOrEqual(0)
+    expect(refresh).toBeLessThan(indexOf(after, 'reattach', sessionId))
   })
 
   it('refuses a credential revoked while the probe loop yields', async () => {

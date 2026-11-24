@@ -1395,7 +1395,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       machineReconciler.reviveParkedButAlive(session, machineId, reason),
     onDurableSessionCensus: (principal, labels) =>
       machineReconciler.onDurableSessionCensus(principal, labels),
-    onSessionBound: (session, machineId) => machineReconciler.onBound(session, machineId),
+    onSessionBound: (session, machineId, statusBeforeBind) =>
+      machineReconciler.onBound(session, machineId, statusBeforeBind),
     runtimeEvents: bag.runtimeGateway,
     queueDrainAbandoned: {
       record: async (msg) => {

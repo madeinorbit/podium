@@ -77,6 +77,20 @@ function mayBeServerDriven(session: Session): boolean {
     : session.resume?.kind !== undefined && isServerFamilyResumeKind(session.resume.kind)
 }
 
+/**
+ * Whether this session's reattach is PROVEN a passive PTY bind (POD-7574 review
+ * F2): the bound driver is a terminal driver, or the row is a shell or a sign-in
+ * pane, which run no harness engine. Only then may an exited row's reattach go
+ * out without its credential. Anything else, an embedded engine bound before the
+ * driver column or a daemon that named no driver included, may adopt into a
+ * process start that waits for the credential, and keeps its refresh first.
+ */
+function provesPassiveReattach(session: Session): boolean {
+  const boundDriverId = session.driverId ?? session.boundDriverId
+  if (boundDriverId) return driverFamilyForId(boundDriverId) === 'terminal'
+  return session.agentKind === 'shell' || session.loginHarness !== undefined
+}
+
 export interface MachineReconcilerPorts {
   /** This machine's candidate sessions. Read-only: nothing here adds or removes. */
   sessions(): Iterable<Session>
@@ -99,8 +113,9 @@ export interface MachineReconcilerPorts {
   reattachMessage(session: Session, machineId: MachineId): Promise<ControlMessage>
   /**
    * {@link reattachMessage} for a set of survivors at once: their fences in one
-   * transaction, the machine's ownership read once (POD-7574). Absent (unit
-   * fixtures): each message is built on its own.
+   * transaction, the machine's ownership read once (POD-7574). A session it
+   * returns no message for is not probed. Absent (unit fixtures): each message
+   * is built on its own.
    */
   reattachMessages?(
     sessions: readonly Session[],
@@ -169,9 +184,12 @@ export class SessionMachineReconciler {
   /**
    * Exited sessions whose reattach went out WITHOUT their credential (POD-7574),
    * and the machine it went to. Their refresh is owed: sent when that machine's
-   * daemon answers with a bind ({@link onBound}), dropped on `reattachFailed`, a
-   * detach or the machine's next attach. Transient probe state, like
-   * `awaitingRebind`: a server restart loses it, and the next attach probes again.
+   * daemon answers with a bind of the still-exited row ({@link onBound}), and
+   * forgotten only once sent, on a bind that a launch with its own credential
+   * answered, or on the machine's detach or next attach. A `reattachFailed` leaves
+   * it: the frame names no attempt, so it may answer another reattach of the same
+   * session (review F1). Transient probe state, like `awaitingRebind`: a server
+   * restart loses it, and the next attach probes again.
    */
   private readonly refreshOnBind = new Map<Session['sessionId'], MachineId>()
 
@@ -365,26 +383,44 @@ export class SessionMachineReconciler {
   }
 
   /**
-   * The daemon bound a session this server probed (its `bind`, before the bind
-   * drains queued input). An exited session's reattach went out without its
-   * credential (POD-7574); now that the daemon has confirmed the process, resolve
-   * it again (a grant that ended meanwhile is refused and recorded), commit its
-   * delivery audit and send it. A bind from another machine, or for a session
-   * whose refresh is not owed, sends nothing.
+   * The daemon bound a session, before the bind handler's own drain and
+   * auto-continue. An exited session's probe went out without its credential
+   * (POD-7574); now that the daemon has confirmed the process, resolve it again (a
+   * grant that ended meanwhile is refused and recorded), commit its delivery audit
+   * and send it.
+   *
+   * Owed only to a bind of a row that still read `exited` (`statusBeforeBind`):
+   * that bind can only answer a probe. A bind of a row that a spawn, a resume or a
+   * census revive took out of `exited` answers a launch that sent its own
+   * credential, so the debt is dropped and nothing is sent twice (review F6).
+   *
+   * Never throws (review F1): a failed resolve or send is logged and the debt
+   * kept for the next bind, so the bind still drains and auto-continues. The
+   * daemon holds no credential until one arrives; a process start waits for it.
    */
-  async onBound(session: Session, machineId: MachineId): Promise<void> {
+  async onBound(
+    session: Session,
+    machineId: MachineId,
+    statusBeforeBind: Session['status'],
+  ): Promise<void> {
     if (this.refreshOnBind.get(session.sessionId) !== machineId) return
-    this.refreshOnBind.delete(session.sessionId)
-    if (session.machineId !== machineId || session.archived) return
-    const refresh = await this.ports.accessRefresh?.(session, machineId)
-    if (refresh && session.machineId === machineId && !session.archived) {
-      await this.ports.toMachine(machineId, refresh)
+    if (statusBeforeBind !== 'exited') {
+      this.refreshOnBind.delete(session.sessionId)
+      return
     }
-  }
-
-  /** That machine's daemon could not reattach this session: its owed refresh is not owed. */
-  onReattachFailed(sessionId: Session['sessionId'], machineId: MachineId): void {
-    if (this.refreshOnBind.get(sessionId) === machineId) this.refreshOnBind.delete(sessionId)
+    if (session.machineId !== machineId || session.archived) return
+    try {
+      const refresh = await this.ports.accessRefresh?.(session, machineId)
+      if (!refresh || session.machineId !== machineId || session.archived) return
+      await this.ports.toMachine(machineId, refresh)
+      this.refreshOnBind.delete(session.sessionId)
+    } catch (err) {
+      log.warn('the credential owed at bind was not sent; kept for the next bind', {
+        sessionId: session.sessionId,
+        machineId,
+        err,
+      })
+    }
   }
 
   /** Drop the refreshes owed on a machine whose daemon left or attached again. */
@@ -409,6 +445,8 @@ export class SessionMachineReconciler {
     // in its own slice, judged again at the send; a fenced session that no longer
     // qualifies by then is skipped, as a probe skipped after its own fence was.
     let built = new Map<Session['sessionId'], ControlMessage>()
+    /** The sessions the current chunk was built for: one without a message is skipped. */
+    let chunkMembers = new Set<Session['sessionId']>()
     let builtUpTo = 0
     await runTimeBudgetedJob(async () => {
       if (this.ports.reattachMessages && index >= builtUpTo && index < probes.length) {
@@ -418,7 +456,21 @@ export class SessionMachineReconciler {
           .slice(index, builtUpTo)
           .map((p) => resident.get(p.sessionId) ?? held.get(p.sessionId))
           .filter((s): s is Session => s !== undefined && probedOn(s))
-        built = new Map(chunk.length > 0 ? await this.ports.reattachMessages(chunk, machineId) : [])
+        try {
+          built = new Map(
+            chunk.length > 0 ? await this.ports.reattachMessages(chunk, machineId) : [],
+          )
+          chunkMembers = new Set(chunk.map((s) => s.sessionId))
+        } catch (err) {
+          // One bad row must not stop the machine's probes (review F5): this
+          // chunk falls back to building each message on its own.
+          log.warn('building a chunk of reattach messages failed; building them one by one', {
+            machineId,
+            err,
+          })
+          built = new Map()
+          chunkMembers = new Set()
+        }
         return 'continue'
       }
       const candidate = probes[index++]
@@ -427,6 +479,8 @@ export class SessionMachineReconciler {
       // commit its delivery audit before releasing the credential to the daemon.
       await this.withSession(candidate.sessionId, 'reattachProbe', async (s) => {
         if (!s) return
+        // Built with its chunk but given no message: its fence failed, already logged.
+        if (chunkMembers.has(s.sessionId) && !built.has(s.sessionId)) return
         const message = built.get(s.sessionId) ?? (await this.ports.reattachMessage(s, machineId))
         built.delete(s.sessionId)
         const probed = () => probedOn(s)
@@ -434,10 +488,10 @@ export class SessionMachineReconciler {
         // is dead and answers `reattachFailed`; a refresh for it read a secret and
         // committed a delivery audit for a process that does not exist, about 21 ms
         // a row. A passive PTY reattach starts nothing, so the credential can wait
-        // for the bind that proves the process ({@link onBound}). A row whose
-        // reattach may be a spawning adopt keeps its refresh first: that start
+        // for the bind that proves the process ({@link onBound}). A row not proven
+        // a PTY keeps its refresh first: its reattach may be an adopt whose start
         // waits for the credential, and would wait for a bind that never comes.
-        if (s.status === 'exited' && !awaitsRebind(s) && !mayBeServerDriven(s)) {
+        if (s.status === 'exited' && !awaitsRebind(s) && provesPassiveReattach(s)) {
           if (!probed()) return
           if (this.ports.accessRefresh) this.refreshOnBind.set(s.sessionId, machineId)
           this.ports.toMachine(machineId, message)

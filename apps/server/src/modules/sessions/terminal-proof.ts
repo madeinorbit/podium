@@ -119,11 +119,13 @@ export class SessionTerminalProof {
   /**
    * {@link fence} for a set of sessions, in one transaction (POD-7574): a daemon
    * attach fences every survivor it probes. A session whose harness has no
-   * observation provider is absent, as `fence` returns nothing for it.
+   * observation provider is absent, as `fence` returns nothing for it. One whose
+   * lease another provider holds, where `fence` throws, is listed in `failed`.
    */
-  async fenceMany(
-    sessions: readonly Session[],
-  ): Promise<ReadonlyMap<SessionId, ObservationLeaseRecord>> {
+  async fenceMany(sessions: readonly Session[]): Promise<{
+    leases: ReadonlyMap<SessionId, ObservationLeaseRecord>
+    failed: ReadonlySet<SessionId>
+  }> {
     const entries = sessions.flatMap((session) => {
       const provider = harnessObservationProvider(session.agentKind)
       return provider
@@ -136,7 +138,11 @@ export class SessionTerminalProof {
           ]
         : []
     })
-    return await this.ports.checkpoints.advanceGenerations(entries)
+    const leases = await this.ports.checkpoints.advanceGenerations(entries)
+    const failed = new Set(
+      entries.filter((entry) => !leases.has(entry.sessionId)).map((entry) => entry.sessionId),
+    )
+    return { leases, failed }
   }
 
   /**

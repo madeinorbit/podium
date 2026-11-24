@@ -78,16 +78,24 @@ export class SessionClientPlane {
    * {@link reattachMessageFor} for a set of one machine's survivors (POD-7574):
    * their fences in one transaction and the machine's ownership read once, where
    * one at a time each probe was a fence commit and a read of every machine and
-   * its grants.
+   * its grants. A session whose fence failed (another provider holds its lease,
+   * where {@link reattachMessageFor} throws) has no message, and is logged.
    */
   async reattachMessagesFor(
     sessions: readonly Session[],
     machineId: MachineId,
   ): Promise<ReadonlyMap<Session['sessionId'], ControlMessage>> {
-    const leases = await this.ports.terminalProof.fenceMany(sessions)
+    const { leases, failed } = await this.ports.terminalProof.fenceMany(sessions)
     const machineAccess = await this.recoveryMachineAccess(machineId)
     const messages = new Map<Session['sessionId'], ControlMessage>()
     for (const session of sessions) {
+      if (failed.has(session.sessionId)) {
+        log.warn('reattach probe not sent: another provider holds the observation lease', {
+          sessionId: session.sessionId,
+          machineId,
+        })
+        continue
+      }
       messages.set(
         session.sessionId,
         await this.reattachMessageOf(

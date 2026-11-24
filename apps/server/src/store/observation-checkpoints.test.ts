@@ -358,20 +358,27 @@ describe('advanceGenerations', () => {
     }
   })
 
-  it('throws for a lease another provider holds, and writes nothing', async () => {
+  // Review F5: where advanceGeneration throws, the set fence fails that row alone.
+  it('leaves a lease another provider holds untouched, and fences the rest', async () => {
     const store = await openTestStore(':memory:')
     try {
       const oc = store.observationCheckpoints
       const [mine, theirs] = ids(2, 'p')
       await oc.advanceGeneration(mine!, 'codex', 'thread-mine')
       await oc.advanceGeneration(theirs!, 'claude-code', 'thread-theirs')
-      await expect(
-        oc.advanceGenerations([
-          { sessionId: mine!, provider: 'codex', providerSessionId: 'thread-mine' },
+      const before = await oc.get(theirs!)
+      const leases = await oc.advanceGenerations([
+        { sessionId: mine!, provider: 'codex', providerSessionId: 'thread-mine' },
+        { sessionId: theirs!, provider: 'codex', providerSessionId: 'thread-theirs' },
+      ])
+      expect([...leases.keys()]).toEqual([mine])
+      expect(leases.get(mine!)?.observationGeneration).toBe(2)
+      expect(await oc.get(theirs!)).toEqual(before)
+      expect(
+        await oc.advanceGenerations([
           { sessionId: theirs!, provider: 'codex', providerSessionId: 'thread-theirs' },
         ]),
-      ).rejects.toThrow(`unable to advance observation generation for ${theirs}`)
-      expect((await oc.get(mine!))?.observationGeneration).toBe(1)
+      ).toEqual(new Map())
     } finally {
       await store.close()
     }

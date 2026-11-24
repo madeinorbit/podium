@@ -255,6 +255,7 @@ const leaseIdentitiesOfIds = preparedFamily((db, t, size: number) =>
   db
     .select({
       sessionId: t.sessionObservationCheckpoints.sessionId,
+      provider: t.sessionObservationCheckpoints.provider,
       providerSessionId: t.sessionObservationCheckpoints.providerSessionId,
     })
     .from(t.sessionObservationCheckpoints)
@@ -818,8 +819,12 @@ export class ObservationCheckpointsRepository {
    * fences every survivor it probes, thousands on a machine with that many
    * exited sessions, and one transaction each was a commit and five statements
    * each. Same result per session: a missing lease is opened, the generation
-   * advances, a provider id fills in only where none is stored, a consumed proof
-   * is cancelled, and a lease held by another provider throws.
+   * advances, a provider id fills in only where none is stored, and a consumed
+   * proof is cancelled.
+   *
+   * A lease another provider holds is where `advanceGeneration` throws. Here it
+   * fails alone (POD-7574 review F5): that session is left untouched and is
+   * ABSENT from the result, and the rest are fenced. The caller decides.
    */
   async advanceGenerations(
     entries: readonly {
@@ -833,8 +838,13 @@ export class ObservationCheckpointsRepository {
     if (wanted.size === 0) return new Map()
     return await this.createOrJoinTransaction(async () => {
       const updatedAt = new Date().toISOString()
+      const before = await this.leaseRowsOf([...wanted.keys()])
+      // Another provider's lease is not touched at all, its proof included.
+      for (const [sessionId, row] of before) {
+        if (row.provider !== wanted.get(sessionId)?.provider) wanted.delete(sessionId)
+      }
+      if (wanted.size === 0) return new Map()
       const ids = [...wanted.keys()]
-      const before = await this.leaseRowsOf(ids)
       // Grouped by provider for the set update; a lease that is missing, or that
       // takes the provider id it lacks, goes through the one-row statements.
       const byProvider = new Map<ObservationLeaseRecord['provider'], SessionId[]>()
@@ -868,10 +878,9 @@ export class ObservationCheckpointsRepository {
         await deleteTerminalCandidatesOfIds(this.db, size).run(inListValues(chunk, size))
       }
       const leases = await this.leasesOf(ids)
+      // A lease another provider opened meanwhile (Postgres, READ COMMITTED).
       for (const entry of wanted.values()) {
-        if (leases.get(entry.sessionId)?.provider !== entry.provider) {
-          throw new Error(`unable to advance observation generation for ${entry.sessionId}`)
-        }
+        if (leases.get(entry.sessionId)?.provider !== entry.provider) leases.delete(entry.sessionId)
       }
       return leases
     })
@@ -880,13 +889,16 @@ export class ObservationCheckpointsRepository {
   /** The raw lease rows of a set of sessions, unparsed: what the fence decides on. */
   private async leaseRowsOf(
     sessionIds: readonly SessionId[],
-  ): Promise<Map<SessionId, { providerSessionId: string | null }>> {
-    const rows = new Map<SessionId, { providerSessionId: string | null }>()
+  ): Promise<Map<SessionId, { provider: string; providerSessionId: string | null }>> {
+    const rows = new Map<SessionId, { provider: string; providerSessionId: string | null }>()
     for (let at = 0; at < sessionIds.length; at += 500) {
       const chunk = sessionIds.slice(at, at + 500)
       const size = inListSize(chunk.length)
       for (const row of await leaseIdentitiesOfIds(this.db, size).all(inListValues(chunk, size))) {
-        rows.set(row.sessionId as SessionId, { providerSessionId: row.providerSessionId })
+        rows.set(row.sessionId as SessionId, {
+          provider: row.provider,
+          providerSessionId: row.providerSessionId,
+        })
       }
     }
     return rows
