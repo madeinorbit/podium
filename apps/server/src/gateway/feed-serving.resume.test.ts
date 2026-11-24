@@ -24,11 +24,13 @@
 import { asUserId } from '@podium/model'
 import type { FeedCursorField, ServerMessage } from '@podium/protocol'
 import { asCapabilityRef, asDeviceId, CLIENT_WIRE_VERSION, type Principal } from '@podium/protocol'
-import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
+import { DEVICE_GRADE_PRINCIPAL, type VisibilityAnchorPort } from '@podium/sync'
 import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
+import type { SessionStore } from '../store'
+import { afterCommit } from '../store/executor/executor'
 import { memberFacts } from '../store/fixtures/test-support'
-import { feedTestPlumbing } from './feed-test-plumbing'
+import { type FeedTestPlumbing, feedTestPlumbing } from './feed-test-plumbing'
 import type { EdgePeer } from './wire-feed-edge'
 
 class Peer implements EdgePeer {
@@ -50,13 +52,17 @@ class Peer implements EdgePeer {
   }
 }
 
-const commit = (p: Awaited<ReturnType<typeof feedTestPlumbing>>, id: string) =>
-  testLedgerWriter(p.ledger).commit(
+/** Commit one row, and wait for its delivery pass (which records its access moves). */
+const commit = async (p: Awaited<ReturnType<typeof feedTestPlumbing>>, id: string) => {
+  const outcome = await testLedgerWriter(p.ledger).commit(
     p.ledger.modelOperation({
       write: async () => {},
       rows: () => [{ entity: 'session', id, op: 'upsert', value: { sessionId: id } }],
     }),
   )
+  await p.authority.settled()
+  return outcome
+}
 
 /** A populated server, and a peer already admitted the ordinary way — the state
  *  every one of these cases reconnects INTO. */
@@ -245,6 +251,7 @@ describe('a cursor the log cannot serve is refused, and the refusal requests HTT
     // Member writes change synced rows, so they run inside a change-log commit.
     const inCommit = async (write: () => Promise<void>) => {
       await testLedgerWriter(ctx.p.ledger).commit({ write })
+      await ctx.p.authority.settled()
     }
     const id = asUserId('u-demoted')
     await inCommit(() =>
@@ -291,28 +298,136 @@ describe('a cursor the log cannot serve is refused, and the refusal requests HTT
     expect(peer.types()).toEqual(['feedRescope'])
   })
 
-  // POD-7552 review F3: the pass that records a move runs after its commit.
-  it('waits for queued delivery passes before reading the log, and answers as moved past the bound', async () => {
+  // POD-7585 (POD-7552 review F3, N1): a pass records its moves after its commit,
+  // so the log is complete only through the recorded-through mark. No wait.
+  it('answers as moved, at once and counted, while the recorded-through mark trails the head', async () => {
     const compacted = await servedOnce({ retention: { minAvailableSeq: () => 5 } })
     for (let i = 3; i <= 6; i += 1) await commit(compacted.p, `s${i}`)
-    const order: string[] = []
-    const settled = vi.spyOn(compacted.p.authority, 'settled').mockImplementation(async () => {
-      order.push('settled')
-    })
+    const authority = compacted.p.authority
+    expect(authority.accessMovesRecordedThrough()).toBe(6)
     const read = vi.spyOn(compacted.p.store.sync, 'accessMovedAfter')
-    read.mockImplementation(async () => {
-      order.push('read')
-      return false
+    // Each reconnect is a new socket: the earlier peer goes, or the same id re-attaches.
+    const refusedAt = async (seq: number): Promise<string[]> => {
+      const peer = await reconnect(compacted, { ...compacted.held, seq })
+      compacted.p.serving.detach(peer.id)
+      return peer.types()
+    }
+    expect(await refusedAt(2)).toEqual(['feedResyncRequired'])
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(compacted.p.serving.accessMovesTrailingAnswers).toBe(0)
+
+    // A pass still queued behind the head, then a start-up replay not yet done.
+    const mark = vi.spyOn(authority, 'accessMovesRecordedThrough').mockReturnValue(5)
+    expect(await refusedAt(2)).toEqual(['feedRescope'])
+    mark.mockReturnValue(null)
+    expect(await refusedAt(1)).toEqual(['feedRescope'])
+    // Answered without reading the log, and counted rather than warned each time.
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(compacted.p.serving.accessMovesTrailingAnswers).toBe(2)
+    // The bootstrap and delta routes read the head themselves.
+    mark.mockReturnValue(6)
+    expect(await compacted.p.serving.accessMovedAfter(DEVICE_GRADE_PRINCIPAL, 2)).toBe(false)
+    await commit(compacted.p, 's7')
+    expect(await compacted.p.serving.accessMovedAfter(DEVICE_GRADE_PRINCIPAL, 2)).toBe(true)
+    expect(compacted.p.serving.accessMovesTrailingAnswers).toBe(3)
+  })
+
+  // POD-7585: the access moves of a commit whose delivery pass never ran.
+  describe('a move committed just before a process exits or hands over is not lost', () => {
+    const human = String(DEVICE_GRADE_PRINCIPAL.kind === 'user' && DEVICE_GRADE_PRINCIPAL.user)
+    /** Anchors that name the viewer in the audience of every `revoke-*` row. */
+    const revokes: VisibilityAnchorPort = {
+      visibilityEdges: async (refs) =>
+        refs.map((ref) =>
+          ref.entityId.startsWith('revoke-') ? { audience: [asUserId(human)], subjects: [] } : null,
+        ),
+      currentValuesOf: async (refs) => refs.map(() => undefined),
+    }
+    /** A process whose delivery passes stop running once `exit()` is called. */
+    async function processThatExits(store?: SessionStore) {
+      let exited = false
+      const p = await feedTestPlumbing({
+        anchors: revokes,
+        retention: { minAvailableSeq: () => 100 },
+        postCommit: (step, label) => {
+          if (!exited) afterCommit(step, label)
+        },
+        ...(store === undefined ? {} : { store }),
+      })
+      return {
+        p,
+        exit: () => {
+          exited = true
+        },
+      }
+    }
+    async function refusedAt(p: FeedTestPlumbing, seq: number): Promise<Peer> {
+      const identity = await p.serving.identity()
+      const peer = new Peer(`refused-${seq}-${Math.random()}`)
+      p.serving.renegotiate(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id), {
+        feedId: identity.feedId,
+        epoch: identity.epoch,
+        seq,
+      })
+      await p.serving.admissionSettled()
+      return peer
+    }
+
+    it('a kill between the commit and its pass: the next start replays the move', async () => {
+      const a = await processThatExits()
+      await commit(a.p, 's1')
+      const before = await a.p.authority.cursor()
+      a.exit()
+      await commit(a.p, 'revoke-1')
+      const revokedAt = await a.p.authority.cursor()
+      // The pass never ran: nothing recorded the move.
+      expect(await a.p.store.sync.accessMovedAfter(human, before)).toBe(false)
+
+      // The next process over the same database replays the tail at start.
+      const b = await processThatExits(a.p.store)
+      expect(b.p.authority.accessMovesRecordedThrough()).toBe(revokedAt)
+      expect(await b.p.store.sync.accessMovedAfter(human, before)).toBe(true)
+      expect(await b.p.store.sync.readRecordedThrough()).toBe(revokedAt)
+      expect((await refusedAt(b.p, before)).types()).toEqual(['feedRescope'])
+      expect((await refusedAt(b.p, revokedAt)).types()).toEqual(['feedResyncRequired'])
+      expect(b.p.serving.accessMovesTrailingAnswers).toBe(0)
     })
-    expect((await reconnect(compacted, { ...compacted.held, seq: 2 })).types()).toEqual([
-      'feedResyncRequired',
-    ])
-    expect(order).toEqual(['settled', 'read'])
-    // A pass that does not finish within the bound: the server cannot tell.
-    settled.mockImplementation(() => new Promise<void>(() => {}))
-    const late = await reconnect(compacted, { ...compacted.held, seq: 1 })
-    expect(late.types()).toEqual(['feedRescope'])
-    expect(order).toEqual(['settled', 'read'])
+
+    it('a lease handover: the process taking over replays what the old one left', async () => {
+      const a = await processThatExits()
+      await commit(a.p, 's1')
+      // The new process is up and caught up before the old one's last commit.
+      const b = await processThatExits(a.p.store)
+      const before = await a.p.authority.cursor()
+      // The old writer commits, and loses the workspace before its pass runs.
+      a.exit()
+      await commit(a.p, 'revoke-1')
+      const revokedAt = await a.p.authority.cursor()
+      // The new writer: its mark trails the head until it takes over.
+      expect((await refusedAt(b.p, before)).types()).toEqual(['feedRescope'])
+      expect(b.p.serving.accessMovesTrailingAnswers).toBe(1)
+      await b.p.authority.catchUpAccessMoves()
+      expect(b.p.authority.accessMovesRecordedThrough()).toBe(revokedAt)
+      expect(await b.p.store.sync.accessMovedAfter(human, before)).toBe(true)
+      // Its own writes follow on; a refusal is answered from the log, exactly.
+      await commit(b.p, 's2')
+      expect(b.p.authority.accessMovesRecordedThrough()).toBe(revokedAt + 1)
+      expect((await refusedAt(b.p, before)).types()).toEqual(['feedRescope'])
+      expect((await refusedAt(b.p, revokedAt)).types()).toEqual(['feedResyncRequired'])
+      expect(b.p.serving.accessMovesTrailingAnswers).toBe(1)
+    })
+
+    it("a writer that never took over still records the old one's move with its next pass", async () => {
+      const a = await processThatExits()
+      await commit(a.p, 's1')
+      const b = await processThatExits(a.p.store)
+      const before = await a.p.authority.cursor()
+      a.exit()
+      await commit(a.p, 'revoke-1')
+      await commit(b.p, 's2')
+      expect(await b.p.store.sync.accessMovedAfter(human, before)).toBe(true)
+      expect(b.p.authority.accessMovesRecordedThrough()).toBe(await b.p.authority.cursor())
+    })
   })
 
   it('keeps the other refusals a resync, whatever the access-move log says', async () => {

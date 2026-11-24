@@ -957,7 +957,7 @@ const othersGroup: Group = {
       1000,
     )
     await store.sync.recordAppliedMutation('mut-1' as MutationId, 'proc', `${tag}-result`, 1000)
-    await store.sync.recordAccessMoves(new Map([['u-1', tag === 'a' ? 1 : 2]]))
+    await store.sync.recordAccessMoves(new Map([['u-1', tag === 'a' ? 1 : 2]]), tag === 'a' ? 3 : 4)
     await store.sync.enqueueMessage({
       id: 'queued-1',
       sessionId: S1,
@@ -1021,6 +1021,7 @@ const othersGroup: Group = {
         kinds: await store.sync.readKindGenerations(),
         parked: await store.sync.listParkedUpstreamMutations(),
         accessMoved: await store.sync.accessMovedAfter('u-1', 1),
+        recordedThrough: await store.sync.readRecordedThrough(),
       }),
       write: async ({ store, tag }) => {
         await store.sync.appendChanges(
@@ -1030,6 +1031,7 @@ const othersGroup: Group = {
         await store.sync.deleteQueuedMessage('queued-1')
         await store.sync.recordAppliedMutation('mut-2' as MutationId, 'proc', `${tag}-2`, 2000)
         await store.sync.recordAccessMoves(new Map([['u-1', 5]]))
+        await store.sync.raiseRecordingStart(9)
       },
     },
     artifactUploads: {

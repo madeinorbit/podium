@@ -878,6 +878,14 @@ export class SessionRegistry {
     // A fresh install can hold model rows before its first append; a load at
     // head 0 cannot carry them (seq 0 is the cold-start cursor, ADR 2 D12).
     if (!this.recoveryOnly && !rehearseBoot) await this.store.sync.raiseEmptyHead()
+    // POD-7585: the access moves of changes whose delivery pass never ran (an
+    // exit between commit and pass) are replayed from the recorded-through
+    // mark before the feed answers a refused resume from them. A process that
+    // takes over a workspace's writes calls the same method. On a failure a
+    // refusal answers as moved until the next pass retries it.
+    if (!this.recoveryOnly && !rehearseBoot) {
+      await this.ledger.authority.catchUpAccessMoves().catch(() => undefined)
+    }
     // The effect trigger and its recovery sweep (POD-6357): the boot sweep
     // expires, re-dispatches and recovers what a stop left behind.
     if (!this.recoveryOnly && !rehearseBoot && this.backgroundWork) {
@@ -1325,7 +1333,10 @@ export class SessionRegistry {
       repo: this.store.sync,
       // POD-7552: each human's last access move, kept past the log's retention.
       accessMoves: {
-        recordAccessMoves: async (moves) => await this.store.sync.recordAccessMoves(moves),
+        recordAccessMoves: async (moves, through) =>
+          await this.store.sync.recordAccessMoves(moves, through),
+        readRecordedThrough: async () => await this.store.sync.readRecordedThrough(),
+        raiseRecordingStart: async (seq) => await this.store.sync.raiseRecordingStart(seq),
         movesAccess: edgeMovesAccess,
       },
       now: () => this.now(),
@@ -5923,6 +5934,8 @@ export class SessionRegistry {
     this.steward.dispose()
     this.configChangedBridge()
     await this.modules.sessions.dispose()
+    // POD-7585: last, once nothing else commits: the next start has no tail to replay.
+    await this.ledger.authority.flushAccessMoves()
   }
 
   /** Fenced janitor entry: one bounded steward poll with

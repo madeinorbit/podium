@@ -23,6 +23,7 @@ import {
   FeedIdentityRegistry,
   type FeedRetentionPort,
   type FeedVisibilityPolicy,
+  type PostCommitFollowUpPort,
   type VisibilityAnchorPort,
 } from '@podium/sync'
 import type { SessionStore } from '../store'
@@ -71,9 +72,20 @@ export async function feedTestPlumbing(
      * cannot produce, not stubbing the collaborator under test.
      */
     retention?: FeedRetentionPort
+    /**
+     * POD-7585 — another PROCESS over the same database: its own Ledger,
+     * Authority and serving edge over this store. Omitted opens a fresh store.
+     */
+    store?: SessionStore
+    /**
+     * POD-7585 — where a commit's delivery pass is queued. Omitted queues it
+     * after the commit as `relay.ts` does; a test that drops the step is a
+     * process that exited between the commit and its pass.
+     */
+    postCommit?: PostCommitFollowUpPort
   } = {},
 ): Promise<FeedTestPlumbing> {
-  const store = await openTestStore(':memory:')
+  const store = opts.store ?? (await openTestStore(':memory:'))
   const ledger = new Ledger(store, {
     ...(opts.visibility ? { visibility: opts.visibility } : {}),
     ...(opts.anchors ? { anchors: opts.anchors } : {}),
@@ -83,7 +95,7 @@ export async function feedTestPlumbing(
     transact: async (fn) => await store.transact(fn),
     // Match relay.ts: this is a real transactional store, so queued delivery
     // must not inherit the transaction that is about to close.
-    postCommit: (step, label) => afterCommit(step, label),
+    postCommit: opts.postCommit ?? ((step, label) => afterCommit(step, label)),
     applyCommit: { spanOpen, onCommit: applyAfterCommit },
   })
   let minted = 0
@@ -110,6 +122,8 @@ export async function feedTestPlumbing(
     ...(opts.onVisibilityChanged ? { onVisibilityChanged: opts.onVisibilityChanged } : {}),
     diagnostics: opts.diagnostics ?? (() => []),
   })
+  // As `relay.ts` boots: replay what no delivery pass recorded before serving.
+  await ledger.authority.catchUpAccessMoves()
   return {
     serving,
     ledger,

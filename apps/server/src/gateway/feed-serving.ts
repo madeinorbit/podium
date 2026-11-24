@@ -61,23 +61,12 @@ const MIN_RESUME_WIRE_VERSION = 2
 /** POD-7552 — the reason a refused resume is answered as a rescope. */
 export const ACCESS_MOVED_IN_GAP = 'access-moved-in-gap'
 
-/** POD-7552 — how long a refusal waits for queued delivery passes to record their moves. */
-export const ACCESS_MOVE_SETTLE_MS = 1_000
-
-/** Whether the Authority's queued delivery passes finish within `ms` (true when it has no queue). */
-async function settledWithin(authority: AuthorityPort, ms: number): Promise<boolean> {
-  if (authority.settled === undefined) return true
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const late = new Promise<false>((resolve) => {
-    timer = setTimeout(() => resolve(false), ms)
-    timer.unref?.()
-  })
-  try {
-    return await Promise.race([authority.settled().then(() => true as const), late])
-  } finally {
-    clearTimeout(timer)
-  }
-}
+/**
+ * POD-7585 (POD-7552 review N1) — at most one warning per this many ms for the
+ * refusals answered as moved because the recorded-through mark trailed the
+ * head. Each such answer is counted ({@link FeedServing.accessMovesTrailingAnswers}).
+ */
+export const ACCESS_MOVES_TRAILING_LOG_MS = 60_000
 
 /** One admitted client, as this module needs it. */
 export interface FeedPeer extends EdgePeer {
@@ -174,6 +163,14 @@ export interface FeedAccessMovesPort {
 }
 
 export class FeedServing {
+  /**
+   * POD-7585 — refusals answered as moved because the recorded-through mark
+   * trailed the head they were read at: a delivery pass still queued, or the
+   * start-up replay not done. Telemetry and tests.
+   */
+  accessMovesTrailingAnswers = 0
+  private trailingLoggedAt = Number.NEGATIVE_INFINITY
+  private trailingSinceLog = 0
   private readonly publisher: FeedPublisher
   private readonly edge: WireFeedEdge
   private readonly peers = new Map<string, FeedPeer>()
@@ -390,7 +387,7 @@ export class FeedServing {
       const rescope =
         refusal === 'compacted-or-unknown' &&
         resumeFrom !== undefined &&
-        (await this.accessMovedAfter(principal, resumeFrom.seq))
+        (await this.accessMovedAfter(principal, resumeFrom.seq, cursor.seq))
       await this.serveResume(peer, principal, routingPrincipal, cursor, refusal, rescope)
     })
   }
@@ -401,18 +398,27 @@ export class FeedServing {
    * reload from such a cursor is a RESCOPE: the device's screens may show what
    * the viewer can no longer see, so they must not stay on screen through the
    * load. A principal with no human has no audience to be in (D14.3).
+   *
+   * POD-7585 — the passes that record moves run after their commits, so the
+   * log is complete only through the Authority's recorded-through mark. While
+   * that mark is below the head (`head`, the one the caller placed the device
+   * at, read here when not given), a move may be committed and not yet
+   * recorded, or lost with a process that exited: the server cannot tell, and
+   * answers as moved. Nothing waits.
    */
-  async accessMovedAfter(principal: Principal, seq: number): Promise<boolean> {
+  async accessMovedAfter(principal: Principal, seq: number, head?: number): Promise<boolean> {
     const port = this.deps.accessMoves
     const human = humanOf(principal)
     if (port === undefined || human === null) return false
     try {
-      // The pass that records a move runs after its commit, so a move the
-      // caller's cursor read already counts may still be queued. Wait for the
-      // passes queued so far, briefly: past the bound the server cannot tell.
-      if (!(await settledWithin(this.deps.authority, ACCESS_MOVE_SETTLE_MS))) {
-        log.warn('access moves still being recorded; answering as moved', { seq })
-        return true
+      const authority = this.deps.authority
+      if (authority.accessMovesRecordedThrough !== undefined) {
+        const through = authority.accessMovesRecordedThrough()
+        const at = head ?? (await authority.cursor())
+        if (through === null || through < at) {
+          this.answeredTrailing(seq, through, at)
+          return true
+        }
       }
       return await port.accessMovedAfter(String(human), seq)
     } catch (error) {
@@ -420,6 +426,22 @@ export class FeedServing {
       log.warn('reading the access-move log failed; answering as moved', { seq, error })
       return true
     }
+  }
+
+  /** Count every trailing answer; warn at most once per {@link ACCESS_MOVES_TRAILING_LOG_MS}. */
+  private answeredTrailing(seq: number, through: number | null, head: number): void {
+    this.accessMovesTrailingAnswers += 1
+    this.trailingSinceLog += 1
+    const now = performance.now()
+    if (now - this.trailingLoggedAt < ACCESS_MOVES_TRAILING_LOG_MS) return
+    log.warn('access moves not yet recorded through the head; answering refusals as moved', {
+      seq,
+      recordedThrough: through,
+      head,
+      answers: this.trailingSinceLog,
+    })
+    this.trailingLoggedAt = now
+    this.trailingSinceLog = 0
   }
 
   /**
