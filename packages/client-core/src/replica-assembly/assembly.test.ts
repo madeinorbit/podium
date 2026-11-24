@@ -15,6 +15,7 @@ import { UiStore } from '../ui/ui-store'
 import { createMemoryRouterWindow, createRouter } from '../ui-state'
 import { emptyWorkspace, openTab } from '../values'
 import { openReplicaAssembly, type ReplicaAssembly } from './assembly'
+import { SyncProgressStore } from './progress'
 
 const principal = JSON.stringify(['installation-a', 'alice'])
 const prefix = 'test.replica'
@@ -52,6 +53,35 @@ const syncMeta = {
 }
 
 describe('shared replica reconnect recovery', () => {
+  it('removes browser connectivity listeners if opening the assembly fails', async () => {
+    const storage = device()
+    const dom = new EventTarget()
+    const added = vi.spyOn(dom, 'addEventListener')
+    const removed = vi.spyOn(dom, 'removeEventListener')
+    const progress = new SyncProgressStore()
+    vi.spyOn(progress, 'begin').mockImplementation(() => {
+      throw new Error('assembly initialization failed')
+    })
+    vi.stubGlobal('window', dom)
+    try {
+      await expect(
+        openReplicaAssembly({
+          api: {} as never,
+          principal,
+          openStore,
+          settings: { storage, enumerateKeys: storage.keys, basePrefix: prefix },
+          httpSync,
+          createProgress: () => progress,
+        }),
+      ).rejects.toThrow('assembly initialization failed')
+      const listeners = added.mock.calls.filter(([type]) => type === 'online' || type === 'offline')
+      expect(listeners).toHaveLength(2)
+      for (const [type, listener] of listeners) expect(removed).toHaveBeenCalledWith(type, listener)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it.each([
     new TypeError('NetworkError when attempting to fetch resource. (NS_ERROR_OFFLINE)'),
     new DOMException('NS_ERROR_OFFLINE', 'AbortError'),

@@ -519,6 +519,7 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
   } catch (error) {
     kernel?.disconnect()
     kernel?.stopMemory()
+    loader?.dispose()
     side?.dispose()
     transcriptCache?.dispose()
     transcriptStore?.close()
