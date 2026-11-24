@@ -8,7 +8,9 @@
  * builds — the stub store's snapshot, published into a fixture pool.
  */
 import { DraftStore } from '@podium/client-core/conversation'
+import { fixtureRuntimeHooks } from '@podium/client-core/test-support/command-hooks'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { fixtureUiHooks } from '@podium/client-core/test-support/react'
 import { fixtureStoreSnapshot } from '@/test-support/fixture-store'
 import { syncPoolFixture } from '@/test-support/pool-fixture'
 import { readFixture } from './deck-store-stub'
@@ -32,6 +34,18 @@ const owner = withKeyedInputs({
   subscribe: () => () => {},
 })
 
-export function useClientRuntime(): never {
-  return owner as never
-}
+// Re-exporting useClientRuntime alone cannot replace other hooks' internal
+// context reads. Bind the same runtime/UI hooks as FlightDeck.test.tsx.
+export const {
+  useClientRuntime,
+  useCommands,
+  useChatSends,
+  useRequestClient,
+  useHttpOrigin,
+  useReplica,
+  useSocketHub,
+  useDrafts,
+  useDeviceState,
+  useUi,
+  useUiValue,
+} = { ...fixtureRuntimeHooks(() => owner), ...fixtureUiHooks(() => owner) }

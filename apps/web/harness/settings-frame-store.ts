@@ -1,5 +1,6 @@
 /** Isolated fixtures for the shipping settings view. No requests reach a server. */
 
+import '@podium/client-graph/synced-models'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import {

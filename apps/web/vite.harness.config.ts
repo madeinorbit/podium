@@ -19,6 +19,9 @@ export default defineConfig(async (env) => {
   )
   return {
     ...real,
+    // This config serves many independent pages. Discover dependencies from
+    // the page opened by the browser, rather than scanning unrelated fixtures.
+    optimizeDeps: { entries: [] },
     plugins,
     root: fileURLToPath(new URL('.', import.meta.url)),
     server: {
@@ -27,11 +30,7 @@ export default defineConfig(async (env) => {
       // Bun can resolve Geist through its shared cache outside the checkout.
       // Permit those font packages so screenshots use the shipping typefaces.
       fs: {
-        allow: [
-          fileURLToPath(new URL('../..', import.meta.url)),
-          '/home/podium/podium',
-          ...fontRoots,
-        ],
+        allow: [fileURLToPath(new URL('../..', import.meta.url)), ...fontRoots],
       },
     },
   }

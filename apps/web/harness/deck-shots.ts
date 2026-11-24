@@ -1,12 +1,21 @@
 // Screenshot the flight deck harness (POD-2027). Start it first with
 // `bunx vite --config vite.deck-harness.config.ts` from apps/web.
 // Usage: DECK_WIDTH=525 bun harness/deck-shots.ts <outDir> [mission...]
-import { chromium } from '@playwright/test'
+import { existsSync, mkdirSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import { chromium, expect } from '@playwright/test'
 
 const out = process.argv[2] ?? '.'
+mkdirSync(out, { recursive: true })
 const missions = process.argv.slice(3).length ? process.argv.slice(3) : ['filters', 'asking']
+const browserEnv = { ...process.env }
+const userLib = join(homedir(), '.cache/podium-chromium-deps/root/usr/lib/x86_64-linux-gnu')
+if (existsSync(userLib))
+  browserEnv.LD_LIBRARY_PATH = [userLib, browserEnv.LD_LIBRARY_PATH].filter(Boolean).join(':')
 const browser = await chromium.launch({
-  executablePath: `${process.env.HOME}/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux64/chrome-headless-shell`,
+  env: browserEnv,
+  args: ['--no-sandbox', '--disable-dev-shm-usage'],
 })
 const page = await browser.newPage({ viewport: { width: 1200, height: 900 }, deviceScaleFactor: 2 })
 const errors: string[] = []
@@ -16,22 +25,40 @@ const theme = process.env.DECK_THEME ?? 'dark'
 page.on('pageerror', (e) => errors.push(String(e.stack ?? e)))
 page.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
 await page.goto('http://localhost:55601/harness/deck.html')
-await page.waitForFunction(() => 'deck' in window, null, { timeout: 30_000 }).catch(() => {})
+await page.waitForFunction(() => 'deck' in window, null, { timeout: 30_000 })
+await expect(page.locator('.deck-header')).toBeVisible()
 // DECK_CSS tries a style variant without editing styles.css.
 if (process.env.DECK_CSS) await page.addStyleTag({ content: process.env.DECK_CSS })
 const variant = process.env.DECK_VARIANT ? `-${process.env.DECK_VARIANT}` : ''
 for (const mission of missions) {
-  await page.evaluate((m) => (window as never as { deck: { setMission: (m: string) => void } }).deck.setMission(m), mission)
-  await page.evaluate((w) => (window as never as { deck: { setWidth: (w: number) => void } }).deck.setWidth(w), width)
-  await page.evaluate((t) => (window as never as { deck: { setTheme: (t: string) => void } }).deck.setTheme(t), theme)
+  await page.evaluate(
+    (m) => (window as never as { deck: { setMission: (m: string) => void } }).deck.setMission(m),
+    mission,
+  )
+  await page.evaluate(
+    (w) => (window as never as { deck: { setWidth: (w: number) => void } }).deck.setWidth(w),
+    width,
+  )
+  await page.evaluate(
+    (t) => (window as never as { deck: { setTheme: (t: string) => void } }).deck.setTheme(t),
+    theme,
+  )
   await page.waitForTimeout(1500)
   const shell = page.locator('[data-flight-deck-shell]')
-  await shell.screenshot({ path: `${out}/deck-${mission}-${width}-${theme}${variant}.png` }).catch((e) => errors.push(String(e)))
+  await shell
+    .screenshot({ path: `${out}/deck-${mission}-${width}-${theme}${variant}.png` })
+    .catch((e) => errors.push(String(e)))
   const facts = await page.evaluate(() => ({
     viewGroup: !!document.querySelector('[role="group"][aria-label="Deck view"]'),
-    foldAll: !!document.querySelector('[aria-label="Fold every branch"],[aria-label="Expand every branch"]'),
-    filters: [...document.querySelectorAll('[aria-label="Task filters"] button')].map((b) => b.textContent),
-    eyebrowButtons: [...document.querySelectorAll('.deck-eyebrow-chevron')].map((b) => [...b.parentElement!.querySelectorAll('button')].map((x) => x.getAttribute('aria-label'))),
+    foldAll: !!document.querySelector(
+      '[aria-label="Fold every branch"],[aria-label="Expand every branch"]',
+    ),
+    filters: [...document.querySelectorAll('[aria-label="Task filters"] button')].map(
+      (b) => b.textContent,
+    ),
+    eyebrowButtons: [...document.querySelectorAll('.deck-eyebrow-chevron')].map((b) =>
+      [...b.parentElement!.querySelectorAll('button')].map((x) => x.getAttribute('aria-label')),
+    ),
   }))
   console.log(mission, JSON.stringify(facts))
 }

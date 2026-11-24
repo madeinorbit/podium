@@ -7,6 +7,8 @@ export default defineConfig(async (env) => {
   const real = await (base as unknown as (e: typeof env) => Promise<Record<string, unknown>>)(env)
   return {
     ...real,
+    // A default scan visits every harness HTML, including mobile-only fixtures.
+    optimizeDeps: { entries: ['harness/settings-frame.html'] },
     plugins: ((real.plugins as PluginOption[]) ?? []).filter(
       (p) =>
         !(

@@ -1,8 +1,8 @@
 /** Isolated Chromium smoke check. Run from the repo: bun run test:harness-startup. */
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium, expect } from '@playwright/test'
@@ -11,6 +11,7 @@ import { createLogger, createServer } from 'vite'
 const webRoot = fileURLToPath(new URL('..', import.meta.url))
 const out = resolve(process.argv[2] ?? '.artifacts/harness-startup')
 mkdirSync(out, { recursive: true })
+const cacheRoot = mkdtempSync(resolve(tmpdir(), 'podium-harness-startup-'))
 const result = {
   sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
   screens: [],
@@ -23,6 +24,7 @@ const browser = await chromium.launch({
   env: browserEnv,
   args: ['--no-sandbox', '--disable-dev-shm-usage'],
 })
+let shutdownTimedOut = false
 try {
   for (const name of ['settings-frame', 'deck']) {
     const screen = { name, status: 'running', errors: [], logs: [], failed: [], pending: [] }
@@ -42,6 +44,7 @@ try {
     try {
       server = await createServer({
         configFile: resolve(webRoot, `vite.${name}-harness.config.ts`),
+        cacheDir: resolve(cacheRoot, name),
         customLogger: logger,
         server: { host: '127.0.0.1', port: 0, strictPort: false, proxy: {} },
       })
@@ -76,10 +79,14 @@ try {
           screen.failed.push({ url: response.url(), status: response.status() })
       })
       await page.goto(
-        `${origin}/harness/${name}.html${name === 'settings-frame' ? '?page=machines&populated' : ''}`,
+        `${origin}/harness/${name}.html${name === 'settings-frame' ? '?page=appearance&populated' : ''}`,
         { waitUntil: 'domcontentloaded' },
       )
       if (name === 'settings-frame') {
+        await expect(page.getByRole('heading', { name: 'Appearance', exact: true })).toBeVisible({
+          timeout: 45_000,
+        })
+        await page.getByRole('button', { name: 'Machines', exact: true }).click()
         await expect(page.getByRole('heading', { name: 'Machines', exact: true })).toBeVisible({
           timeout: 45_000,
         })
@@ -87,6 +94,7 @@ try {
         await expect(page.getByText('Travel laptop', { exact: true }).first()).toBeVisible()
       } else {
         await page.waitForFunction(() => Boolean(window.deck))
+        await page.evaluate(() => window.deck.setWidth(525))
         await expect(page.locator('.deck-header')).toBeVisible()
         assert((await page.locator('.deck-header').innerText()).trim().length > 0)
       }
@@ -105,15 +113,32 @@ try {
         .catch(() => {})
       console.error(`${name}: ${screen.failure}`)
     } finally {
-      await context?.close()
-      await server?.close()
       writeFileSync(resolve(out, 'result.json'), `${JSON.stringify(result, null, 2)}\n`)
       console.log(JSON.stringify(screen, null, 2))
+      await context?.close()
+      if (server) {
+        let timer
+        await Promise.race([
+          server.close(),
+          new Promise((done) => {
+            timer = setTimeout(() => {
+              shutdownTimedOut = true
+              server.httpServer?.closeAllConnections()
+              done()
+            }, 5000)
+          }),
+        ])
+        clearTimeout(timer)
+      }
     }
   }
 } finally {
   await browser.close()
+  rmSync(cacheRoot, { recursive: true, force: true })
 }
+// A failed optimizer can leave Vite's transform promises pending forever.
+// The browser has closed and diagnostics are saved; release the lane too.
+if (shutdownTimedOut) process.exit(1)
 assert(
   result.screens.every((screen) => screen.status === 'passed'),
   'Harness startup failed',

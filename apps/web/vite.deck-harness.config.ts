@@ -5,17 +5,24 @@
 // Redirected by RESOLVED PATH rather than by specifier, so `./store` from inside
 // src/app and `@/app/store` from everywhere else both land on the stub — exactly
 // the single module id `FlightDeck.test.tsx` mocks.
+import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { defineConfig, type PluginOption } from 'vite'
 import base from './vite.config'
 
 const here = (path: string): string => fileURLToPath(new URL(path, import.meta.url))
+const fontRoots = ['geist', 'geist-mono'].map((font) =>
+  realpathSync(here(`./node_modules/@fontsource-variable/${font}`)),
+)
 // The pool-backed deck (POD-2027) also reads the store handle and the worklist
 // pool, so those resolve to the same fixtures `FlightDeck.test.tsx` mounts; the
 // fixtures' vitest teardown hooks resolve to no-ops.
 const STUBS = new Map([
   [here('./src/app/store.tsx'), here('./harness/deck-store-stub.ts')],
-  [here('../../packages/client-core/src/react/provider.tsx'), here('./harness/deck-provider-stub.ts')],
+  [
+    here('../../packages/client-core/src/react/provider.tsx'),
+    here('./harness/deck-provider-stub.ts'),
+  ],
   [here('./src/app/store-worklist-pool.ts'), here('./harness/deck-pool-stub.ts')],
 ])
 const STUB_FILES = new Set(STUBS.values())
@@ -28,6 +35,16 @@ export default defineConfig(async (env) => {
   )
   return {
     ...real,
+    optimizeDeps: { entries: ['harness/deck.html'] },
+    resolve: {
+      ...(real.resolve as Record<string, unknown>),
+      alias: [
+        { find: /^@podium\/client-core\/react$/, replacement: here('./harness/deck-core-stub.ts') },
+        ...Object.entries((real.resolve as { alias: Record<string, string> }).alias ?? {}).map(
+          ([find, replacement]) => ({ find, replacement }),
+        ),
+      ],
+    },
     plugins: [
       ...plugins,
       {
@@ -55,17 +72,9 @@ export default defineConfig(async (env) => {
     server: {
       port: 55601,
       strictPort: true,
-      // Geist lives in the ROOT node_modules, outside this worktree, and vite's
-      // default allow list refuses it — silently, as a fallback font. Line
-      // wrapping is the whole measurement here, so that would make every number
-      // a lie.
-      // Bun links packages from its install cache, so Geist can resolve there too.
+      // Bun may resolve fonts outside the worktree through its install cache.
       fs: {
-        allow: [
-          fileURLToPath(new URL('../..', import.meta.url)),
-          '/home/podium/podium',
-          `${process.env.HOME}/.bun/install/cache`,
-        ],
+        allow: [fileURLToPath(new URL('../..', import.meta.url)), ...fontRoots],
       },
     },
   }
