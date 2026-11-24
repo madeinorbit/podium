@@ -655,7 +655,7 @@ describe('test lane configuration', () => {
     // `vitest run` and the footer, the resolution check and this guard all vanish
     // together, which is precisely the state POD-2728 was filed about.
     expect(pkg.scripts.test).toBe(
-      'bun run typecheck && bun run lint:span-effects && bun run lint:interaction-scans && bun run lint:mobx-private && bun run lint:untracked-reads && bun run lint:clock-reads && bun run lint:server-host-access && bun run lint:harness-ambient && bun run lint:public-emails && bun scripts/test-lean.ts',
+      'bun run typecheck && bun run lint:span-effects && bun run lint:interaction-scans && bun run lint:mobx-private && bun run lint:untracked-reads && bun run lint:clock-reads && bun run lint:server-host-access && bun run lint:harness-ambient && bun run lint:public-emails && bun run lint:relation-reads && bun scripts/test-lean.ts',
     )
     expect(pkg.scripts.test).not.toContain('scripts/test.ts')
     // THE SPAN-EFFECT GATE IS PART OF THE DEFAULT LANE [POD-3821]. It is in the
@@ -670,6 +670,10 @@ describe('test lane configuration', () => {
     // The repository is public: committed captures once carried an account address.
     // The text scan costs about two seconds, so it runs on every default gate.
     expect(pkg.scripts['lint:public-emails']).toBe('bun scripts/check-public-emails.ts')
+    // No relation reads an on-demand record without holding and loading it (POD-7547).
+    expect(pkg.scripts['lint:relation-reads']).toBe(
+      'bun --conditions=@podium/source scripts/check-relation-reads.ts',
+    )
     expect(pkg.scripts['lint:server-host-access']).toBe('bun scripts/check-server-host-access.ts')
     expect(pkg.scripts.lint).toContain(
       'bun run lint:clock-reads && bun run lint:server-host-access',

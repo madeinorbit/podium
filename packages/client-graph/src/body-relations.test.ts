@@ -80,8 +80,13 @@ describe('the declarations', () => {
     expect(instance('briefRecords')).toEqual(bodyOf('issueBrief', 'i1'))
     expect(instance('panelTodoRecords')).toEqual(bodyOf('issuePanelTodo', 'i1'))
     expect(instance('panelStateRecords')).toEqual(bodyOf('issuePanelState', 'i1'))
-    // A relation whose target comes with the issue holds nothing of its own.
-    expect(instance('sessions')).toBeNull()
+    // The sessions of an issue are held through their own keyed collection
+    // (POD-7547); sub-issues have none, so their relation holds nothing.
+    expect(instance('sessions')).toEqual({
+      collection: 'session.ofIssue',
+      args: { issueId: 'i1' },
+      part: 'main',
+    })
     expect(instance('children')).toBeNull()
   })
 })

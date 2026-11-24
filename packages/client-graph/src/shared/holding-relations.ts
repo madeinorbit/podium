@@ -14,42 +14,60 @@
  * `installRelations`) ask {@link holdingInstanceOf} once per declared
  * relation; it reads the schema (the target entity, the inverse `belongsTo`
  * and its foreign key) and the record declaration of the target (its group,
- * `bodyOf`, and the collection keyed by that foreign key).
+ * `bodyOf`, and the collection keyed by that foreign key). The build check
+ * (`relation-reads.ts`, POD-7547) reads the same derivation, so what it calls
+ * a holding relation is what the pool holds.
  */
 import {
   type Collection,
   clausesOf,
   isParam,
   POLICY_PARAMS,
+  RECORDS,
   type RecordDeclaration,
   type RecordGroup,
-  recordOfReplicaKind,
 } from '@podium/model'
 import type { EntityName, ModelSchema } from './schema'
 import type { LoaderInstance } from './source'
 
 /**
- * The record groups whose records a relation read holds and loads. `body` is
- * on: an issue's body parts are on the device only once the issue is opened.
- * `windowed` and `byRule` are on demand too and take the same path once their
- * relations are checked (POD-7547); adding one here is all it takes.
+ * The record groups whose records a relation read holds and loads: the
+ * groups whose records are on the device only while something asks for them.
+ * `body`: an issue's body parts arrive once the issue is opened. `byRule`
+ * (POD-7547): issues, sessions and the history kinds arrive by the policy's
+ * rules, so a to-many relation over them holds the target's collection keyed
+ * by the relation's foreign key (`issue.sessions` holds `session.ofIssue`).
+ * `windowed` is not here: its kinds have one where-less window and no keyed
+ * collection to hold.
  */
 // side-state: declaration: a fixed table, never written after module initialization
-export const HOLDING_GROUPS: ReadonlySet<RecordGroup> = new Set<RecordGroup>(['body'])
+export const HOLDING_GROUPS: ReadonlySet<RecordGroup> = new Set<RecordGroup>(['body', 'byRule'])
 
 /** The record declaration an entity's rows arrive from (its key field's `replica:` collection). */
 export function recordOfEntity(
   schema: ModelSchema,
   entity: EntityName,
+  records: readonly RecordDeclaration[] = RECORDS,
 ): RecordDeclaration | undefined {
   const spec = schema[entity]
   const arrives = spec.fields[spec.key]?.source.arrivesOn
   if (arrives === undefined || !arrives.startsWith('replica:')) return undefined
-  return recordOfReplicaKind(arrives.slice('replica:'.length))
+  const replicaKind = arrives.slice('replica:'.length)
+  return records.find((record) => record.replicaKind === replicaKind)
+}
+
+/** The field a collection is keyed by, when its rule is one `{ field: { eq: param } }` test. */
+export function keyedFieldOf(collection: Collection): string | undefined {
+  if (collection.where === undefined) return undefined
+  const [clause, ...more] = clausesOf(collection.where)
+  if (clause === undefined || more.length > 0) return undefined
+  const [field, ...others] = Object.keys(clause)
+  if (field === undefined || others.length > 0) return undefined
+  return keyParam(collection, field) === undefined ? undefined : field
 }
 
 /** The one instance argument a collection keyed by `field` names: `{ field: { eq: param } }`. */
-function keyParam(collection: Collection, field: string): string | undefined {
+export function keyParam(collection: Collection, field: string): string | undefined {
   if (collection.where === undefined) return undefined
   const [clause, ...more] = clausesOf(collection.where)
   if (clause === undefined || more.length > 0) return undefined
@@ -62,31 +80,40 @@ function keyParam(collection: Collection, field: string): string | undefined {
   return value.param
 }
 
+/** What reading a to-many relation over an on-demand kind holds, or why it cannot hold anything. */
+export type HoldingRead =
+  | {
+      readonly collection: string
+      readonly instance: (owner: string) => LoaderInstance
+    }
+  | { readonly problem: string }
+
 /**
- * The collection instance reading `from.relation` holds for a source id, or
- * undefined when the relation's target is on the device whenever its source
- * is. Throws on a declaration that puts the target in a holding group without
- * a collection keyed by the relation's foreign key: such a relation could
- * only read what happens to be in memory.
+ * The collection a read of `from.relation` holds for its source, from the
+ * declarations: the target kind's one collection keyed by the inverse
+ * `belongsTo`'s foreign key. Undefined when the relation is not to-many or
+ * its target kind is not in a holding group. A `problem` when it is, but the
+ * declarations give it nothing to hold: such a relation could only read what
+ * happens to be in memory.
  */
-export function holdingInstanceOf(
+export function holdingReadOf(
   schema: ModelSchema,
   from: EntityName,
   relation: string,
-): ((owner: string) => LoaderInstance) | undefined {
+  records: readonly RecordDeclaration[] = RECORDS,
+): HoldingRead | undefined {
   const spec = schema[from].relations[relation]
   if (spec?.kind !== 'hasMany') return undefined
-  const record = recordOfEntity(schema, spec.to)
+  const record = recordOfEntity(schema, spec.to, records)
   if (record === undefined || !HOLDING_GROUPS.has(record.group)) return undefined
-  const here = `[pool] ${from}.${relation}`
   const back = schema[spec.to].relations[spec.inverse]
   if (back?.kind !== 'belongsTo' || back.targetKey !== schema[from].key)
-    throw new Error(`${here}: a holding relation is the inverse of a belongsTo on the source key`)
-  const source = recordOfEntity(schema, from)
+    return {
+      problem: `${record.kind} (group ${record.group}) is held only through the inverse of a belongsTo on the source key`,
+    }
+  const source = recordOfEntity(schema, from, records)
   if (record.group === 'body' && record.bodyOf !== source?.kind)
-    throw new Error(
-      `${here}: ${record.kind} is the body of ${record.bodyOf}, not of ${source?.kind}`,
-    )
+    return { problem: `${record.kind} is the body of ${record.bodyOf}, not of ${source?.kind}` }
   const keyed: { collection: Collection; param: string }[] = []
   for (const collection of Object.values(record.collections)) {
     const param = keyParam(collection, back.foreignKey)
@@ -94,9 +121,36 @@ export function holdingInstanceOf(
   }
   const [only, ...others] = keyed
   if (only === undefined || others.length > 0)
-    throw new Error(
-      `${here}: ${record.kind} (group ${record.group}) needs one collection keyed by ${back.foreignKey}, has ${keyed.length}`,
-    )
+    return {
+      problem: `${record.kind} (group ${record.group}) needs one collection keyed by ${back.foreignKey}, has ${keyed.length}`,
+    }
   const { collection, param } = only
-  return (owner) => ({ collection: collection.id, args: { [param]: owner }, part: collection.part })
+  return {
+    collection: collection.id,
+    instance: (owner) => ({
+      collection: collection.id,
+      args: { [param]: owner },
+      part: collection.part,
+    }),
+  }
+}
+
+/**
+ * The collection instance reading `from.relation` holds for a source id, or
+ * undefined when it holds none. Throws on a body relation the declarations
+ * give nothing to hold (a body is only ever read this way). A `byRule`
+ * relation with nothing to hold reads what is in memory; the build check
+ * (`relation-reads.ts`) fails on it unless it is listed there with its reason.
+ */
+export function holdingInstanceOf(
+  schema: ModelSchema,
+  from: EntityName,
+  relation: string,
+): ((owner: string) => LoaderInstance) | undefined {
+  const read = holdingReadOf(schema, from, relation)
+  if (read === undefined) return undefined
+  if ('instance' in read) return read.instance
+  if (recordOfEntity(schema, schema[from].relations[relation]!.to)?.group === 'body')
+    throw new Error(`[pool] ${from}.${relation}: ${read.problem}`)
+  return undefined
 }
