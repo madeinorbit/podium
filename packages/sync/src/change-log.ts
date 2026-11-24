@@ -140,6 +140,22 @@ export async function minAvailableSeq(
   return (await store.minChangeSeq()) ?? (await store.maxChangeSeq()) + 1
 }
 
+/**
+ * POD-7593 — whether the log still holds every change above `from`, read from
+ * {@link ChangeLogStore.minChangeSeq} in one statement. It is
+ * {@link minAvailableSeq}'s rule `from + 1 >= floor` for a caller that needs
+ * rows: such a caller asks for `(from, through]` with `from < through <= head`,
+ * so a null floor (a fully pruned log, floor `head + 1`) always refuses, and
+ * never reads as "nothing pruned".
+ */
+export async function retainsAfter(
+  store: Pick<ChangeLogStore, 'minChangeSeq'>,
+  from: number,
+): Promise<boolean> {
+  const floor = await store.minChangeSeq()
+  return floor !== null && floor <= from + 1
+}
+
 /** A range cannot be certified; the caller must request a bootstrap. */
 export class ChangeRangeBootstrapRequired extends Error {
   constructor(readonly reason: 'compacted-or-unknown' | 'corrupt-payload') {
@@ -165,8 +181,10 @@ export class ChangeRangeBootstrapRequired extends Error {
  * sync worker), the floor cannot move and the check always passes.
  *
  * The same read covers a cursor already below the floor: the first page is read
- * and refused. That costs the read of one page in a case callers usually refuse
- * up front, and keeps a one-page heal at two statements.
+ * and refused. Both callers refuse that case up front instead (POD-7593): the
+ * worker from its snapshot's feed state, the live authority with
+ * {@link retainsAfter} before the first page, so no payloads are read for a
+ * cursor the log cannot serve.
  *
  * Yields KERNEL rows ({@link SequencedChange}): `entityId`, the parsed value, and
  * the provenance exactly as stored (POD-6272). It used to yield the pre-cutover
@@ -188,8 +206,7 @@ export async function* readChangesRange(
   while (from < through) {
     const rows = await store.changesInRange(from, through, pageRows)
     // After the page, before it is used: see the doc comment above.
-    const min = await store.minChangeSeq()
-    if (min == null || min > from + 1)
+    if (!(await retainsAfter(store, from)))
       throw new ChangeRangeBootstrapRequired('compacted-or-unknown')
     if (rows.length === 0) return
     const changes: SequencedChange[] = []

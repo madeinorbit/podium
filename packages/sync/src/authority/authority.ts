@@ -87,7 +87,12 @@
 import { createLogger } from '@podium/logger'
 import type { ChangeProvenanceFields } from '@podium/model'
 import { MetadataEntityKind, type Principal, principalRoutingId } from '@podium/protocol'
-import { type ChangeLogStore, ChangeRangeBootstrapRequired, type ChangeRef } from '../change-log'
+import {
+  type ChangeLogStore,
+  ChangeRangeBootstrapRequired,
+  type ChangeRef,
+  retainsAfter,
+} from '../change-log'
 import type {
   FeedScopingGrade,
   FeedVisibilityPolicy,
@@ -389,6 +394,11 @@ export class Authority implements AuthorityPort {
     through: number,
     pageRows: number,
   ): AsyncIterable<ScopedDelivery & { readonly fromSeq: number }> {
+    // POD-7593: refuse a cursor the log no longer serves BEFORE reading a page of
+    // payloads. The check after every page (`readChangesRange`) still guards a
+    // prune that commits during the read; this one only saves the first page.
+    if (from < through && !(await retainsAfter(this.deps.store, from)))
+      throw new ChangeRangeBootstrapRequired('compacted-or-unknown')
     yield* scopeChangesRange(
       this.deps.store,
       this.scopingDeps(),
@@ -618,11 +628,13 @@ export class Authority implements AuthorityPort {
    * replayed: recording is declared to start after it instead, the
    * conservative "cannot tell".
    *
-   * THE FLOOR IS READ AGAIN AFTER EVERY PAGE, before that page's mark is
-   * written. A prune that ran during the replay deletes rows below the next
-   * page without an error, and a page read after it would silently skip them.
-   * The prune moves the floor in the same transaction as its delete, so a
-   * floor above the page's start means the page may have missed rows.
+   * THE FLOOR IS READ AFTER EVERY PAGE, before that page's mark is written. A
+   * prune that ran during the replay deletes rows below the next page without
+   * an error, and a page read after it would silently skip them. The prune
+   * moves the floor in the same transaction as its delete, so a floor above the
+   * page's start means the page may have missed rows. A floor read BEFORE the
+   * page adds nothing to that (POD-7593): a range already pruned fails the same
+   * check after its first page, at the cost of one page of names.
    */
   private async replayAccessMoves(from: number, through: number): Promise<void> {
     const port = this.deps.accessMoves
@@ -637,14 +649,12 @@ export class Authority implements AuthorityPort {
     }
     let at = from
     while (at < through) {
-      const floor = await this.deps.store.minChangeSeq()
-      const refs = floor === null || floor > at + 1 ? null : await this.changeRefs(at, through)
+      const refs = await this.changeRefs(at, through)
       // After the read: a prune that committed before it has moved the floor.
-      const after = refs === null ? floor : await this.deps.store.minChangeSeq()
-      if (refs === null || after === null || after > at + 1) {
+      if (!(await retainsAfter(this.deps.store, at))) {
         log.warn(
           'the unrecorded access-move tail is no longer in the log; recording starts after it',
-          { from, at, through, floor: after },
+          { from, at, through },
         )
         await this.raiseRecordingStart(through)
         return

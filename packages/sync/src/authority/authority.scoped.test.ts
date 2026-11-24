@@ -682,16 +682,17 @@ describe('the recorded-through mark: a move whose pass never ran is not lost (PO
     const a = processOver(store, tables, moveLog().port, () => {})
     tables.edge(ref('revoke'), ['ada'], [])
     await a.save([upsert('plain', {}), upsert('revoke', {}), upsert('later', {})])
-    // The maintenance prune commits between the replay's first floor read and its page.
+    // The maintenance prune commits while the replay reads its first page, so the
+    // page may have missed rows; only the floor read after it can tell.
     let floor: number | null = 1
-    let reads = 0
     const pruning: ChangeLogStore = {
       ...store,
-      minChangeSeq: async () => {
-        reads += 1
-        if (reads === 2) floor = 3
-        return floor
+      changesInRange: async (from, through, limit) => {
+        const page = await store.changesInRange(from, through, limit)
+        floor = 3
+        return page
       },
+      minChangeSeq: async () => floor,
     }
     const log = moveLog()
     const b = processOver(pruning, tables, log.port)

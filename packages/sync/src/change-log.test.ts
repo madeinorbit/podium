@@ -111,8 +111,9 @@ describe('bounded change-log ranges', () => {
     expect(pages.flatMap((p) => (p.kind === 'batch' ? p.changes.map((c) => c.seq) : []))).toEqual([
       1, 2, 3,
     ])
-    // The floor is read after each page (POD-7589).
-    expect(f.store.minChangeSeq).toHaveBeenCalledTimes(3)
+    // The floor is read once before the first page (POD-7593) and after each page
+    // (POD-7589).
+    expect(f.store.minChangeSeq).toHaveBeenCalledTimes(4)
     expect(f.store.changesInRange).toHaveBeenCalledTimes(3)
   })
 
@@ -166,6 +167,16 @@ describe('bounded change-log ranges', () => {
       // One page is read, then its floor refuses it (POD-7589).
       expect(f.store.minChangeSeq).toHaveBeenCalledTimes(1)
       expect(f.store.changesInRange).toHaveBeenCalledTimes(1)
+    }
+    // POD-7593: the live authority refuses the same cursors before reading a page,
+    // a fully pruned log (no retained row) included.
+    for (const rows of [[], [row(3)]]) {
+      const f = fixture()
+      f.rows.splice(0, f.rows.length, ...rows)
+      await expect(
+        collect(f.authority.changesRange(DEVICE_GRADE_PRINCIPAL, 0, 3, 1)),
+      ).rejects.toBeInstanceOf(ChangeRangeBootstrapRequired)
+      expect(f.store.changesInRange).not.toHaveBeenCalled()
     }
     const f = fixture()
     await expect(collect(readChangesRange(f.store, 4, 3, 1))).rejects.toBeInstanceOf(
