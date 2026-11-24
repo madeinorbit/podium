@@ -7,6 +7,7 @@ import type {
   ScopedChange,
 } from './authority/change-lifecycle'
 import type {
+  AccessMoveLogPort,
   AuthorityCommit,
   BaselineFoldPort,
   PostCommitFollowUpPort,
@@ -113,6 +114,8 @@ export interface LedgerDeps {
   anchors?: VisibilityAnchorPort
   /** D14.4's terminal-path bound, passed to the Authority (its default when absent). */
   rescopeThreshold?: number
+  /** POD-7552 — each human's last access move, passed to the Authority. */
+  accessMoves?: AccessMoveLogPort
   listenerPrincipal?: Principal
   /** The command now appending, passed straight to the Authority — see
    *  `AuthorityDeps.provenance` (POD-6272). Unset stamps nothing. */
@@ -241,6 +244,7 @@ export class Ledger {
       visibility: deps.visibility ?? new DeviceGradeUnscopedPolicy(),
       anchors: deps.anchors ?? new DeviceGradeNoAnchors(),
       ...(deps.rescopeThreshold === undefined ? {} : { rescopeThreshold: deps.rescopeThreshold }),
+      ...(deps.accessMoves === undefined ? {} : { accessMoves: deps.accessMoves }),
     })
     // One subscription, translating the kernel's vocabulary into this facade's.
     // Registered in the CONSTRUCTOR rather than lazily on first listener: the

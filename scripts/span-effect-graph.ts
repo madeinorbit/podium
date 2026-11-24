@@ -412,13 +412,13 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/sync/src/authority/authority.ts',
-    line: 131,
-    why: 'the property that HOLDS the transact port; the port itself is named by its own entry in packages/sync/src/authority/ports.ts.',
+    line: 132,
+    why: 'the property that HOLDS the transact port; the port itself is named by its own entry in packages/sync/src/authority/ports.ts. (Was 131; POD-7552 imports the access-move port above it.)',
   },
   {
     file: 'packages/sync/src/ledger.ts',
-    line: 95,
-    why: 'the Ledger deps property; it is handed straight to the Authority, so every call goes through the port entry above. (Was 117; POD-6920 removed the record-naming types above it.)',
+    line: 96,
+    why: 'the Ledger deps property; it is handed straight to the Authority, so every call goes through the port entry above. (Was 117; POD-6920 removed the record-naming types above it. Then 96: POD-7552 imports the access-move port.)',
   },
   {
     file: 'packages/sync/src/adapters/indexeddb/idb.ts',

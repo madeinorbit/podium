@@ -551,6 +551,9 @@ export const TEXT_COLUMN_CLASSES: Readonly<Record<string, TableTextClasses>> = {
   sync_feed: {
     text: 'workspace_id feed_id epoch',
   },
+  sync_access_moves: {
+    text: 'workspace_id human_id',
+  },
   sync_kind: {
     text: 'workspace_id kind',
   },

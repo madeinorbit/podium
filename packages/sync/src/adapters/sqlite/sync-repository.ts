@@ -61,6 +61,7 @@ import {
   WORKSPACE,
   type WorkspaceHandle,
 } from './prepared'
+import { ACCESS_MOVES_SINCE } from './schema'
 import type {
   CaptureWrite,
   QueuedMessagesTable,
@@ -73,6 +74,9 @@ export { type SyncTables, sqliteSyncTables } from './binding'
 
 // The shared helpers, typed for this adapter's instance and tables. The same
 // functions, so each definition's registered site is still its own line.
+/** Humans per access-move upsert: three bound values each. */
+const ACCESS_MOVE_CHUNK = 100
+
 const prepared: <P>(
   build: (db: StoreDrizzle, t: SyncTables) => P,
 ) => PreparedAccessor<StoreDrizzle, P> = preparedOn
@@ -438,6 +442,45 @@ const deleteAppliedMutationsBatch = prepared((db, t) => {
     .where(inWorkspace(t.appliedMutations, inArray(t.appliedMutations.mutationId, oldest)))
     .prepare()
 })
+
+/**
+ * POD-7552 — raise each named human's last access move to `seq${i}`, never
+ * lower it: a batch evaluated out of order cannot take a move back. Keyed by
+ * its ROW COUNT, as {@link insertChangeRows}.
+ */
+const upsertAccessMoves = preparedFamily((db, t, rows: number) =>
+  db
+    .insert(t.syncAccessMoves)
+    .values(
+      Array.from({ length: rows }, (_, i) => ({
+        workspaceId: WORKSPACE,
+        humanId: sql.placeholder(`human${i}`),
+        seq: sql.placeholder(`seq${i}`),
+      })),
+    )
+    .onConflictDoUpdate({
+      target: [t.syncAccessMoves.workspaceId, t.syncAccessMoves.humanId],
+      set: {
+        seq: sql`case when ${t.syncAccessMoves.seq} > excluded.seq then ${t.syncAccessMoves.seq} else excluded.seq end`,
+      },
+    })
+    .prepare(),
+)
+
+/** POD-7552 — the later of one human's last access move and where recording started: two
+ *  primary-key seeks. */
+const lastAccessMove = prepared((db, t) =>
+  db
+    .select({ seq: max(t.syncAccessMoves.seq) })
+    .from(t.syncAccessMoves)
+    .where(
+      inWorkspace(
+        t.syncAccessMoves,
+        inArray(t.syncAccessMoves.humanId, [sql.placeholder('human'), ACCESS_MOVES_SINCE]),
+      ),
+    )
+    .prepare(),
+)
 
 const currentFeedIdentity = prepared((db, t) =>
   db
@@ -1301,6 +1344,39 @@ export class SyncRepository {
       proc: r.proc as string,
       queuedAt: Number(r.queuedAt),
     }))
+  }
+
+  // ---- access moves (POD-7552) ----
+
+  /**
+   * Record the feed number of each human's latest access move: a visibility
+   * edge named them in its audience at that seq. A seq below the stored one
+   * changes nothing. One statement per {@link ACCESS_MOVE_CHUNK} humans.
+   */
+  async recordAccessMoves(moves: ReadonlyMap<string, number>): Promise<void> {
+    if (moves.size === 0) return
+    const entries = [...moves]
+    await this.createOrJoinTransaction(async () => {
+      for (let start = 0; start < entries.length; start += ACCESS_MOVE_CHUNK) {
+        const chunk = entries.slice(start, start + ACCESS_MOVE_CHUNK)
+        const values: Record<string, unknown> = {}
+        chunk.forEach(([human, seq], i) => {
+          values[`human${i}`] = human
+          values[`seq${i}`] = seq
+        })
+        await upsertAccessMoves(this.db, chunk.length).run(values)
+      }
+    })
+  }
+
+  /**
+   * Did this human's access move after `seq`, or can the server not tell (a
+   * cursor below where recording started)? One statement.
+   */
+  async accessMovedAfter(human: string, seq: number): Promise<boolean> {
+    const row = await lastAccessMove(this.db).get({ human })
+    const last = row?.seq === null || row?.seq === undefined ? 0 : Number(row.seq)
+    return last > seq
   }
 
   async readKindGenerations(): Promise<{ kind: string; generation: number }[]> {

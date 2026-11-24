@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "cb271649-ef21-4b1f-8526-b20ec2c3b5ae",
+  "id": "1be109fc-0b18-4435-8806-1df2a9497e82",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
@@ -675,6 +675,12 @@
     {
       "isRlsEnabled": false,
       "name": "superagent_threads",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "sync_access_moves",
       "entityType": "tables",
       "schema": "public"
     },
@@ -16172,6 +16178,45 @@
       "table": "superagent_threads"
     },
     {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "workspace_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "sync_access_moves"
+    },
+    {
+      "type": "text COLLATE \"C\"",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "human_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "sync_access_moves"
+    },
+    {
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "seq",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "sync_access_moves"
+    },
+    {
       "type": "bigint",
       "typeSchema": null,
       "notNull": true,
@@ -27456,6 +27501,17 @@
       "entityType": "pks",
       "schema": "public",
       "table": "superagent_threads"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "human_id"
+      ],
+      "nameExplicit": false,
+      "name": "sync_access_moves_pkey",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "sync_access_moves"
     },
     {
       "columns": [

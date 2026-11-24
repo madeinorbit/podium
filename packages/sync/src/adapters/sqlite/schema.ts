@@ -171,6 +171,32 @@ export const syncFeed = sqliteTable(
   (table) => [primaryKey({ columns: [table.workspaceId], name: 'sync_feed_pk' })],
 )
 
+/**
+ * THE LAST ACCESS MOVE OF EACH HUMAN (POD-7552): the highest feed number at
+ * which a visibility edge named them in its audience, granted or taken. The
+ * Authority writes it when it evaluates a batch (`Authority.broadcast`), whether
+ * or not the human has a device connected, so it outlives the change-log rows
+ * that show the move. A resume or a reload the log cannot bridge reads it: a
+ * cursor below it is answered as a rescope, so a device drops what it showed at
+ * once instead of keeping it, stale, through the load.
+ *
+ * The row with the empty `human_id` ({@link ACCESS_MOVES_SINCE}) is the feed
+ * number this table started recording at, written by its migration: a cursor
+ * below it predates the table, and the server cannot tell what moved.
+ */
+export const syncAccessMoves = sqliteTable(
+  'sync_access_moves',
+  {
+    workspaceId: text('workspace_id').$type<WorkspaceId>().notNull(),
+    humanId: text('human_id').notNull(),
+    seq: integer().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.workspaceId, table.humanId] })],
+)
+
+/** {@link syncAccessMoves}' row naming where recording started, not a human. */
+export const ACCESS_MOVES_SINCE = ''
+
 /** Absent kinds are at generation zero within their workspace. */
 export const syncKind = sqliteTable(
   'sync_kind',

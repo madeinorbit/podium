@@ -21,7 +21,14 @@
 import { getTableConfig } from 'drizzle-orm/sqlite-core'
 import { describe, expect, it } from 'vitest'
 import { FeedIdentityRegistry } from '../../feed'
-import { appliedMutations, changes, syncCapture, syncFeed, syncKind } from './schema'
+import {
+  appliedMutations,
+  changes,
+  syncAccessMoves,
+  syncCapture,
+  syncFeed,
+  syncKind,
+} from './schema'
 import { SyncRepository } from './sync-repository'
 import {
   createTestSyncDatabase,
@@ -111,6 +118,7 @@ describe('workspace sync keys', () => {
     }
     expect(fixtureColumns('sync_feed')).toEqual(declaredColumns(syncFeed))
     expect(fixtureColumns('sync_kind')).toEqual(declaredColumns(syncKind))
+    expect(fixtureColumns('sync_access_moves')).toEqual(declaredColumns(syncAccessMoves))
   })
 })
 

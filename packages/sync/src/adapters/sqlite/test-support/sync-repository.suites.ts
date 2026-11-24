@@ -742,6 +742,49 @@ export function describeSyncRepositoryGolden(open: OpenSyncRepositoryFixture): v
     })
   })
 
+  describe('the access moves (POD-7552)', () => {
+    it('keeps the latest move of each human, in one statement per hundred humans', async () => {
+      expect(await repo.accessMovedAfter('u-1', 0)).toBe(false)
+      await repo.recordAccessMoves(new Map([['u-1', 7]]))
+      await repo.recordAccessMoves(
+        new Map([
+          ['u-1', 4],
+          ['u-2', 9],
+        ]),
+      )
+      expect(
+        // A migrated store also holds the row naming where recording started.
+        await stored(
+          "SELECT workspace_id, human_id, seq FROM sync_access_moves WHERE human_id <> '' ORDER BY human_id",
+        ),
+      ).toEqual([
+        { workspace_id: SUITE_WORKSPACE_ID, human_id: 'u-1', seq: 7 },
+        { workspace_id: SUITE_WORKSPACE_ID, human_id: 'u-2', seq: 9 },
+      ])
+      expect(await repo.accessMovedAfter('u-1', 6)).toBe(true)
+      expect(await repo.accessMovedAfter('u-1', 7)).toBe(false)
+      expect(await repo.accessMovedAfter('u-3', 0)).toBe(false)
+      const many = new Map(Array.from({ length: 150 }, (_, i) => [`m-${i}`, 20 + i] as const))
+      const statements = await fixture().record(() => repo.recordAccessMoves(many))
+      expect(statements.filter((text) => /sync_access_moves/i.test(text))).toHaveLength(2)
+      expect(await repo.accessMovedAfter('m-149', 168)).toBe(true)
+      await repo.recordAccessMoves(new Map())
+    })
+
+    it('answers a cursor below where recording started as moved: it cannot tell', async () => {
+      // What the migration writes, at a head of 5.
+      await fixture().seed("DELETE FROM sync_access_moves WHERE human_id = ''")
+      await fixture().seed(
+        `INSERT INTO sync_access_moves (workspace_id, human_id, seq) VALUES ('${SUITE_WORKSPACE_ID}', '', 5)`,
+      )
+      expect(await repo.accessMovedAfter('u-1', 4)).toBe(true)
+      expect(await repo.accessMovedAfter('u-1', 5)).toBe(false)
+      await repo.recordAccessMoves(new Map([['u-1', 8]]))
+      expect(await repo.accessMovedAfter('u-1', 7)).toBe(true)
+      expect(await repo.accessMovedAfter('u-1', 8)).toBe(false)
+    })
+  })
+
   describe('the feed identity', () => {
     it('is null before it is minted, or the provisioned identity', async () => {
       const identity = await repo.readFeedIdentity()
@@ -853,6 +896,16 @@ export function describeTenantFeed(open: OpenSyncRepositoryFixture): void {
     expect((await a.changesSince(0)).map((r) => r.seq)).toEqual([first, first + 1])
     expect((await b.changesInRange(0, 2, 10)).map((r) => r.seq)).toEqual([first])
     expect(await b.readFeedState()).toEqual({ headSeq: first, floorSeq: 1 })
+  })
+
+  it('keeps each workspace its own access moves (POD-7552)', async () => {
+    const a = await tenant('a'),
+      b = await tenant('b')
+    await b.recordAccessMoves(new Map([['u-1', 30]]))
+    expect(await a.accessMovedAfter('u-1', 0)).toBe(false)
+    await a.recordAccessMoves(new Map([['u-1', 2]]))
+    expect(await b.accessMovedAfter('u-1', 29)).toBe(true)
+    expect(await a.accessMovedAfter('u-1', 2)).toBe(false)
   })
 
   it('prunes only its tenant, persists the empty floor and never reuses a committed number', async () => {

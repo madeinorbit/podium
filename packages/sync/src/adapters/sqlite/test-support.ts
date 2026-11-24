@@ -246,6 +246,10 @@ export function createTestSyncDatabase(): SqlDatabase {
     workspace_id TEXT NOT NULL, kind TEXT NOT NULL, generation INTEGER NOT NULL,
     PRIMARY KEY (workspace_id, kind)
   )`)
+  db.exec(`CREATE TABLE sync_access_moves (
+    workspace_id TEXT NOT NULL, human_id TEXT NOT NULL, seq INTEGER NOT NULL,
+    PRIMARY KEY (workspace_id, human_id)
+  )`)
   // The change capture's rows, without the server's always-empty guard: a
   // fixture plants rows and reads what a drain or a retire leaves behind.
   db.exec(`CREATE TABLE sync_capture (

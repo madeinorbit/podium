@@ -56,6 +56,7 @@ import {
   type VisibilityAnchorPort,
   type VisibilityStatePort,
 } from '../feed/visibility'
+import type { AuthorityDeps } from './authority'
 import type { ChangeLogReadRow, StagedChangeSpec } from './change-lifecycle'
 
 function memoryStore(): ChangeLogStore {
@@ -157,7 +158,11 @@ function state() {
   }
 }
 
-function build(rescopeThreshold = 32, store = memoryStore()) {
+function build(
+  rescopeThreshold = 32,
+  store = memoryStore(),
+  accessMoves?: AuthorityDeps['accessMoves'],
+) {
   const tables = state()
   const authority = new Authority({
     store,
@@ -166,6 +171,7 @@ function build(rescopeThreshold = 32, store = memoryStore()) {
     visibility: new GrantEdgeVisibilityPolicy(tables.port, tables.port),
     anchors: tables.port,
     rescopeThreshold,
+    ...(accessMoves === undefined ? {} : { accessMoves }),
   })
   return { authority, tables }
 }
@@ -499,6 +505,51 @@ describe('a visibility change is DERIVED, and it is never a remove (D14)', () =>
     await authority.save([upsert('grant-row', { granted: 'shared' })])
 
     expect(ada.map((d) => d.ops)).toEqual([['evict'], ['upsert']])
+  })
+})
+
+describe("each human's last access move is recorded (POD-7552)", () => {
+  it('names every human an edge names, at its latest seq, connected or not, before delivery', async () => {
+    const recorded: [string, number][][] = []
+    const order: string[] = []
+    const { authority, tables } = build(32, memoryStore(), {
+      recordAccessMoves: async (moves) => {
+        order.push('recorded')
+        recorded.push([...moves].sort())
+      },
+    })
+    await authority.save([upsert('shared', { n: 1 })])
+    // Only Grace has a device connected; Ada and Lin do not.
+    authority.subscribe(GRACE, () => {
+      order.push('delivered')
+    })
+    tables.edge(ref('grant-a'), ['ada', 'lin'], [ref('shared')])
+    tables.edge(ref('grant-b'), ['ada'], [])
+    await authority.save([upsert('grant-a', {}), upsert('plain', {}), upsert('grant-b', {})])
+    expect(recorded).toEqual([
+      [
+        ['ada', 4],
+        ['lin', 2],
+      ],
+    ])
+    expect(order).toEqual(['recorded', 'delivered'])
+    // A batch that moves nobody's access writes nothing.
+    await authority.save([upsert('plain', { n: 2 })])
+    expect(recorded).toHaveLength(1)
+    expect(order).toEqual(['recorded', 'delivered', 'delivered'])
+  })
+
+  it('a failed record does not hold the delivery back', async () => {
+    const { authority, tables } = build(32, memoryStore(), {
+      recordAccessMoves: async () => {
+        throw new Error('the database is busy')
+      },
+    })
+    await authority.save([upsert('shared', { n: 1 })])
+    const ada = collect(authority, ADA)
+    tables.edge(ref('grant-row'), ['ada'], [ref('shared')])
+    await authority.save([upsert('grant-row', {})])
+    expect(ada.map((d) => d.throughSeq)).toEqual([2])
   })
 })
 

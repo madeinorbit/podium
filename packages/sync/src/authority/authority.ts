@@ -97,6 +97,7 @@ import type { RecordIdsByKind } from '../record-builders'
 import { arbitrate } from './arbitration'
 import type { ScopedChange, SequencedChange, StagedChangeSpec } from './change-lifecycle'
 import type {
+  AccessMoveLogPort,
   AuthorityClock,
   AuthorityCommit,
   AuthorityCommitOutcome,
@@ -159,6 +160,12 @@ export interface AuthorityDeps {
   anchors: VisibilityAnchorPort
   /** D14.4's terminal-path bound. Defaults to {@link DEFAULT_RESCOPE_THRESHOLD}. */
   rescopeThreshold?: number
+  /**
+   * POD-7552 — each human's last access move, written by every delivery pass
+   * whose batch moved someone's access. Absent, nothing is recorded (the
+   * client adapters and most tests).
+   */
+  accessMoves?: AccessMoveLogPort
   /**
    * The command now appending (ADR 2 D8; POD-6272). Read once per `commit`. Unset means no row is stamped, which is
    * what every caller outside the write entry point gets.
@@ -605,6 +612,42 @@ export class Authority implements AuthorityPort {
    * Preparation itself remains outside that isolation: unresolved rights fail
    * the whole pass closed instead of leaking a row to any subscriber.
    */
+  /**
+   * POD-7552 — every human a visibility edge of this batch names, at the seq of
+   * the latest change that named them. From the PREPARED batch, which every
+   * principal's delivery shares, not from the subscribers: a human with no
+   * device connected is the one a later resume needs it for. A failed write
+   * is logged and does not hold the delivery back; the rows are durable, and
+   * a device within retention still learns of the move from them.
+   */
+  private async recordAccessMoves(
+    changes: readonly SequencedChange[],
+    prepared: PreparedBatch,
+  ): Promise<void> {
+    const port = this.deps.accessMoves
+    if (port === undefined) return
+    const moves = new Map<string, number>()
+    for (const [index, edge] of prepared.edges.entries()) {
+      if (edge === null || edge === undefined) continue
+      const seq = changes[index]?.seq
+      if (seq === undefined) continue
+      for (const human of edge.audience) {
+        const key = String(human)
+        moves.set(key, Math.max(moves.get(key) ?? 0, seq))
+      }
+    }
+    if (moves.size === 0) return
+    try {
+      await port.recordAccessMoves(moves)
+    } catch (err) {
+      log.error('recording the access moves of a batch failed', {
+        throughSeq: changes[changes.length - 1]?.seq,
+        humans: moves.size,
+        err,
+      })
+    }
+  }
+
   private async broadcast(changes: readonly SequencedChange[]): Promise<void> {
     const delivery = this.broadcastTail.then(async () => {
       // The head and visibility snapshot belong to THIS pass. Preparation is an
@@ -612,6 +655,9 @@ export class Authority implements AuthorityPort {
       // and edges enter the synchronous per-subscriber loop.
       const throughSeq = changes[changes.length - 1]?.seq ?? 0
       const prepared = await prepareBatch(this.scopingDeps(), changes)
+      // Before any delivery: a device told of the move that reconnects at once
+      // must find it recorded.
+      await this.recordAccessMoves(changes, prepared)
       for (const subscription of this.subscribers) {
         try {
           subscription.deliver(

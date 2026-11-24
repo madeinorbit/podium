@@ -92,6 +92,9 @@ export const TABLE_RETENTION: Readonly<Record<string, TableRetention>> = {
   runtime_event_projection_cursors: bounded('One cursor per projector.'),
   sync_feed: bounded('One row per tenant.'),
   sync_kind: bounded('One row per synced record kind.'),
+  sync_access_moves: bounded(
+    'One row per human whose access ever moved, plus the row naming where recording started.',
+  ),
   meta: bounded('A fixed set of server keys.'),
   workspace_meta: bounded(
     "A fixed set of a workspace's keys (WORKSPACE_META_KEYS), one row each per workspace.",

@@ -223,6 +223,19 @@ export interface BaselineFoldPort {
 export type AuthorityClock = () => number
 
 /**
+ * POD-7552 — where each human's LAST ACCESS MOVE is kept: the feed number of
+ * the latest change whose visibility edge named them in its audience. The
+ * Authority writes it from the batch evaluation every principal's delivery
+ * shares, so a human with no device connected is recorded too. It outlives
+ * the change-log rows that show the move, which is what lets a resume the log
+ * can no longer bridge still be answered as a rescope.
+ */
+export interface AccessMoveLogPort {
+  /** Raise each human's last move to the seq given; never lower it. */
+  recordAccessMoves(moves: ReadonlyMap<string, number>): Promise<void>
+}
+
+/**
  * Fires after every durable append, for ONE principal, with the range that was
  * evaluated (POD-1077).
  *

@@ -337,6 +337,10 @@ export const TABLE_MANIFEST = {
     "the workspace's feed head and floor; already keyed by tenant_id; it is also the workspace's provisioning row (contract C4)",
   ),
   sync_kind: workspace('natural', 'kind generations; already keyed (tenant_id, kind)'),
+  sync_access_moves: workspace(
+    'natural',
+    "each human's last access move in the workspace's feed, keyed (workspace_id, human_id)",
+  ),
   applied_mutations: workspace(
     'client',
     'the mutation dedupe ledger; mutation ids come from clients, so a global key would let one workspace mark another workspace mutation as applied',

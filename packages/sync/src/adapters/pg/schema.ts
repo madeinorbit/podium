@@ -164,9 +164,22 @@ export const syncKind = pgTable(
   (table) => [primaryKey({ columns: [table.workspaceId, table.kind] })],
 )
 
+export const syncAccessMoves = pgTable(
+  'sync_access_moves',
+  {
+    workspaceId: textC('workspace_id')
+      .notNull()
+      .$type<SqliteRow<'syncAccessMoves'>['workspaceId']>(),
+    humanId: textC('human_id').notNull().$type<SqliteRow<'syncAccessMoves'>['humanId']>(),
+    seq: int8('seq').notNull().$type<SqliteRow<'syncAccessMoves'>['seq']>(),
+  },
+  (table) => [primaryKey({ columns: [table.workspaceId, table.humanId] })],
+)
+
 /** The sync adapter's tables on Postgres: the twin of `sqliteSyncTables`. */
 export const pgSyncTables = Object.freeze({
   appliedMutations,
+  syncAccessMoves,
   changes,
   syncCapture,
   syncCaptureGuard,
