@@ -6191,20 +6191,28 @@ describe('reconnect identity (hello reclaim)', () => {
 })
 
 describe('session drafts — versioned (POD-859)', () => {
+  // A real session of the connected member's: a draft edit of a session that
+  // does not exist, or that its sender cannot read, is refused (POD-7561).
   async function draftReg(store?: SessionStore) {
     store ??= await openTestStore(':memory:', TEST_MACHINE)
-    return { reg: await SessionRegistry.create(store, undefined, { instanceId: 'default' }), store }
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    await attachHostDaemon(reg)
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/p',
+    })
+    return { reg, store, sessionId: asSessionId(sessionId) }
   }
 
   it('draftEdit broadcasts a versioned sessionDraftChanged to every client', async () => {
-    const { reg } = await draftReg()
+    const { reg, sessionId } = await draftReg()
     const a: ServerMessage[] = []
     const b: ServerMessage[] = []
     const idA = attachTestClient(reg.clientGateway, (m) => a.push(m))
     attachTestClient(reg.clientGateway, (m) => b.push(m))
     await reg.clientGateway.routeClientFrame(idA, {
       type: 'draftEdit',
-      sessionId: asSessionId('sess'),
+      sessionId,
       baseRev: 0,
       text: 'hi',
     })
@@ -6216,19 +6224,19 @@ describe('session drafts — versioned (POD-859)', () => {
   })
 
   it('assigns monotonically increasing revs', async () => {
-    const { reg } = await draftReg()
+    const { reg, sessionId } = await draftReg()
     const b: ServerMessage[] = []
     const idA = attachTestClient(reg.clientGateway, () => {})
     attachTestClient(reg.clientGateway, (m) => b.push(m))
     await reg.clientGateway.routeClientFrame(idA, {
       type: 'draftEdit',
-      sessionId: asSessionId('s'),
+      sessionId,
       baseRev: 0,
       text: 'a',
     })
     await reg.clientGateway.routeClientFrame(idA, {
       type: 'draftEdit',
-      sessionId: asSessionId('s'),
+      sessionId,
       baseRev: 1,
       text: 'ab',
     })
@@ -6239,14 +6247,14 @@ describe('session drafts — versioned (POD-859)', () => {
   })
 
   it('rejects a stale edit and replies to the sender with the current doc', async () => {
-    const { reg } = await draftReg()
+    const { reg, sessionId } = await draftReg()
     const a: ServerMessage[] = []
     const b: ServerMessage[] = []
     const idA = attachTestClient(reg.clientGateway, (m) => a.push(m))
     const idB = attachTestClient(reg.clientGateway, (m) => b.push(m))
     await reg.clientGateway.routeClientFrame(idA, {
       type: 'draftEdit',
-      sessionId: asSessionId('s'),
+      sessionId,
       baseRev: 0,
       text: 'from A',
     })
@@ -6254,7 +6262,7 @@ describe('session drafts — versioned (POD-859)', () => {
     b.length = 0
     await reg.clientGateway.routeClientFrame(idB, {
       type: 'draftEdit',
-      sessionId: asSessionId('s'),
+      sessionId,
       baseRev: 0,
       text: 'from B',
     })

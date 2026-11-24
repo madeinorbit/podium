@@ -406,6 +406,8 @@ describe('async session port boundaries', () => {
         sessions: { setDraftDoc: async () => {}, draftDocOf: async () => undefined },
       },
       getSession: () => f.session,
+      // The draft's audience is its session's readers (POD-7561).
+      sessionOwner: async () => ({ owner: firstAdminMemberId() }),
       writeSession: async (
         _writer: Parameters<SessionStatePorts['writeSession']>[0],
         _id: Parameters<SessionStatePorts['writeSession']>[1],
@@ -453,6 +455,8 @@ describe('async session port boundaries', () => {
         }),
       },
       getSession: () => f.session,
+      // The draft's audience is its session's readers (POD-7561).
+      sessionOwner: async () => ({ owner: firstAdminMemberId() }),
       writeSession: async (
         _writer: Parameters<SessionStatePorts['writeSession']>[0],
         _id: Parameters<SessionStatePorts['writeSession']>[1],

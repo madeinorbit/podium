@@ -1,9 +1,17 @@
-import { asSessionId, asUserId, firstAdminMemberId, type SessionId } from '@podium/model'
+import {
+  asSessionId,
+  asUserId,
+  asWorkspaceId,
+  firstAdminMemberId,
+  type SessionId,
+  type UserId,
+  type WorkspaceId,
+} from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../../self-hosted-workspace'
 import { OPERATOR } from '../../../test-support/capabilities'
-import { type SessionStatePorts, SessionStateService } from './service'
+import { type SessionStatePorts, type SessionStatePrincipal, SessionStateService } from './service'
 
 describe('draft replay ordering', () => {
   it.each([
@@ -16,8 +24,13 @@ describe('draft replay ordering', () => {
     const authorization = new Promise<void>((resolve) => {
       release = resolve
     })
+    // Only the REPLAY's owner read is held: the edit checks the session's
+    // owner too (POD-7561), and that check must not wait on the replay's.
+    let hold: Promise<void> | undefined
     const sessionOwner = vi.fn(async () => {
-      await authorization
+      const held = hold
+      hold = undefined
+      if (held) await held
       return { owner: firstAdminMemberId(), grants: [] }
     })
     const state = new SessionStateService({
@@ -48,6 +61,8 @@ describe('draft replay ordering', () => {
     try {
       await state.setDraft({ sessionId, text: 'older text' })
       received.length = 0
+      const ownerReads = sessionOwner.mock.calls.length
+      hold = authorization
       const replay = state.replayDrafts(
         {
           workspaceId: SELF_HOSTED_WORKSPACE_ID,
@@ -58,13 +73,19 @@ describe('draft replay ordering', () => {
         send,
       )
       // The replay reads the stored drafts first (POD-6160), then authorizes.
-      await vi.waitFor(() => expect(sessionOwner).toHaveBeenCalledOnce())
+      await vi.waitFor(() => expect(sessionOwner).toHaveBeenCalledTimes(ownerReads + 1))
       expect(received).toEqual([])
 
       // The real versioned edit broadcasts to this client while replay is paused.
       await state.handleDraftEdit(
+        {
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
+          userId: firstAdminMemberId(),
+          capability: OPERATOR,
+          humanDirect: true,
+          clientId: 'other-client',
+        },
         { type: 'draftEdit', sessionId, baseRev: 1, text },
-        'other-client',
       )
       expect(received).toEqual([
         expect.objectContaining({ type: 'sessionDraftChanged', sessionId, rev: 2, text }),
@@ -151,6 +172,19 @@ describe('draft replay authorization (POD-7036)', () => {
   })
 })
 
+const OWNER = firstAdminMemberId()
+const STRANGER = asUserId('mem_draft_stranger')
+const OTHER_WORKSPACE = asWorkspaceId('ws_other')
+
+/** A `/client` connection's session-state principal, as the wiring builds it. */
+function principalOf(
+  userId: UserId,
+  clientId: string,
+  workspaceId: WorkspaceId = SELF_HOSTED_WORKSPACE_ID,
+): SessionStatePrincipal {
+  return { workspaceId, userId, capability: OPERATOR, humanDirect: true, clientId }
+}
+
 function draftWorld() {
   const sessionId = asSessionId('draft-ack')
   const session = {
@@ -173,7 +207,7 @@ function draftWorld() {
     getSession: () => session,
     sessionIds: () => [sessionId],
     clients: () => [],
-    sessionOwner: vi.fn(),
+    sessionOwner: async () => ({ owner: OWNER }),
     persistSession: vi.fn(),
     writeSession: vi.fn(),
     mutateSession: vi.fn(),
@@ -206,10 +240,12 @@ describe('draft acknowledgements', () => {
       w.broadcastToClients.mockClear()
       w.deliverToClient.mockClear()
       w.setDraftDoc.mockClear()
-      await w.state.handleDraftEdit(
-        { type: 'draftEdit', sessionId: w.sessionId, baseRev: rev, text },
-        'retrying-device',
-      )
+      await w.state.handleDraftEdit(principalOf(OWNER, 'retrying-device'), {
+        type: 'draftEdit',
+        sessionId: w.sessionId,
+        baseRev: rev,
+        text,
+      })
       expect(w.deliverToClient).toHaveBeenCalledExactlyOnceWith(
         'retrying-device',
         expect.objectContaining({
@@ -222,6 +258,102 @@ describe('draft acknowledgements', () => {
       expect(w.broadcastToClients).not.toHaveBeenCalled()
       expect(w.setDraftDoc).not.toHaveBeenCalled()
       expect((await w.state.draftRevision(w.sessionId)) ?? 0).toBe(rev)
+    } finally {
+      w.state.removeSession(w.sessionId)
+    }
+  })
+})
+
+describe('draft access (POD-7561)', () => {
+  // A draft is its session's content, and a session is its owner's (design
+  // §2.3): only a connection whose person may read the session edits, clears,
+  // hears about or is replayed its draft. Refusals answer nothing at all.
+  async function seeded() {
+    const w = draftWorld()
+    await w.state.handleDraftEdit(principalOf(OWNER, 'owner-device'), {
+      type: 'draftEdit',
+      sessionId: w.sessionId,
+      baseRev: 0,
+      text: 'unsent text',
+    })
+    w.broadcastToClients.mockClear()
+    w.deliverToClient.mockClear()
+    w.setDraftDoc.mockClear()
+    return w
+  }
+
+  it.each([
+    ['another member', principalOf(STRANGER, 'stranger')],
+    ['the owner id from another workspace', principalOf(OWNER, 'foreign', OTHER_WORKSPACE)],
+  ])('refuses %s an edit, a clear and a stale probe without a reply', async (_who, principal) => {
+    const w = await seeded()
+    try {
+      for (const edit of [
+        { baseRev: 1, text: 'overwritten' },
+        { baseRev: 1, text: '' },
+        // Stale: the arbitration would answer the sender with the current text.
+        { baseRev: 0, text: 'probe' },
+      ]) {
+        await w.state.handleDraftEdit(principal, {
+          type: 'draftEdit',
+          sessionId: w.sessionId,
+          ...edit,
+        })
+      }
+      expect(await w.state.draftText(w.sessionId)).toBe('unsent text')
+      expect(await w.state.draftRevision(w.sessionId)).toBe(1)
+      expect(w.deliverToClient).not.toHaveBeenCalled()
+      expect(w.broadcastToClients).not.toHaveBeenCalled()
+      expect(w.setDraftDoc).not.toHaveBeenCalled()
+    } finally {
+      w.state.removeSession(w.sessionId)
+    }
+  })
+
+  it('lets the owner edit and clear, and tells only the readers of the session', async () => {
+    const w = await seeded()
+    try {
+      await w.state.handleDraftEdit(principalOf(OWNER, 'owner-device'), {
+        type: 'draftEdit',
+        sessionId: w.sessionId,
+        baseRev: 1,
+        text: 'sent soon',
+      })
+      await w.state.handleDraftEdit(principalOf(OWNER, 'owner-device'), {
+        type: 'draftEdit',
+        sessionId: w.sessionId,
+        baseRev: 2,
+        text: '',
+      })
+      expect(await w.state.draftRevision(w.sessionId)).toBe(3)
+      expect(await w.state.draftText(w.sessionId)).toBe('')
+      expect(w.broadcastToClients).toHaveBeenCalledTimes(2)
+      for (const [message, options] of w.broadcastToClients.mock.calls) {
+        expect(message).toMatchObject({ type: 'sessionDraftChanged', sessionId: w.sessionId })
+        const to = (options as { to: (conn: unknown) => boolean }).to
+        const conn = (user: UserId, workspaceId: WorkspaceId = SELF_HOSTED_WORKSPACE_ID) => ({
+          principal: { user },
+          workspaceId,
+        })
+        expect(to(conn(OWNER))).toBe(true)
+        expect(to(conn(STRANGER))).toBe(false)
+        expect(to(conn(OWNER, OTHER_WORKSPACE))).toBe(false)
+      }
+    } finally {
+      w.state.removeSession(w.sessionId)
+    }
+  })
+
+  it.each([
+    ['another member', principalOf(STRANGER, 'stranger'), []],
+    ['the owner id from another workspace', principalOf(OWNER, 'foreign', OTHER_WORKSPACE), []],
+    ['the owner', principalOf(OWNER, 'owner-device-2'), ['unsent text']],
+  ])('replays the draft to %s: %j', async (_who, principal, expected) => {
+    const w = await seeded()
+    try {
+      const received: LiveServerMessage[] = []
+      await w.state.replayDrafts(principal, (message) => received.push(message))
+      expect(received.map((m) => (m as { text?: string }).text)).toEqual(expected)
     } finally {
       w.state.removeSession(w.sessionId)
     }

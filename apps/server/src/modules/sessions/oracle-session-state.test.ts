@@ -11,7 +11,13 @@ import { attachTestClient } from '../../test-support/client-transport'
  */
 
 import { randomUUID } from 'node:crypto'
-import { asMutationId, asUserId, firstAdminMemberId, type SessionId } from '@podium/model'
+import {
+  asMutationId,
+  asSessionId,
+  asUserId,
+  firstAdminMemberId,
+  type SessionId,
+} from '@podium/model'
 import { CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -585,6 +591,153 @@ describe('oracle: composer drafts', () => {
     await waitFor(() => true, 'the microtask queue to drain')
 
     expect(sessionChanges(o.client, sessionId)).toHaveLength(broadcastsAfterFirstKeystroke)
+  })
+})
+
+/** A connected `/client` socket of `userId`, its frames collected. */
+async function connect(
+  o: Oracle,
+  userId: string,
+  userRole: 'admin' | 'member',
+): Promise<{ id: string; frames: ServerMessage[] }> {
+  const frames: ServerMessage[] = []
+  const id = attachTestClient(o.reg.clientGateway, {
+    send: (m: ServerMessage) => frames.push(m),
+    userId: asUserId(userId),
+    userRole,
+  })
+  await o.reg.clientGateway.routeClientFrame(id, {
+    type: 'hello',
+    caps: ['sync.http.v1'],
+    wireVersion: CLIENT_WIRE_VERSION,
+    clientId: '',
+    viewport: { cols: 80, rows: 24, dpr: 1 },
+  })
+  return { id, frames }
+}
+
+const draftFrames = (frames: ServerMessage[], sessionId: string) =>
+  frames.filter(
+    (m) => m.type === 'sessionDraftChanged' && (m as { sessionId: string }).sessionId === sessionId,
+  )
+
+describe("oracle: a draft is its session owner's (POD-7561)", () => {
+  // The session's owner is the oracle's caller; the stranger is another member
+  // of the same workspace, connected to the same socket gateway, who knows the
+  // session id. The private class is owner-only (design §2.3).
+  const STRANGER = 'mem_draft_stranger'
+
+  async function world() {
+    const o = await makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    const owner = await connect(o, firstAdminMemberId(), 'admin')
+    const stranger = await connect(o, STRANGER, 'member')
+    await o.reg.clientGateway.routeClientFrame(owner.id, {
+      type: 'draftEdit',
+      sessionId,
+      baseRev: 0,
+      text: 'the owner is mid-sentence',
+    })
+    await waitFor(
+      () => draftFrames(owner.frames, sessionId).length > 0,
+      "the owner's draft edit to be confirmed",
+    )
+    const rev = await o.reg.modules.sessions.draftRevision(sessionId)
+    expect(rev).toBe(1)
+    return { o, sessionId, owner, stranger, rev: rev ?? 0 }
+  }
+
+  it(`${MUST_NOT_CHANGE}: another member's edit, clear and legacy write leave the draft untouched and are answered with nothing`, async () => {
+    const w = await world()
+    w.owner.frames.length = 0
+    const attempts = [
+      // A fresh edit on the current rev: would apply for the owner.
+      { type: 'draftEdit', sessionId: w.sessionId, baseRev: w.rev, text: 'overwritten' },
+      // A clear.
+      { type: 'draftEdit', sessionId: w.sessionId, baseRev: w.rev, text: '' },
+      // A stale rev: the arbitration answers its sender with the CURRENT
+      // document, which for a stranger would be reading the owner's text.
+      { type: 'draftEdit', sessionId: w.sessionId, baseRev: 0, text: 'probe' },
+      // The legacy unconditional write, set and cleared.
+      { type: 'setSessionDraft', sessionId: w.sessionId, text: 'overwritten' },
+      { type: 'setSessionDraft', sessionId: w.sessionId, text: '' },
+    ] as const
+    for (const frame of attempts) {
+      await w.o.reg.clientGateway.routeClientFrame(w.stranger.id, frame)
+    }
+    await waitFor(() => true, 'the microtask queue to drain')
+
+    expect(await w.o.reg.modules.sessions.draftRevision(w.sessionId)).toBe(w.rev)
+    expect(draftFrames(w.stranger.frames, w.sessionId)).toEqual([])
+    expect(draftFrames(w.owner.frames, w.sessionId)).toEqual([])
+
+    // The owner still has the text: a second device of theirs is replayed it.
+    const device = await connect(w.o, firstAdminMemberId(), 'admin')
+    await waitFor(
+      () => draftFrames(device.frames, w.sessionId).length > 0,
+      "the owner's draft to replay to their second device",
+    )
+    expect(draftFrames(device.frames, w.sessionId)).toEqual([
+      expect.objectContaining({ text: 'the owner is mid-sentence', rev: w.rev }),
+    ])
+  })
+
+  it(`${MUST_NOT_CHANGE}: a refused edit and an edit of no session at all look the same to the sender`, async () => {
+    const w = await world()
+    const before = w.stranger.frames.length
+    await w.o.reg.clientGateway.routeClientFrame(w.stranger.id, {
+      type: 'draftEdit',
+      sessionId: w.sessionId,
+      baseRev: 0,
+      text: 'probe',
+    })
+    await waitFor(() => true, 'the microtask queue to drain')
+    const afterPrivate = w.stranger.frames.slice(before)
+    await w.o.reg.clientGateway.routeClientFrame(w.stranger.id, {
+      type: 'draftEdit',
+      sessionId: asSessionId('no-such-session'),
+      baseRev: 0,
+      text: 'probe',
+    })
+    await waitFor(() => true, 'the microtask queue to drain')
+    const afterAbsent = w.stranger.frames.slice(before + afterPrivate.length)
+    expect(afterPrivate).toEqual([])
+    expect(afterAbsent).toEqual([])
+  })
+
+  it(`${MUST_NOT_CHANGE}: the owner's edits and clear reach the owner's connections and no one else's`, async () => {
+    const w = await world()
+    // The stranger never saw the owner's first edit either.
+    expect(draftFrames(w.stranger.frames, w.sessionId)).toEqual([])
+    const device = await connect(w.o, firstAdminMemberId(), 'admin')
+    await waitFor(
+      () => draftFrames(device.frames, w.sessionId).length > 0,
+      'the replay to the second device',
+    )
+
+    await w.o.reg.clientGateway.routeClientFrame(w.owner.id, {
+      type: 'draftEdit',
+      sessionId: w.sessionId,
+      baseRev: w.rev,
+      text: 'the owner finished the sentence',
+    })
+    await w.o.reg.clientGateway.routeClientFrame(w.owner.id, {
+      type: 'draftEdit',
+      sessionId: w.sessionId,
+      baseRev: w.rev + 1,
+      text: '',
+    })
+    await waitFor(
+      () =>
+        draftFrames(device.frames, w.sessionId).some((m) => (m as { text: string }).text === ''),
+      "the owner's clear to reach their other device",
+    )
+    expect(await w.o.reg.modules.sessions.draftRevision(w.sessionId)).toBe(w.rev + 2)
+    expect(draftFrames(device.frames, w.sessionId).slice(1)).toEqual([
+      expect.objectContaining({ text: 'the owner finished the sentence', rev: w.rev + 1 }),
+      expect.objectContaining({ text: '', rev: w.rev + 2 }),
+    ])
+    expect(draftFrames(w.stranger.frames, w.sessionId)).toEqual([])
   })
 })
 
