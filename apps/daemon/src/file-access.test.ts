@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  hasGitSegment,
   isInside,
   listDirSandboxed,
   readAssetSandboxed,
@@ -361,6 +362,71 @@ describe('a root-addressed request stays inside its repository on disk', () => {
       ok: false,
       error: 'repository not found',
     })
+  })
+})
+
+/**
+ * POD-7505: git takes instructions from `.git` (`core.fsmonitor` runs a program
+ * on the next status, `core.worktree` and a `.git` file point git out of the
+ * repository), so a root-addressed save never writes there, however the path
+ * spells it. A session's own save has no repository and is not judged here.
+ */
+describe('a root-addressed write never lands inside .git', () => {
+  async function gitRepo() {
+    const repoRoot = await repo()
+    await mkdir(join(repoRoot, '.git', 'hooks'), { recursive: true })
+    await writeFile(join(repoRoot, '.git', 'config'), '[core]\n')
+    await mkdir(join(repoRoot, 'x'), { recursive: true })
+    return repoRoot
+  }
+
+  it.each([['.git/config'], ['.git/hooks/pre-commit'], ['x/.git']])('refuses %s', async (rel) => {
+    const repoRoot = await gitRepo()
+    const before = await readFile(join(repoRoot, '.git', 'config'), 'utf8')
+    const r = await writeFileSandboxed({
+      cwd: repoRoot,
+      path: join(repoRoot, rel),
+      content: '[core]\n\tfsmonitor = touch /tmp/pwned\n',
+      repoRoot,
+    })
+    expect(r).toMatchObject({ ok: false, error: 'refusing to write inside .git' })
+    expect(await readFile(join(repoRoot, '.git', 'config'), 'utf8')).toBe(before)
+  })
+
+  it('refuses a root that is the .git folder itself, and a link into it', async () => {
+    const repoRoot = await gitRepo()
+    await symlink(join(repoRoot, '.git'), join(repoRoot, 'meta'))
+    for (const [cwd, path] of [
+      [join(repoRoot, '.git'), join(repoRoot, '.git', 'config')],
+      [repoRoot, join(repoRoot, 'meta', 'config')],
+    ] as const) {
+      expect(await writeFileSandboxed({ cwd, path, content: 'x', repoRoot })).toMatchObject({
+        ok: false,
+        error: 'refusing to write inside .git',
+      })
+    }
+  })
+
+  it('compares names as case-insensitive file systems do', () => {
+    expect(hasGitSegment('/r/.GIT/config', '/r')).toBe(true)
+    expect(hasGitSegment('/r/sub/.Git', '/r')).toBe(true)
+    expect(hasGitSegment('/r/.gitignore', '/r')).toBe(false)
+    // Only the part inside the repository counts.
+    expect(hasGitSegment('/home/.git-things/r/a.txt', '/home/.git-things/r')).toBe(false)
+  })
+
+  it('control: a name that only starts with .git is an ordinary file', async () => {
+    const repoRoot = await gitRepo()
+    for (const name of ['.gitignore', '.github']) {
+      expect(
+        await writeFileSandboxed({
+          cwd: repoRoot,
+          path: join(repoRoot, name),
+          content: 'ok',
+          repoRoot,
+        }),
+      ).toMatchObject({ ok: true })
+    }
   })
 })
 

@@ -50,7 +50,7 @@ const sig = (s: { mtimeMs: number; size: number }): string => `${s.mtimeMs}:${s.
 export async function sandboxRoot(
   root: string,
   repoRoot: string | undefined,
-): Promise<{ ok: true; real: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; real: string; repo?: string } | { ok: false; error: string }> {
   let real: string
   try {
     real = await realpath(root)
@@ -64,7 +64,29 @@ export async function sandboxRoot(
   } catch {
     return { ok: false, error: 'repository not found' }
   }
-  return isInside(real, realRepo) ? { ok: true, real } : { ok: false, error: 'outside repository' }
+  return isInside(real, realRepo)
+    ? { ok: true, real, repo: realRepo }
+    : { ok: false, error: 'outside repository' }
+}
+
+/**
+ * A FOLDER NAMED `.git` ALONG THE WAY, inside the repository (POD-7505).
+ *
+ * Git reads its instructions from there: `.git/config` (`core.fsmonitor` runs a
+ * program, `core.worktree` moves the working tree), `.git/hooks`, and a `.git`
+ * file in any subfolder (`gitdir: …`) points git at another repository. A save
+ * from the app has no business there, so a root-addressed write refuses any
+ * path whose part inside the repository has such a segment. Compared the way
+ * Windows and macOS compare names: case-insensitively, and on Windows without
+ * the trailing dots and spaces it drops and with the 8.3 short name `GIT~1`.
+ */
+export function hasGitSegment(real: string, repo: string): boolean {
+  return relative(repo, real)
+    .split(/[\\/]/)
+    .some((segment) => {
+      const name = segment.toLowerCase().replace(/[. ]+$/, '')
+      return name === '.git' || (process.platform === 'win32' && /^git~\d+$/.test(name))
+    })
 }
 
 /** Refuses to follow a symlink at the final component. 0 on Windows, which has no
@@ -92,6 +114,11 @@ async function openedPath(fh: FileHandle): Promise<string | null | undefined> {
   }
 }
 
+/** The refusal when the kernel could not name the opened file: this Linux has no
+ *  `/proc` mounted, so the file cannot be judged once open. Said as it is, not as
+ *  "outside workspace", which would send a person looking for the wrong fault. */
+const UNVERIFIABLE_OPEN = 'cannot check the opened file: /proc/self/fd is not available'
+
 /** Open `real` for reading without following a final link, and refuse anything but
  *  a regular file that, once open, still sits inside `sandbox` (unless `anywhere`). */
 async function openForRead(
@@ -115,7 +142,7 @@ async function openForRead(
       const at = await openedPath(fh)
       if (at === undefined || (at !== null && !isInside(at, sandbox))) {
         await fh.close()
-        return { ok: false, error: 'outside workspace' }
+        return { ok: false, error: at === undefined ? UNVERIFIABLE_OPEN : 'outside workspace' }
       }
     }
     return { ok: true, fh, size: st.size, sig: sig(st) }
@@ -292,14 +319,18 @@ export async function writeFileSandboxed(opts: {
     }
   }
   if (!isInside(real, sandbox.real)) return { ok: false, error: 'outside workspace' }
+  if (sandbox.repo !== undefined && hasGitSegment(real, sandbox.repo))
+    return { ok: false, error: 'refusing to write inside .git' }
   const existed = link !== null
   let fh: FileHandle
   try {
     // No-follow: a link planted at `real` after the check is refused, not written
     // through. No O_TRUNC: nothing is cut until the opened file has been judged.
     // A file absent at the check is created exclusively, so the removal below
-    // can only ever remove a file this open made.
-    const create = existed ? constants.O_CREAT : constants.O_CREAT | constants.O_EXCL
+    // can only ever remove a file this open made. A file present at the check is
+    // opened without O_CREAT: if a folder along the path is swapped in between,
+    // the open finds nothing there rather than leaving a new empty file outside.
+    const create = existed ? 0 : constants.O_CREAT | constants.O_EXCL
     fh = await open(real, constants.O_WRONLY | create | O_NOFOLLOW | O_NONBLOCK, 0o666)
   } catch {
     return { ok: false, error: 'write error' }
@@ -316,7 +347,7 @@ export async function writeFileSandboxed(opts: {
       // A folder along the path was swapped after the check; a file this open just
       // created there is removed again (by the name the kernel gave it).
       if (!existed && at) await unlink(at).catch(() => {})
-      return { ok: false, error: 'outside workspace' }
+      return { ok: false, error: at === undefined ? UNVERIFIABLE_OPEN : 'outside workspace' }
     }
     if (baseHash && existed && sig(st) !== baseHash) return { ok: false, conflict: true }
     await fh.truncate(0)
