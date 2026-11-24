@@ -990,7 +990,7 @@ export const RECORD_SOURCES: RecordSources = {
     own(sessionDrafts, [sessionDrafts.sessionId], (key) => str(key[0]), {
       rows: ofLiveSession(sessionDrafts.sessionId),
     }),
-    // The record reads a lease's checkpoint only (`checkpointsOf`): a lease
+    // The record reads a lease's checkpoint only (`recordFactsOf`): a lease
     // opened or fenced with no checkpoint changes nothing. Of the checkpoint
     // it reads what `CHECKPOINT_ON_RECORD` names, not the cursors and times
     // every accepted refresh moves.

@@ -435,7 +435,8 @@ export class SessionRecords {
     const [offers, draftTimes, checkpoints, transcripts, conversations, turnStates] = await Promise.all([
       store.sessions.offersOf(ids),
       store.sessions.draftTimesOf(ids),
-      store.observationCheckpoints.checkpointsOf(ids),
+      // Only the checkpoint fields a record reads (POD-7575), never the whole text.
+      store.observationCheckpoints.recordFactsOf(ids),
       store.events.runtimeTranscriptAvailableOf(ids),
       this.conversationIds(records),
       store.events.runtimeTurnStatesOf(ids),

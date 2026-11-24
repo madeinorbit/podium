@@ -370,7 +370,10 @@ export function markConversationBound(d: Pick<SessionDurableFields, 'conversatio
 /** Fold an accepted observation checkpoint into durable state. */
 export function applyObservationCheckpointTo(
   d: SessionDurableFields,
-  checkpoint: SessionObservationCheckpointV1,
+  checkpoint: Pick<
+    SessionObservationCheckpointV1,
+    'turnState' | 'providerAt' | 'providerSessionId'
+  >,
   advanceRecency = true,
 ): void {
   const state = checkpoint.turnState

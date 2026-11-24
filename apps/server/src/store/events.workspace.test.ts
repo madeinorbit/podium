@@ -690,6 +690,10 @@ describe('the observation checkpoints repository reads and writes only its own w
       const checkpoints = await oc.checkpointsOf([sid(1), only(other)])
       expect([...checkpoints.keys()]).toEqual([sid(1)])
       onlyOwn([...checkpoints.values()], tag)
+      // The record's narrow read (POD-7575) is scoped the same way.
+      const facts = await oc.recordFactsOf([sid(1), only(other)])
+      expect([...facts.keys()]).toEqual([sid(1)])
+      expect(facts.get(sid(1))?.providerSessionId).toBe(checkpoints.get(sid(1))?.providerSessionId)
       expect((await oc.get(sid(1)))?.providerSessionId).toBe(`${tag}-thread-${sid(1)}`)
       expect((await oc.get(sid(2)))?.providerSessionId).toBe(`${tag}-thread-s2b`)
       expect((await oc.getTerminalCandidate(sid(1)))?.facts.terminalTransitionId).toBe(

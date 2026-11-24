@@ -2,10 +2,12 @@
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
-import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm'
+import { and, eq, isNotNull, isNull, type SQL, sql } from 'drizzle-orm'
 import type { sessionObservationCheckpoints } from '../migrations/schema'
 import { captureWrite } from '../sync/capture-pg'
+import { dialectOf } from './executor/dialect-prepared'
 import type {
+  StoreDrizzle,
   StoreTables,
   TransactionRunner,
   WorkspaceDb,
@@ -57,6 +59,18 @@ function sameFactsAcrossReattachment(
     JSON.stringify(previousStable) === JSON.stringify(nextStable)
   )
 }
+
+/** The checkpoint fields a durable session record reads (POD-7575). */
+export type CheckpointRecordFacts = Pick<
+  SessionObservationCheckpointV1,
+  'turnState' | 'providerAt' | 'providerSessionId'
+>
+const CheckpointRecordFacts = SessionObservationCheckpointV1.pick({
+  schemaVersion: true,
+  turnState: true,
+  providerAt: true,
+  providerSessionId: true,
+})
 
 export type ObservationRebindResult =
   | {
@@ -143,6 +157,60 @@ const rebindReceiptOf = prepared((db, t) =>
 const checkpointedLeasesOfIds = preparedFamily((db, t, size: number) =>
   db
     .select(LEASE_COLUMNS(t))
+    .from(t.sessionObservationCheckpoints)
+    .innerJoin(
+      t.sessions,
+      and(
+        sameWorkspace(t.sessions, t.sessionObservationCheckpoints),
+        eq(t.sessions.id, t.sessionObservationCheckpoints.sessionId),
+      ),
+    )
+    .where(
+      inWorkspace(
+        t.sessionObservationCheckpoints,
+        inListOf(t.sessionObservationCheckpoints.sessionId, size),
+        isNull(t.sessions.deletedAt),
+        isNotNull(t.sessionObservationCheckpoints.checkpointJson),
+      ),
+    )
+    .prepare(),
+)
+
+/**
+ * WHAT A SESSION RECORD READS OF ITS CHECKPOINT (POD-7575), and nothing else:
+ * the schema version, the turn state, the provider time and the provider thread
+ * id (`applyObservationCheckpointTo`), as one small JSON object built by the
+ * database. The checkpoint's cursors, fence and accepted transition ids (about
+ * 11 KB on a live install) stay in the database: a browser's session-list
+ * rebuild read and parsed every one of them, 1-2.5 s per rebuild on dev.56. An
+ * unreadable checkpoint reads as NULL, as `mapRow` reads it as none.
+ */
+const CHECKPOINT_RECORD_KEYS = ['schemaVersion', 'turnState', 'providerAt', 'providerSessionId']
+function checkpointRecordFacts(db: StoreDrizzle, checkpoint: SQL): SQL<string | null> {
+  const pg = dialectOf(db) === 'pg'
+  const fields = sql.join(
+    CHECKPOINT_RECORD_KEYS.map((key) =>
+      pg
+        ? sql`${sql.raw(`'${key}'`)}, ${checkpoint} -> ${sql.raw(`'${key}'`)}`
+        : sql`${sql.raw(`'${key}'`)}, json_extract(${checkpoint}, ${sql.raw(`'$.${key}'`)})`,
+    ),
+    sql`, `,
+  )
+  return pg
+    ? sql<
+        string | null
+      >`CASE WHEN json_typeof(${checkpoint}) = 'object' THEN json_build_object(${fields})::text END`
+    : sql<string | null>`CASE WHEN json_valid(${checkpoint}) THEN json_object(${fields}) END`
+}
+
+/** {@link checkpointRecordFacts} of a known set of sessions; tombstones and rows
+ *  without a checkpoint excluded, as {@link checkpointedLeasesOfIds}. */
+const checkpointRecordFactsOfIds = preparedFamily((db, t, size: number) =>
+  db
+    .select({
+      sessionId: t.sessionObservationCheckpoints.sessionId,
+      facts: checkpointRecordFacts(db, sql`${t.sessionObservationCheckpoints.checkpointJson}`),
+    })
     .from(t.sessionObservationCheckpoints)
     .innerJoin(
       t.sessions,
@@ -587,6 +655,43 @@ export class ObservationCheckpointsRepository {
       }
     }
     return checkpoints
+  }
+
+  /**
+   * {@link checkpointsOf} narrowed to what a durable session record reads
+   * (POD-7575): the turn state, provider time and provider thread id, built
+   * by the database, so a listing reads a few hundred bytes per session, not
+   * the whole checkpoint. One statement per 500 ids. Quarantined like the
+   * full read: an unreadable value is logged and the session has none.
+   */
+  async recordFactsOf(
+    sessionIds: readonly SessionId[],
+  ): Promise<Map<SessionId, CheckpointRecordFacts>> {
+    const facts = new Map<SessionId, CheckpointRecordFacts>()
+    for (let at = 0; at < sessionIds.length; at += 500) {
+      const chunk = sessionIds.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      for (const row of await checkpointRecordFactsOfIds(this.db, size).all(
+        inListValues(chunk, size),
+      )) {
+        if (row.facts == null) continue
+        try {
+          const parsed = CheckpointRecordFacts.safeParse(JSON.parse(row.facts))
+          if (!parsed.success) throw new Error(parsed.error.message)
+          facts.set(row.sessionId, {
+            turnState: parsed.data.turnState,
+            providerAt: parsed.data.providerAt,
+            providerSessionId: parsed.data.providerSessionId,
+          })
+        } catch (err) {
+          log.warn('ignoring a corrupt observation checkpoint', {
+            err,
+            sessionId: String(row.sessionId),
+          })
+        }
+      }
+    }
+    return facts
   }
 
   async get(sessionId: SessionId): Promise<ObservationLeaseRecord | null> {

@@ -345,6 +345,7 @@
     "apps/server/src/sync/record-builders.parity.test.ts": "Record builders against the change log they capture, with the capture oracle on: every commit's capture is held against what a row trigger saw (POD-6982, POD-6994).",
     "apps/server/src/sync/record-builders.statement-count.test.ts": "Previously in the store shard; its store behavior still runs on Postgres after an import-graph change moved it to another cache shard.",
     "apps/server/src/sync/record-sources.test.ts": "The record source declarations both engines' change capture is generated from (POD-6982); its four cases that probe SQLite's capture triggers run on SQLite only, the rest on both (POD-6994).",
+    "apps/server/src/sync/session-record-bytes.test.ts": "The session record's checkpoint byte budget (POD-7575): the narrow checkpoint read is engine SQL (json_object on SQLite, json_build_object on Postgres), so the budget holds on both.",
     "apps/server/src/sync/session-source-writes.test.ts": "Previously in the store shard; its store behavior still runs on Postgres after an import-graph change moved it to another cache shard.",
     "apps/server/src/telemetry.test.ts": "Previously in the store shard; its store behavior still runs on Postgres after an import-graph change moved it to another cache shard.",
     "apps/server/src/transcript-indexer.test.ts": "Previously in the store shard; its store behavior still runs on Postgres after an import-graph change moved it to another cache shard.",

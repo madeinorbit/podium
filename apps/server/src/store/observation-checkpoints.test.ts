@@ -1,4 +1,4 @@
-import { asSessionId } from '@podium/model'
+import { asSessionId, firstAdminMemberId } from '@podium/model'
 import type { SessionObservationCheckpointV1 } from '@podium/protocol'
 import { expect, it } from 'vitest'
 
@@ -109,6 +109,98 @@ it('durably fences observation generations and rejects stale checkpoint writes',
     })
     await store.sessions.purgeSession(fixtureWriteScope(), asSessionId('s1'))
     expect(await store.observationCheckpoints.get(asSessionId('s1'))).toBeNull()
+  } finally {
+    await store.close()
+  }
+})
+
+it('reads only the record fields of a checkpoint, scoped as the full read (POD-7575)', async () => {
+  const store = await openTestStore(':memory:')
+  try {
+    const owner = await firstAdminMemberId(store)
+    const full = asSessionId('f-full')
+    const corrupt = asSessionId('f-corrupt')
+    const deleted = asSessionId('f-deleted')
+    const threadLess = asSessionId('f-thread-less')
+    const ids = [full, corrupt, asSessionId('f-lease-only'), deleted, threadLess]
+    for (const id of ids) {
+      await store.sessions.upsertSession(fixtureWriteScope(), {
+        id,
+        ownerUserId: owner,
+        agentKind: 'codex',
+        cwd: '/repo',
+        title: id,
+        name: null,
+        nameSource: null,
+        originKind: 'spawn',
+        conversationId: null,
+        resumeKind: null,
+        resumeValue: null,
+        status: 'exited',
+        exitCode: 0,
+        spawnFailure: null,
+        durableLabel: `label-${id}`,
+        createdAt: at,
+        lastActiveAt: at,
+        geometry: { cols: 80, rows: 24 },
+        archived: false,
+        workState: null,
+        machineId: store.hostMachine!.id,
+        lastOutputAt: null,
+        lastInputAt: null,
+        lastResumedAt: null,
+        spawnedBy: null,
+      } as never)
+      await store.observationCheckpoints.advanceGeneration(id, 'codex', `thread-${id}`)
+    }
+    const checkpointOf = (
+      id: string,
+      overrides: Partial<SessionObservationCheckpointV1> = {},
+    ): SessionObservationCheckpointV1 => ({
+      schemaVersion: 1,
+      podiumSessionId: asSessionId(id),
+      provider: 'codex',
+      providerSessionId: `thread-${id}`,
+      bindingVersion: 1,
+      lifecycleObservationGeneration: 1,
+      // What makes a live checkpoint about 11 KB: cursors and transition ids.
+      providerCursor: { segmentId: 'x'.repeat(4096), components: { file: 42 } },
+      bootstrapCursor: { segmentId: 'y'.repeat(4096), components: { file: 42 } },
+      lastAcceptedLiveCursor: null,
+      turnEpoch: 3,
+      providerTurnId: null,
+      providerPromptId: null,
+      turnState: { phase: 'idle', since: at, workingMsTotal: 4567, nativeSubagentCount: 0 },
+      terminalFence: null,
+      providerAt: at,
+      acceptedAt: at,
+      lastLiveReceiptAt: null,
+      lastTransitionId: 'snapshot-1',
+      acceptedTransitionIds: Array.from({ length: 32 }, (_, n) => `transition-${n}`),
+      ...overrides,
+    })
+    await store.observationCheckpoints.save(checkpointOf(full))
+    await store.observationCheckpoints.save(
+      checkpointOf(corrupt, { turnState: { phase: 'nonsense' } as never }),
+    )
+    await store.observationCheckpoints.save(checkpointOf(deleted))
+    await store.observationCheckpoints.save(
+      checkpointOf(threadLess, { providerSessionId: null, providerAt: null }),
+    )
+    await store.sessions.softDeleteSessions(fixtureWriteScope(), [deleted], at, 'standalone')
+
+    const facts = await store.observationCheckpoints.recordFactsOf(ids)
+    const checkpoints = await store.observationCheckpoints.checkpointsOf(ids)
+    // The same sessions as the full read: no lease-only, deleted or corrupt one.
+    expect([...facts.keys()].sort()).toEqual([...checkpoints.keys()].sort())
+    expect([...facts.keys()].sort()).toEqual([full, threadLess].sort())
+    for (const [id, checkpoint] of checkpoints) {
+      expect(facts.get(id)).toEqual({
+        turnState: checkpoint.turnState,
+        providerAt: checkpoint.providerAt,
+        providerSessionId: checkpoint.providerSessionId,
+      })
+    }
   } finally {
     await store.close()
   }

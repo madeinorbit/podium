@@ -90,6 +90,14 @@ export interface StatementObservation {
   /** Rows handed back. `run` is 0; `get` is 0 or 1; `all` is the row count. */
   readonly rows: number
   /**
+   * The rows themselves, BY REFERENCE (the driver's own array, never a copy), for
+   * a probe that weighs what a read carried (`countResultBytes`, POD-7575: a
+   * byte budget sees a whole column read in one statement, which a statement
+   * count cannot). Absent for `run` and for a failed statement. A probe must not
+   * change them, and should not keep them past the observation.
+   */
+  readonly resultRows?: readonly unknown[]
+  /**
    * Wall time of the DRIVER CALL this statement rode in, in ms.
    *
    * For a batch that is the whole batch's time, repeated on every member —
@@ -763,6 +771,7 @@ function observationOf(
     // would be zero anyway, but saying so here keeps parity with the old
     // wrapper explicit rather than incidental.
     rows: result === undefined ? 0 : statement.method === 'run' ? 0 : result.rows.length,
+    ...(result === undefined || statement.method === 'run' ? {} : { resultRows: result.rows }),
     durationMs,
     failed: result === undefined,
     batchSize,

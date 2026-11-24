@@ -93,6 +93,55 @@ export async function countStatements<T>(
   return { result, ...tallyOf(seen.map((observation) => observation.key)) }
 }
 
+/** What one operation's reads carried back from the database. */
+export interface ResultBytesTally {
+  /** Bytes of every value in every result row: text as UTF-8, numbers as 8. */
+  readonly bytes: number
+  /** Bytes per statement text (the whole text, so a test can tell tables apart). */
+  readonly byQuery: ReadonlyMap<string, number>
+}
+
+/** The weight of one result value: text as UTF-8, numbers 8, containers walked. */
+export function resultBytesOf(value: unknown): number {
+  if (value === null || value === undefined) return 0
+  if (typeof value === 'string') return Buffer.byteLength(value)
+  if (typeof value === 'number' || typeof value === 'bigint') return 8
+  if (typeof value === 'boolean') return 1
+  if (value instanceof Uint8Array) return value.byteLength
+  if (value instanceof Date) return 8
+  if (Array.isArray(value)) return value.reduce((sum: number, each) => sum + resultBytesOf(each), 0)
+  if (typeof value === 'object')
+    return Object.values(value).reduce((sum: number, each) => sum + resultBytesOf(each), 0)
+  return 0
+}
+
+/**
+ * WEIGH what `fn`'s statements read on `target`'s connection (POD-7575): the
+ * bytes of the rows handed back at the driver seam, per query. A byte budget
+ * catches what a statement pin cannot: a read that stays one statement but
+ * carries a whole JSON document per row where the caller needs three fields.
+ * Same window rules as {@link countStatements}.
+ */
+export async function countResultBytes<T>(
+  target: ProbeTarget,
+  fn: () => T | Promise<T>,
+): Promise<{ result: T } & ResultBytesTally> {
+  const byQuery = new Map<string, number>()
+  let bytes = 0
+  const detach = probeStatements(target as StatementProbeHolder, (observation) => {
+    const weight = resultBytesOf(observation.resultRows ?? [])
+    bytes += weight
+    byQuery.set(observation.sql, (byQuery.get(observation.sql) ?? 0) + weight)
+  })
+  let result: T
+  try {
+    result = await fn()
+  } finally {
+    detach()
+  }
+  return { result, bytes, byQuery }
+}
+
 /** A tally of statements given by their keys, one entry per execution. */
 export function tallyOf(keys: readonly string[]): StatementTally {
   const byQuery = new Map<string, number>()

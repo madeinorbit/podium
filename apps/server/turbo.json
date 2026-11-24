@@ -3567,6 +3567,7 @@
         "src/sync/route-support.ts",
         "src/sync/routes.ts",
         "src/sync/row-records.ts",
+        "src/sync/session-record-bytes.test.ts",
         "src/sync/session-source-writes.test.ts",
         "src/sync/session-source-writes.ts",
         "src/sync/stored-observations.test.ts",
