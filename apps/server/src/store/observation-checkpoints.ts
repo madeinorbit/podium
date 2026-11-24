@@ -187,20 +187,25 @@ const checkpointedLeasesOfIds = preparedFamily((db, t, size: number) =>
  */
 const CHECKPOINT_RECORD_KEYS = ['schemaVersion', 'turnState', 'providerAt', 'providerSessionId']
 function checkpointRecordFacts(db: StoreDrizzle, checkpoint: SQL): SQL<string | null> {
-  const pg = dialectOf(db) === 'pg'
+  if (dialectOf(db) === 'pg') {
+    // ONE PARSE. Each `->` on a `json` value parses the whole text again, so four
+    // of them cost more database time than the bytes they saved (the bench,
+    // POD-7575). `json_to_record` parses it once and keeps each field as `json`;
+    // `json_typeof` reads only the first token.
+    const columns = sql.raw(CHECKPOINT_RECORD_KEYS.map((key) => `"${key}" json`).join(', '))
+    const fields = sql.raw(CHECKPOINT_RECORD_KEYS.map((key) => `'${key}', r."${key}"`).join(', '))
+    return sql<
+      string | null
+    >`CASE WHEN json_typeof(${checkpoint}) = 'object' THEN (SELECT json_build_object(${fields})::text FROM json_to_record(${checkpoint}) AS r(${columns})) END`
+  }
+  // SQLite caches recently parsed JSON (3.45+), so the extracts share one parse.
   const fields = sql.join(
-    CHECKPOINT_RECORD_KEYS.map((key) =>
-      pg
-        ? sql`${sql.raw(`'${key}'`)}, ${checkpoint} -> ${sql.raw(`'${key}'`)}`
-        : sql`${sql.raw(`'${key}'`)}, json_extract(${checkpoint}, ${sql.raw(`'$.${key}'`)})`,
+    CHECKPOINT_RECORD_KEYS.map(
+      (key) => sql`${sql.raw(`'${key}'`)}, json_extract(${checkpoint}, ${sql.raw(`'$.${key}'`)})`,
     ),
     sql`, `,
   )
-  return pg
-    ? sql<
-        string | null
-      >`CASE WHEN json_typeof(${checkpoint}) = 'object' THEN json_build_object(${fields})::text END`
-    : sql<string | null>`CASE WHEN json_valid(${checkpoint}) THEN json_object(${fields}) END`
+  return sql<string | null>`CASE WHEN json_valid(${checkpoint}) THEN json_object(${fields}) END`
 }
 
 /** {@link checkpointRecordFacts} of a known set of sessions; tombstones and rows
