@@ -47,6 +47,7 @@ const scale = (n: number) => (SMOKE ? Math.max(10, Math.round(n * 0.02)) : n)
 const SESSIONS = scale(6_992)
 const CHECKPOINTS = scale(4_914)
 const PAIRS = SMOKE ? 1 : 5
+const SEED_BATCH = 250
 const AT = '2026-11-24T00:00:00.000Z'
 
 function checkpointOf(id: SessionId, n: number): SessionObservationCheckpointV1 {
@@ -86,42 +87,46 @@ function checkpointOf(id: SessionId, n: number): SessionObservationCheckpointV1 
 async function seed(store: SessionStore): Promise<void> {
   const owner = await firstAdminMemberId(store)
   const machineId = store.hostMachine?.id ?? TEST_MACHINE_ID
-  await store.transact(async () => {
-    for (let n = 0; n < SESSIONS; n++) {
-      const id = asSessionId(`bench-${String(n).padStart(5, '0')}`)
-      await store.sessions.upsertSession(fixtureWriteScope(), {
-        id,
-        ownerUserId: owner,
-        agentKind: n % 2 ? 'codex' : 'claude-code',
-        cwd: `/repo/.worktrees/issue-${n % 400}`,
-        title: `Session ${n}`,
-        name: null,
-        nameSource: null,
-        originKind: 'spawn',
-        conversationId: null,
-        resumeKind: null,
-        resumeValue: null,
-        status: n % 9 === 0 ? 'hibernated' : 'exited',
-        exitCode: 0,
-        spawnFailure: null,
-        durableLabel: `label-${id}`,
-        createdAt: new Date(Date.parse(AT) - (SESSIONS - n) * 60_000).toISOString(),
-        lastActiveAt: AT,
-        geometry: { cols: 120, rows: 40 },
-        archived: n % 4 === 0,
-        workState: null,
-        machineId,
-        lastOutputAt: null,
-        lastInputAt: null,
-        lastResumedAt: null,
-        spawnedBy: null,
-      } as never)
-      if (n < CHECKPOINTS) {
-        await store.observationCheckpoints.advanceGeneration(id, 'codex', `thread-${id}`)
-        await store.observationCheckpoints.save(checkpointOf(id, n))
+  // SEED_BATCH sessions per transaction: seeding the whole store in one transaction did not
+  // finish in 20 minutes on Postgres, each captured insert slower than the one before.
+  for (let from = 0; from < SESSIONS; from += SEED_BATCH) {
+    await store.transact(async () => {
+      for (let n = from; n < Math.min(SESSIONS, from + SEED_BATCH); n++) {
+        const id = asSessionId(`bench-${String(n).padStart(5, '0')}`)
+        await store.sessions.upsertSession(fixtureWriteScope(), {
+          id,
+          ownerUserId: owner,
+          agentKind: n % 2 ? 'codex' : 'claude-code',
+          cwd: `/repo/.worktrees/issue-${n % 400}`,
+          title: `Session ${n}`,
+          name: null,
+          nameSource: null,
+          originKind: 'spawn',
+          conversationId: null,
+          resumeKind: null,
+          resumeValue: null,
+          status: n % 9 === 0 ? 'hibernated' : 'exited',
+          exitCode: 0,
+          spawnFailure: null,
+          durableLabel: `label-${id}`,
+          createdAt: new Date(Date.parse(AT) - (SESSIONS - n) * 60_000).toISOString(),
+          lastActiveAt: AT,
+          geometry: { cols: 120, rows: 40 },
+          archived: n % 4 === 0,
+          workState: null,
+          machineId,
+          lastOutputAt: null,
+          lastInputAt: null,
+          lastResumedAt: null,
+          spawnedBy: null,
+        } as never)
+        if (n < CHECKPOINTS) {
+          await store.observationCheckpoints.advanceGeneration(id, 'codex', `thread-${id}`)
+          await store.observationCheckpoints.save(checkpointOf(id, n))
+        }
       }
-    }
-  })
+    })
+  }
 }
 
 const registry = serverRecordBuilders()
