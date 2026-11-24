@@ -47,8 +47,10 @@ import { useDockIssue } from '@/features/issues/dock-issue'
 import type { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
+import { queuedTitleEdit } from '@/features/issues/issue-text-save'
 import { useIssueStatusApply } from '@/features/issues/use-issue-status-apply'
 import { FLIGHT_DECK_ANCHOR } from '@/features/worklist/first-send-tip'
+import type { OpenedOn } from '@/features/worklist/use-inline-rename'
 import {
   type AgentRowStatus,
   agentFleetStatus,
@@ -1357,7 +1359,12 @@ export const FlightDeckContent = observer(function FlightDeckContent({
    * name belongs to its agent and can change while this uncontrolled input is
    * open; the seed must stay equal to what the operator actually saw and edited.
    */
-  const [renameTarget, setRenameTarget] = useState<{ id: string; seed: string } | null>(null)
+  // `opened`: the stored title and revision the rename opened on (POD-7556).
+  const [renameTarget, setRenameTarget] = useState<{
+    id: string
+    seed: string
+    opened?: OpenedOn
+  } | null>(null)
   /**
    * The shared commit policy (POD-407), applied here so no strip carries a
    * second copy: trim, then no-op on empty or unchanged. The no-op is the part
@@ -1366,11 +1373,12 @@ export const FlightDeckContent = observer(function FlightDeckContent({
    * on a title that did not change.
    */
   const renameIssue = useCallback(
-    (issueId: string, next: string, openedTitle: string): void => {
+    (issueId: string, next: string, openedTitle: string, opened?: OpenedOn): void => {
       const trimmed = next.trim()
-      const current = source.issue(issueId)?.title
-      if (!trimmed || trimmed === current || trimmed === openedTitle.trim()) return
-      void updateIssue(issueId, { title: trimmed })
+      const issue = source.issue(issueId)
+      if (!trimmed || trimmed === issue?.title || trimmed === openedTitle.trim()) return
+      // The rename names the revision it was cut from (POD-7556).
+      void updateIssue(issueId, { title: trimmed }, queuedTitleEdit(opened, issue))
     },
     [source, updateIssue],
   )
@@ -1448,6 +1456,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
         task.id,
         title,
         renameTarget?.id === task.id ? renameTarget.seed : task.row.title,
+        renameTarget?.id === task.id ? renameTarget.opened : undefined,
       ),
     onRenameDone: () => setRenameTarget(null),
   }
@@ -1610,6 +1619,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
               setRenameTarget({
                 id,
                 seed: screen.deck.model(id).title ?? issue.title,
+                opened: { text: issue.title, revision: issue.revision },
               })
             }
           }}

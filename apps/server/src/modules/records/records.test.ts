@@ -266,6 +266,28 @@ describe('records.issueProjection.edit', () => {
     expect(await rowsOf(o, 'm-second')).toEqual([])
   })
 
+  it('a description edit naming the revision it was cut from is refused once another writer moved it; without one it replaces (POD-7556)', async () => {
+    const o = await makeOracle()
+    const id = await createIssue(o)
+    const at = (await meta(o, id)).revision ?? undefined
+    const text = async () => (await o.reg.modules.issues.reports.get(id))?.description
+
+    // Another writer's description lands first.
+    appliedReply(await submit(o, edit(id, { description: 'theirs' }, at, 'm-theirs')))
+    // Mine was cut from the same revision: refused, theirs kept.
+    const mine = await submit(o, edit(id, { description: 'mine' }, at, 'm-mine'))
+    expect(refusal(mine)).toMatchObject({ kind: 'conflict' })
+    expect(await text()).toBe('theirs')
+    expect(await rowsOf(o, 'm-mine')).toEqual([])
+    // Named against the current revision it is a deliberate overwrite.
+    const now = (await meta(o, id)).revision ?? undefined
+    appliedReply(await submit(o, edit(id, { description: 'mine' }, now, 'm-mine-again')))
+    expect(await text()).toBe('mine')
+    // An older client names no revision: its edit replaces the text, as before.
+    appliedReply(await submit(o, edit(id, { description: 'older client' }, undefined, 'm-old')))
+    expect(await text()).toBe('older client')
+  })
+
   it('a plain field names no revision: edits of two fields made at one revision both land (POD-6405)', async () => {
     const o = await makeOracle()
     const id = await createIssue(o)

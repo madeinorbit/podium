@@ -58,8 +58,15 @@ export interface InlineRename {
  * committed as a title nobody chose. Snapshotting makes "unchanged" mean what
  * the operator saw, which is the only reading they can act on.
  */
-export function useInlineRename(current: string, onRename: (next: string) => void): InlineRename {
+export function useInlineRename(
+  current: string,
+  onRename: (next: string, opened?: OpenedOn) => void,
+  record?: () => OpenedOn,
+): InlineRename {
   const [seed, setSeed] = useState<string | null>(null)
+  // What the record held when the editor opened (POD-7556): its stored text
+  // and revision, so the rename names the revision it was cut from.
+  const [opened, setOpened] = useState<OpenedOn | undefined>(undefined)
   return {
     seed,
     editing: seed !== null,
@@ -68,14 +75,26 @@ export function useInlineRename(current: string, onRename: (next: string) => voi
     // re-reading `current` here would put the comparand back out of step with
     // it — the same drift the snapshot exists to prevent. (Both entry points
     // land here: the double-click and the context menu's Rename.)
-    begin: () => setSeed((prev) => prev ?? current),
+    begin: () => {
+      if (seed === null) setOpened(record?.())
+      setSeed((prev) => prev ?? current)
+    },
     cancel: () => setSeed(null),
     commit: (next: string) => {
       const trimmed = next.trim()
-      if (trimmed && trimmed !== seed) onRename(trimmed)
+      if (trimmed && trimmed !== seed) {
+        if (opened === undefined) onRename(trimmed)
+        else onRename(trimmed, opened)
+      }
       setSeed(null)
     },
   }
+}
+
+/** A record's stored text and revision when its editor opened. */
+export interface OpenedOn {
+  readonly text: string
+  readonly revision: number | undefined
 }
 
 /** Convenience for the row's `editor` slot: the node when open, `undefined`

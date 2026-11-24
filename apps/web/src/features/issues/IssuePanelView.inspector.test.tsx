@@ -496,7 +496,8 @@ describe('IssuePanelView draft naming', () => {
     draft: true,
     worktreePath: null,
     memberSessionIds: ['sd'],
-  })
+    revision: 3,
+  } as Parameters<typeof makeIssue>[0])
 
   beforeEach(() => {
     mockIssues = [DRAFT]
@@ -540,7 +541,12 @@ describe('IssuePanelView draft naming', () => {
     fireEvent.change(field, { target: { value: '  Artifact provenance  ' } })
     fireEvent.keyDown(field, { key: 'Enter' })
 
-    expect(updateIssue).toHaveBeenCalledWith('d1', { title: 'Artifact provenance' })
+    // It names the revision the editor opened on (POD-7556).
+    expect(updateIssue).toHaveBeenCalledWith(
+      'd1',
+      { title: 'Artifact provenance' },
+      { expectedRevision: 3 },
+    )
   })
 
   // Escape is the way out that writes nothing, and the head comes back.

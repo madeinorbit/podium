@@ -30,7 +30,7 @@ import { modChord } from '@/lib/mod-chord'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
-import { inlineRenameEditor, useInlineRename } from '../worklist/use-inline-rename'
+import { inlineRenameEditor, type OpenedOn, useInlineRename } from '../worklist/use-inline-rename'
 import { type FirstArtifactAnchorProps, useFirstArtifactAnchor } from './first-artifact-tip'
 import { IssueCompactControls } from './IssueCompactControls'
 import { IssueStatusPicker } from './IssueStatusPicker'
@@ -40,6 +40,7 @@ import { useIssueHistory } from './issue-page/IssueHistory'
 import { edgeIssue, useIssueEdgeResolver } from './issue-page/issue-edges'
 import { issueObserver as observer } from './issue-page/issue-observer'
 import { useIssuePageContext } from './issue-page/issue-page-data'
+import { queuedTitleEdit } from './issue-text-save'
 import { useIssueStatusApply } from './use-issue-status-apply'
 
 // THE CALM COLUMN (POD-2077). One scroll, read top to bottom: the name and its
@@ -209,12 +210,16 @@ const InspectHead = observer(function InspectHead({
    *  body. Never `issue.title` (POD-1618): a draft carries the composer's
    *  placeholder there. */
   title: string
-  onRename: (next: string) => void
+  /** `opened`: the stored title and revision the editor opened on (POD-7556). */
+  onRename: (next: string, opened?: OpenedOn) => void
   /** Expand the displayed task into its full issue page. */
   onOpenFullScreen?: () => void
   subtasks?: ReactNode
 }): JSX.Element {
-  const rename = useInlineRename(title, onRename)
+  const rename = useInlineRename(title, onRename, () => ({
+    text: issue.title,
+    revision: issue.revision,
+  }))
   const renameEditor = inlineRenameEditor(rename, ({ value, onCommit, onCancel }) => (
     <SessionNameEditor
       value={value}
@@ -904,8 +909,9 @@ export const IssuePanelBody = observer(function IssuePanelBody({
   const title = detail.title
   // UNCAUGHT, like every other outboxed curation write: the queue keeps a
   // rejected write and surfaces it in the recovery surface with its own toast.
-  const renameIssue = (next: string): void => {
-    void updateIssue(issue.id, { title: next })
+  // It names the revision it was cut from (POD-7556).
+  const renameIssue = (next: string, opened?: OpenedOn): void => {
+    void updateIssue(issue.id, { title: next }, queuedTitleEdit(opened, issue))
   }
 
   // Relations, one group per kind, the parent first. Unresolvable targets keep

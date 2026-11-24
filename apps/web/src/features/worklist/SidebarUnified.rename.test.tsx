@@ -77,7 +77,7 @@ vi.mock('@/app/store', () => {
     machines: [],
     pins: { panels: [], worktrees: [], repos: [] },
     setPinned: vi.fn(),
-    issues: [issue('a', 'Original title')],
+    issues: [issue('a', 'Original title', { revision: 7 })],
     trpc: {
       settings: {
         get: { query: vi.fn(async () => ({ sessionDefaults: { agent: 'claude-code' } })) },
@@ -95,7 +95,7 @@ vi.mock('@/app/store', () => {
     fileTabs: [],
     view: 'workspace',
     setView: vi.fn(),
-    sidebarSettings: { },
+    sidebarSettings: {},
     setSidebarSettings: vi.fn(),
     uiState: { get: () => null, set: () => {}, subscribe: () => () => {} },
     spawnDraftAgent: vi.fn(),
@@ -150,7 +150,12 @@ describe('SidebarUnified issue rename (#170 Fix 3)', () => {
     const input = screen.getByDisplayValue('Original title') as HTMLInputElement
     fireEvent.change(input, { target: { value: 'Renamed issue' } })
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(updateIssue).toHaveBeenCalledWith('a', { title: 'Renamed issue' })
+    // It names the revision the editor opened on (POD-7556).
+    expect(updateIssue).toHaveBeenCalledWith(
+      'a',
+      { title: 'Renamed issue' },
+      { expectedRevision: 7 },
+    )
     expect(updateMutate).not.toHaveBeenCalled()
   })
 

@@ -40,7 +40,7 @@ import { PhaseTimer, WorkingMark } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import { type PoolIssueDisplay, rowVoice, worklistIssueStatus } from './pool-row-data'
-import { inlineRenameEditor, useInlineRename } from './use-inline-rename'
+import { inlineRenameEditor, type OpenedOn, useInlineRename } from './use-inline-rename'
 import { WorkRowShell } from './WorkRowShell'
 
 // Deferred for the same reason `SessionContextMenu` is (sidebar-common): the
@@ -138,7 +138,8 @@ function UnifiedIssueRowInner({
   onSelectPanelForIssue: (issue: IssueNavigationModel, sessionId: SessionId) => void
   /** Open the issue PAGE (the context menu's "Open"). */
   onOpenIssue: (id: IssueId) => void
-  onRenameIssue: (id: string, title: string) => void
+  /** `opened`: the stored title and revision the editor opened on (POD-7556). */
+  onRenameIssue: (id: string, title: string, opened?: OpenedOn) => void
   /** Manual-sort drag start (POD-168); absent = row not draggable. */
   onGripDown?: (e: ReactPointerEvent, issueId: IssueId) => void
   /** Dismiss a finished row into the Closed fold (POD-293); absent = not a
@@ -177,7 +178,11 @@ function UnifiedIssueRowInner({
   // the word "Draft" to edit is an editor for some other row. The hook snapshots
   // whatever it opened on and hands it back as `value`, so the field and the
   // commit policy measure the same string even when the label moves underneath.
-  const rename = useInlineRename(label, (next) => onRenameIssue(issue.id, next))
+  const rename = useInlineRename(
+    label,
+    (next, opened) => onRenameIssue(issue.id, next, opened),
+    () => ({ text: issue.title, revision: issue.revision }),
+  )
   const renameEditor = inlineRenameEditor(rename, ({ value, onCommit, onCancel }) => (
     <SessionNameEditor value={value} onCommit={onCommit} onCancel={onCancel} />
   ))

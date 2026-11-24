@@ -50,6 +50,21 @@ describe('useInlineRename', () => {
     expect(onRename).not.toHaveBeenCalled()
   })
 
+  // POD-7556: the record's stored title and revision are taken on open too, so
+  // the rename names the revision it was cut from, not one that arrived later.
+  it('hands the commit the record as it was when the editor opened', () => {
+    const onRename = vi.fn()
+    const { result, rerender } = renderHook(
+      ({ revision }: { revision: number }) =>
+        useInlineRename('Original title', onRename, () => ({ text: 'Original title', revision })),
+      { initialProps: { revision: 4 } },
+    )
+    act(() => result.current.begin())
+    rerender({ revision: 5 })
+    act(() => result.current.commit('Renamed issue'))
+    expect(onRename).toHaveBeenCalledWith('Renamed issue', { text: 'Original title', revision: 4 })
+  })
+
   // THE RACE THIS SNAPSHOT CLOSES. The field is uncontrolled: it holds the text
   // it was seeded with. Measured against the LIVE name, an agent renaming itself
   // while the editor sits open turns the fumble the policy absorbs into a write

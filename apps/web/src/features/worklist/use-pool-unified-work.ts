@@ -16,7 +16,9 @@ import { runInAction } from 'mobx'
 import { useMemo, useRef } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { readIssueMenuOrigins } from '@/features/issues/issue-menu-readers'
+import { queuedTitleEdit } from '@/features/issues/issue-text-save'
 import type { UnifiedIssueRowMenuData } from './UnifiedIssueRow'
+import type { OpenedOn } from './use-inline-rename'
 
 /** Addressed mission target seam shared with the dock's task panel. It reads the raw
  * parent relation so an archived ancestor stops the walk, as in navigation. */
@@ -249,8 +251,14 @@ export function createPoolWorkActions(
       runtime.ui.setOpenIssueId(id)
       runtime.ui.setView('issues')
     },
-    renameIssue: (id: string, title: string) => {
-      void commands.issues.update(id, { title })
+    // The rename names the revision it was cut from (POD-7556).
+    renameIssue: (id: string, title: string, opened?: OpenedOn) => {
+      const row = allowImperativeRead(() => omitGone(pool.row('issue', id)))
+      void commands.issues.update(
+        id,
+        { title },
+        queuedTitleEdit(opened, row === LOADING ? undefined : (row ?? undefined)),
+      )
     },
     archiveIssue: (id: string) => commands.issues.archive(id),
     captureArchiveBatch: (rootIds: readonly string[]) =>
