@@ -180,6 +180,51 @@ export const RAW_RELATION_READERS: readonly RawRelationReader[] = [
     'models.ts',
     'get missionBucket(): MissionTaskBucket | null',
   ),
+  // The new phone app (POD-7578) reached integrate in POD-7592; its board and
+  // its task rows still read these relations raw. Moving them onto holding
+  // reads is the phone follow-up's job (POD-7555).
+  ...reader(
+    'observerTaskRow',
+    ['issue.pageSessions', 'issue.pageDependents'],
+    'POD-7555',
+    'apps/mobile/src/screens/TasksSurface.tsx',
+    'const TaskRow = observer(function TaskRow({',
+  ),
+  ...reader(
+    'BoardTask.mark',
+    ['issue.missionSessions'],
+    'POD-7555',
+    'mobile-tasks.ts',
+    '@lazy get mark(): TaskRowMark {',
+  ),
+  ...reader(
+    'IssueModel.descendantTaskProgress',
+    ['issue.treeChildren', 'issue.pageSessions'],
+    'POD-7555',
+    'models.ts',
+    'private get descendantTaskProgress(): TaskProgress | null {',
+  ),
+  ...reader(
+    'WorklistIssue.formalChildIds',
+    ['issue.children'],
+    'POD-7555',
+    'worklist/issue.ts',
+    'private get formalChildIds(): readonly string[] {',
+  ),
+  ...reader(
+    'WorklistIssue.unitOwnUnit',
+    ['issue.spinOffs'],
+    'POD-7555',
+    'worklist/issue.ts',
+    "private get unitOwnUnit(): UnitOwn['unit'] {",
+  ),
+  ...reader(
+    'WorklistIssue.unitOwnDone',
+    ['issue.spinOffs'],
+    'POD-7555',
+    'worklist/issue.ts',
+    "private get unitOwnDone(): UnitOwn['done'] {",
+  ),
   ...reader(
     'observerIssueNow',
     ['issue.missionSessions'],

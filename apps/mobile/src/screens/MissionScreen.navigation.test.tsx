@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import { asIssueId, asSessionId } from '@podium/model'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { NavigationContext } from 'expo-router/build/react-navigation/core/NavigationContext'
@@ -139,6 +140,17 @@ vi.mock('../components/WorkIssueMenu', () => ({ WorkIssueMenu: () => null }))
 vi.mock('../components/WorkingMark', () => ({ WorkingMark: () => null }))
 const { MissionScreen } = await import('./MissionScreen')
 const { MissionDetailsScreen } = await import('./MissionDetailsScreen')
+
+/** The fixture paints every row a mission screen reads and has no loader, so
+ *  it says so: integrate answers a loaderless device's held reads LOADING
+ *  unless the fixture vouches for them (POD-7592). */
+async function renderFullDevice(...args: Parameters<typeof renderWithMobileStore>) {
+  const mounted = await renderWithMobileStore(...args)
+  act(() => {
+    if (mounted.pool) fullDevice(mounted.pool)
+  })
+  return mounted
+}
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
@@ -273,7 +285,7 @@ it('names the opening chat from the pool without a deck-owned transcript skeleto
       </button>
     )
   }
-  await renderWithMobileStore(<Entry />, {
+  await renderFullDevice(<Entry />, {
     issues: [issue('child', { title: 'Pricing page draft' })],
   })
   // A Work/Tasks row is already drawn from this pool. Check the very first
@@ -309,7 +321,7 @@ it('names the opening chat from the pool without a deck-owned transcript skeleto
 it('uses the requested session task title before mission membership resolves', async () => {
   navigation.holdOpening = true
   navigation.params = { missionId: 'root', sessionId: 'child-lead' }
-  await renderWithMobileStore(<MissionScreen />, {
+  await renderFullDevice(<MissionScreen />, {
     issues: [
       issue('root'),
       issue('child', { parentId: asIssueId('root'), title: 'Pricing page draft' }),
@@ -325,7 +337,7 @@ it('names the opened task, not a remembered helper, before the mission deck reso
   navigation.holdOpening = true
   navigation.remembered = 'child-helper'
   navigation.params = { missionId: 'root' }
-  await renderWithMobileStore(<MissionScreen />, {
+  await renderFullDevice(<MissionScreen />, {
     issues: [
       issue('root', { title: 'Cloud factory strategy' }),
       issue('child', { parentId: asIssueId('root'), title: 'Pricing page draft' }),
@@ -340,7 +352,7 @@ it('names the opened task, not a remembered helper, before the mission deck reso
 it('opens a bare mission on the coordinator even when a helper pane is remembered', async () => {
   navigation.remembered = 'child-helper'
   navigation.params = { missionId: 'child' }
-  await renderWithMobileStore(<MissionScreen />, {
+  await renderFullDevice(<MissionScreen />, {
     issues: [
       issue('root', { coordinatorSessionId: asSessionId('root-lead') }),
       issue('child', {
@@ -360,7 +372,7 @@ it('opens a bare mission on the coordinator even when a helper pane is remembere
 it('pins the chat page to the session the route names over a remembered pane', async () => {
   navigation.remembered = 'child-helper'
   navigation.params = { missionId: 'child', sessionId: 'root-lead' }
-  await renderWithMobileStore(<MissionScreen />, {
+  await renderFullDevice(<MissionScreen />, {
     issues: [
       issue('root', { coordinatorSessionId: asSessionId('root-lead') }),
       issue('child', {
@@ -381,7 +393,7 @@ const deckPage = () => screen.getByTestId('pager-deck-page')
 const onDeckPage = () => deckPage().getAttribute('aria-hidden') !== 'true'
 
 it('pages from the chat to its deck and swaps the chat to a seat or task picked there', async () => {
-  await renderWithMobileStore(<Navigator />, {
+  await renderFullDevice(<Navigator />, {
     issues: [
       issue('root', {
         title: 'Cloud factory strategy',
@@ -498,7 +510,7 @@ it('pages from the chat to its deck and swaps the chat to a seat or task picked 
 
 it('web keeps an explicit chat-to-deck URL push and returns to the selected conversation', async () => {
   navigation.platform = 'web'
-  await renderWithMobileStore(<Navigator />, {
+  await renderFullDevice(<Navigator />, {
     issues: [
       issue('root', { coordinatorSessionId: asSessionId('root-lead') }),
       issue('child', {
@@ -545,7 +557,7 @@ it('web keeps an explicit chat-to-deck URL push and returns to the selected conv
 })
 
 it('keeps a remembered child helper when opening that task from the deck', async () => {
-  await renderWithMobileStore(<Navigator />, {
+  await renderFullDevice(<Navigator />, {
     issues: [
       issue('root', { coordinatorSessionId: asSessionId('root-lead') }),
       issue('child', {
@@ -571,7 +583,7 @@ it('keeps a remembered child helper when opening that task from the deck', async
 })
 
 it('opens an unseated child task in details instead of its parent conversation', async () => {
-  await renderWithMobileStore(<Navigator />, {
+  await renderFullDevice(<Navigator />, {
     issues: [
       issue('root', { coordinatorSessionId: asSessionId('root-lead') }),
       issue('child', { parentId: asIssueId('root') }),
@@ -598,7 +610,7 @@ const crewSessions = [
 ]
 
 it('a link naming another seat reopens the mounted screen on its chat, from the deck page', async () => {
-  await renderWithMobileStore(<Navigator />, { issues: crewIssues, sessions: crewSessions })
+  await renderFullDevice(<Navigator />, { issues: crewIssues, sessions: crewSessions })
   await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
   const key = navigation.state?.routes.at(-1)?.key
   await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
@@ -612,7 +624,7 @@ it('a link naming another seat reopens the mounted screen on its chat, from the 
 })
 
 it('a bare link after a helper pick reopens the mounted screen on the coordinator', async () => {
-  await renderWithMobileStore(<Navigator />, { issues: crewIssues, sessions: crewSessions })
+  await renderFullDevice(<Navigator />, { issues: crewIssues, sessions: crewSessions })
   await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
   await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
   await act(async () => fireEvent.click(screen.getByRole('button', { name: /^child-helper,/ })))
@@ -627,7 +639,7 @@ it('a bare link after a helper pick reopens the mounted screen on the coordinato
 })
 
 it('a link with the seat already shown still brings the chat page back', async () => {
-  await renderWithMobileStore(<Navigator />, { issues: crewIssues, sessions: crewSessions })
+  await renderFullDevice(<Navigator />, { issues: crewIssues, sessions: crewSessions })
   await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
   await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
   await navigation.reopen({ missionId: 'child', sessionId: 'child-lead' })
@@ -636,7 +648,7 @@ it('a link with the seat already shown still brings the chat page back', async (
 })
 
 it('Back on the deck page returns to the chat, like the edge swipe there [POD-2527]', async () => {
-  await renderWithMobileStore(<Navigator />, { issues: crewIssues, sessions: crewSessions })
+  await renderFullDevice(<Navigator />, { issues: crewIssues, sessions: crewSessions })
   await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
   // On the chat page the system back leaves the screen as usual.
   expect(navigation.preventRemove?.prevented).toBe(false)
@@ -652,7 +664,7 @@ it('Back on the deck page returns to the chat, like the edge swipe there [POD-25
 })
 
 it('programmatic Back from the deck still pages to chat', async () => {
-  await renderWithMobileStore(<Navigator />, { issues: crewIssues, sessions: crewSessions })
+  await renderFullDevice(<Navigator />, { issues: crewIssues, sessions: crewSessions })
   await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
   await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
   await act(async () =>
@@ -663,7 +675,7 @@ it('programmatic Back from the deck still pages to chat', async () => {
 })
 
 it('keeps the same Back destination after a half pager swipe snaps back', async () => {
-  await renderWithMobileStore(<Navigator />, { issues: crewIssues, sessions: crewSessions })
+  await renderFullDevice(<Navigator />, { issues: crewIssues, sessions: crewSessions })
   await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
   const routeKey = navigation.state?.routes.at(-1)?.key
   // A drag crosses the midpoint, then is cancelled back to the chat.
@@ -691,7 +703,7 @@ it('keeps the same Back destination after a half pager swipe snaps back', async 
 })
 
 it('any other removal from the deck page still goes through', async () => {
-  await renderWithMobileStore(<Navigator />, { issues: crewIssues, sessions: crewSessions })
+  await renderFullDevice(<Navigator />, { issues: crewIssues, sessions: crewSessions })
   await waitFor(() => expect(screen.getByTestId('chat').textContent).toBe('child-lead'))
   await act(async () => fireEvent.click(screen.getByTestId('mission-bar')))
   expect(navigation.preventRemove?.prevented).toBe(true)
