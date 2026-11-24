@@ -1,6 +1,11 @@
 import { addSink, type LogRecord, resetLogging } from '@podium/logger'
-import { CLIENT_WIRE_VERSION } from '@podium/protocol'
+import {
+  CLIENT_WIRE_VERSION,
+  SYNC_RECOVERY_ID_HEADER,
+  SYNC_RECOVERY_REASON_HEADER,
+} from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { clientRecoveryId } from '../logging/recovery'
 import {
   createSyncTransferTelemetry,
   HttpBootstrapSource,
@@ -17,44 +22,88 @@ const TRANSFER_ID = 'srv-transfer'
 
 /** A well-formed snapshot of `records` records carrying `rowsPer` rows each. */
 function snapshot(records: number, rowsPer: number): unknown[] {
-  const lines: unknown[] = [{
-    type: 'syncMeta', kindTokens: {}, formatVersion: 1, mode: 'snapshot', transferId: TRANSFER_ID, ...feed,
-    seq: SNAPSHOT_SEQ, minAvailableSeq: 0, wireVersion: CLIENT_WIRE_VERSION,
-    wireSchemaDigest: '0123456789abcdef', totalRows: records * rowsPer,
-  }]
+  const lines: unknown[] = [
+    {
+      type: 'syncMeta',
+      kindTokens: {},
+      formatVersion: 1,
+      mode: 'snapshot',
+      transferId: TRANSFER_ID,
+      ...feed,
+      seq: SNAPSHOT_SEQ,
+      minAvailableSeq: 0,
+      wireVersion: CLIENT_WIRE_VERSION,
+      wireSchemaDigest: '0123456789abcdef',
+      totalRows: records * rowsPer,
+    },
+  ]
   for (let i = 0; i < records; i += 1) {
     lines.push({
-      type: 'feedBootstrap', ...feed, fromSeq: 0, seq: SNAPSHOT_SEQ, minAvailableSeq: 0,
+      type: 'feedBootstrap',
+      ...feed,
+      fromSeq: 0,
+      seq: SNAPSHOT_SEQ,
+      minAvailableSeq: 0,
       last: i === records - 1,
       changes: Array.from({ length: rowsPer }, (_, j) => ({
-        seq: j + 1, entity: 'future-kind', entityId: `${i}-${j}`, op: 'upsert', value: { title: 'x' },
+        seq: j + 1,
+        entity: 'future-kind',
+        entityId: `${i}-${j}`,
+        op: 'upsert',
+        value: { title: 'x' },
       })),
     })
   }
-  lines.push({ type: 'syncComplete', transferId: TRANSFER_ID, seq: SNAPSHOT_SEQ, records, rows: records * rowsPer })
+  lines.push({
+    type: 'syncComplete',
+    transferId: TRANSFER_ID,
+    seq: SNAPSHOT_SEQ,
+    records,
+    rows: records * rowsPer,
+  })
   return lines
 }
 
 function deltaRange(from: number, to: number): unknown[] {
   return [
-    { type: 'syncMeta', kindTokens: {}, formatVersion: 1, mode: 'delta', transferId: TRANSFER_ID, ...feed,
-      seq: to, fromSeq: from, minAvailableSeq: 0, wireVersion: CLIENT_WIRE_VERSION, wireSchemaDigest: '0123456789abcdef' },
-    { type: 'feedDelta', ...feed, fromSeq: from, seq: to, minAvailableSeq: 0,
-      changes: [{ seq: to, entity: 'future-kind', entityId: 'd', op: 'upsert', value: {} }] },
+    {
+      type: 'syncMeta',
+      kindTokens: {},
+      formatVersion: 1,
+      mode: 'delta',
+      transferId: TRANSFER_ID,
+      ...feed,
+      seq: to,
+      fromSeq: from,
+      minAvailableSeq: 0,
+      wireVersion: CLIENT_WIRE_VERSION,
+      wireSchemaDigest: '0123456789abcdef',
+    },
+    {
+      type: 'feedDelta',
+      ...feed,
+      fromSeq: from,
+      seq: to,
+      minAvailableSeq: 0,
+      changes: [{ seq: to, entity: 'future-kind', entityId: 'd', op: 'upsert', value: {} }],
+    },
     { type: 'syncComplete', transferId: TRANSFER_ID, seq: to, records: 1, rows: 1 },
   ]
 }
 
 /** One transport read per line, so the read boundary is exercised repeatedly. */
 function body(lines: unknown[]): ReadableStream<Uint8Array> {
-  const parts = lines.map(value => encoder.encode(`${JSON.stringify(value)}\n`))
+  const parts = lines.map((value) => encoder.encode(`${JSON.stringify(value)}\n`))
   let index = 0
-  return new ReadableStream<Uint8Array>({
-    pull(controller) {
-      if (index === parts.length) controller.close()
-      else controller.enqueue(parts[index++]!)
+  return new ReadableStream<Uint8Array>(
+    {
+      pull(controller) {
+        if (index === parts.length) controller.close()
+        else controller.enqueue(parts[index++]!)
+      },
     },
-  }, { highWaterMark: 0 })
+    { highWaterMark: 0 },
+  )
 }
 
 function responseOf(
@@ -69,15 +118,22 @@ function responseOf(
 
 function harness(options: { progressRecords?: number } = {}) {
   const lines: LogRecord[] = []
-  addSink({ name: 'capture', minLevel: 'trace', write: (record) => { lines.push(record) } })
+  addSink({
+    name: 'capture',
+    minLevel: 'trace',
+    write: (record) => {
+      lines.push(record)
+    },
+  })
   // One monotonic tick per reading, so every interval this file asserts on is
   // strictly positive and the arithmetic below is deterministic.
   let tick = 0
   const telemetry = createSyncTransferTelemetry({ ...options, now: () => (tick += 1) })
   return {
     telemetry,
-    mine: (): LogRecord[] => lines.filter(record => record.ns === NS),
-    of: (msg: string): LogRecord[] => lines.filter(record => record.ns === NS && record.msg === msg),
+    mine: (): LogRecord[] => lines.filter((record) => record.ns === NS),
+    of: (msg: string): LogRecord[] =>
+      lines.filter((record) => record.ns === NS && record.msg === msg),
   }
 }
 
@@ -114,19 +170,19 @@ describe('sync transfer telemetry (POD-4071)', () => {
     await drain(bootstrap.bootstrap())
 
     const mine = h.mine()
-    expect(mine.map(record => record.msg)).toEqual([
+    expect(mine.map((record) => record.msg)).toEqual([
       'sync transfer started',
       'sync transfer opened',
       'sync transfer first record',
       'sync transfer finished',
     ])
-    expect([...new Set(mine.map(record => record.level))]).toEqual(['debug'])
+    expect([...new Set(mine.map((record) => record.level))]).toEqual(['debug'])
     // The started line CANNOT carry it — the response has not opened yet — and
     // saying so is the point: it is why the client mints an attempt id at all.
     expect(mine[0]?.transferId).toBeNull()
     expect(mine[0]?.attemptId).toBe('b1')
-    expect(mine.slice(1).map(record => record.transferId)).toEqual(Array(3).fill(TRANSFER_ID))
-    expect([...new Set(mine.map(record => record.attemptId))]).toEqual(['b1'])
+    expect(mine.slice(1).map((record) => record.transferId)).toEqual(Array(3).fill(TRANSFER_ID))
+    expect([...new Set(mine.map((record) => record.attemptId))]).toEqual(['b1'])
   })
 
   it('names the replica cause that started the walk, and reads cold-start as first boot', async () => {
@@ -138,7 +194,9 @@ describe('sync transfer telemetry (POD-4071)', () => {
     h.telemetry.noteReplicaEvent({ type: 'heal', rung: 4, cause: 'epoch-mismatch' })
     await drain(bootstrap.bootstrap())
 
-    expect(h.of('sync transfer started').map(r => [r.cause, r.coldStart, r.attempt, r.attemptId])).toEqual([
+    expect(
+      h.of('sync transfer started').map((r) => [r.cause, r.coldStart, r.attempt, r.attemptId]),
+    ).toEqual([
       ['cold-start', true, 1, 'b1'],
       ['epoch-mismatch', false, 2, 'b2'],
     ])
@@ -155,7 +213,9 @@ describe('sync transfer telemetry (POD-4071)', () => {
     const { bootstrap: cold } = sources(h.telemetry, () => responseOf(snapshot(1, 1)))
     await drain(cold.bootstrap())
 
-    expect(h.of('sync transfer started').map(r => [r.mode, r.cause, r.coldStart, r.attemptId])).toEqual([
+    expect(
+      h.of('sync transfer started').map((r) => [r.mode, r.cause, r.coldStart, r.attemptId]),
+    ).toEqual([
       ['delta', 'gap', null, 'd1'],
       // The gap was consumed by the delta; this bootstrap has no cause of its own.
       ['bootstrap', null, false, 'b1'],
@@ -171,30 +231,105 @@ describe('sync transfer telemetry (POD-4071)', () => {
     h.telemetry.noteReplicaEvent({ type: 'heal', rung: 2, cause: 'kind-shape', partial: true })
     await drain(bootstrap.bootstrap())
 
-    expect(h.of('sync transfer started').map(r => [r.mode, r.cause, r.attemptId])).toEqual([
+    expect(h.of('sync transfer started').map((r) => [r.mode, r.cause, r.attemptId])).toEqual([
       ['bootstrap', null, 'b1'],
     ])
+    expect(h.of('sync transfer started')[0]?.recoveryReason).toBe('unknown')
   })
 
-  it('drops a marker walk\'s cause when the walk ends without its call (POD-7560)', async () => {
+  it("drops a marker walk's cause when the walk ends without its call (POD-7560)", async () => {
     const h = harness()
     h.telemetry.noteReplicaEvent({ type: 'heal', rung: 2, cause: 'markers', partial: true })
     h.telemetry.noteReplicaEvent({ type: 'posture', posture: 'live', previous: 'bootstrapping' })
     const attempt = h.telemetry.begin('collections', 'https://example.test/sync/collections', {})
     attempt.finish('complete')
 
-    expect(h.of('sync transfer started').map(r => [r.mode, r.cause])).toEqual([['collections', null]])
+    expect(h.of('sync transfer started').map((r) => [r.mode, r.cause])).toEqual([
+      ['collections', null],
+    ])
+    expect(h.of('sync recovery finished')[0]).toMatchObject({
+      transferMode: 'partial-reload',
+      recoveryReason: 'markers',
+      outcome: 'deferred',
+    })
+    expect(attempt.headers[SYNC_RECOVERY_REASON_HEADER]).toBe('collection-demand')
+  })
+
+  it('links a completed marker walk with the landed markers cause and the collections transfer', async () => {
+    const h = harness()
+    const { bootstrap, fetch } = sources(h.telemetry, () => responseOf(snapshot(1, 1)))
+    h.telemetry.noteReplicaEvent({ type: 'heal', rung: 2, cause: 'markers', partial: true })
+    await drain(bootstrap.collections([{ collection: 'session.live', part: 'main' }]))
+    h.telemetry.noteReplicaEvent({
+      type: 'bootstrap-installed',
+      cause: 'markers',
+      snapshotSeq: SNAPSHOT_SEQ,
+      entityCount: 1,
+      bufferedFramesApplied: 0,
+    })
+    h.telemetry.noteReplicaEvent({ type: 'posture', posture: 'live', previous: 'bootstrapping' })
+    expect(h.of('sync recovery started')[0]).toMatchObject({
+      transferMode: 'partial-reload',
+      recoveryReason: 'markers',
+      path: 'partial-reload',
+      clientRecoveryId,
+    })
+    expect(h.of('sync recovery finished')[0]).toMatchObject({
+      transferMode: 'partial-reload',
+      recoveryReason: 'markers',
+      outcome: 'partially-reloaded',
+      clientRecoveryId,
+    })
+    expect(h.of('sync bootstrap installed')[0]).toMatchObject({
+      mode: 'collections',
+      cause: 'markers',
+    })
+    expect(new Headers(fetch.mock.calls[0]?.[1].headers).get(SYNC_RECOVERY_REASON_HEADER)).toBe(
+      'markers',
+    )
+  })
+
+  it('records an exhausted marker walk as deferred and clears its cause before another fetch', () => {
+    const h = harness()
+    h.telemetry.noteReplicaEvent({ type: 'heal', rung: 2, cause: 'markers', partial: true })
+    h.telemetry.noteReplicaEvent({
+      type: 'bootstrap-failed',
+      cause: 'markers',
+      attempts: 3,
+      error: 'source-refused',
+    })
+    h.telemetry.noteReplicaEvent({ type: 'posture', posture: 'live', previous: 'bootstrapping' })
+    expect(h.of('sync recovery finished')).toMatchObject([
+      {
+        transferMode: 'partial-reload',
+        recoveryReason: 'markers',
+        outcome: 'deferred',
+        clientRecoveryId,
+      },
+    ])
+    const attempt = h.telemetry.begin('collections', '/sync/collections')
+    expect(attempt.headers[SYNC_RECOVERY_REASON_HEADER]).toBe('collection-demand')
+    expect(h.of('sync transfer started')[0]?.cause).toBeNull()
+    attempt.finish('complete')
   })
 
   it('states the status, the coding the server chose, and whether the body streams', async () => {
     const h = harness()
-    const { bootstrap } = sources(h.telemetry, () => responseOf(snapshot(1, 1), { encoding: 'gzip' }))
+    const { bootstrap } = sources(h.telemetry, () =>
+      responseOf(snapshot(1, 1), { encoding: 'gzip' }),
+    )
 
     await drain(bootstrap.bootstrap())
 
-    expect(h.of('sync transfer started')[0]).toMatchObject({ acceptEncoding: 'gzip', url: 'https://example.test/sync/bootstrap' })
+    expect(h.of('sync transfer started')[0]).toMatchObject({
+      acceptEncoding: 'gzip',
+      url: 'https://example.test/sync/bootstrap',
+    })
     expect(h.of('sync transfer opened')[0]).toMatchObject({
-      status: 200, contentEncoding: 'gzip', streaming: true, transferId: TRANSFER_ID,
+      status: 200,
+      contentEncoding: 'gzip',
+      streaming: true,
+      transferId: TRANSFER_ID,
     })
   })
 
@@ -206,7 +341,10 @@ describe('sync transfer telemetry (POD-4071)', () => {
 
     expect(h.of('sync transfer opened')[0]).toMatchObject({ status: 401, transferId: TRANSFER_ID })
     expect(h.of('sync transfer finished')[0]).toMatchObject({
-      outcome: 'failed', reason: 'SyncAuthExpiredError:http-401', transferId: TRANSFER_ID, records: 0,
+      outcome: 'failed',
+      reason: 'SyncAuthExpiredError:http-401',
+      transferId: TRANSFER_ID,
+      records: 0,
     })
   })
 
@@ -220,9 +358,13 @@ describe('sync transfer telemetry (POD-4071)', () => {
     expect(progress.length).toBeGreaterThan(0)
     // 9 records carrying 450 rows. Per-record would be >= 9 lines, per-row >= 450.
     expect(progress.length).toBeLessThan(9)
-    expect(progress.map(record => record.records)).toEqual([4, 7])
-    expect(progress.map(record => record.rows)).toEqual([200, 350])
-    expect(h.of('sync transfer finished')[0]).toMatchObject({ records: 9, rows: 450, totalRows: 450 })
+    expect(progress.map((record) => record.records)).toEqual([4, 7])
+    expect(progress.map((record) => record.rows)).toEqual([200, 350])
+    expect(h.of('sync transfer finished')[0]).toMatchObject({
+      records: 9,
+      rows: 450,
+      totalRows: 450,
+    })
     // The terminal line answers to both names, so a reader joining the two
     // halves of one transfer never has to know which side called it which.
     const finished = h.of('sync transfer finished')[0]!
@@ -249,12 +391,18 @@ describe('sync transfer telemetry (POD-4071)', () => {
     // The install is not in the stream at all — it happens after the last chunk —
     // so it arrives through the Replica's own event and carries the same id.
     h.telemetry.noteReplicaEvent({
-      type: 'bootstrap-installed', cause: 'cold-start', snapshotSeq: SNAPSHOT_SEQ,
-      entityCount: 6, bufferedFramesApplied: 0,
+      type: 'bootstrap-installed',
+      cause: 'cold-start',
+      snapshotSeq: SNAPSHOT_SEQ,
+      entityCount: 6,
+      bufferedFramesApplied: 0,
     })
     const installed = h.of('sync bootstrap installed')[0]!
     expect(installed).toMatchObject({
-      transferId: TRANSFER_ID, attemptId: 'b1', cause: 'cold-start', entityCount: 6,
+      transferId: TRANSFER_ID,
+      attemptId: 'b1',
+      cause: 'cold-start',
+      entityCount: 6,
     })
     expect(installed.commitMs as number).toBeGreaterThan(0)
     expect(installed.totalMs as number).toBeGreaterThan(installed.commitMs as number)
@@ -267,31 +415,126 @@ describe('sync transfer telemetry (POD-4071)', () => {
     await abandonAfterFirst(bootstrap.bootstrap())
 
     expect(h.of('sync transfer finished')[0]).toMatchObject({
-      outcome: 'cancelled', reason: null, transferId: TRANSFER_ID, records: 1, rows: 2,
+      outcome: 'cancelled',
+      reason: null,
+      transferId: TRANSFER_ID,
+      records: 1,
+      rows: 2,
     })
     // A cancelled stream is never followed by an install, so it must not be
     // credited with the next one's commit.
     h.telemetry.noteReplicaEvent({
-      type: 'bootstrap-installed', cause: 'cold-start', snapshotSeq: SNAPSHOT_SEQ,
-      entityCount: 0, bufferedFramesApplied: 0,
+      type: 'bootstrap-installed',
+      cause: 'cold-start',
+      snapshotSeq: SNAPSHOT_SEQ,
+      entityCount: 0,
+      bufferedFramesApplied: 0,
     })
     expect(h.of('sync bootstrap installed')[0]).toMatchObject({
-      attemptId: null, transferId: null, commitMs: null, totalMs: null,
+      attemptId: null,
+      transferId: null,
+      commitMs: null,
+      totalMs: null,
     })
   })
 
   it('reports a delta the authority refuses as bootstrap-required, not as a failure', async () => {
     const h = harness()
-    const { delta } = sources(h.telemetry, () => new Response(
-      encoder.encode(JSON.stringify({ kind: 'bootstrap-required', reason: 'compacted-or-unknown' })),
-      { status: 409, headers: { 'Podium-Transfer-Id': TRANSFER_ID } },
-    ))
+    const { delta } = sources(
+      h.telemetry,
+      () =>
+        new Response(
+          encoder.encode(
+            JSON.stringify({ kind: 'bootstrap-required', reason: 'compacted-or-unknown' }),
+          ),
+          { status: 409, headers: { 'Podium-Transfer-Id': TRANSFER_ID } },
+        ),
+    )
 
     const range = await delta.changesRange({ ...feed, seq: 5 })
 
     expect(range).toEqual({ kind: 'bootstrap-required', reason: 'compacted-or-unknown' })
     expect(h.of('sync transfer finished')[0]).toMatchObject({
-      mode: 'delta', outcome: 'bootstrap-required', reason: 'compacted-or-unknown', transferId: TRANSFER_ID,
+      mode: 'delta',
+      outcome: 'bootstrap-required',
+      reason: 'compacted-or-unknown',
+      transferId: TRANSFER_ID,
+    })
+  })
+
+  it.each([
+    ['compacted', undefined, 'retention'],
+    ['resync-required', 'compacted-or-unknown', 'retention'],
+    ['epoch-mismatch', 'feed-identity-mismatch', 'feed-identity'],
+    ['compacted', 'future-cursor', 'cursor-ahead'],
+    ['resync-required', 'backlog-bound', 'backlog-bound'],
+    ['resync-required', 'untrusted-payload', 'unknown'],
+  ] as const)('records %s/%s as a linked bootstrap with reason %s', async (cause, reason, expected) => {
+    const h = harness()
+    const { bootstrap, fetch } = sources(h.telemetry, () => responseOf(snapshot(1, 1)))
+    h.telemetry.noteReplicaEvent({ type: 'heal', rung: 2, cause, reason })
+    await drain(bootstrap.bootstrap())
+    h.telemetry.noteReplicaEvent({ type: 'posture', previous: 'bootstrapping', posture: 'live' })
+    expect(h.of('sync recovery started')[0]).toMatchObject({
+      level: 'info',
+      path: 'rebootstrap',
+      transferMode: 'bootstrap',
+      recoveryReason: expected,
+      clientRecoveryId,
+    })
+    expect(h.of('sync recovery finished')[0]).toMatchObject({
+      outcome: 'rebootstrapped',
+      recoveryReason: expected,
+      clientRecoveryId,
+    })
+    const headers = new Headers(fetch.mock.calls[0]?.[1].headers)
+    expect(headers.get(SYNC_RECOVERY_ID_HEADER)).toBe(clientRecoveryId)
+    expect(headers.get(SYNC_RECOVERY_REASON_HEADER)).toBe(expected)
+    for (const record of h.mine()) expect(record.clientRecoveryId).toBe(clientRecoveryId)
+    expect(h.of('sync transfer finished')[0]).toMatchObject({
+      transferMode: 'bootstrap',
+      recoveryReason: expected,
+    })
+    expect(JSON.stringify(h.mine())).not.toContain('untrusted-payload')
+  })
+
+  it('keeps kind repair on collection requests and separates it from a later delta resume', async () => {
+    const h = harness()
+    const { bootstrap, fetch } = sources(h.telemetry, () => responseOf(snapshot(1, 1)))
+    h.telemetry.noteReplicaEvent({ type: 'heal', rung: 2, cause: 'kind-shape', partial: true })
+    await drain(bootstrap.collections([{ collection: 'session.live', part: 'main' }]))
+    expect(h.of('sync recovery started')[0]).toMatchObject({
+      transferMode: 'partial-reload',
+      recoveryReason: 'kind-shape',
+      path: 'partial-reload',
+    })
+    expect(h.of('sync transfer started')[0]).toMatchObject({
+      cause: 'kind-shape',
+      mode: 'collections',
+      transferMode: 'partial-reload',
+      recoveryReason: 'kind-shape',
+    })
+    expect(new Headers(fetch.mock.calls[0]?.[1].headers).get(SYNC_RECOVERY_REASON_HEADER)).toBe(
+      'kind-shape',
+    )
+    h.telemetry.noteReplicaEvent({ type: 'kind-reload-installed' })
+    expect(h.of('sync recovery finished')[0]).toMatchObject({
+      outcome: 'partially-reloaded',
+      recoveryReason: 'kind-shape',
+    })
+    h.telemetry.noteReplicaEvent({ type: 'heal', rung: 1, cause: 'gap', reason: 'resume' })
+    // Start directly: a delta stream is tested independently above.
+    const attempt = h.telemetry.begin('delta', '/sync/delta')
+    attempt.finish('complete')
+    h.telemetry.noteReplicaEvent({ type: 'posture', previous: 'healing', posture: 'live' })
+    expect(h.of('sync recovery finished').at(-1)).toMatchObject({
+      outcome: 'resumed',
+      transferMode: 'delta',
+      recoveryReason: 'resume',
+    })
+    expect(h.of('sync transfer started').at(-1)).toMatchObject({
+      cause: 'gap',
+      recoveryReason: 'resume',
     })
   })
 

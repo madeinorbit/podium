@@ -53,6 +53,7 @@ import {
   type TurnPreviewMessage,
 } from '@podium/protocol'
 import { applyServerLogLevel } from '../logging/level-command'
+import { clientRecoveryId } from '../logging/recovery'
 import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
 import type { FeedHelloFields } from './feed-hello'
 import { createFeedTaskScheduler, type FeedTaskScheduler } from './feed-scheduler'
@@ -64,7 +65,7 @@ import {
   type TopicState,
 } from './subscriptions'
 
-const log = createLogger('client-core:socket-hub')
+const log = createLogger('client-core:socket-hub').child({ clientRecoveryId })
 
 /**
  * This client's `hello.origin`, derived from the logger's process context
@@ -336,7 +337,7 @@ export interface FeedSinkPort {
    */
   readonly syncHttp?: boolean
   kindTokens(tokens: SyncKindTokens): void
-  requestRebootstrap?(): void
+  requestRebootstrap?(reason?: string): void
   helloFields(): FeedHelloFields | null
   /**
    * The socket is open and `hello` has advertised the wire version.
@@ -1009,7 +1010,7 @@ export class SocketHub {
       // The cause fields turn a reconnect storm into a one-log diagnosis:
       // heartbeat-timeout points at a wedged server loop, close code/reason at
       // the server or the path between.
-      log.warn('socket closed — reconnecting', { retryInMs, ...cause })
+      log.warn('socket closed — reconnecting', { retryInMs, code: null, ...cause })
     }
   }
 
@@ -1842,12 +1843,13 @@ export class SocketHub {
     if (this.opts.feed !== undefined && this.feedDeltaQueueDepth > FEED_DELTA_RESYNC_QUEUE_DEPTH) {
       this.feedBudgetStats.backlogResyncs += 1
       log.warn('feed delta backlog exceeded the replay bound — resyncing from a snapshot', {
+        recoveryReason: 'backlog-bound',
         queuedDeltas: this.feedDeltaQueueDepth,
         queuedFrames: this.feedIngressQueue.length,
         bound: FEED_DELTA_RESYNC_QUEUE_DEPTH,
       })
       this.clearFeedIngress()
-      this.opts.feed?.requestRebootstrap?.()
+      this.opts.feed?.requestRebootstrap?.('backlog-bound')
       return
     }
     if (this.feedIngressScheduled) return

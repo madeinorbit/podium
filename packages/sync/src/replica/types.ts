@@ -409,6 +409,8 @@ export type ReplicaEvent =
   | { readonly type: 'evicted'; readonly entity: string; readonly entityId: string }
   | { readonly type: 'cursor'; readonly cursor: Cursor; readonly watermarkOnly: boolean }
   | { readonly type: 'posture'; readonly posture: Posture; readonly previous: Posture }
+  /** A filtered kind repair finished without changing the replica's posture. */
+  | { readonly type: 'kind-reload-installed' }
   | {
       readonly type: 'heal-progress'
       readonly framesCommitted: number
@@ -423,6 +425,8 @@ export type ReplicaEvent =
       readonly rung: HealRung
       readonly cause: RebootstrapCause | 'gap'
       readonly partial?: true
+      /** Diagnostic detail from the refusal or local bound, not a ladder decision. */
+      readonly reason?: string
     }
   /**
    * POD-7122 — a load's records and markers are all in the device store's

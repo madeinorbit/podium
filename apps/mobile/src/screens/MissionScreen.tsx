@@ -1,4 +1,5 @@
 import { issueAgentKind, issueAgentLabel, modelLabel } from '@podium/client-core/agent-models'
+import { createScreenReadinessDiagnostic } from '@podium/client-core/logging'
 import { useCommands, useHarnessDescriptors } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -67,6 +68,10 @@ export const MissionScreen = observer(function MissionScreen() {
   // on the same deck the sidebar would have given you.
   const { screen, resolved } = useMissionOpening(selectedId)
   const ready = resolved && screen?.ready === true
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a navigation starts a new screen opening
+  const noteReadiness = useMemo(() => createScreenReadinessDiagnostic('flight-deck'), [selectedId])
+  const refreshing = screen?.refreshing === true
+  useEffect(() => noteReadiness(ready, refreshing), [noteReadiness, ready, refreshing])
   const rootValue = ready ? screen.reader.issue(screen.rootId) : undefined
   const root = rootValue && rootValue !== LOADING ? rootValue : undefined
   const missionSessions = ready ? screen.crew : NO_SESSIONS

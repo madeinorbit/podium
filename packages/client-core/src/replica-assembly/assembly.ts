@@ -426,8 +426,8 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       kindTokens: (tokens) => {
         if (!stopped) sink.kindTokens(tokens)
       },
-      requestRebootstrap: () => {
-        if (!stopped) sink.requestRebootstrap()
+      requestRebootstrap: (reason) => {
+        if (!stopped) sink.requestRebootstrap(reason)
       },
       helloFields: () => sink.helloFields(),
       connected: () => {

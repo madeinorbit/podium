@@ -344,14 +344,16 @@ export class FeedServing {
   ): Promise<void> {
     // Capture the resume decision and install publication position in one read scope.
     return withReadScope(async () => {
-      if (resumeFrom !== undefined && (await this.canResume(peer, resumeFrom))) {
+      const refusal =
+        resumeFrom === undefined ? undefined : await this.resumeRefusal(peer, resumeFrom)
+      if (resumeFrom !== undefined && refusal === undefined) {
         await this.serveResume(peer, principal, routingPrincipal, resumeFrom)
         return
       }
       await this.deps.identity.resolve()
       if (this.abandoned(peer)) return
       const cursor = { ...this.deps.identity.current(), seq: await this.deps.authority.cursor() }
-      await this.serveResume(peer, principal, routingPrincipal, cursor, resumeFrom !== undefined)
+      await this.serveResume(peer, principal, routingPrincipal, cursor, refusal)
     })
   }
 
@@ -363,18 +365,22 @@ export class FeedServing {
    * serve is a gap the replica would discover one frame later, having already
    * been told it was resumed.
    */
-  private async canResume(peer: FeedPeer, cursor: FeedCursorField): Promise<boolean> {
-    if (peer.wireVersion < MIN_RESUME_WIRE_VERSION) return false
+  private async resumeRefusal(
+    peer: FeedPeer,
+    cursor: FeedCursorField,
+  ): Promise<string | undefined> {
+    if (peer.wireVersion < MIN_RESUME_WIRE_VERSION) return 'cursor-rejected'
     // IDENTITY FIRST (ADR 2 D1). A seq from another feed, or one presented against
     // an epoch this server has rolled past, is not a smaller number — it is a
     // position in a sequence that no longer exists.
     await this.deps.identity.resolve()
     const identity = this.deps.identity.current()
-    if (cursor.feedId !== identity.feedId || cursor.epoch !== identity.epoch) return false
+    if (cursor.feedId !== identity.feedId || cursor.epoch !== identity.epoch)
+      return 'feed-identity-mismatch'
     // A cursor from the FUTURE is not resumable either: the replica claims to hold
     // rows this authority has not written, which on a restored/reset database is
     // exactly what happens.
-    if (cursor.seq > (await this.deps.authority.cursor())) return false
+    if (cursor.seq > (await this.deps.authority.cursor())) return 'future-cursor'
     // RETENTION, in `change-log.ts`'s exact spelling: the log can serve a cursor
     // iff every change in `(cursor, max]` is retained, i.e. iff
     // `cursor + 1 >= minAvailableSeq`. ADR 2 D7 rung 2's shorthand
@@ -382,6 +388,8 @@ export class FeedServing {
     // needless world at exactly `cursor === min - 1`; both are safe, and the
     // exact form is free.
     return cursor.seq + 1 >= ((await this.deps.retention.minAvailableSeq()) ?? 0)
+      ? undefined
+      : 'compacted-or-unknown'
   }
 
   /**
@@ -407,7 +415,7 @@ export class FeedServing {
     principal: Principal,
     routingPrincipal: Principal,
     cursor: FeedCursorField,
-    resyncRequired = false,
+    resyncReason?: string,
   ): Promise<void> {
     const t0 = performance.now()
     const perfKey = perfPrincipal(this.deps.workspaceId, principal)
@@ -422,13 +430,13 @@ export class FeedServing {
     }
     this.edge.publishTo(
       peer,
-      resyncRequired
+      resyncReason !== undefined
         ? {
             type: 'feedResyncRequired',
             feedId: identity.feedId,
             epoch: identity.epoch,
             cause: 'authority-shed-load',
-            reason: 'cursor-rejected',
+            reason: resyncReason,
           }
         : resume,
     )

@@ -34,6 +34,7 @@ export {
   MAX_LEVEL_TTL_MS,
   setActiveLevelController,
 } from './level-command'
+export { clientRecoveryId, createScreenReadinessDiagnostic } from './recovery'
 export {
   flushLogsBeforeUnload,
   reportCrash,

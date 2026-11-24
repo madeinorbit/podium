@@ -20,6 +20,7 @@ import {
   type LevelController,
   setActiveLevelController,
 } from './level-command'
+import { clientRecoveryId } from './recovery'
 import { setActiveCrashReporter, setActiveLogFlusher } from './runtime'
 
 /**
@@ -171,13 +172,18 @@ export function installClientLogging(options: ClientLoggingOptions): ClientLoggi
   const { role, machineId } = options
   setProcessContext({
     role,
+    clientRecoveryId,
     v: options.version,
     ...(options.platform ? { platform: options.platform } : {}),
     ...(machineId ? { machineId } : {}),
   })
   const boot = options.level ?? 'warn'
   setLogLevel(boot)
-  const floors = Object.entries(options.floors ?? {})
+  const floors = Object.entries({
+    'client-core:sync-transfer': 'info' as const,
+    'client-core:screen-recovery': 'info' as const,
+    ...options.floors,
+  })
   for (const [pattern, level] of floors) setNamespaceFloor(pattern, level)
   // The boot level is captured HERE because this is the only place that knows
   // it: an operator's reset says "back to your default" rather than naming one,

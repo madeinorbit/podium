@@ -1,3 +1,4 @@
+import { createScreenReadinessDiagnostic } from '@podium/client-core/logging'
 import { useClientRuntime, useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
@@ -49,20 +50,40 @@ export default observer(function PoolFlightDeck(props: FlightDeckProps): JSX.Ele
     [owner, selectedIssueId],
   )
   const rootId = useWorklistPoolProjection(readRoot, LOADING)
+  // A new selection is a new opening, not a regression of the previous screen.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset diagnostics on navigation
+  const noteReadiness = useMemo(
+    () => createScreenReadinessDiagnostic('flight-deck'),
+    [selectedIssueId],
+  )
+  const rootReady = !!pool && typeof rootId === 'string'
+  useEffect(() => {
+    if (!rootReady) noteReadiness(false)
+  }, [rootReady, noteReadiness])
   // The shell mounts this column only once the selection has a mission, so a
   // missing root here is the selection catching up: a load, never a state.
   if (!pool || !rootId || rootId === LOADING) return <SettlingDeck />
-  return <MissionOpening key={rootId} pool={pool} rootId={rootId} {...props} />
+  return (
+    <MissionOpening
+      key={rootId}
+      pool={pool}
+      rootId={rootId}
+      noteReadiness={noteReadiness}
+      {...props}
+    />
+  )
 })
 
 /** One opening of a mission: creates its view model, closes it on unmount. */
 const MissionOpening = observer(function MissionOpening({
   pool,
   rootId,
+  noteReadiness,
   ...props
 }: FlightDeckProps & {
   pool: MobxPool
   rootId: string
+  noteReadiness: ReturnType<typeof createScreenReadinessDiagnostic>
 }): JSX.Element {
   // The opening outlives renders: it reaches the store's writers when it
   // writes, never by being rebuilt when the handle's access object changes.
@@ -80,6 +101,9 @@ const MissionOpening = observer(function MissionOpening({
     [pool, rootId],
   )
   useEffect(() => () => screen.close(), [screen])
+  const ready = screen.ready
+  const refreshing = screen.refreshing
+  useEffect(() => noteReadiness(ready, refreshing), [noteReadiness, ready, refreshing])
   const source = useMemo<FlightDeckSource>(() => {
     const reader = screen.reader
     return {
@@ -107,11 +131,7 @@ const MissionOpening = observer(function MissionOpening({
       },
     }
   }, [pool, screen])
-  return screen.ready ? (
-    <FlightDeckContent {...props} screen={screen} source={source} />
-  ) : (
-    <SettlingDeck />
-  )
+  return ready ? <FlightDeckContent {...props} screen={screen} source={source} /> : <SettlingDeck />
 })
 
 /** The archived list is read only while its section is open: the deck carries

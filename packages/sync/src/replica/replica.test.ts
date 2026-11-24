@@ -2905,3 +2905,42 @@ const CAUSES: Record<RebootstrapCause, true> = {
   markers: true,
 }
 void CAUSES
+
+describe('recovery diagnostic details', () => {
+  it.each([
+    'feed-identity-mismatch',
+    'future-cursor',
+    'compacted-or-unknown',
+  ])('preserves the HTTP refusal reason %s', async (reason) => {
+    const h = harness()
+    await bootstrapped(h, 10, [])
+    h.replica.disconnect()
+    h.events.length = 0
+    h.authority.changesRangeQueue = [{ kind: 'bootstrap-required', reason }]
+    h.replica.connect()
+    await h.replica.settled()
+    expect(h.events.filter((e) => e.type === 'heal')).toMatchObject([
+      { cause: 'gap', reason: 'resume' },
+      { cause: reason === 'feed-identity-mismatch' ? 'epoch-mismatch' : 'compacted', reason },
+    ])
+  })
+
+  it('preserves socket refusals and the local backlog reason on the same recovery ladder', async () => {
+    const h = harness()
+    await bootstrapped(h, 10, [])
+    h.events.length = 0
+    await h.replica.receive({
+      kind: 'resync-required',
+      feedId: FEED_ID,
+      epoch: EPOCH,
+      reason: 'future-cursor',
+    })
+    await h.replica.settled()
+    h.replica.requestRebootstrap('backlog-bound')
+    await h.replica.settled()
+    expect(h.events.filter((e) => e.type === 'heal')).toMatchObject([
+      { cause: 'resync-required', reason: 'future-cursor' },
+      { cause: 'resync-required', reason: 'backlog-bound' },
+    ])
+  })
+})

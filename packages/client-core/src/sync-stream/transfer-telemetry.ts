@@ -1,5 +1,12 @@
 import { createLogger, type Logger } from '@podium/logger'
+import {
+  SYNC_RECOVERY_ID_HEADER,
+  SYNC_RECOVERY_REASON_HEADER,
+  type SyncRecoveryReason,
+  syncRecoveryReason,
+} from '@podium/protocol'
 import type { ReplicaEvent } from '@podium/sync/replica'
+import { clientRecoveryId } from '../logging/recovery'
 
 /**
  * THE CLIENT HALF OF A SYNC TRANSFER'S TIMELINE (POD-4071).
@@ -62,9 +69,8 @@ import type { ReplicaEvent } from '@podium/sync/replica'
  *  - **Nothing per row.** A bootstrap carries ~19 000 rows in ~57 records. The
  *    counters move per row; a LINE is emitted per `progressRecords` records or
  *    `progressMs` elapsed, whichever comes first.
- *  - **Debug only.** `info` is the server's level for this; a client that
- *    narrated its own bootstrap at `info` would bury the line it is meant to
- *    explain.
+ *  - **Timings stay at debug.** Bounded recovery start/outcome summaries go at
+ *    info so the default retained log names the recovery path and reason.
  *  - **Nothing identifying.** Counts, codings, statuses and durations. The
  *    endpoint URL is the user's own server, and the principal stays where the
  *    server already logs it.
@@ -111,6 +117,8 @@ export interface SyncReadMeter {
 export type SyncTransferPhase = 'pipeline' | 'consumer'
 
 export interface SyncTransferAttempt {
+  /** Bounded diagnostic context to join this request with the server completion. */
+  readonly headers: Readonly<Record<string, string>>
   /** Handed to the NDJSON reader so its reads land in `downloadMs`. */
   readonly meter: SyncReadMeter
   /** HTTP response headers are in. Starts phase accounting. */
@@ -160,6 +168,7 @@ function acceptEncodingOf(headers: HeadersInit | undefined): string {
 }
 
 class TransferAttempt implements SyncTransferAttempt {
+  readonly headers: Readonly<Record<string, string>>
   readonly meter: SyncReadMeter
   transferId: string | null = null
   readonly startedAt: number
@@ -191,7 +200,12 @@ class TransferAttempt implements SyncTransferAttempt {
     private readonly progressMs: number,
     readonly mode: SyncTransferMode,
     private readonly attemptId: string,
+    private readonly recoveryReason: SyncRecoveryReason,
   ) {
+    this.headers = {
+      [SYNC_RECOVERY_ID_HEADER]: clientRecoveryId,
+      [SYNC_RECOVERY_REASON_HEADER]: recoveryReason,
+    }
     this.startedAt = now()
     this.lastProgressAt = this.startedAt
     this.meter = {
@@ -211,7 +225,13 @@ class TransferAttempt implements SyncTransferAttempt {
 
   /** Every line joins on this. `transferId` is null only before the response opens. */
   private base(): Record<string, unknown> {
-    return { attemptId: this.attemptId, transferId: this.transferId, mode: this.mode }
+    return {
+      attemptId: this.attemptId,
+      transferId: this.transferId,
+      mode: this.mode,
+      transferMode: this.mode === 'collections' ? 'partial-reload' : this.mode,
+      recoveryReason: this.recoveryReason,
+    }
   }
 
   private elapsed(at = this.now()): number {
@@ -282,7 +302,8 @@ class TransferAttempt implements SyncTransferAttempt {
     if (
       this.records - this.lastProgressRecords < this.progressRecords &&
       at - this.lastProgressAt < this.progressMs
-    ) return
+    )
+      return
     this.lastProgressAt = at
     this.lastProgressRecords = this.records
     this.log.debug('sync transfer progress', { ...this.base(), ...this.counters(at) })
@@ -291,8 +312,10 @@ class TransferAttempt implements SyncTransferAttempt {
   private counters(at: number): Record<string, unknown> {
     // `decodeMs` is the pull interval minus the reads inside it. Reported next to
     // both of its terms so a reader can check the subtraction rather than trust it.
-    const pipelineMs = this.pipelineMs + (this.accounting && this.phase === 'pipeline' ? at - this.phaseAt : 0)
-    const stageMs = this.stageMs + (this.accounting && this.phase === 'consumer' ? at - this.phaseAt : 0)
+    const pipelineMs =
+      this.pipelineMs + (this.accounting && this.phase === 'pipeline' ? at - this.phaseAt : 0)
+    const stageMs =
+      this.stageMs + (this.accounting && this.phase === 'consumer' ? at - this.phaseAt : 0)
     return {
       elapsedMs: this.elapsed(at),
       records: this.records,
@@ -332,7 +355,9 @@ class TransferAttempt implements SyncTransferAttempt {
 export function createSyncTransferTelemetry(
   options: SyncTransferTelemetryOptions = {},
 ): SyncTransferTelemetry {
-  const log = options.logger ?? createLogger('client-core:sync-transfer')
+  const log = (options.logger ?? createLogger('client-core:sync-transfer')).child({
+    clientRecoveryId,
+  })
   const now = options.now ?? wallClock
   const progressRecords = options.progressRecords ?? DEFAULT_PROGRESS_RECORDS
   const progressMs = options.progressMs ?? DEFAULT_PROGRESS_MS
@@ -344,21 +369,49 @@ export function createSyncTransferTelemetry(
    * other rung leads to `bootstrap`; one slot would have handed a bootstrap the
    * cause of the heal that preceded it.
    */
-  const pending: Record<SyncTransferMode, string | null> = { bootstrap: null, delta: null, collections: null }
+  const pending: Partial<
+    Record<SyncTransferMode, { cause: string; recoveryReason: SyncRecoveryReason }>
+  > = {}
+  let recovery:
+    | { transferMode: 'bootstrap' | 'delta' | 'partial-reload'; recoveryReason: SyncRecoveryReason }
+    | undefined
+  let markerInstalled = false
   /** The bootstrap whose install is still outstanding; its stream has already ended. */
-  let installing: { attemptId: string; transferId: string | null; startedAt: number; endedAt: number } | null = null
+  let installing: {
+    attemptId: string
+    transferId: string | null
+    startedAt: number
+    endedAt: number
+  } | null = null
 
   return {
     begin(mode, url, headers) {
       counters[mode] += 1
       const attemptId = `${mode === 'bootstrap' ? 'b' : mode === 'delta' ? 'd' : 'c'}${counters[mode]}`
-      const cause = pending[mode]
-      pending[mode] = null
-      const attempt = new TransferAttempt(log, now, progressRecords, progressMs, mode, attemptId)
+      const context = pending[mode]
+      delete pending[mode]
+      const cause = context?.cause ?? null
+      const recoveryReason =
+        context?.recoveryReason ??
+        (recovery && (mode === recovery.transferMode || mode === 'collections')
+          ? recovery.recoveryReason
+          : undefined) ??
+        (mode === 'collections' ? 'collection-demand' : 'unknown')
+      const attempt = new TransferAttempt(
+        log,
+        now,
+        progressRecords,
+        progressMs,
+        mode,
+        attemptId,
+        recoveryReason,
+      )
       log.debug('sync transfer started', {
         attemptId,
         transferId: null,
         mode,
+        transferMode: mode === 'collections' ? 'partial-reload' : mode,
+        recoveryReason,
         url,
         acceptEncoding: acceptEncodingOf(headers),
         // The Replica's own word for why, or null when this source was driven by
@@ -374,6 +427,7 @@ export function createSyncTransferTelemetry(
         installing = null
       }
       return {
+        headers: attempt.headers,
         meter: attempt.meter,
         opened: (response) => attempt.opened(response),
         noteMeta: (transferId, totalRows) => attempt.noteMeta(transferId, totalRows),
@@ -397,17 +451,56 @@ export function createSyncTransferTelemetry(
       if (event.type === 'heal') {
         // Emitted synchronously in `startRebootstrap`/`startHeal`, BEFORE the walk
         // is queued — so the request this describes has not opened yet.
-        if (event.cause === 'gap') pending.delta = event.cause
-        // A partial walk (a kind repair, a marker walk) goes over the
-        // collections route, never as a download (POD-7560).
-        else if (event.partial === true) pending.collections = event.cause
-        else pending.bootstrap = event.cause
+        const mode =
+          event.cause === 'gap'
+            ? 'delta'
+            : event.partial === true || event.cause === 'resume'
+              ? 'collections'
+              : 'bootstrap'
+        const recoveryReason = syncRecoveryReason(
+          event.reason ?? (event.cause === 'resume' ? 'interrupted-bootstrap' : event.cause),
+        )
+        recovery = {
+          transferMode: mode === 'collections' ? 'partial-reload' : mode,
+          recoveryReason,
+        }
+        markerInstalled = false
+        pending[mode] = { cause: event.cause, recoveryReason }
+        log.info('sync recovery started', {
+          ...recovery,
+          path:
+            mode === 'delta' ? 'resume' : mode === 'bootstrap' ? 'rebootstrap' : 'partial-reload',
+          cause: event.cause,
+          rung: event.rung,
+        })
         return
       }
-      // A marker walk that ended (back live) without its call leaves no
-      // cause for an unrelated fetch to take.
-      if (event.type === 'posture' && event.previous === 'bootstrapping' && event.posture === 'live') {
-        if (pending.collections === 'markers') pending.collections = null
+      // Keep the landed marker-walk cleanup: a walk can end without a call.
+      if (
+        event.type === 'posture' &&
+        event.previous === 'bootstrapping' &&
+        event.posture === 'live'
+      ) {
+        if (pending.collections?.cause === 'markers') delete pending.collections
+      }
+      if (event.type === 'bootstrap-installed' && event.cause === 'markers') markerInstalled = true
+      if (
+        ((event.type === 'posture' && event.posture === 'live') ||
+          (event.type === 'kind-reload-installed' && recovery?.recoveryReason === 'kind-shape')) &&
+        recovery
+      ) {
+        log.info('sync recovery finished', {
+          ...recovery,
+          outcome:
+            recovery.recoveryReason === 'markers' && !markerInstalled
+              ? 'deferred'
+              : recovery.transferMode === 'delta'
+                ? 'resumed'
+                : recovery.transferMode === 'partial-reload'
+                  ? 'partially-reloaded'
+                  : 'rebootstrapped',
+        })
+        recovery = undefined
         return
       }
       if (event.type === 'bootstrap-installed') {
@@ -417,7 +510,7 @@ export function createSyncTransferTelemetry(
         log.debug('sync bootstrap installed', {
           attemptId: open?.attemptId ?? null,
           transferId: open?.transferId ?? null,
-          mode: 'bootstrap',
+          mode: event.cause === 'markers' ? 'collections' : 'bootstrap',
           cause: event.cause,
           snapshotSeq: event.snapshotSeq,
           entityCount: event.entityCount,
@@ -436,7 +529,7 @@ export function createSyncTransferTelemetry(
         log.debug('sync bootstrap failed', {
           attemptId: open?.attemptId ?? null,
           transferId: open?.transferId ?? null,
-          mode: 'bootstrap',
+          mode: event.cause === 'markers' ? 'collections' : 'bootstrap',
           cause: event.cause,
           attempts: event.attempts,
           error: event.error,

@@ -94,8 +94,8 @@ export function createFeedRelay(
       kindTokens: (tokens) => {
         if (!stopped) sink.kindTokens(tokens)
       },
-      requestRebootstrap: () => {
-        if (!stopped) sink.requestRebootstrap?.()
+      requestRebootstrap: (reason) => {
+        if (!stopped) sink.requestRebootstrap?.(reason)
       },
       helloFields: () => sink.helloFields(),
       connected: (worldPromised) => {

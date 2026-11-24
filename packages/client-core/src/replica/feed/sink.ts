@@ -17,7 +17,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { KindTokens, Replica as KernelReplica } from '@podium/sync/replica'
+import type { Replica as KernelReplica, KindTokens } from '@podium/sync/replica'
 import type { FeedHelloFields, FeedServerFrame, FeedSinkPort } from '../../socket-transport'
 import { toDeltaFrame, toRescopeFrame, toResyncFrame } from './frames'
 
@@ -47,8 +47,8 @@ export class FeedSink implements FeedSinkPort {
 
   readonly syncHttp = true
 
-  requestRebootstrap(): void {
-    this.deps.replica.requestRebootstrap()
+  requestRebootstrap(reason?: string): void {
+    this.deps.replica.requestRebootstrap(reason)
   }
 
   kindTokens(tokens: KindTokens): void {

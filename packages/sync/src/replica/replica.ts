@@ -745,8 +745,8 @@ export class Replica implements DeviceCollectionReads {
     this.transportGap = true
   }
 
-  requestRebootstrap(): void {
-    this.rebootstrap('resync-required')
+  requestRebootstrap(reason?: string): void {
+    this.rebootstrap('resync-required', false, reason)
   }
 
   /** Called from both the connection advertisement and the HTTP delta header. */
@@ -846,7 +846,7 @@ export class Replica implements DeviceCollectionReads {
       this.rebootstrap('cold-start')
       return this.outcome('D7-2-COLD', from)
     }
-    this.startHeal()
+    this.startHeal('resume')
     return this.outcome('D7-1-RESUME', from)
   }
 
@@ -894,7 +894,7 @@ export class Replica implements DeviceCollectionReads {
       return this.outcome('D14-RESCOPE', from)
     }
     if (frame.kind === 'resync-required') {
-      this.rebootstrap('resync-required')
+      this.rebootstrap('resync-required', false, frame.reason)
       return this.outcome('D7-2-RESYNC', from)
     }
 
@@ -1260,14 +1260,14 @@ export class Replica implements DeviceCollectionReads {
     return true
   }
 
-  private startHeal(): void {
+  private startHeal(reason?: string): void {
     this.walkAbort.abort()
     this.walkAbort = new AbortController()
     const signal = this.walkAbort.signal
     const generation = ++this.walkGeneration
     this.counters.heals += 1
     this.setPosture('healing')
-    this.emit({ type: 'heal', rung: 1, cause: 'gap' })
+    this.emit({ type: 'heal', rung: 1, cause: 'gap', ...(reason === undefined ? {} : { reason }) })
     this.run(async () => {
       if (generation !== this.walkGeneration) return
       await this.refreshConflictedCache(generation)
@@ -1298,7 +1298,7 @@ export class Replica implements DeviceCollectionReads {
           if (generation !== this.walkGeneration) return
           targetSeq = target.seq
           if (legacyHead > target.seq && target.seq >= cursor.seq && sameFeed(cursor, target)) {
-            this.rebootstrap('epoch-mismatch', true)
+            this.rebootstrap('epoch-mismatch', true, 'future-cursor')
             return
           }
           this.observeKindTokens(kindTokens, policy)
@@ -1311,10 +1311,10 @@ export class Replica implements DeviceCollectionReads {
       if ('kind' in range) {
         if (range.reason === 'feed-identity-mismatch') {
           this.note('D7-4-EPOCH')
-          this.rebootstrap('epoch-mismatch')
+          this.rebootstrap('epoch-mismatch', false, range.reason)
         } else {
           this.note('D7-2-COMPACTED')
-          this.rebootstrap('compacted')
+          this.rebootstrap('compacted', false, range.reason)
         }
         return
       }
@@ -1475,7 +1475,7 @@ export class Replica implements DeviceCollectionReads {
    * stale-visible; POD-7086). Only the markers go at once: what the feed kept
    * complete is no longer known to be.
    */
-  private rebootstrap(cause: RebootstrapCause, replaceHeld = false): void {
+  private rebootstrap(cause: RebootstrapCause, replaceHeld = false, reason?: string): void {
     // Bump first, then read: a superseded walk notices the mismatch and abandons
     // its staging rather than installing a slice the ladder has moved past.
     this.walkAbort.abort()
@@ -1515,6 +1515,7 @@ export class Replica implements DeviceCollectionReads {
       rung: rungFor(cause),
       cause,
       ...(cause === 'markers' ? { partial: true as const } : {}),
+      ...(reason === undefined ? {} : { reason }),
     })
     this.run(async () => {
       if (generation !== this.walkGeneration) return
@@ -4312,6 +4313,7 @@ export class Replica implements DeviceCollectionReads {
     this.batchEvents(() => {
       for (const event of events) this.emit(event)
       if (instances.length > 0 || comesWith.length > 0) this.emit({ type: 'markers' })
+      this.emit({ type: 'kind-reload-installed' })
     })
   }
 

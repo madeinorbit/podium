@@ -99,6 +99,7 @@ async function request(
     ...(deps.clientType === undefined ? {} : { [CLIENT_TYPE_HEADER]: deps.clientType }),
     ...(body === undefined ? {} : { 'content-type': 'application/json' }),
     ...extra,
+    ...attempt?.headers,
   }
   try {
     response = await port.fetch(deps.origin.replace(/\/$/, '') + path, {

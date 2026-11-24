@@ -1,10 +1,12 @@
 import { DraftStore, TranscriptLog } from '@podium/client-core/conversation'
+import { clientRecoveryId } from '@podium/client-core/logging'
 import { SocketHub, type WebSocketLike } from '@podium/client-core/socket-transport'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { isGone, LOADING } from '@podium/client-graph'
 import { headerView } from '@podium/client-graph/header-views'
 import { omitGone } from '@podium/client-graph/lookup'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
+import { addSink, type LogRecord, removeSink, type Sink } from '@podium/logger'
 import type { SessionId } from '@podium/model/browser'
 
 // @vitest-environment happy-dom
@@ -712,6 +714,14 @@ describe('mission sections read their own fields', () => {
  * loading skeleton.
  */
 it('keeps a loaded deck on screen, refreshing, while a refused resume loads again', async () => {
+  const diagnostics: LogRecord[] = []
+  const capture: Sink = {
+    name: 'screen-recovery-test',
+    minLevel: 'trace',
+    write: (record) => {
+      if (record.ns === 'client-core:screen-recovery') diagnostics.push(record)
+    },
+  }
   const root = 'root'
   const task = 'closed-child'
   const finished = closedValue(task, { parentId: root, title: 'Finished fixture task' })
@@ -766,6 +776,7 @@ it('keeps a loaded deck on screen, refreshing, while a refused resume loads agai
     socket.onopen?.({})
   }
   open()
+  addSink(capture)
   const current = mount()
   const pump = () =>
     act(async () => {
@@ -827,6 +838,15 @@ it('keeps a loaded deck on screen, refreshing, while a refused resume loads agai
     expect(device.replica.instanceStale(treeOf(root, 'main'))).toBe(true)
     expect(taskTitle()).toBe('Finished fixture task')
     expect(refresh()).toBe('refreshing')
+    expect(
+      diagnostics.some((record) => record.wasLoaded === true && record.refreshing === true),
+    ).toBe(true)
+    expect(
+      diagnostics.every(
+        (record) =>
+          record.clientRecoveryId === clientRecoveryId && record.loadedToLoading === false,
+      ),
+    ).toBe(true)
 
     // The replacement arrives: the same deck, current again, never a skeleton between.
     release?.()
@@ -850,6 +870,7 @@ it('keeps a loaded deck on screen, refreshing, while a refused resume loads agai
     hub.dispose()
     current.unmount()
     device.dispose()
+    removeSink(capture)
   }
 }, 15_000)
 

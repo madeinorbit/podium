@@ -26,7 +26,6 @@ class FakeSocket implements WebSocketLike {
   }
 }
 
-
 const rawBootstrap = (
   last: boolean,
   changes: ReadonlyArray<Record<string, unknown>> = [],
@@ -145,14 +144,14 @@ describe('SocketHub feed ingress drain', () => {
 
     hub.connect()
     sockets[1]?.open()
-    sockets[1]?.deliver(JSON.stringify({ type: 'welcome', kindTokens: {}, clientId: 'replacement' }))
+    sockets[1]?.deliver(
+      JSON.stringify({ type: 'welcome', kindTokens: {}, clientId: 'replacement' }),
+    )
     sockets[1]?.deliver(rawBootstrap(true))
     await macrotaskTurns(2)
 
     expect(hub.clientId).toBe('replacement')
-    expect(frames).toEqual([
-      expect.objectContaining({ type: 'feedDelta', changes: [] }),
-    ])
+    expect(frames).toEqual([expect.objectContaining({ type: 'feedDelta', changes: [] })])
     expect(hub.feedBudget()).toMatchObject({ tasks: 1, yieldedTasks: 1 })
     hub.dispose()
   })
@@ -161,19 +160,27 @@ describe('SocketHub feed ingress drain', () => {
     const sock = new FakeSocket()
     const recovery = vi.fn()
     const hub = new SocketHub({
-      url: 'ws://x', makeSocket: () => sock, scheduleFeedTask: () => {},
-      feed: { syncHttp: true, requestRebootstrap: recovery,
+      url: 'ws://x',
+      makeSocket: () => sock,
+      scheduleFeedTask: () => {},
+      feed: {
+        syncHttp: true,
+        requestRebootstrap: recovery,
         kindTokens: () => {},
         helloFields: () => ({ feedCursor: { feedId: 'feed-1', epoch: 'e1', seq: 7 } }),
-        connected() {}, disconnected() {}, frame() {} },
+        connected() {},
+        disconnected() {},
+        frame() {},
+      },
     })
     hub.connect()
     sock.open()
     for (let seq = 1; seq <= FEED_DELTA_RESYNC_QUEUE_DEPTH + 1; seq++) sock.deliver(rawDelta(seq))
     expect(recovery).toHaveBeenCalledOnce()
+    expect(recovery).toHaveBeenCalledWith('backlog-bound')
     expect(sock.closed).toBe(false)
     expect(hub.connected).toBe(true)
-    expect(sock.parsed().find(frame => frame.type === 'hello')).toMatchObject({
+    expect(sock.parsed().find((frame) => frame.type === 'hello')).toMatchObject({
       feedCursor: { feedId: 'feed-1', epoch: 'e1', seq: 7 },
     })
     expect(hub.feedBudget().backlogResyncs).toBe(1)

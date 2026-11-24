@@ -147,6 +147,7 @@ describe('a cursor the log cannot serve is refused, and the refusal requests HTT
   it('refuses a cursor from a foreign feed', async () => {
     const ctx = await servedOnce()
     const peer = await reconnect(ctx, { ...ctx.held, feedId: 'someone-elses-feed' })
+    expect(peer.of('feedResyncRequired')[0]?.reason).toBe('feed-identity-mismatch')
 
     expect(peer.types()).not.toContain('feedResume')
     expect(peer.types()).toEqual(['feedResyncRequired'])
@@ -155,6 +156,7 @@ describe('a cursor the log cannot serve is refused, and the refusal requests HTT
   it('refuses a cursor presented against a rolled epoch', async () => {
     const ctx = await servedOnce()
     const peer = await reconnect(ctx, { ...ctx.held, epoch: 'epoch-from-before-the-reset' })
+    expect(peer.of('feedResyncRequired')[0]?.reason).toBe('feed-identity-mismatch')
 
     expect(peer.types()).not.toContain('feedResume')
     expect(peer.types()).toEqual(['feedResyncRequired'])
@@ -163,6 +165,7 @@ describe('a cursor the log cannot serve is refused, and the refusal requests HTT
   it('refuses a cursor from the future — the database was restored behind it', async () => {
     const ctx = await servedOnce()
     const peer = await reconnect(ctx, { ...ctx.held, seq: ctx.held.seq + 1 })
+    expect(peer.of('feedResyncRequired')[0]?.reason).toBe('future-cursor')
 
     expect(peer.types()).not.toContain('feedResume')
     expect(peer.types()).toEqual(['feedResyncRequired'])
@@ -178,9 +181,9 @@ describe('a cursor the log cannot serve is refused, and the refusal requests HTT
     for (let i = 3; i <= 6; i += 1) await commit(compacted.p, `s${i}`)
     expect(await compacted.p.authority.cursor()).toBe(6)
 
-    expect((await reconnect(compacted, { ...compacted.held, seq: 3 })).types()).not.toContain(
-      'feedResume',
-    )
+    const refused = await reconnect(compacted, { ...compacted.held, seq: 3 })
+    expect(refused.types()).not.toContain('feedResume')
+    expect(refused.of('feedResyncRequired')[0]?.reason).toBe('compacted-or-unknown')
     expect((await reconnect(compacted, { ...compacted.held, seq: 4 })).types()).toEqual([
       'feedResume',
     ])

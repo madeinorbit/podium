@@ -1,6 +1,7 @@
 import { addSink, type LogRecord, resetLogging, setLogLevel } from '@podium/logger'
 import { encode, type ServerMessage } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { clientRecoveryId } from '../logging/recovery'
 import { SocketHub, type WebSocketLike } from './socket-hub'
 
 /**
@@ -85,6 +86,74 @@ describe('SocketHub logging', () => {
     const drop = of('client-core:socket-hub').find((r) => r.level === 'warn')
     expect(drop?.msg).toBe('socket closed — reconnecting')
     expect(typeof drop?.retryInMs).toBe('number')
+    expect(drop).toMatchObject({
+      clientRecoveryId,
+      cause: 'close-event',
+      code: 0,
+      reason: '',
+      wasClean: false,
+    })
+    hub.dispose()
+  })
+
+  it('records the wire close code and keeps the key through reconnect', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    sock.onclose?.({ code: 1006, reason: 'connection-lost', wasClean: false })
+    hub.connectNow()
+    sock.open()
+    sock.onclose?.({ code: 1012, reason: 'service-restart', wasClean: true })
+    const drops = of('client-core:socket-hub').filter(
+      (r) => r.msg === 'socket closed — reconnecting',
+    )
+    expect(drops).toMatchObject([
+      {
+        clientRecoveryId,
+        cause: 'close-event',
+        code: 1006,
+        reason: 'connection-lost',
+        wasClean: false,
+      },
+      {
+        clientRecoveryId,
+        cause: 'close-event',
+        code: 1012,
+        reason: 'service-restart',
+        wasClean: true,
+      },
+    ])
+    hub.dispose()
+  })
+
+  it('records forced-close causes without inventing a wire close code', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    hub.wake()
+    expect(
+      of('client-core:socket-hub').find((r) => r.msg === 'socket closed — reconnecting'),
+    ).toMatchObject({
+      clientRecoveryId,
+      cause: 'wake',
+      code: null,
+    })
+    hub.dispose()
+  })
+
+  it('identifies a heartbeat timeout and its silence bound', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    vi.advanceTimersByTime(10_000)
+    expect(
+      of('client-core:socket-hub').find((r) => r.msg === 'socket closed — reconnecting'),
+    ).toMatchObject({
+      clientRecoveryId,
+      cause: 'heartbeat-timeout',
+      code: null,
+      silentForMs: 10_000,
+    })
     hub.dispose()
   })
 

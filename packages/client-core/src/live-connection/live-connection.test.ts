@@ -140,13 +140,14 @@ describe('shared feed relay', () => {
     b.feed.frame(rescope)
     const resume = { type: 'feedResume', feedId: 'feed', epoch: 'epoch', seq: 2 } as FeedServerFrame
     a.feed.frame(resume)
-    a.feed.requestRebootstrap?.()
+    a.feed.requestRebootstrap?.('backlog-bound')
     expect(first.frame.mock.calls.map(([frame]) => frame.type)).toEqual([
       'feedRescope',
       'feedResume',
     ])
     expect(second.frame).toHaveBeenCalledExactlyOnceWith(rescope)
     expect(first.requestRebootstrap).toHaveBeenCalledOnce()
+    expect(first.requestRebootstrap).toHaveBeenCalledWith('backlog-bound')
     expect(second.requestRebootstrap).not.toHaveBeenCalled()
     a.dispose()
     b.dispose()

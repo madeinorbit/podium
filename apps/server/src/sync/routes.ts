@@ -1,21 +1,32 @@
-import { SyncWorkerError, type SyncWorkerClient } from '../sync-worker/worker-client'
 import { randomUUID } from 'node:crypto'
+import type { WorkspaceId } from '@podium/model'
 import {
   CLIENT_TYPE_HEADER,
   ClientType,
   CollectionFetchRequest,
   CollectionInstance,
+  type Principal,
   parseSyncDeltaQuery,
   principalRoutingId,
   SyncBootstrapRequiredReason,
-  type Principal,
+  syncRecoveryReason,
 } from '@podium/protocol'
+import type { Hono } from 'hono'
 import { z } from 'zod'
-import type { WorkspaceId } from '@podium/model'
+import { type SyncWorkerClient, SyncWorkerError } from '../sync-worker/worker-client'
 import { CollectionRequestError, resolveInstance } from './collection-fetch'
 import { UnavailableCollectionError } from './collection-shapes'
-import type { Hono } from 'hono'
-import { negotiateContentCoding, syncResponseHeaders, syncRefusal, observeSyncTransfer, logSyncTransfer, transferLog, type SyncTransferMetrics, type SyncDeltaPorts } from './route-support'
+import {
+  logSyncTransfer,
+  negotiateContentCoding,
+  observeSyncTransfer,
+  type SyncDeltaPorts,
+  type SyncTransferMetrics,
+  syncRecoveryContext,
+  syncRefusal,
+  syncResponseHeaders,
+  transferLog,
+} from './route-support'
 
 export interface SyncRouteDeps extends SyncDeltaPorts {
   principal(request: Request): Promise<Principal | undefined>
@@ -25,7 +36,10 @@ export interface SyncRouteDeps extends SyncDeltaPorts {
    */
   workspaceOf(request: Request): WorkspaceId
   pageRows?: number
-  worker?: () => Pick<SyncWorkerClient, 'bootstrap'> & Partial<Pick<SyncWorkerClient, 'delta' | 'collections'>> | undefined
+  worker?: () =>
+    | (Pick<SyncWorkerClient, 'bootstrap'> &
+        Partial<Pick<SyncWorkerClient, 'delta' | 'collections'>>)
+    | undefined
 }
 
 /** The most instances a first download's visible view may name. */
@@ -99,8 +113,18 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
     const clientId = c.req.raw.headers.get('podium-sync-client')?.slice(0, 64) || undefined
     const reservationKey = clientId ? `${routingId} ${clientId}` : transferId
     const metrics: SyncTransferMetrics = {
-      transferId, principal: routingId, coding, startedAt: performance.now(),
-      captureMs: 0, bytesIn: 0, bytesOut: 0, rows: 0, records: 0, outcome: 'running',
+      transferId,
+      principal: routingId,
+      coding,
+      startedAt: performance.now(),
+      mode: 'bootstrap',
+      ...syncRecoveryContext(c.req.raw),
+      captureMs: 0,
+      bytesIn: 0,
+      bytesOut: 0,
+      rows: 0,
+      records: 0,
+      outcome: 'running',
     }
     const abort = new AbortController()
     // Reserve before awaiting identity, so concurrent retries cannot overtake
@@ -110,7 +134,9 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
       // DEBUG, not info: `logSyncTransfer` already reports the outcome at info.
       // This says only who did it, which is the one fact that line cannot carry.
       transferLog.debug('sync bootstrap superseded', {
-        principal: routingId, supersededTransferId: superseded.transferId, transferId,
+        principal: routingId,
+        supersededTransferId: superseded.transferId,
+        transferId,
       })
       superseded.abort.abort(new SyncWorkerError('cancelled'))
     }
@@ -155,7 +181,10 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
       await transfer.meta // Worker acknowledgement precedes HTTP 200.
       const headers = syncResponseHeaders(coding)
       headers.set('Podium-Transfer-Id', transferId)
-      return new Response(observeSyncTransfer(transfer.body, metrics, () => {}), { headers })
+      return new Response(
+        observeSyncTransfer(transfer.body, metrics, () => {}),
+        { headers },
+      )
     } catch (error) {
       release()
       if (!completionOwnsLog) {
@@ -180,17 +209,35 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
     if (active >= 4) return syncRefusal('admissionFull', 'delta capacity exhausted')
     active++
     let released = false
-    const release = () => { if (!released) { released = true; active-- } }
+    const release = () => {
+      if (!released) {
+        released = true
+        active--
+      }
+    }
     const transferId = randomUUID()
     const metrics: SyncTransferMetrics = {
-      transferId, principal: String(principalRoutingId(principal)), coding, startedAt: performance.now(),
-      captureMs: 0, bytesIn: 0, bytesOut: 0, rows: 0, records: 0, outcome: 'running',
+      transferId,
+      principal: String(principalRoutingId(principal)),
+      coding,
+      startedAt: performance.now(),
+      mode: 'delta',
+      ...syncRecoveryContext(c.req.raw),
+      captureMs: 0,
+      bytesIn: 0,
+      bytesOut: 0,
+      rows: 0,
+      records: 0,
+      outcome: 'running',
     }
     let completionOwnsLog = false
     try {
       const { feedId, epoch } = await deps.serving.identity()
       if (query.data.feedId !== feedId || query.data.epoch !== epoch) {
         release()
+        metrics.outcome = 'bootstrap-required'
+        metrics.recoveryReason = 'feed-identity'
+        logSyncTransfer(metrics)
         return syncRefusal('bootstrapRequired', 'feed-identity-mismatch')
       }
       const worker = deps.worker?.()
@@ -220,22 +267,34 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
           metrics.captureMs = captured.phases.capture?.ms ?? 0
         }
         metrics.outcome = reason ?? captured?.outcome ?? 'complete'
+        if (SyncBootstrapRequiredReason.safeParse(reason).success)
+          metrics.recoveryReason = syncRecoveryReason(reason)
         release()
         logSyncTransfer(metrics)
       })
       await transfer.meta
       const headers = syncResponseHeaders(coding)
       headers.set('Podium-Transfer-Id', transferId)
-      return new Response(observeSyncTransfer(transfer.body, metrics, () => {}), { headers })
+      return new Response(
+        observeSyncTransfer(transfer.body, metrics, () => {}),
+        { headers },
+      )
     } catch (error) {
       release()
       if (!completionOwnsLog) {
         metrics.outcome = error instanceof SyncWorkerError ? error.reason : 'admission-failed'
+        if (
+          error instanceof SyncWorkerError &&
+          SyncBootstrapRequiredReason.safeParse(error.reason).success
+        )
+          metrics.recoveryReason = syncRecoveryReason(error.reason)
         logSyncTransfer(metrics)
       }
       if (error instanceof SyncWorkerError) {
         const refusal = SyncBootstrapRequiredReason.safeParse(error.reason)
-        return refusal.success ? syncRefusal('bootstrapRequired', refusal.data) : syncRefusal('admissionFull', error.reason)
+        return refusal.success
+          ? syncRefusal('bootstrapRequired', refusal.data)
+          : syncRefusal('admissionFull', error.reason)
       }
       throw error
     }
@@ -259,8 +318,18 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
     if (coding === 'not-acceptable') return c.body(null, 406)
     const transferId = randomUUID()
     const metrics: SyncTransferMetrics = {
-      transferId, principal: String(principalRoutingId(principal)), coding, startedAt: performance.now(),
-      captureMs: 0, bytesIn: 0, bytesOut: 0, rows: 0, records: 0, outcome: 'running',
+      transferId,
+      principal: String(principalRoutingId(principal)),
+      coding,
+      startedAt: performance.now(),
+      mode: 'partial-reload',
+      ...syncRecoveryContext(c.req.raw),
+      captureMs: 0,
+      bytesIn: 0,
+      bytesOut: 0,
+      rows: 0,
+      records: 0,
+      outcome: 'running',
     }
     let completionOwnsLog = false
     try {
@@ -297,7 +366,10 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
       await transfer.meta
       const headers = syncResponseHeaders(coding)
       headers.set('Podium-Transfer-Id', transferId)
-      return new Response(observeSyncTransfer(transfer.body, metrics, () => {}), { headers })
+      return new Response(
+        observeSyncTransfer(transfer.body, metrics, () => {}),
+        { headers },
+      )
     } catch (error) {
       if (!completionOwnsLog) {
         metrics.outcome = error instanceof SyncWorkerError ? error.reason : 'admission-failed'
