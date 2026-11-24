@@ -365,6 +365,8 @@ class BoardLane {
    *  a whole held page, else LOADING. Reading it holds the stage page while
    *  the count needs it, as the desktop board's column header does. */
   @lazy get count(): number | typeof LOADING {
+    // A device without a loader holds everything there is.
+    if (!this.board.pool.collections.available) return this.rootIds.length
     const count = omitGone(
       this.board.pool.row(
         'issueBoardColumnCount',
@@ -734,8 +736,14 @@ export class MobileTasksBoard {
    *  deck uses, not the cards this device holds. A search narrows it to the
    *  matching cards, whose search answer is the selection. */
   @lazy get proposals(): number | typeof LOADING {
-    if (!this.searchFilter.text?.trim()) return screeningTotal(this.pool)
     const ids = this.screeningIds
-    return ids === LOADING ? LOADING : (ids?.length ?? 0)
+    if (ids === LOADING) return LOADING
+    const held = ids?.length ?? 0
+    // A device without a loader holds everything there is.
+    if (this.searchFilter.text?.trim() || !this.pool.collections.available) return held
+    // Until the stubs answer, the cards the device holds; never fewer than
+    // those, as the screening deck's own count reads.
+    const total = screeningTotal(this.pool)
+    return total === LOADING ? held : Math.max(total, held)
   }
 }
