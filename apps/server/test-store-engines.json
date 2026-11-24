@@ -93,6 +93,9 @@
   },
   "pending": [],
   "beyondStoreShard": {
+    "apps/server/src/mail-send.statement-count.test.ts": "Session and issue mail statement budgets, including live feature-policy reads and armed growth controls, must hold on both store engines.",
+    "apps/server/src/session-companions.test.ts": "Personal session state and machine companion records must preserve publication and visibility behavior on both store engines.",
+    "apps/server/src/modules/sessions/oracle-decomposition.test.ts": "The session lifecycle, inbox and placement oracle uses portable member fixtures and must enforce the same behavior on both store engines.",
     "apps/server/src/router.setup.test.ts": "A lean-gate boot-wiring file: the server router's construction and required wiring over a store, held on both engines (POD-6994). The gate's other three boot-wiring files open no store.",
     "apps/server/src/sync/record-sources.test.ts": "The record source declarations both engines' change capture is generated from (POD-6982); its four cases that probe SQLite's capture triggers run on SQLite only, the rest on both (POD-6994).",
     "apps/server/src/sync-feed.statement-count.test.ts": "The sync feed's statement pins (hello, bootstrap and delta, in process and on the sync worker), the same counts on both engines (POD-6989, POD-6991, POD-6994).",

@@ -26,12 +26,14 @@ import type { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreEngine } from './test-support/pg-test-database'
 import { expectConstantRoundTrips } from './test-support/round-trip-count'
 import {
   describeGrowth,
   expectArmed,
   expectConstantStatements,
   measureAtSizes,
+  pinnedCountFor,
   quietShipping,
   type StatementPin,
   type StatementTally,
@@ -199,6 +201,14 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
     async (f) => await f.call.messages.send({ to: f.target, body: 'counted' }),
     sessionMailOnly,
   )
+  // Postgres yields between commits, so these sends have more publication/eligibility
+  // passes than SQLite: each reads the live retention floor and changed message/target
+  // records; a held-mail pass also rechecks its sender and issue. The query breakdowns
+  // are constant at both fixture sizes. These are reads of current committed facts,
+  // not repeated lookups inside a per-message loop.
+  const pgPublicationReason =
+    'Postgres separates post-commit publication and held-mail eligibility into more passes; each reads its live retention floor, message/target records and authorization facts.'
+  const trpcSessionStatements = { sqlite: 93, pg: 98, reason: pgPublicationReason }
 
   // POD-6218: the earliest admin is one statement (its row) and is read once per
   // operation, and so are its settings (`meta`, `user_preferences`). tRPC to a session
@@ -233,7 +243,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   // one round trip to each session send; issue-only sends do not deliver a session.
   it('over tRPC, to a running session', async () => {
     // POD-6920: derived change capture (no build before the write; one drain after it): tRPC messages.send to a session 118 -> 92.
-    const counts = await expectConstantStatements(trpcToSession, 93)
+    const counts = await expectConstantStatements(trpcToSession, trpcSessionStatements)
     for (const tally of [counts.small, counts.large]) {
       expect(
         [...tally.byQuery]
@@ -248,7 +258,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   })
 
   it('tRPC pin is armed', async () => {
-    await expectArmed(trpcToSession, 93, plantPerSession)
+    await expectArmed(trpcToSession, trpcSessionStatements, plantPerSession)
   })
 
   // ROUND TRIPS ON HOSTED POSTGRES [POD-6992, POD-6958 design 2.11]: the driver calls that
@@ -256,7 +266,10 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   // statement or with the workspace lock, one per statement, one per COMMIT). About 2.6 ms
   // each on hosted Postgres; docs/measurements/pod-6958-hosted-round-trips.md.
   it('over tRPC, to a running session: round trips', async () => {
-    await expectConstantRoundTrips(trpcToSession, 135)
+    await expectConstantRoundTrips(
+      trpcToSession,
+      pinnedCountFor({ sqlite: 135, pg: 140, reason: pgPublicationReason }, testStoreEngine()),
+    )
   }, 60_000)
 
   // The pass attempts every held message, and each attempt read the issue's
@@ -284,7 +297,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
         async (f) => await f.call.messages.send({ to: f.target, body: 'counted' }),
       ),
       // POD-6920: derived change capture (no build before the write; one drain after it): 125 -> 99.
-      100,
+      { sqlite: 100, pg: 111, reason: pgPublicationReason },
     )
   })
 
@@ -295,7 +308,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
         async (f) => await relay(f, 'send', { to: f.target, body: 'counted' }),
       ),
       // POD-6920: derived change capture (no build before the write; one drain after it): 117 -> 91.
-      92,
+      { sqlite: 92, pg: 100, reason: pgPublicationReason },
     )
   })
 
@@ -348,18 +361,22 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
     async (f) => await relay(f, 'send', { to: f.target, body: 'counted' }),
     sessionMailOnly,
   )
+  const relaySessionStatements = { sqlite: 85, pg: 87, reason: pgPublicationReason }
 
   it('through the agent relay, to a running session', async () => {
     // POD-6920: derived change capture (no build before the write; one drain after it): relayed messages.send to a session 110 -> 84.
-    await expectConstantStatements(relayToSession, 85)
+    await expectConstantStatements(relayToSession, relaySessionStatements)
   })
 
   it('relay pin is armed', async () => {
-    await expectArmed(relayToSession, 85, plantPerSession)
+    await expectArmed(relayToSession, relaySessionStatements, plantPerSession)
   })
 
   it('through the agent relay, to a running session: round trips (POD-6992)', async () => {
-    await expectConstantRoundTrips(relayToSession, 121)
+    await expectConstantRoundTrips(
+      relayToSession,
+      pinnedCountFor({ sqlite: 121, pg: 123, reason: pgPublicationReason }, testStoreEngine()),
+    )
   }, 60_000)
 
   it('through the agent relay, to its own issue', async () => {

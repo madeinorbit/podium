@@ -25,8 +25,8 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentCommandPrincipal } from '../../command-principal'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
+import { memberFacts } from '../../store/fixtures/test-support'
 import { attachHostDaemon } from '../../test-support/host-daemon'
-import { seedRaw } from '../../test-support/seed-rows'
 import { sealCredentialSecret } from '../credentials/vault'
 import { mailHarness } from '../messages/characterization-support'
 import {
@@ -45,25 +45,18 @@ const BOB = asUserId('user:bob')
 const ALICE_SESSION = asSessionId('10000000-0000-4000-8000-000000000001')
 const BOB_SESSION = asSessionId('20000000-0000-4000-8000-000000000002')
 
-function seedUser(
+async function seedUser(
   store: Awaited<ReturnType<typeof makeOracle>>['store'],
   id: UserId,
   displayName: string,
-): void {
-  // User lifecycle writes are intentionally absent from UsersRepository.
-  // @ts-expect-error test-only seed through SessionStore's private connection
-  const db = store.db as {
-    exec(sql: string): void
-    prepare(sql: string): { run(...a: unknown[]): unknown; get(...a: unknown[]): unknown }
-  }
-  // A raw fixture write reaches the tables, not the log (POD-6920).
-  seedRaw(db, () =>
-    db
-      .prepare(
-        "INSERT INTO users (workspace_id, id, display_name, role, created_at, disabled_at) VALUES (?, ?, ?, 'member', '2026-08-01T00:00:00.000Z', NULL)",
-      )
-      .run(store.workspaceId, id, displayName),
-  )
+): Promise<void> {
+  await memberFacts(store).create({
+    id,
+    displayName,
+    role: 'member',
+    createdAt: '2026-08-01T00:00:00.000Z',
+    disabledAt: null,
+  })
 }
 
 function delegatedAgent(sessionId: SessionId, onBehalfOf: UserId): AgentCommandPrincipal {
@@ -123,8 +116,8 @@ async function ownConnectionOnHost(
 
 async function twoUserOracle() {
   const o = await makeOracle()
-  seedUser(o.store, ALICE, 'Alice')
-  seedUser(o.store, BOB, 'Bob')
+  await seedUser(o.store, ALICE, 'Alice')
+  await seedUser(o.store, BOB, 'Bob')
   await ownConnectionOnHost(o.store, ALICE)
   await ownConnectionOnHost(o.store, BOB)
   const alice = await o.reg.modules.sessions.createSession({
@@ -580,6 +573,9 @@ describe('oracle: spawn placement fails closed', () => {
     ).toBe("machine 'Offline' is offline")
     expect(await sessions()).toBe(0)
 
+    // The fixture reports inventory asynchronously. The successful launch needs
+    // that report persisted; on Postgres it can still be probing at this point.
+    await o.reg.modules.machines.waitForInventory(o.machineId)
     expect(
       (
         await o.reg.modules.sessions.createSession({
