@@ -529,6 +529,7 @@ const PropertyRelationRow = observer(function PropertyRelationRow({
 }) {
   const { accessorySize: size } = useDetailLayout()
   const [rowWidth, setRowWidth] = useState(0)
+  const [labelWidth, setLabelWidth] = useState(0)
   const edge = resolveEdge(entry.id)
   if (edge.render === 'hidden') return null
   const target = edge.render === 'issue' ? edge.resolution.value : undefined
@@ -536,6 +537,12 @@ const PropertyRelationRow = observer(function PropertyRelationRow({
   // pushing the remove button off the card. The row's own width, less the
   // 44pt remove target and the gap, is the most the reference may take.
   const bound = rowWidth > 0 ? { maxWidth: Math.max(0, rowWidth - 44 - space.sm) } : null
+  // The title gets an explicit width too: there a Text never received one from
+  // flex, so it neither truncated nor clipped. Label, glyph and two gaps out.
+  const titleWidth =
+    rowWidth > 0 && labelWidth > 0
+      ? { width: Math.max(0, rowWidth - 44 - space.sm - labelWidth - size(12) - 2 * space.sm) }
+      : null
   const title = target
     ? 'authoredTitle' in target
       ? (target as PageIssue).authoredTitle
@@ -553,12 +560,17 @@ const PropertyRelationRow = observer(function PropertyRelationRow({
           onPress={() => onOpenIssue(target.id)}
           style={({ pressed }) => [styles.relOpen, bound, pressed && styles.pressed]}
         >
-          <Text style={styles.kvLabel}>{section}</Text>
+          <Text
+            style={styles.kvLabel}
+            onLayout={(event) => setLabelWidth(event.nativeEvent.layout.width)}
+          >
+            {section}
+          </Text>
           <StageGlyph stage={target.stage} size={size(12)} />
           {/* The box takes the width that is left, so the text truncates; a
               Text that is itself the flexible item measured wider on iOS 27. */}
           <View style={styles.relValueBox}>
-            <Text numberOfLines={1} style={styles.relValue}>
+            <Text numberOfLines={1} style={[styles.relValue, titleWidth]}>
               <Text style={styles.linkRef}>{`${issueDisplayRef(target)}  `}</Text>
               {title}
             </Text>
@@ -671,7 +683,7 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: color.hairline,
   },
-  relValueBox: { flex: 1, minWidth: 0 },
+  relValueBox: { flex: 1, minWidth: 0, overflow: 'hidden' },
   relValue: {
     ...sans(400),
     textAlign: 'right',
