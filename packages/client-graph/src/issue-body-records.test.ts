@@ -1,10 +1,12 @@
 /**
  * An issue shows its brief and description from their own synced records
  * (POD-6921, design POD-6253 §2): `issueBrief` and `issueDescription`, keyed by
- * the issue id, loaded with everything else. No fetch, no body store.
+ * the issue id. These pools have no loader, so they hold what they were given
+ * (an empty device is `body-relations.test.ts`). No body store.
  */
 import { autorun, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
+import type { LOADING } from './loading'
 import { requireHere } from './lookup'
 import { MobxPool } from './pool'
 
@@ -42,7 +44,10 @@ it('shows the brief and description from their records, and follows each change'
     rows: [task(), brief('Agent brief'), description('Human summary')],
   })
   const issue = requireHere(pool.model('issue', 'issue'))
-  const seen: { brief: string | undefined; description: string }[] = []
+  const seen: {
+    brief: string | undefined | typeof LOADING
+    description: string | typeof LOADING
+  }[] = []
   const stop = autorun(() => seen.push({ brief: issue.brief, description: issue.description }))
   try {
     expect(issue.brief).toBe('Agent brief')

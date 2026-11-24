@@ -250,6 +250,8 @@ export interface EmptyDeviceScreenOptions extends DeviceOptions {
   readonly members?: MemberRosterAnswer
   /** Answers request client calls as the server would (`RequestAnswer`). */
   readonly answer?: RequestAnswer
+  /** Mount with the connection already cut: what the screen asks for is refused. */
+  readonly offline?: boolean
 }
 
 /**
@@ -287,6 +289,7 @@ export async function mountOnEmptyDevice(
   vi.stubGlobal('fetch', fakeNetwork(state.fetched, options.members))
   const device = await openEmptyDevice(options)
   current = device
+  if (options.offline) device.offline()
   let view: RenderResult | undefined
   act(() => {
     view = render(element)

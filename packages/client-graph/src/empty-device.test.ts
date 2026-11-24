@@ -1,10 +1,11 @@
 /**
- * POD-7544 — the empty device itself, and the one screen that asks for its
- * issue's body today: the flight deck's root (POD-7088's hand-written hold).
+ * POD-7544 — the empty device itself, and the flight deck's root body: the
+ * description loads on read (POD-7545), the state line by the deck's own hold.
  * The web screens that do not ask are in `apps/web/src/features/issues/
  * empty-device-bodies.test.tsx`.
  */
 import { afterEach, expect, it } from 'vitest'
+import { LOADING } from './loading'
 import { MissionScreen } from './mission-screen'
 import { attachMissionTestPreferences } from './mission-screen.test.fixture'
 import {
@@ -48,7 +49,8 @@ it('starts with the issue but none of its body, and answers only what is asked f
   // The server holds all six; nothing has been asked for yet.
   expect(device.server.idsOf('issueDescription')).toEqual([ROOT])
   expect(device.requested()).toEqual([])
-  expect(device.pool.issueObject(ROOT).description).toBe('')
+  // The description is not on the device: its read answers LOADING (POD-7545).
+  expect(device.pool.issueObject(ROOT).description).toBe(LOADING)
 
   // Asking for one instance brings that one and nothing else of the body.
   const description = bodyOf('issueDescription', ROOT)
@@ -64,8 +66,9 @@ it('starts with the issue but none of its body, and answers only what is asked f
   read.close()
 })
 
-// Test d of POD-7544: the deck asks for its root's description and state line
-// by hand (`MissionScreen.rootBodyHeld`), so it shows them on an empty device.
+// Test d of POD-7544: the deck reads its root's description through the field
+// (POD-7545) and asks for the state line by hand (`rootStateHeld`), so it
+// shows both on an empty device.
 it("shows the deck root's description and state line on an empty device", async () => {
   const device = await emptyDevice()
   const deck = openDeck(device)
@@ -92,7 +95,8 @@ it('offline, the deck asks for its root body, reaches no server, and says offlin
   expect(device.holds(description)).toBe(false)
   expect(device.pool.collections.status(description)).toBe('offline')
   expect(deck.model.ready).toBe(false)
-  expect(deck.model.rootAuthoredBrief).toBe('')
+  expect(deck.model.rootAuthoredBrief).toBe(LOADING)
+  expect(device.pool.collections.reading(deck.model.rootAuthoredBrief)).toBe('offline')
 
   // Back online, the same open deck loads what it asked for.
   device.online()

@@ -167,7 +167,7 @@ export function boardReaders(
   }
 }
 
-/** The issue page of one issue: the record, its children and its sessions. */
+/** The issue page of one issue: the record, its children, its sessions and its description and brief. */
 export function issuePageReaders(device: Device, id: string): ScreenReaders {
   const views = issuePages(device.pool)
   return {
@@ -176,7 +176,13 @@ export function issuePageReaders(device: Device, id: string): ScreenReaders {
       if (issue === LOADING) return true
       if (issue === undefined) return false
       const row = views.row(id)
-      return (row.children as unknown) === LOADING || (row.memberSessions as unknown) === LOADING
+      // The page draws the description and the brief, which load on read (POD-7545).
+      return (
+        (row.children as unknown) === LOADING ||
+        (row.memberSessions as unknown) === LOADING ||
+        issue.description === LOADING ||
+        issue.brief === LOADING
+      )
     },
     close: () => views.dispose(),
   }

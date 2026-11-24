@@ -7,25 +7,22 @@
  * device holds only what a real start loads: the issue, none of its body.
  * Each screen is mounted on that device and must show the body it draws.
  *
- * Today only the flight deck asks for its root's body (POD-7088's hand-made
- * hold; `packages/client-graph/src/empty-device.test.ts` checks it). The
- * panel, the issue page and the reference miniview read the description
- * through `IssueModel.description` (or the stored row), which holds nothing,
- * fetches nothing and answers '' when the record is not on the device. Those
- * tests are `it.fails` until POD-7545 ("Body relations load on read") makes
- * the read the request; POD-7545 turns them into `it`. Each `it.fails` has
- * passing twins: one mounts the same screen and finds the task on it, so the
- * expected failure is the missing body and not a screen that did not mount;
- * one holds the body on the device by hand and finds it on the screen, so the
- * test turns green once a requester exists.
+ * The panel, the issue page and the reference miniview read the description
+ * (and the brief) through `IssueModel`: the field's read holds the body record
+ * and loads it, and answers LOADING until it is here (POD-7545, "Body
+ * relations load on read"). Until then a section shows its quiet loading
+ * state, offline "Not available offline", and the description editor does not
+ * open. Each screen also has its twins from POD-7544: one mounts the screen
+ * and finds the task on it, one holds the body by hand.
  */
+import { LOADING } from '@podium/client-graph/loading'
 import type { MemberRosterAnswer } from '@podium/client-graph/member-roster'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { DockHeaderSlotProvider } from '@/app/DockHeaderSlot'
 import { OperatorFocusProvider } from '@/app/operator-focus'
-import type { IssueViewModel } from '@/app/store'
+import type { IssueViewModel, IssueWithBodies } from '@/app/store'
 import { RefMiniviewHost } from '@/components/RefMiniview'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { openMiniview } from '@/lib/ref-activation'
@@ -39,6 +36,7 @@ import {
 import type { CollectionServer } from '../../../../../packages/sync/src/conformance/collection-server'
 import { IssuePage } from './IssuePage'
 import { IssuePanelView } from './IssuePanelView'
+import { issuePageCommands } from './issue-page-commands'
 
 vi.mock(
   '@/app/store-worklist-pool',
@@ -79,15 +77,17 @@ const providers = (element: ReactElement): ReactElement => (
   </ConfirmProvider>
 )
 
-const mountPanel = () =>
+const mountPanel = (options: { offline?: boolean } = {}) =>
   mountOnEmptyDevice(providers(<IssuePanelView cwd="/synthetic" issueId={ID as never} />), {
     world,
+    ...options,
   })
 
 const mountPage = (
   options: {
     members?: MemberRosterAnswer
     answer?: (path: string, input: unknown) => unknown
+    offline?: boolean
   } = {},
 ) =>
   mountOnEmptyDevice(
@@ -111,8 +111,8 @@ const SHARED: MemberRosterAnswer = {
   ],
 }
 
-async function mountMiniview() {
-  const mounted = await mountOnEmptyDevice(providers(<RefMiniviewHost />), { world })
+async function mountMiniview(options: { offline?: boolean } = {}) {
+  const mounted = await mountOnEmptyDevice(providers(<RefMiniviewHost />), { world, ...options })
   act(() => openMiniview(REF, { x: 100, y: 100 }))
   await mounted.untilIdle()
   return mounted
@@ -135,12 +135,22 @@ describe('the right-dock issue panel', () => {
     expect(screen.getByTestId('dock-description').textContent).toBe(FULL_BODIES.description)
   })
 
-  // Test a. POD-7545 turns this into `it`.
-  it.fails('shows the description', async () => {
+  // Test a.
+  it('shows the description', async () => {
     const mounted = await mountPanel()
     expect(screen.queryByTestId('dock-description')?.textContent, asked(mounted)).toBe(
       FULL_BODIES.description,
     )
+    expect(mounted.requestedKeys()).toContain(requestKey(bodyOf('issueDescription', ID)))
+  })
+
+  it('offline, says the description is not available offline, and shows it once back', async () => {
+    const mounted = await mountPanel({ offline: true })
+    expect(screen.queryByTestId('dock-description')).toBeNull()
+    expect(screen.getByText('Not available offline')).toBeTruthy()
+    mounted.online()
+    await mounted.untilIdle()
+    expect(screen.getByTestId('dock-description').textContent).toBe(FULL_BODIES.description)
   })
 })
 
@@ -158,8 +168,8 @@ describe('the issue page', () => {
     expect(screen.getByTestId('issue-brief').textContent).toContain(FULL_BODIES.brief)
   })
 
-  // Test b. POD-7545 turns this into `it`.
-  it.fails('shows the description and the brief', async () => {
+  // Test b.
+  it('shows the description and the brief', async () => {
     const mounted = await mountPage()
     expect(screen.getByTitle('Click to edit description').textContent, asked(mounted)).toBe(
       FULL_BODIES.description,
@@ -169,30 +179,49 @@ describe('the issue page', () => {
     )
   })
 
-  // Test e. The description editor opens on what the device holds
-  // (IssueBody.tsx `defaultValue={draft ?? issue.description}`; the base of
-  // IssuePage.tsx `setDescBase`), which is '' here. The save is a whole-text
-  // replace (`issues.update` patch `{ description }`, applied as given by the
-  // server's `store/issues.ts`), so a reader who adds a line to what looks
-  // like an empty description replaces the text the server holds.
-  // POD-7545 ("no write over an unloaded value") turns this into `it`.
-  it.fails('opening the description editor and saving keeps the server text', async () => {
+  // Test e. The description editor opens on the text the server holds (the
+  // read loaded it), so a reader who adds a line keeps what was there.
+  it('opening the description editor and saving keeps the server text', async () => {
     const mounted = await mountPage()
-    await saveAddedLine(mounted)
+    const editor = await saveAddedLine(mounted)
+    expect(editor.opened).toBe(FULL_BODIES.description)
     expect(serverTextAfterSave(mounted), asked(mounted)).toContain(FULL_BODIES.description)
   })
 
-  // Test e's evidence: what the save sends, alone and on a shared instance.
-  // POD-7545 makes the editor refuse to open (or the save refuse) on an
-  // unloaded description, and replaces this test.
-  it('one member: the editor opens empty and the save replaces the server text', async () => {
-    const mounted = await mountPage()
-    const editor = await saveAddedLine(mounted)
-    expect(editor.opened).toBe('')
-    expect(serverTextAfterSave(mounted)).toBe(ADDED)
-    // The server held the text all along, and the device never asked for it.
-    expect(mounted.device.server.members(bodyOf('issueDescription', ID))).toHaveLength(1)
-    expect(mounted.requestedKeys()).not.toContain(requestKey(bodyOf('issueDescription', ID)))
+  // POD-7545 "no write over an unloaded value": offline the description is
+  // LOADING, so there is nothing to click into and the save command refuses,
+  // handing the reader's text back.
+  it('while the description is loading, the editor does not open and the save refuses', async () => {
+    const mounted = await mountPage({ offline: true })
+    expect(screen.queryByTitle('Click to edit description')).toBeNull()
+    expect(screen.queryByText('Add a description…')).toBeNull()
+    expect(
+      within(screen.getByTestId('issue-description-pending')).getByText('Not available offline'),
+    ).toBeTruthy()
+    expect(screen.queryByLabelText('Task description')).toBeNull()
+
+    const issue = mounted.pool.issueObject(ID)
+    expect(issue.description).toBe(LOADING)
+    const updateIssue = vi.fn(async () => undefined)
+    const run = vi.fn(async (work: () => Promise<unknown>) => work())
+    const commands = issuePageCommands({
+      issue: issue as unknown as IssueWithBodies,
+      updateIssue,
+      run,
+      trpc: {} as never,
+    } as unknown as Parameters<typeof issuePageCommands>[0])
+    const done = vi.fn()
+    commands.commitText('description', ADDED, { text: '', revision: 1 }, done)
+    expect(done).toHaveBeenCalledWith({ failed: ADDED })
+    expect(updateIssue).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
+    expect(mounted.requests.filter((call) => call.path === 'issues.update.mutate')).toEqual([])
+    expect(serverTextAfterSave(mounted)).toBe(FULL_BODIES.description)
+
+    // Back online the text arrives, and the editor opens on it.
+    mounted.online()
+    await mounted.untilIdle()
+    expect(screen.getByTitle('Click to edit description').textContent).toBe(FULL_BODIES.description)
   })
 })
 
@@ -363,14 +392,17 @@ describe('the reference miniview', () => {
     expect(miniview().textContent).toContain(TITLE)
   })
 
-  // Test c. Two causes: nothing asks for the description, and the card reads
-  // the stored issue row's `description` (`readRefTarget`), which the synced
-  // issue record no longer carries (POD-6921), instead of the issue model. So
-  // even a description held on the device does not reach the card. POD-7545
-  // turns this into `it`.
-  it.fails('shows the description', async () => {
+  // Test c. The card reads the description through the issue model
+  // (`readRefTarget`), not the stored row, which holds only a painted value.
+  it('shows the description', async () => {
     const mounted = await mountMiniview()
     expect(miniview().textContent, asked(mounted)).toContain(FULL_BODIES.description)
+  })
+
+  it('offline, says the description is not available offline', async () => {
+    await mountMiniview({ offline: true })
+    expect(miniview().textContent).toContain(TITLE)
+    expect(within(miniview()).getByText('Not available offline')).toBeTruthy()
   })
 })
 
