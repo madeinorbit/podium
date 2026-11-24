@@ -398,6 +398,9 @@ export function createSyncTransferTelemetry(
         // Emitted synchronously in `startRebootstrap`/`startHeal`, BEFORE the walk
         // is queued — so the request this describes has not opened yet.
         if (event.cause === 'gap') pending.delta = event.cause
+        // A partial walk (a kind repair, a marker walk) goes over the
+        // collections route, never as a download (POD-7560).
+        else if (event.partial === true) pending.collections = event.cause
         else pending.bootstrap = event.cause
         return
       }

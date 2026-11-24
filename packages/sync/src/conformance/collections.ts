@@ -107,6 +107,8 @@ function kernelOver(
     /** POD-7162's test hooks: the disk budget in bytes, and records per prune slice. */
     readonly diskBytes?: () => number
     readonly pruneSliceRows?: number
+    /** POD-7560 — the timer a marker walk that did not finish waits on. */
+    readonly schedule?: (run: () => void, ms: number) => () => void
   } = {},
 ): Booted {
   const { cache } = storage.viewFor(PRINCIPAL)
@@ -127,6 +129,7 @@ function kernelOver(
       options.onEvent?.(event)
     },
     ...(options.unitOfWork === undefined ? {} : { unitOfWork: options.unitOfWork }),
+    ...(options.schedule === undefined ? {} : { schedule: options.schedule }),
   })
   return { storage, cache, replica, events, clock, memory }
 }
@@ -170,6 +173,25 @@ function heldWhileArmed(storage: ConformanceStorage): {
   }
 }
 
+/** POD-7560 — timers driven by hand: what waits, for how long, and `fire()` runs it. */
+function manualTimers() {
+  const waits: { readonly run: () => void; readonly ms: number }[] = []
+  return {
+    waits,
+    schedule: (run: () => void, ms: number): (() => void) => {
+      const wait = { run, ms }
+      waits.push(wait)
+      return () => {
+        const at = waits.indexOf(wait)
+        if (at >= 0) waits.splice(at, 1)
+      }
+    },
+    fire(): void {
+      for (const wait of waits.splice(0)) wait.run()
+    },
+  }
+}
+
 /** Let the walk run until `done` says so (bounded). */
 async function until(done: () => boolean): Promise<void> {
   for (let i = 0; i < 400 && !done(); i += 1) await ticks(1)
@@ -179,7 +201,11 @@ async function boot(
   instantiation: SyncInstantiation,
   server: CollectionServer,
   storage?: ConformanceStorage,
-  options: { readonly warmInstances?: number } = {},
+  options: {
+    readonly warmInstances?: number
+    readonly onEvent?: (event: ReplicaEvent) => void
+    readonly schedule?: (run: () => void, ms: number) => () => void
+  } = {},
 ): Promise<Booted> {
   const booted = kernelOver(storage ?? (await instantiation.open()), server, undefined, options)
   booted.replica.connect()
@@ -3056,6 +3082,8 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
           server.bootstrap = bootstrap
           const fullLoads = server.bootstraps
           const fetched = server.fetches.length
+          const before = replica.stats()
+          const seen = events.length
           server.put(ISSUE, 'A3', issue('A3', { stage: 'planning' }))
           if (kindMoved) {
             server.kindTokens = { ...server.kindTokens, session: 'v2' }
@@ -3078,7 +3106,146 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
           if (kindMoved) expect(cache.readKindTokens()?.session).toBe('v2')
           expect(cache.read(ISSUE, 'A3')).toBeDefined()
           expectMarkersTrue(cache, server)
+          // POD-7560: counted as a marker walk, not a bootstrap, and named so in its events.
+          expect(replica.stats().markerWalks - before.markerWalks).toBe(1)
+          if (!kindMoved) expect(replica.stats().bootstraps).toBe(before.bootstraps)
+          const later = events.slice(seen)
+          expect(later.filter((e) => e.type === 'heal' && e.cause === 'markers')).toHaveLength(1)
+          expect(later.some((e) => e.type === 'bootstrap-installed' && e.cause === 'markers')).toBe(
+            true,
+          )
+          expect(
+            later.some(
+              (e) =>
+                (e.type === 'heal' || e.type === 'bootstrap-installed') && e.cause === 'resume',
+            ),
+          ).toBe(false)
         })
+
+      /** A gap whose load never began: the device stale, every policy marker stale. */
+      async function loadNeverBegan(booted: Booted, server: CollectionServer): Promise<void> {
+        const bootstrap = server.bootstrap.bind(server)
+        server.bootstrap = () =>
+          (async function* () {
+            yield* []
+            throw new Error('the server is restarting')
+          })()
+        booted.replica.requestRebootstrap()
+        await settleFully(booted)
+        expect(booted.replica.posture).toBe('stale')
+        for (const spec of [LIVE, SIDEBAR, STUBS])
+          expect(markedStale(booted.cache, spec)).toBe(true)
+        server.bootstrap = bootstrap
+      }
+
+      async function settleFully(booted: Booted): Promise<void> {
+        for (let round = 0; round < 3; round += 1) {
+          await booted.replica.settled()
+          await ticks()
+        }
+        await booted.replica.settled()
+      }
+
+      it('a marker walk that runs out of attempts goes back live and waits, doubling, instead of walking again with every frame (POD-7560)', async () => {
+        const server = world()
+        const timers = manualTimers()
+        const booted = await boot(instantiation, server, undefined, { schedule: timers.schedule })
+        const { cache, replica } = booted
+        await loadNeverBegan(booted, server)
+        // The feed is back, the collections route is not, for the policy's markers.
+        const policyKeys = new Set([LIVE, SIDEBAR, STUBS].map(instanceKey))
+        const collections = server.collections.bind(server)
+        let refused = 0
+        let down = true
+        server.collections = (instances) => {
+          if (!down || !instances.some((spec) => policyKeys.has(instanceKey(spec))))
+            return collections(instances)
+          refused += 1
+          return (async function* () {
+            yield* []
+            throw new Error('the route is down')
+          })()
+        }
+        const walks = replica.stats().markerWalks
+        replica.connect()
+        await settleFully(booted)
+        // Out of attempts: live over the current rows, the markers still stale, a retry in 1 s.
+        expect(refused).toBe(3)
+        expect(replica.posture).toBe('live')
+        expect(replica.trace).toContain('D6-MARKERS-DEFERRED')
+        for (const spec of [LIVE, SIDEBAR, STUBS]) expect(markedStale(cache, spec)).toBe(true)
+        expect(timers.waits.map((wait) => wait.ms)).toEqual([1000])
+        // A busy feed: each frame applies; none heals or walks again.
+        for (let i = 0; i < 3; i += 1) {
+          server.put(ISSUE, `F${i}`, issue(`F${i}`))
+          await feed(booted, server)
+        }
+        expect(cache.read(ISSUE, 'F2')).toBeDefined()
+        expect(replica.posture).toBe('live')
+        expect(refused).toBe(3)
+        expect(replica.stats().markerWalks - walks).toBe(1)
+        // The retry fails as well: the wait doubles.
+        timers.fire()
+        await settleFully(booted)
+        expect(refused).toBe(6)
+        expect(replica.posture).toBe('live')
+        expect(timers.waits.map((wait) => wait.ms)).toEqual([2000])
+        // The route is back: the next retry replaces the markers, and nothing waits.
+        down = false
+        timers.fire()
+        await settleFully(booted)
+        for (const spec of [LIVE, SIDEBAR, STUBS]) {
+          expect(marked(cache, spec), instanceKey(spec)).toBe(true)
+          expect(markedStale(cache, spec), instanceKey(spec)).toBe(false)
+        }
+        expect(timers.waits).toEqual([])
+        expect(replica.stats().markerWalks - walks).toBe(3)
+        expectMarkersTrue(cache, server)
+      })
+
+      it('a marker walk whose answer carries a moved kind shape never restarts as a full download: a fresh instance stays complete (POD-7560)', async () => {
+        const server = world()
+        server.kindTokens = { issueProjection: 'v1', session: 'v1', sessionUserState: 'v1' }
+        const timers = manualTimers()
+        let watch: (() => void) | undefined
+        const booted = await boot(instantiation, server, undefined, {
+          schedule: timers.schedule,
+          onEvent: () => watch?.(),
+        })
+        const { cache, replica } = booted
+        await loadNeverBegan(booted, server)
+        // A view opens A1's tree while the device is offline: fresh, complete.
+        const release = replica.hold(tree('A1'))
+        await replica.load([tree('A1')])
+        await replica.settled()
+        expect(replica.isComplete(tree('A1'))).toBeDefined()
+        expect(replica.instanceStale(tree('A1'))).toBe(false)
+        let lapsed = false
+        watch = () => {
+          if (replica.isComplete(tree('A1')) === undefined) lapsed = true
+        }
+        // An update moved one kind's shape; only the collections answer says so.
+        server.kindTokens = { ...server.kindTokens, session: 'v2' }
+        const fullLoads = server.bootstraps
+        replica.connect()
+        await settleFully(booted)
+        timers.fire()
+        await settleFully(booted)
+        // No full download, so no marker dropped: the tree never left the screen.
+        expect(server.bootstraps).toBe(fullLoads)
+        expect(lapsed).toBe(false)
+        expect(replica.posture).toBe('live')
+        expect(replica.trace).toContain('D6-MARKERS-DEFERRED')
+        expect(replica.isComplete(tree('A1'))).toBeDefined()
+        // The kind repair took the new shape; the retry then replaced the markers.
+        expect(cache.readKindTokens()?.session).toBe('v2')
+        for (const spec of [LIVE, SIDEBAR, STUBS]) {
+          expect(marked(cache, spec), instanceKey(spec)).toBe(true)
+          expect(markedStale(cache, spec), instanceKey(spec)).toBe(false)
+        }
+        expectMarkersTrue(cache, server)
+        release()
+      })
 
       it('a rescope withdraws a held instance in memory: nothing vouches for what the viewer may no longer see', async () => {
         const server = world()

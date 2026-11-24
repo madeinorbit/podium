@@ -183,6 +183,11 @@ export interface ReplicaOptions {
   /** The clock collection rules compare "newer than N days" against. */
   readonly now?: () => number
   /**
+   * POD-7560 — the timer a marker walk that did not finish waits on before it
+   * is tried again; returns the cancel. A test drives it by hand.
+   */
+  readonly schedule?: (run: () => void, ms: number) => () => void
+  /**
    * What the visible view asks for when a full load starts (the loader's,
    * POD-7087): the first download's second step, design "One loader, one
    * route". Read once per attempt.
@@ -218,6 +223,20 @@ const workNow = (): number => globalThis.performance?.now() ?? Date.now()
 
 /** Most instances one fetch names; the route's own bound. */
 const FETCH_MAX_INSTANCES = 200
+
+/**
+ * POD-7560 — a marker walk that did not finish waits this long before it is
+ * tried again, doubling up to `MARKER_RETRY_MAX_MS`; a walk that finishes
+ * resets it.
+ */
+export const MARKER_RETRY_MS = 1_000
+export const MARKER_RETRY_MAX_MS = 60_000
+
+const realSchedule = (run: () => void, ms: number): (() => void) => {
+  const timer = setTimeout(run, ms)
+  ;(timer as { unref?: () => void }).unref?.()
+  return () => clearTimeout(timer)
+}
 
 /**
  * POD-7122 — the most rows (records, stubs and markers) a load installs in
@@ -356,6 +375,16 @@ class ReloadSourceChanged extends Error {
   }
 }
 
+/**
+ * POD-7560 — a marker walk (POD-7538) that only a full load could answer: a
+ * pending offer or the kinds the device retains disagree with what it holds.
+ */
+class MarkersNeedFullLoad extends Error {
+  constructor() {
+    super('the stale policy markers need a full load')
+  }
+}
+
 function newCacheGeneration(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
 }
@@ -428,6 +457,10 @@ export class Replica implements DeviceCollectionReads {
   private startedLoad: number | undefined
   /** POD-7538 — the walk that only replaces stale policy markers after a heal: a partial load. */
   private markerWalk: number | undefined
+  /** POD-7560 — the wait before a marker walk that did not finish runs again, and its timer. */
+  private markerRetryMs = MARKER_RETRY_MS
+  private markerRetryCancel: (() => void) | undefined
+  private readonly schedule: (run: () => void, ms: number) => () => void
   private pendingTransition = false
   /**
    * Every transition-table row this replica has taken, in order. Not telemetry:
@@ -503,6 +536,12 @@ export class Replica implements DeviceCollectionReads {
   private readonly keptWhole = new SideSet<string>('replica.keptWhole')
   /** POD-7160 — stale instances read while they could not reload yet (no connection, a load under way). */
   private readonly staleWanted = new SideMap<string, InstanceRequest>('replica.staleWanted')
+  /**
+   * POD-7560 — a later page asked while its instance's stale reload could not
+   * run (parked until live, or answered by a reload already in flight), by
+   * instance key: asked again through the loader once that reload commits.
+   */
+  private readonly deferredPages = new SideMap<string, InstanceRequest>('replica.deferredPages')
   /** What held records come with, gathered for one batched fetch. */
   private readonly needs = new SideMap<string, InstanceRequest>('replica.needs')
   private needsScheduled = false
@@ -536,6 +575,7 @@ export class Replica implements DeviceCollectionReads {
   private counters = {
     heals: 0,
     bootstraps: 0,
+    markerWalks: 0,
     framesApplied: 0,
     watermarksApplied: 0,
     shrinks: 0,
@@ -553,6 +593,7 @@ export class Replica implements DeviceCollectionReads {
     }
     this.validator = options.validator
     this.now = options.now ?? (() => Date.now())
+    this.schedule = options.schedule ?? realSchedule
     const onEvent = options.onEvent ?? (() => {})
     this.emit = onEvent
     this.batchEvents = options.batchEvents ?? ((emitAll) => emitAll())
@@ -596,6 +637,7 @@ export class Replica implements DeviceCollectionReads {
       pendingGaps: this.counters.pendingGap ? 1 : 0,
       heals: this.counters.heals,
       bootstraps: this.counters.bootstraps,
+      markerWalks: this.counters.markerWalks,
       framesApplied: this.counters.framesApplied,
       watermarksApplied: this.counters.watermarksApplied,
       shrinks: this.counters.shrinks,
@@ -1427,7 +1469,7 @@ export class Replica implements DeviceCollectionReads {
    * stale-visible; POD-7086). Only the markers go at once: what the feed kept
    * complete is no longer known to be.
    */
-  private rebootstrap(cause: RebootstrapCause, replaceHeld = false, markersOnly = false): void {
+  private rebootstrap(cause: RebootstrapCause, replaceHeld = false): void {
     // Bump first, then read: a superseded walk notices the mismatch and abandons
     // its staging rather than installing a slice the ladder has moved past.
     this.walkAbort.abort()
@@ -1436,7 +1478,7 @@ export class Replica implements DeviceCollectionReads {
     this.walkAbort = new AbortController()
     this.walkGeneration += 1
     const generation = this.walkGeneration
-    this.markerWalk = markersOnly ? generation : undefined
+    this.markerWalk = cause === 'markers' ? generation : undefined
     // ONE recovery path owns invalidation for every rung. Ordinary walks keep
     // the old slice visible, but it must no longer certify absent personal rows.
     if (cause === 'local-corruption' || cause === 'schema-version') {
@@ -1450,10 +1492,17 @@ export class Replica implements DeviceCollectionReads {
       this.buffer = []
       this.exits.clear()
     }
-    this.counters.bootstraps += 1
+    // POD-7560: a marker walk downloads nothing; it is counted apart.
+    if (cause === 'markers') this.counters.markerWalks += 1
+    else this.counters.bootstraps += 1
     this.counters.pendingGap = false
     this.setPosture('bootstrapping')
-    this.emit({ type: 'heal', rung: rungFor(cause), cause })
+    this.emit({
+      type: 'heal',
+      rung: rungFor(cause),
+      cause,
+      ...(cause === 'markers' ? { partial: true as const } : {}),
+    })
     this.run(async () => {
       if (generation !== this.walkGeneration) return
       // After prior frame commits settle, before the new walk: the markers
@@ -1462,7 +1511,7 @@ export class Replica implements DeviceCollectionReads {
       // Clearing eagerly while an older span is still staged would let its
       // publication restore the old markers behind this recovery.
       try {
-        if (cause !== 'resume' && this.store.readInstances().size > 0) {
+        if (cause !== 'resume' && cause !== 'markers' && this.store.readInstances().size > 0) {
           this.store.applyAtomic({ operations: [], instances: this.gapMarkers(cause) })
           this.emit({ type: 'markers' })
         }
@@ -1533,9 +1582,12 @@ export class Replica implements DeviceCollectionReads {
     for (let attempt = 1; attempt <= this.maxBootstrapAttempts; attempt += 1) {
       if (generation !== this.walkGeneration) return // superseded
       try {
-        const resume = !restartSnapshot && (cause === 'resume' || this.startedLoad === generation)
+        const resume =
+          !restartSnapshot &&
+          (cause === 'resume' || cause === 'markers' || this.startedLoad === generation)
         restartSnapshot = false
         const installed = await this.attemptWalk(cause, generation, resume, replaceHeld)
+        if (installed && this.markerWalk === generation) this.markerRetryMs = MARKER_RETRY_MS
         if (installed || generation !== this.walkGeneration) return
         lastError = 'stream ended before the last chunk'
         this.note('D6-RESTART')
@@ -1565,6 +1617,15 @@ export class Replica implements DeviceCollectionReads {
           this.note('D6-RESTART')
           continue
         }
+        // POD-7560: a marker walk never restarts as a full download (F1).
+        if (this.markerWalk === generation && error instanceof MarkersNeedFullLoad) {
+          await this.endMarkerWalk(generation)
+          return
+        }
+        if (this.markerWalk === generation && error instanceof ReloadSourceChanged) {
+          await this.endMarkerWalk(generation, error.answer)
+          return
+        }
         if (error instanceof ReloadSourceChanged) restartSnapshot = true
         lastError = error instanceof Error ? error.message : String(error)
         this.note('D6-RESTART')
@@ -1580,6 +1641,10 @@ export class Replica implements DeviceCollectionReads {
       attempts: this.maxBootstrapAttempts,
       error: lastError,
     })
+    if (this.markerWalk === generation) {
+      await this.endMarkerWalk(generation)
+      return
+    }
     // D6-EXHAUSTED: keep serving whatever is installed, marked stale. Never blank.
     this.note('D6-EXHAUSTED')
     this.setPosture(this.cursorValue === null ? 'cold' : 'stale')
@@ -1606,6 +1671,7 @@ export class Replica implements DeviceCollectionReads {
   ): Promise<boolean> {
     const signal = this.walkAbort.signal
     const missing = resume ? this.resumeRequests(generation) : undefined
+    if (missing === undefined && this.markerWalk === generation) throw new MarkersNeedFullLoad()
     if (missing !== undefined && missing.length === 0) {
       await this.finishLoad(cause, undefined, generation, false, 0)
       return true
@@ -1736,6 +1802,8 @@ export class Replica implements DeviceCollectionReads {
   private replaceStalePolicyMarkers(): void {
     if (
       this.state !== 'live' ||
+      // POD-7560: one that did not finish waits for its retry, not the next heal.
+      this.markerRetryCancel !== undefined ||
       this.kindReloading ||
       this.authority.collections === undefined ||
       this.store.readLoadingSince() !== null ||
@@ -1743,7 +1811,51 @@ export class Replica implements DeviceCollectionReads {
       this.missingPolicyInstances().length === 0
     )
       return
-    this.rebootstrap('resume', false, true)
+    this.rebootstrap('markers')
+  }
+
+  /**
+   * POD-7560 — a marker walk that did not finish: its attempts ran out, its
+   * source moved (a deploy changed a kind's shape or the policy), or only a
+   * full load could answer it. It never becomes a full download, whose first
+   * chunk would drop every fresh marker and send those screens back to
+   * loading (F1). The heal brought the rows current, so the device goes back
+   * live and the markers stay stale: screens read them complete, refreshing.
+   * The walk runs again after a wait that doubles from 1 s to 60 s, not with
+   * the next frame: exhausted, it used to leave the feed stale, and every
+   * frame then ran a heal and another walk (F3). A source that moved is the
+   * kind repair's (`checkKindAdvertisement`); another feed is rung 4.
+   */
+  private async endMarkerWalk(generation: number, moved?: BootstrapChunk): Promise<void> {
+    this.markerWalk = undefined
+    if (moved !== undefined) {
+      const cursor = this.cursorValue
+      if (cursor === null || !sameFeed(cursor, moved)) {
+        this.rebootstrap('epoch-mismatch')
+        return
+      }
+      this.pendingKindAdvertisement = {
+        tokens: moved.kindTokens,
+        ...(moved.policy === undefined ? {} : { policy: moved.policy }),
+      }
+    }
+    this.retryMarkersLater()
+    this.note('D6-MARKERS-DEFERRED')
+    this.setPosture('live')
+    await this.drainBuffer()
+    if (generation !== this.walkGeneration || this.state !== 'live') return
+    this.checkKindAdvertisement()
+    this.requestMissingComesWith()
+  }
+
+  private retryMarkersLater(): void {
+    this.markerRetryCancel?.()
+    const wait = this.markerRetryMs
+    this.markerRetryMs = Math.min(wait * 2, MARKER_RETRY_MAX_MS)
+    this.markerRetryCancel = this.schedule(() => {
+      this.markerRetryCancel = undefined
+      this.replaceStalePolicyMarkers()
+    }, wait)
   }
 
   /** The policy's instances a load under way still lacks; `undefined` when only a full load can help. */
@@ -2856,7 +2968,12 @@ export class Replica implements DeviceCollectionReads {
       stale.size === 0
         ? undefined
         : this.reloadStale([...stale.values()]).then(() => {
-            const next = pages.filter((page) => !this.instanceStale(page))
+            // POD-7560: still stale, the reload waits (parked, or another
+            // answer in flight); the page waits for it, not dropped.
+            const next: InstanceRequest[] = []
+            for (const page of pages)
+              if (this.instanceStale(page)) this.deferredPages.set(instanceKey(page), page)
+              else next.push(page)
             return next.length === 0 ? undefined : this.loadFromServer(next)
           })
     await Promise.all([
@@ -3541,6 +3658,29 @@ export class Replica implements DeviceCollectionReads {
     if (signal.aborted) throw new Error('the fetch was cut off by a reload')
   }
 
+  /**
+   * POD-7560 — after an answer for these instances: the later pages that
+   * waited for their stale reload are asked for now, through the loader,
+   * below what the device holds once the reload is in. An instance the
+   * answer refused, or held to its end, has no later page to ask for.
+   */
+  private askDeferredPages(keys: readonly string[]): void {
+    if (this.deferredPages.size === 0) return
+    const markers = this.store.readInstances()
+    const asks: InstanceRequest[] = []
+    for (const key of keys) {
+      const page = this.deferredPages.get(key)
+      if (page === undefined || this.instanceStale(page)) continue
+      this.deferredPages.delete(key)
+      const range = markers.get(key)?.range
+      if (range === undefined || range.end || range.through === undefined) continue
+      asks.push({ ...page, after: range.through })
+    }
+    if (asks.length === 0) return
+    if (this.requestHook !== undefined) this.requestHook(asks)
+    else void this.loadFromServer(asks).catch(() => undefined)
+  }
+
   /** POD-7538 — the ranges the device holds of paged instances, by key: where a reload of them reaches. */
   private heldRanges(requests: readonly InstanceRequest[]): ReadonlyMap<string, InstanceRange> {
     const markers = this.store.readInstances()
@@ -3799,6 +3939,7 @@ export class Replica implements DeviceCollectionReads {
           this.seen = null
           this.wakeMemoryAfterFetches()
         }
+        this.askDeferredPages(fresh.map(instanceKey))
       }
       if (signal.aborted) return
       // What the records this answer brought come with (design "One loader"):

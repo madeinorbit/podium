@@ -375,6 +375,18 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
     rung: null,
     adr: 'ADR 2 D7 "stale-visible, never blank"',
   },
+  {
+    id: 'D6-MARKERS-DEFERRED',
+    from: ['bootstrapping'],
+    input: 'a marker walk (POD-7538) fails, or its source moves',
+    condition:
+      'no attempts remain, the answer carries other kind tokens or another policy, or only a full load could answer it',
+    effect:
+      'Back to live over the current rows, the policy markers left stale; the walk runs again after a backed-off wait, never as a full download (POD-7560).',
+    to: ['live'],
+    rung: null,
+    adr: 'ADR 2 D7 "stale-visible, never blank"',
+  },
 
   // ─── Connectivity ──────────────────────────────────────────────────────────
   {

@@ -190,7 +190,18 @@ export class CollectionLoader {
     for (const request of requests) {
       const key = instanceKey(request)
       if (this.held(request)) continue
-      if (this.inFlight.has(key) || this.riding.has(key)) continue
+      if (this.riding.has(key)) continue
+      const sending = this.inFlight.get(key)
+      // POD-7560: a later page of a held instance, asked while another
+      // position of it is answered (a stale board's whole reload), waits in
+      // the queue for that answer rather than being dropped.
+      if (
+        sending !== undefined &&
+        (request.after === undefined ||
+          samePosition(sending.after, request.after) ||
+          this.replica.isComplete(request) === undefined)
+      )
+        continue
       this.refusedKeys.delete(key)
       const queued = this.queue.get(key)
       if (queued !== undefined) {

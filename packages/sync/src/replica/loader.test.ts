@@ -688,7 +688,7 @@ describe('what an open view holds through a gap the feed cannot bridge (POD-7538
     return { server, d, release, held, resident }
   }
 
-  it('the next page of a board asked while it refreshes waits for its reload: no page is lost', async () => {
+  it('the next page of a board asked while it refreshes waits for its reload, then loads: no page is lost (POD-7560)', async () => {
     const { server, d, release, held, resident } = await heldBoard()
     d.replica.disconnect()
     server.put(ISSUE, 'X', issue('X'))
@@ -709,11 +709,51 @@ describe('what an open view holds through a gap the feed cannot bridge (POD-7538
     await settle(d)
     expect(d.replica.posture).toBe('live')
     expect(d.replica.instanceStale(BOARD)).toBe(false)
-    expect(d.replica.isComplete(BOARD)?.range).toEqual(held.range)
-    expect(resident()).toBe(20)
-    // Current again, the next page loads below what is held.
+    // POD-7560: nobody asks again (mobile triage asks only when its length
+    // changes): the page that waited goes once the reload is in, below it.
+    expect(resident()).toBe(25)
+    expect(d.replica.isComplete(BOARD)?.range?.end).toBe(true)
+    release()
+  })
+
+  it('a later page asked while its board reload is in flight waits for that answer (POD-7560)', async () => {
+    const { server, d, release, held, resident } = await heldBoard()
+    // The board's reload after the gap is held at the route.
+    const collections = server.collections.bind(server)
+    let open = (): void => {}
+    const gate = new Promise<void>((resolve) => {
+      open = resolve
+    })
+    let asked = false
+    server.collections = (instances) => {
+      const answer = collections(instances)
+      const reload = instances.some(
+        (spec) => spec.collection === BOARD.collection && spec.after === undefined,
+      )
+      if (!reload || asked) return answer
+      asked = true
+      return (async function* () {
+        await gate
+        yield* answer
+      })()
+    }
+    d.replica.disconnect()
+    server.put(ISSUE, 'X', issue('X'))
+    server.minAvailableSeq = server.head
+    d.replica.connect()
+    for (let i = 0; i < 200 && !asked; i += 1) {
+      d.timer.due()
+      await ticks(1)
+    }
+    expect(asked).toBe(true)
+    expect(d.replica.posture).toBe('live')
+    expect(d.replica.instanceStale(BOARD)).toBe(true)
+    // The operator scrolls to the end while that reload is answered.
     await d.replica.load([{ ...BOARD, after: held.range!.through! }])
+    expect(resident()).toBe(20)
+    open()
     await settle(d)
+    expect(d.replica.instanceStale(BOARD)).toBe(false)
     expect(resident()).toBe(25)
     release()
   })

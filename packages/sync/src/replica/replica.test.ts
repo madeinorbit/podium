@@ -14,6 +14,8 @@
 
 import { asMutationId, type MutationId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { CollectionServer, issue, WORLD_NOW } from '../conformance/collection-server'
+import { inMemoryInstantiation } from '../conformance/in-memory'
 import { type InMemoryOutbox, InMemoryReplicaStore } from './memory-store'
 import type { OptimisticOverlayPort, RetirementEvidence, RetirementIntent } from './overlay'
 import type { CacheOperation, KnownKindValidatorPort, SyncSpan } from './ports'
@@ -2768,6 +2770,53 @@ describe('incremental range healing', () => {
   })
 })
 
+describe('a marker walk that does not finish (POD-7560)', () => {
+  it('goes back live over the current rows, its markers stale, and waits for its retry', async () => {
+    const server = new CollectionServer()
+    server.put('issueProjection', 'A1', issue('A1'))
+    const { cache } = (await inMemoryInstantiation.open()).viewFor('u-ada')
+    const waits: number[] = []
+    const replica = new Replica({
+      store: cache,
+      authority: server,
+      now: () => WORLD_NOW,
+      schedule: (_run, ms) => {
+        waits.push(ms)
+        return () => {}
+      },
+    })
+    live.push(replica)
+    const settle = async (): Promise<void> => {
+      for (let round = 0; round < 4; round += 1) {
+        await replica.settled()
+        await nextTask()
+      }
+    }
+    replica.connect()
+    await settle()
+    expect(replica.posture).toBe('live')
+    // A gap whose load never begins, then a heal whose marker walk cannot reach its route.
+    const failing = () =>
+      (async function* () {
+        yield* []
+        throw new Error('the server is restarting')
+      })()
+    const bootstrap = server.bootstrap.bind(server)
+    server.bootstrap = failing
+    replica.requestRebootstrap()
+    await settle()
+    expect(replica.posture).toBe('stale')
+    server.bootstrap = bootstrap
+    server.collections = failing
+    replica.connect()
+    await settle()
+    expect(replica.trace).toContain('D6-MARKERS-DEFERRED')
+    expect(replica.posture).toBe('live')
+    expect(waits).toEqual([1000])
+    expect(replica.stats().markerWalks).toBe(1)
+  })
+})
+
 describe('transition-table totality — the table must AGREE with the machine', () => {
   it('every row of the ADR transition table is driven by this suite', () => {
     const declared = REPLICA_TRANSITIONS.map((row) => row.id)
@@ -2853,5 +2902,6 @@ const CAUSES: Record<RebootstrapCause, true> = {
   'kind-shape': true,
   'cold-start': true,
   resume: true,
+  markers: true,
 }
 void CAUSES

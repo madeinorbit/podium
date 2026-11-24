@@ -162,6 +162,20 @@ describe('sync transfer telemetry (POD-4071)', () => {
     ])
   })
 
+  it('never parks a marker walk or a kind repair against the next bootstrap (POD-7560)', async () => {
+    const h = harness()
+    const { bootstrap } = sources(h.telemetry, () => responseOf(snapshot(1, 1)))
+
+    // Both go over the collections route: neither is a download.
+    h.telemetry.noteReplicaEvent({ type: 'heal', rung: 2, cause: 'markers', partial: true })
+    h.telemetry.noteReplicaEvent({ type: 'heal', rung: 2, cause: 'kind-shape', partial: true })
+    await drain(bootstrap.bootstrap())
+
+    expect(h.of('sync transfer started').map(r => [r.mode, r.cause, r.attemptId])).toEqual([
+      ['bootstrap', null, 'b1'],
+    ])
+  })
+
   it('states the status, the coding the server chose, and whether the body streams', async () => {
     const h = harness()
     const { bootstrap } = sources(h.telemetry, () => responseOf(snapshot(1, 1), { encoding: 'gzip' }))

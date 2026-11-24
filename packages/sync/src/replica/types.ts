@@ -258,6 +258,12 @@ export type RebootstrapCause =
    * without a marker load again (POD-7086), nothing else.
    */
   | 'resume'
+  /**
+   * POD-7538, POD-7560 — not a download: after a heal brought the rows
+   * current, a partial load replaces the policy markers a gap left stale.
+   * Counted apart from bootstraps (`ReplicaStats.markerWalks`).
+   */
+  | 'markers'
 
 /**
  * An entity as the Replica holds it: value, opaque revision, and envelope provenance beside it — never inside it.
@@ -458,7 +464,10 @@ export interface ReplicaStats {
    */
   readonly pendingGaps: number
   readonly heals: number
+  /** Downloads and kind repairs; a marker walk is not one (`markerWalks`). */
   readonly bootstraps: number
+  /** POD-7560 — partial loads that only replaced the stale policy markers after a heal. */
+  readonly markerWalks: number
   readonly framesApplied: number
   readonly watermarksApplied: number
   /** Times memory shrank the warm set and unloaded something (POD-7161: idle, background, warning). */
