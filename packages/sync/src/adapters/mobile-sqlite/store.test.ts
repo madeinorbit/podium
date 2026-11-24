@@ -30,6 +30,7 @@ import {
   REPLICA_SCHEMA_VERSION,
   SCHEMA_VERSION_TABLE,
 } from './schema'
+import type { SqlDatabaseLike, SqlValue } from './sql'
 import { type DurabilityDegradation, SqliteSyncStore } from './store'
 import { freshDatabaseFile, readDurable, sqliteEngine } from './test-support'
 
@@ -624,6 +625,127 @@ describe('mobile SQLite adapter — store obligations', () => {
       expect((await view.outbox.read()).map((row) => row.mutationId)).toEqual([M])
     } finally {
       reopened.close()
+    }
+  })
+})
+
+/**
+ * POD-2666: expo-sqlite on iOS binds a text parameter as a C string, so it ends at
+ * the first NUL. Marker rows are keyed `instance\u0000<key>`; on a phone every
+ * marker landed on the one key `instance`, overwrote the last, and a relaunch read
+ * no marker at all while the device still held the rows and loaded nothing. These
+ * cases run the real engine behind a wrapper that truncates bound strings the
+ * same way.
+ */
+describe('mobile SQLite adapter — a driver that ends bound strings at NUL', () => {
+  let file: string
+  let cleanup: () => void
+
+  beforeEach(() => {
+    const fresh = freshDatabaseFile()
+    file = fresh.file
+    cleanup = fresh.cleanup
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  const truncate = (value: SqlValue): SqlValue =>
+    typeof value === 'string' && value.includes('\u0000')
+      ? value.slice(0, value.indexOf('\u0000'))
+      : value
+  const nulTruncating = (db: SqlDatabaseLike): SqlDatabaseLike => ({
+    prepare(sql) {
+      const statement = db.prepare(sql)
+      return {
+        run: (...params) => statement.run(...params.map(truncate)),
+        get: (...params) => statement.get(...params.map(truncate)),
+        all: (...params) => statement.all(...params.map(truncate)),
+      }
+    },
+    exec: (sql) => db.exec(sql),
+    close: () => db.close(),
+  })
+  const open = async (): Promise<SqliteSyncStore> =>
+    await SqliteSyncStore.open({
+      openDatabase: () => nulTruncating(sqliteEngine.open(file)),
+      deleteDatabase: () => undefined,
+    })
+
+  const SIDEBAR = { collection: 'issueProjection.sidebar', part: 'main' as const }
+  const STUBS = { collection: 'issueProjection.stubs', part: 'stub' as const }
+  const policy = { clientType: 'phone', steps: [], recentDays: 7, ...policyBudgets() }
+
+  it('keeps every marker across a relaunch', async () => {
+    const store = await open()
+    await store.unitOfWork.transact(async (span) =>
+      store.viewFor(ADA).cache.applyAtomic(
+        {
+          operations: [],
+          cursor: CURSOR_1,
+          instances: [
+            {
+              kind: 'mark',
+              instance: { ...SIDEBAR, key: instanceKey(SIDEBAR), completeAt: CURSOR_1 },
+            },
+            { kind: 'mark', instance: { ...STUBS, key: instanceKey(STUBS), completeAt: CURSOR_1 } },
+          ],
+          policy,
+        },
+        span,
+      ),
+    )
+    store.close()
+    const warm = await open()
+    try {
+      expect([...warm.viewFor(ADA).cache.readInstances().keys()].sort()).toEqual(
+        [instanceKey(SIDEBAR), instanceKey(STUBS)].sort(),
+      )
+      expect(warm.viewFor(ADA).cache.readLoadingSince()).toBeNull()
+    } finally {
+      warm.close()
+    }
+  })
+
+  it('resumes the load on a device whose markers collapsed into one truncated row', async () => {
+    const store = await open()
+    await store.unitOfWork.transact(async (span) =>
+      store.viewFor(ADA).cache.applyAtomic({ operations: [], cursor: CURSOR_1, policy }, span),
+    )
+    store.close()
+    // What builds before the fix left behind: the marker prefix cut at its NUL.
+    const raw = sqliteEngine.open(file)
+    try {
+      raw
+        .prepare(`INSERT INTO ${META_TABLE} (principal, key, value) VALUES (?, ?, ?)`)
+        .run(
+          ADA,
+          'instance',
+          JSON.stringify({ ...SIDEBAR, key: instanceKey(SIDEBAR), completeAt: CURSOR_1 }),
+        )
+    } finally {
+      raw.close()
+    }
+    const warm = await open()
+    try {
+      // No marker is trusted, and the load restarts at its first missing
+      // collection; 0 sweeps nothing the device still holds.
+      expect(warm.viewFor(ADA).cache.readInstances().size).toBe(0)
+      expect(warm.viewFor(ADA).cache.readLoadingSince()).toBe(0)
+      expect(warm.viewFor(ADA).cache.readCursor()).toEqual(CURSOR_1)
+    } finally {
+      warm.close()
+    }
+    const durable = sqliteEngine.open(file)
+    try {
+      expect(
+        durable
+          .prepare(`SELECT COUNT(*) AS n FROM ${META_TABLE} WHERE principal = ? AND key = ?`)
+          .get(ADA, 'instance'),
+      ).toEqual({ n: 0 })
+    } finally {
+      durable.close()
     }
   })
 })
