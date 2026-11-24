@@ -27,7 +27,7 @@ import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 import { testStoreEngine } from './test-support/pg-test-database'
-import { expectConstantRoundTrips } from './test-support/round-trip-count'
+import { countRoundTrips, expectConstantRoundTrips } from './test-support/round-trip-count'
 import {
   describeGrowth,
   expectArmed,
@@ -373,10 +373,55 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   })
 
   it('through the agent relay, to a running session: round trips (POD-6992)', async () => {
-    await expectConstantRoundTrips(
-      relayToSession,
-      pinnedCountFor({ sqlite: 121, pg: 123, reason: pgPublicationReason }, testStoreEngine()),
-    )
+    if (testStoreEngine() !== 'pg') {
+      await expectConstantRoundTrips(relayToSession, 121)
+      return
+    }
+    // The independent 12-second activity tick can land during the slower PG
+    // fixture. Pin every call family, not an aggregate that conflates that tick
+    // with mail. One tick may scan, then upsert activity and drain capture in its
+    // own transaction; every other statement and transaction remains accounted for.
+    const counts = await measureAtSizes({
+      ...relayToSession,
+      count: async (f, run) => {
+        const trips = await countRoundTrips(f.store, run)
+        return { result: trips.result, statements: trips.roundTrips, byQuery: trips.byCall }
+      },
+    })
+    const detail = describeGrowth(counts.small, counts.large)
+    for (const tally of [counts.small, counts.large]) {
+      const calls = (pattern: RegExp) =>
+        [...tally.byQuery].reduce((n, [key, count]) => n + (pattern.test(key) ? count : 0), 0)
+      const activityScans = calls(
+        /^statement \(root\): select "id" from "sessions".*"published_last_active_at"/,
+      )
+      const activityWrites =
+        calls(/^statement \(write\): with "__capture_w" as \(insert into "sessions"/) - 1
+      expect(activityScans, detail).toBeLessThanOrEqual(1)
+      expect(activityWrites, detail).toBeGreaterThanOrEqual(0)
+      expect(activityWrites, detail).toBeLessThanOrEqual(activityScans)
+      const families: Record<string, number> = {}
+      for (const [key, count] of tally.byQuery) {
+        const family = key.split(' ', 1)[0] ?? key
+        families[family] = (families[family] ?? 0) + count
+      }
+      expect(families, detail).toEqual({
+        statement: 87 + activityScans + 2 * activityWrites,
+        begin: 10 + activityWrites,
+        commit: 10 + activityWrites,
+        savepoint: 8,
+        'release-savepoint': 8,
+      })
+      expect(calls(/^statement \(write\): delete from "sync_capture"/), detail).toBe(
+        7 + activityWrites,
+      )
+      // Publication costs are fixed at both sizes, independently of that tick.
+      expect(
+        calls(/^statement \(root\): select "head_seq", "floor_seq" from "sync_feed"/),
+        detail,
+      ).toBe(3)
+      expect(calls(/^statement \(root\): select "target"\."column1"/), detail).toBe(2)
+    }
   }, 60_000)
 
   it('through the agent relay, to its own issue', async () => {
