@@ -671,6 +671,7 @@ describe('mobile SQLite adapter — a driver that ends bound strings at NUL', ()
     await SqliteSyncStore.open({
       openDatabase: () => nulTruncating(sqliteEngine.open(file)),
       deleteDatabase: () => undefined,
+      onDegraded: () => undefined,
     })
 
   const SIDEBAR = { collection: 'issueProjection.sidebar', part: 'main' as const }
