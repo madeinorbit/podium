@@ -194,6 +194,7 @@ function draftWorld() {
     hasBoundDriver: true,
   }
   const toMachine = vi.fn()
+  const sessionOwner = vi.fn<SessionStatePorts['sessionOwner']>(async () => ({ owner: OWNER }))
   const broadcastToClients = vi.fn(),
     deliverToClient = vi.fn(),
     setDraftDoc = vi.fn()
@@ -207,7 +208,7 @@ function draftWorld() {
     getSession: () => session,
     sessionIds: () => [sessionId],
     clients: () => [],
-    sessionOwner: async () => ({ owner: OWNER }),
+    sessionOwner,
     persistSession: vi.fn(),
     writeSession: vi.fn(),
     mutateSession: vi.fn(),
@@ -221,6 +222,7 @@ function draftWorld() {
     state,
     sessionId,
     session,
+    sessionOwner,
     toMachine,
     broadcastToClients,
     deliverToClient,
@@ -281,6 +283,60 @@ describe('draft access (POD-7561)', () => {
     w.setDraftDoc.mockClear()
     return w
   }
+
+  it('broadcasts a server seed without a client only to the session owner’s connections', async () => {
+    const w = draftWorld()
+    try {
+      await w.state.setDraft({ sessionId: w.sessionId, text: 'recovered prompt' })
+      expect(w.deliverToClient).not.toHaveBeenCalled()
+      expect(w.broadcastToClients).toHaveBeenCalledTimes(1)
+      const [message, options] = w.broadcastToClients.mock.calls[0]!
+      expect(message).toMatchObject({
+        type: 'sessionDraftChanged',
+        sessionId: w.sessionId,
+        text: 'recovered prompt',
+        origin: 'seed',
+        rev: 1,
+      })
+      const to = (options as { to: (conn: unknown) => boolean }).to
+      for (const id of ['owner-desktop', 'owner-phone']) {
+        expect(to({ id, principal: { user: OWNER }, workspaceId: SELF_HOSTED_WORKSPACE_ID })).toBe(
+          true,
+        )
+      }
+      expect(to({ principal: { user: STRANGER }, workspaceId: SELF_HOSTED_WORKSPACE_ID })).toBe(
+        false,
+      )
+      expect(to({ principal: { user: OWNER }, workspaceId: OTHER_WORKSPACE })).toBe(false)
+    } finally {
+      w.state.removeSession(w.sessionId)
+    }
+  })
+
+  it.each([
+    undefined,
+    { owner: null },
+  ])('gives a server seed no audience when its owner resolves to %j', async (owner) => {
+    const w = draftWorld()
+    w.sessionOwner.mockResolvedValue(owner)
+    try {
+      await w.state.setDraft({ sessionId: w.sessionId, text: 'unclaimed prompt' })
+      expect(await w.state.draftText(w.sessionId)).toBe('unclaimed prompt')
+      expect(w.deliverToClient).not.toHaveBeenCalled()
+      if (!owner) expect(w.broadcastToClients).not.toHaveBeenCalled()
+      for (const [, options] of w.broadcastToClients.mock.calls) {
+        const to = (options as { to: (conn: unknown) => boolean }).to
+        for (const user of [OWNER, STRANGER]) {
+          expect(to({ principal: { user }, workspaceId: SELF_HOSTED_WORKSPACE_ID })).toBe(false)
+        }
+      }
+      const received = vi.fn()
+      await w.state.replayDrafts(principalOf(OWNER, 'owner-device'), received)
+      expect(received).not.toHaveBeenCalled()
+    } finally {
+      w.state.removeSession(w.sessionId)
+    }
+  })
 
   it.each([
     ['another member', principalOf(STRANGER, 'stranger')],

@@ -20,6 +20,7 @@ import {
   firstAdminMemberId,
   type Geometry,
   type SessionId,
+  type UserId,
 } from '@podium/model'
 import {
   CAP_DAEMON_GEOMETRY_APPLIED,
@@ -46,11 +47,11 @@ const BOX: Geometry = { cols: 132, rows: 43 }
 
 type Sent = ClientConn & { sent: ServerMessage[]; principal: ClientPrincipal }
 
-function makeClient(id: string): Sent {
+function makeClient(id: string, user: UserId = OWNER, role: 'admin' | 'member' = 'admin'): Sent {
   const sent: ServerMessage[] = []
   return {
     id,
-    principal: userClientPrincipal(id, OWNER, 'admin'),
+    principal: userClientPrincipal(id, user, role),
     send: (m: ServerMessage) => sent.push(m),
     workspaceId: SELF_HOSTED_WORKSPACE_ID,
     viewports: new Map(),
@@ -105,6 +106,100 @@ const resizes = (toDaemon: ControlMessage[]) =>
 const redraws = (toDaemon: ControlMessage[]) => toDaemon.filter((m) => m.type === 'redraw')
 const sizeFrames = (client: Sent) =>
   client.sent.filter((m) => m.type === 'geometry' || m.type === 'controllerChanged')
+
+describe('viewport claims require live drive rights', () => {
+  function world() {
+    const toDaemon: ControlMessage[] = []
+    const session = new Session({
+      sessionId: SESSION,
+      durableLabel: 'podium-s-reconcile',
+      agentKind: 'claude-code',
+      cwd: '/w',
+      title: 'w',
+      origin: { kind: 'spawn' },
+      createdAt: '2026-09-28T00:00:00.000Z',
+      geometry: GEO,
+      machineId: MACHINE,
+      ownerUserId: OWNER,
+      toDaemon: (m) => toDaemon.push(m),
+    })
+    const access: { machineUse: 'granted' | 'denied' } = { machineUse: 'granted' }
+    let ctl!: SessionClientControl
+    const inbox = new SessionInbox({
+      getSession: (id: SessionId) => (id === SESSION ? session : undefined),
+      authorizeDrive: (principal: ClientPrincipal, id: SessionId) =>
+        ctl.authorizeDrive(principal, id),
+    } as never)
+    ctl = new SessionClientControl({
+      sessions: new Map([[SESSION, session]]),
+      state: {} as never,
+      inbox,
+      browserOpen: {} as never,
+      mutate: (_id, change) => change(session),
+      broadcastSessions: vi.fn(),
+      pushPriorities: vi.fn(),
+      setDraft: vi.fn(),
+      editDraft: vi.fn(),
+      sessionOwner: async () => ({ owner: OWNER }),
+      machineUseFor: async () => access.machineUse,
+      onTabRelease: vi.fn(),
+    })
+    const desktop = viewer(session.terminal, 'desktop')
+    return { ctl, session, desktop, access, toDaemon }
+  }
+
+  it('refuses a member without reach even if already attached, recording only their viewport', async () => {
+    const w = world()
+    const member = makeClient('member', asUserId('mem_viewport_stranger'), 'member')
+    member.viewVisible.add(SESSION)
+    // Exercise the claim's own gate independently of today's owner-only attach.
+    w.session.terminal.attachClient(member)
+    w.desktop.viewVisible.clear()
+    w.toDaemon.length = 0
+    member.sent.length = 0
+    await w.ctl.onFrame(member.principal, member, {
+      type: 'viewportRequest',
+      sessionId: SESSION,
+      ...statement(BOX, { claimControl: true }),
+    })
+    expect(w.session.terminal.controllerId).toBe(w.desktop.id)
+    expect(member.viewports.get(SESSION)).toEqual(BOX)
+    expect(resizes(w.toDaemon)).toEqual([])
+    expect(sizeFrames(member)).toEqual([])
+  })
+
+  it('refuses a previously attached owner after machine use is revoked', async () => {
+    const w = world()
+    const phone = makeClient('phone')
+    phone.viewVisible.add(SESSION)
+    await w.ctl.onFrame(phone.principal, phone, { type: 'attach', sessionId: SESSION })
+    expect(phone.attached).toContain(SESSION)
+    w.access.machineUse = 'denied'
+    w.toDaemon.length = 0
+    phone.sent.length = 0
+    await w.ctl.onFrame(phone.principal, phone, {
+      type: 'viewportRequest',
+      sessionId: SESSION,
+      ...statement(BOX, { claimControl: true }),
+    })
+    expect(w.session.terminal.controllerId).toBe(w.desktop.id)
+    expect(phone.viewports.get(SESSION)).toEqual(BOX)
+    expect(resizes(w.toDaemon)).toEqual([])
+    expect(sizeFrames(phone)).toEqual([])
+  })
+
+  it('allows the owner’s other device to claim control and resize', async () => {
+    const w = world()
+    const phone = viewer(w.session.terminal, 'phone')
+    await w.ctl.onFrame(phone.principal, phone, {
+      type: 'viewportRequest',
+      sessionId: SESSION,
+      ...statement(BOX, { claimControl: true }),
+    })
+    expect(w.session.terminal.controllerId).toBe(phone.id)
+    expect(resizes(w.toDaemon)).toEqual([BOX])
+  })
+})
 
 describe('rule 2: reconcile against lastForwarded', () => {
   it('a statement from the visible native controller is forwarded once; the same box again is not', () => {

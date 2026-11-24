@@ -19,6 +19,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import { userClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
+import { operationLoader } from '../../store/executor/operation-loader'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 import { SessionClientControl } from './client-control'
 import type { SessionInbox } from './inbox'
@@ -351,6 +352,131 @@ describe('POD-1081 attach + take-control policy', () => {
       modes: { [SESSION]: 'chat' },
     })
     expect(session.terminal.controllerId).toBe('c-phone')
+  })
+})
+
+describe('holding frames authorize before restoring a parked session', () => {
+  const frames = [
+    { type: 'attach', sessionId: SESSION },
+    { type: 'transcriptSubscribe', sessionId: SESSION },
+    { type: 'setSessionDraft', sessionId: SESSION, text: 'draft' },
+    { type: 'draftEdit', sessionId: SESSION, baseRev: 0, text: 'draft' },
+  ] as const
+
+  function parked(machineUse: 'granted' | 'denied' = 'granted') {
+    const session = makeSession()
+    const sessions = new Map<SessionId, Session>()
+    const readRows = vi.fn(
+      async (ids: readonly SessionId[]) =>
+        new Map(ids.filter((id) => id === SESSION).map((id) => [id, { owner: OWNER }])),
+    )
+    const rows = operationLoader(readRows, { perOperation: true })
+    const acquire = vi.fn(async (id: SessionId) => {
+      if (!(await rows.load(id))) return undefined
+      sessions.set(id, session)
+      return session
+    })
+    const release = vi.fn((id: SessionId) => sessions.delete(id))
+    const ensureTranscript = vi.fn(async () => {})
+    const setDraft = vi.fn(),
+      editDraft = vi.fn()
+    const ctl = new SessionClientControl({
+      sessions,
+      residency: { acquire, release, tryEvict: vi.fn() },
+      ensureTranscript,
+      state: { replayDrafts: vi.fn() } as never,
+      inbox: { reconcileActiveRenderer: vi.fn() } as unknown as SessionInbox,
+      browserOpen: {} as never,
+      mutate: (_id, change) => change(session),
+      broadcastSessions: vi.fn(),
+      pushPriorities: vi.fn(),
+      setDraft,
+      editDraft,
+      sessionOwner: async (id) => (sessions.has(id) ? { owner: OWNER } : await rows.load(id)),
+      machineUseFor: async () => machineUse,
+      onTabRelease: vi.fn(),
+    })
+    return {
+      ctl,
+      session,
+      sessions,
+      readRows,
+      acquire,
+      release,
+      ensureTranscript,
+      setDraft,
+      editDraft,
+    }
+  }
+
+  it.each(frames)('refuses another member before $type can restore anything', async (frame) => {
+    const w = parked()
+    const member = makeClient('member', ALICE, 'member')
+    await w.ctl.onFrame(member.principal, member, frame)
+    expect(w.acquire).not.toHaveBeenCalled()
+    expect(w.release).not.toHaveBeenCalled()
+    expect(w.ensureTranscript).not.toHaveBeenCalled()
+    expect(w.setDraft).not.toHaveBeenCalled()
+    expect(w.editDraft).not.toHaveBeenCalled()
+    expect(w.sessions.size).toBe(0)
+    expect(member.attached.size).toBe(0)
+    expect(member.transcriptSubs.size).toBe(0)
+    expect(member.sent).toEqual(
+      frame.type === 'attach'
+        ? [{ type: 'terminalOutcome', sessionId: SESSION, outcome: 'unauthorized' }]
+        : [],
+    )
+  })
+
+  it('refuses an owner’s attach before restoring when machine use is denied', async () => {
+    const w = parked('denied')
+    const owner = makeClient('owner')
+    await w.ctl.onFrame(owner.principal, owner, frames[0])
+    expect(w.acquire).not.toHaveBeenCalled()
+    expect(w.ensureTranscript).not.toHaveBeenCalled()
+    expect(owner.sent).toEqual([
+      { type: 'terminalOutcome', sessionId: SESSION, outcome: 'unauthorized' },
+    ])
+  })
+
+  it.each(
+    frames,
+  )('gives absent and private sessions the same $type refusal without a lease', async (frame) => {
+    const w = parked()
+    const member = makeClient('member', ALICE, 'member')
+    await w.ctl.onFrame(member.principal, member, frame)
+    const denied = member.sent.splice(0)
+    const absent = asSessionId('missing')
+    await w.ctl.onFrame(member.principal, member, { ...frame, sessionId: absent })
+    expect(member.sent).toEqual(denied.map((m) => ({ ...m, sessionId: absent })))
+    expect(w.acquire).not.toHaveBeenCalled()
+    expect(w.ensureTranscript).not.toHaveBeenCalled()
+  })
+
+  it.each(
+    frames,
+  )('admits the owner to $type with one row read for authorization and restore', async (frame) => {
+    const w = parked()
+    const owner = makeClient('owner')
+    await w.ctl.onFrame(owner.principal, owner, frame)
+    expect(w.readRows).toHaveBeenCalledTimes(1)
+    expect(w.acquire).toHaveBeenCalledExactlyOnceWith(SESSION, `client.${frame.type}`)
+    expect(w.release).toHaveBeenCalledExactlyOnceWith(SESSION)
+    if (frame.type === 'attach' || frame.type === 'transcriptSubscribe') {
+      expect(w.ensureTranscript).toHaveBeenCalledExactlyOnceWith(w.session)
+      expect(frame.type === 'attach' ? owner.attached : owner.transcriptSubs).toContain(SESSION)
+    } else {
+      expect(w.ensureTranscript).not.toHaveBeenCalled()
+      expect(frame.type === 'draftEdit' ? w.editDraft : w.setDraft).toHaveBeenCalledTimes(1)
+    }
+  })
+
+  it('releases the authorized lease even if transcript replay fails', async () => {
+    const w = parked()
+    const owner = makeClient('owner')
+    w.ensureTranscript.mockRejectedValueOnce(new Error('replay failed'))
+    await expect(w.ctl.onFrame(owner.principal, owner, frames[0])).rejects.toThrow('replay failed')
+    expect(w.release).toHaveBeenCalledExactlyOnceWith(SESSION)
   })
 })
 

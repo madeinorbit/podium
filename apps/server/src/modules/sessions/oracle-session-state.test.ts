@@ -20,7 +20,7 @@ import {
 } from '@podium/model'
 import { CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   disposeOracles,
   MUST_NOT_CHANGE,
@@ -579,16 +579,15 @@ describe('oracle: composer drafts', () => {
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const svc = o.reg.modules.sessions
 
-    svc.setSessionDraft({ sessionId, text: 'a' })
+    await svc.setSessionDraft({ sessionId, text: 'a' })
     await waitFor(
       () => lastSession(o.client, sessionId)?.draftUpdatedAt !== undefined,
       'the DRAFT session-state marker to reach the client',
     )
     const broadcastsAfterFirstKeystroke = sessionChanges(o.client, sessionId).length
 
-    svc.setSessionDraft({ sessionId, text: 'ab' })
-    svc.setSessionDraft({ sessionId, text: 'abc' })
-    await waitFor(() => true, 'the microtask queue to drain')
+    await svc.setSessionDraft({ sessionId, text: 'ab' })
+    await svc.setSessionDraft({ sessionId, text: 'abc' })
 
     expect(sessionChanges(o.client, sessionId)).toHaveLength(broadcastsAfterFirstKeystroke)
   })
@@ -620,6 +619,53 @@ const draftFrames = (frames: ServerMessage[], sessionId: string) =>
   frames.filter(
     (m) => m.type === 'sessionDraftChanged' && (m as { sessionId: string }).sessionId === sessionId,
   )
+
+/** An attach refusal echoes a fresh id through the same session-frame queue.
+ *  Unlike ping, it cannot overtake an earlier session operation. */
+async function echoBarrier(o: Oracle, client: { id: string; frames: ServerMessage[] }) {
+  const sessionId = asSessionId(`barrier-${randomUUID()}`)
+  await o.reg.clientGateway.routeClientFrame(client.id, { type: 'attach', sessionId })
+  const isEcho = (m: ServerMessage) => m.type === 'terminalOutcome' && m.sessionId === sessionId
+  await waitFor(() => client.frames.some(isEcho), 'the queued session-frame echo')
+  const [echo] = client.frames.splice(client.frames.findIndex(isEcho), 1)
+  expect(echo).toMatchObject({ outcome: 'unauthorized' })
+}
+
+describe('oracle: denied frames never restore a parked session', () => {
+  it(`${MUST_NOT_CHANGE}: a member without reach cannot lease or replay another member’s session`, async () => {
+    const o = await makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+    await goLive(o, sessionId)
+    await o.call.sessions.hibernate({ sessionId })
+    await o.reg.modules.sessions.flushActivity()
+    o.reg.modules.sessions.residency.sweep()
+    expect(o.reg.modules.sessions.sessions.has(sessionId)).toBe(false)
+    const member = await connect(o, 'mem_parked_stranger', 'member')
+    member.frames.length = 0
+    const acquire = vi.spyOn(o.reg.modules.sessions.residency, 'acquire')
+    const replay = vi.spyOn(o.reg.modules.sessions.repository, 'ensureTranscript')
+    try {
+      for (const frame of [
+        { type: 'attach', sessionId },
+        { type: 'transcriptSubscribe', sessionId },
+        { type: 'setSessionDraft', sessionId, text: 'overwritten' },
+        { type: 'draftEdit', sessionId, baseRev: 0, text: 'probe' },
+      ] as const) {
+        await o.reg.clientGateway.routeClientFrame(member.id, frame)
+      }
+      await echoBarrier(o, member)
+      expect(acquire).not.toHaveBeenCalled()
+      expect(replay).not.toHaveBeenCalled()
+      expect(o.reg.modules.sessions.sessions.has(sessionId)).toBe(false)
+      expect(member.frames).toEqual([
+        { type: 'terminalOutcome', sessionId, outcome: 'unauthorized' },
+      ])
+    } finally {
+      acquire.mockRestore()
+      replay.mockRestore()
+    }
+  })
+})
 
 describe("oracle: a draft is its session owner's (POD-7561)", () => {
   // The session's owner is the oracle's caller; the stranger is another member
@@ -665,7 +711,7 @@ describe("oracle: a draft is its session owner's (POD-7561)", () => {
     for (const frame of attempts) {
       await w.o.reg.clientGateway.routeClientFrame(w.stranger.id, frame)
     }
-    await waitFor(() => true, 'the microtask queue to drain')
+    await echoBarrier(w.o, w.stranger)
 
     expect(await w.o.reg.modules.sessions.draftRevision(w.sessionId)).toBe(w.rev)
     expect(draftFrames(w.stranger.frames, w.sessionId)).toEqual([])
@@ -691,7 +737,7 @@ describe("oracle: a draft is its session owner's (POD-7561)", () => {
       baseRev: 0,
       text: 'probe',
     })
-    await waitFor(() => true, 'the microtask queue to drain')
+    await echoBarrier(w.o, w.stranger)
     const afterPrivate = w.stranger.frames.slice(before)
     await w.o.reg.clientGateway.routeClientFrame(w.stranger.id, {
       type: 'draftEdit',
@@ -699,7 +745,7 @@ describe("oracle: a draft is its session owner's (POD-7561)", () => {
       baseRev: 0,
       text: 'probe',
     })
-    await waitFor(() => true, 'the microtask queue to drain')
+    await echoBarrier(w.o, w.stranger)
     const afterAbsent = w.stranger.frames.slice(before + afterPrivate.length)
     expect(afterPrivate).toEqual([])
     expect(afterAbsent).toEqual([])

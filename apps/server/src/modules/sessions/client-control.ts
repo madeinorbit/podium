@@ -11,6 +11,7 @@ import type { ClientPrincipal } from '../../gateway/client-principal'
 import { feedPrincipalOf } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import { mayReachPrivate } from '../../issue-authz'
+import { withOperation } from '../../store/executor/operation-scope'
 import { perfPrincipal } from '../perf/principal'
 import { perf } from '../perf/registry'
 import type { SessionInbox } from './inbox'
@@ -152,30 +153,46 @@ export class SessionClientControl {
     await this.ports.inbox.handleControllerInputBytes(principal, client, sessionId, bytes)
   }
 
-  async onFrame(
+  onFrame(
     principal: ClientPrincipal,
     client: ClientConn,
     message: SessionsClientFrame,
   ): Promise<void> {
-    const leased = HOLDING_FRAMES.has(message.type)
-      ? (message as { sessionId?: SessionId }).sessionId
-      : undefined
-    const held =
-      leased && this.ports.residency
-        ? await this.ports.residency.acquire(leased, `client.${message.type}`)
+    // The access check and a parked session's restore share its row through
+    // the operation loader. Denied frames never acquire a lease or replay.
+    return withOperation(async () => {
+      const leased = HOLDING_FRAMES.has(message.type)
+        ? (message as { sessionId?: SessionId }).sessionId
         : undefined
-    if (held && (message.type === 'attach' || message.type === 'transcriptSubscribe')) {
-      await this.ports.ensureTranscript?.(held)
-    }
-    try {
-      await this.handleFrame(principal, client, message)
-    } finally {
-      if (held && leased) this.ports.residency?.release(leased)
-    }
-    // A view that closed may have been the last thing using a parked session.
-    if (RELEASING_FRAMES.has(message.type)) {
-      this.ports.residency?.tryEvict((message as { sessionId: SessionId }).sessionId)
-    }
+      if (leased) {
+        const allowed =
+          message.type === 'attach'
+            ? await this.authorizeAttach(principal, leased)
+            : await this.mayRead(principal, leased)
+        if (!allowed) {
+          if (message.type === 'attach') {
+            client.send({ type: 'terminalOutcome', sessionId: leased, outcome: 'unauthorized' })
+          }
+          return
+        }
+      }
+      const held =
+        leased && this.ports.residency
+          ? await this.ports.residency.acquire(leased, `client.${message.type}`)
+          : undefined
+      try {
+        if (held && (message.type === 'attach' || message.type === 'transcriptSubscribe')) {
+          await this.ports.ensureTranscript?.(held)
+        }
+        await this.handleFrame(principal, client, message)
+      } finally {
+        if (held && leased) this.ports.residency?.release(leased)
+      }
+      // A view that closed may have been the last thing using a parked session.
+      if (RELEASING_FRAMES.has(message.type)) {
+        this.ports.residency?.tryEvict((message as { sessionId: SessionId }).sessionId)
+      }
+    })
   }
 
   private async handleFrame(
@@ -214,7 +231,7 @@ export class SessionClientControl {
         // Visibility + machine use both gate attach (POD-1081 §4). Absent session
         // and denied rights share the same unauthorized outcome — no existence
         // oracle (ADR 3 Amendment 1 D20).
-        const allowed = await this.authorizeAttach(principal, message.sessionId, session)
+        const allowed = await this.authorizeAttach(principal, message.sessionId)
         if (!allowed || !session || this.ports.sessions.get(message.sessionId) !== session) {
           client.send({
             type: 'terminalOutcome',
@@ -336,7 +353,7 @@ export class SessionClientControl {
         // sender learns nothing either way.
         const session = this.ports.sessions.get(message.sessionId)
         if (
-          (await this.authorizeAttach(principal, message.sessionId, session)) &&
+          (await this.authorizeAttach(principal, message.sessionId)) &&
           session &&
           this.ports.sessions.get(message.sessionId) === session
         ) {
@@ -412,9 +429,7 @@ export class SessionClientControl {
   private async authorizeAttach(
     principal: ClientPrincipal,
     sessionId: SessionId,
-    session: Session | undefined,
   ): Promise<boolean> {
-    if (!session) return false
     const owner = await this.ports.sessionOwner(sessionId)
     // No resolvable owner ⇒ denied. Not "unknown, probably fine": a session
     // whose owner cannot be resolved is indistinguishable from one that does not

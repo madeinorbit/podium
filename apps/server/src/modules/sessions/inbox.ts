@@ -2328,9 +2328,18 @@ export class SessionInbox {
     sessionId: SessionId,
     request: ViewportRequest,
   ): Promise<boolean> {
-    void principal
     const session = this.deps.getSession(sessionId)
     if (!session) return false
+    // A viewport claim takes control just like requestControl. A refused
+    // claim remains a measurement, without promoting its sender.
+    if (
+      request.claimControl &&
+      this.deps.authorizeDrive &&
+      !(await this.deps.authorizeDrive(principal, sessionId))
+    ) {
+      request = { ...request, claimControl: false }
+    }
+    if (this.deps.getSession(sessionId) !== session) return false
     const controllerChanged = session.terminal.handleViewportRequest(client.id, request)
     return (await this.reconcileActiveRenderer(sessionId)) || controllerChanged
   }
