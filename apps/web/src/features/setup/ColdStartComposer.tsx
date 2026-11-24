@@ -188,6 +188,14 @@ function withoutCreateReservation(draft: FirstTaskDraft): FirstTaskDraft {
   }
 }
 
+function repoIdentity(repo: RepoView): string {
+  return (
+    repo.repoId ??
+    (repo.originUrl ||
+      JSON.stringify([repo.machines?.[0]?.machineId ?? '', machinePathKey(repo.path)]))
+  )
+}
+
 /** The single first-task picker owns the order for each menu opening. */
 export function useFirstTaskRepositoryPicker(
   repos: GitRepositoryWire[],
@@ -195,10 +203,6 @@ export function useFirstTaskRepositoryPicker(
 ) {
   // Stored on picker open: identities and recency stay still; metadata stays live.
   const [repoOrder, setRepoOrder] = useState<readonly string[] | null>(null)
-  const repoIdentity = (repo: RepoView) =>
-    repo.repoId ??
-    (repo.originUrl ||
-      JSON.stringify([repo.machines?.[0]?.machineId ?? '', machinePathKey(repo.path)]))
   const liveRepoChoices = useMemo(
     () =>
       reposToViews(repos).filter(
@@ -206,7 +210,7 @@ export function useFirstTaskRepositoryPicker(
       ),
     [repos],
   )
-  const rankedRepoChoices = () => {
+  const rankedRepoChoices = useCallback(() => {
     const usage = new Map<string, number>()
     for (const repo of repos) usage.set(repo.path, indexedRepoUsageAt(repo, repositoryUsage))
     const usageFor = (view: RepoView): number =>
@@ -219,10 +223,10 @@ export function useFirstTaskRepositoryPicker(
         usageFor(b) - usageFor(a) ||
         a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
     )
-  }
-  const rankingUsage = repoOrder === null ? repositoryUsage : undefined
-  const repoChoices = useMemo(() => {
-    if (repoOrder === null) return rankedRepoChoices()
+  }, [repos, repositoryUsage, liveRepoChoices])
+  // Usage changes do not invalidate the choices while the picker is open.
+  const orderedRepoChoices = useMemo(() => {
+    if (repoOrder === null) return null
     const positions = new Map(repoOrder.map((id, position) => [id, position]))
     const choices = new Array<RepoView | undefined>(repoOrder.length)
     for (const repo of liveRepoChoices) {
@@ -230,7 +234,11 @@ export function useFirstTaskRepositoryPicker(
       if (position !== undefined) choices[position] = repo
     }
     return choices.filter((repo): repo is RepoView => repo !== undefined)
-  }, [repoOrder, liveRepoChoices, rankingUsage])
+  }, [repoOrder, liveRepoChoices])
+  const repoChoices = useMemo(
+    () => orderedRepoChoices ?? rankedRepoChoices(),
+    [orderedRepoChoices, rankedRepoChoices],
+  )
   const onOpenChange = (open: boolean) =>
     setRepoOrder(open ? rankedRepoChoices().map(repoIdentity) : null)
   return { repoChoices, onOpenChange }
