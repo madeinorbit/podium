@@ -1644,6 +1644,15 @@ describe('return handoff over handoff history (POD-7534)', () => {
     }
   }
 
+  const adoption = {
+    serverDelegation: placement.delegation,
+    agentKind: 'codex' as const,
+    observationGeneration: 2,
+    delegation: placement.delegation,
+    observations: [
+      { channel: 'resume-ref' as const, nativeKind: 'codex-thread', value: 'return-thread' },
+    ],
+  }
   const returnClaim = (overrides: Record<string, unknown> = {}) =>
     ({
       event: 'adopt',
@@ -1656,15 +1665,7 @@ describe('return handoff over handoff history (POD-7534)', () => {
       fromMachineId: destination,
       toMachineId: machine,
       at: soon,
-      adoption: {
-        serverDelegation: placement.delegation,
-        agentKind: 'codex',
-        observationGeneration: 2,
-        delegation: placement.delegation,
-        observations: [
-          { channel: 'resume-ref', nativeKind: 'codex-thread', value: 'return-thread' },
-        ],
-      },
+      adoption,
       ...overrides,
     }) as Parameters<BindingStore['transition']>[0]
 
@@ -1746,7 +1747,7 @@ describe('return handoff over handoff history (POD-7534)', () => {
     [
       'without the server delegation (forged)',
       async () => {},
-      { adoption: { ...returnClaim().adoption, serverDelegation: undefined } },
+      { adoption: { ...adoption, serverDelegation: undefined } },
     ],
     ['without machine access', async () => {}, { machineAccess: 'denied' }],
     ['as a commit with no claim', async () => {}, { phase: 'commit', adoption: undefined }],
