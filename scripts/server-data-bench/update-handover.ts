@@ -174,6 +174,8 @@ async function reattachProbe(arm: string, root: string): Promise<void> {
           cwd: `/bench/${n}`,
           agentKind: 'claude-code',
           geometry: { cols: 80, rows: 24 },
+          // A daemon binds a driver for every profiled agent; the row keeps it.
+          driverId: 'generic-pty',
         })
         ids.push(sessionId)
       }
@@ -227,6 +229,30 @@ async function reattachProbe(arm: string, root: string): Promise<void> {
       allReturned = done
     })
     const refreshes = { count: 0 }
+    // The daemon answers as a real one does (POD-7574): an exited session whose
+    // process is gone with reattachFailed, and the one exited session that is
+    // still alive (the first clone) with a bind. Live survivors are not answered.
+    const exitedIds = new Set(Array.from({ length: EXITED }, (_, n) => exitedId(n)))
+    const answers: Promise<unknown>[] = []
+    const answer = (machineId: string, id: string) => {
+      const sessionId = model.asSessionId(id)
+      answers.push(
+        registry.gateway.routeDaemonFrame(
+          machineId,
+          sessionId === exitedId(0)
+            ? {
+                type: 'bind',
+                sessionId,
+                cmd: 'claude',
+                cwd: '/bench/0',
+                agentKind: 'claude-code',
+                geometry: { cols: 80, rows: 24 },
+                driverId: 'generic-pty',
+              }
+            : { type: 'reattachFailed', sessionId, reason: 'session not found' },
+        ),
+      )
+    }
     const monitor = loopMonitor()
     const cpuStart = process.cpuUsage()
     const startedAt = now()
@@ -234,6 +260,7 @@ async function reattachProbe(arm: string, root: string): Promise<void> {
     await attachAll(registry, (machineId, frame) => {
       if (frame.type === 'sessionAccessRefresh') refreshes.count++
       if (frame.type !== 'reattach' || !frame.sessionId) return
+      if (exitedIds.has(frame.sessionId)) answer(machineId, frame.sessionId)
       const left = wanted.get(machineId)
       left?.delete(frame.sessionId)
       if (left?.size === 0 && !returnedAt.has(machineId)) {
@@ -245,6 +272,8 @@ async function reattachProbe(arm: string, root: string): Promise<void> {
     await returned
     clearTimeout(timeout)
     const daemonReturnMs = now() - startedAt
+    await Promise.all(answers)
+    const answersSettledMs = now() - startedAt
     // Whatever the attach left running (pushes, sweeps) is still the burst.
     await new Promise((done) => setTimeout(done, 1_000))
     const loop = monitor.stop()
@@ -261,6 +290,8 @@ async function reattachProbe(arm: string, root: string): Promise<void> {
         checkpointBytes,
         attachCallsMs: Math.round(attachedMs),
         daemonReturnMs: Math.round(daemonReturnMs),
+        answersSettledMs: Math.round(answersSettledMs),
+        daemonAnswers: answers.length,
         slowestMachineMs: Math.round(Math.max(...returnedAt.values())),
         accessRefreshes: refreshes.count,
         auditRows: audit,
@@ -295,7 +326,13 @@ function cloneExited(dbPath: string, template: string, count: number, checkpoint
          SELECT ${select.join(', ')} FROM ${table} WHERE "${key}" = ?2`,
       )
     }
-    const session = clone('sessions', 'id', { status: "'exited'" })
+    // Each exited session carries its own conversation, as a live one does: its
+    // reattach then reads the transcript's path hint.
+    const session = clone('sessions', 'id', {
+      status: "'exited'",
+      resume_kind: "'claude-session'",
+      resume_value: "'bench-conversation-' || ?1",
+    })
     // Each clone's checkpoint names its own session, as a stored one does.
     const lease = clone('session_observation_checkpoints', 'session_id', {
       checkpoint_json: "json_set(?3, '$.podiumSessionId', ?1)",
