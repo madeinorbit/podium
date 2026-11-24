@@ -33,6 +33,10 @@ export function useHarnessDescriptors() {
   return { served: undefined, status: 'unavailable' as const }
 }
 export function useModelCatalogState() {
+  const state = new URLSearchParams(window.location.search).get('catalog')
+  if (state === 'unavailable' || state === 'loading') {
+    return { catalog: {} as typeof catalog, status: state }
+  }
   return { catalog, status: 'ready' as const }
 }
 export function useModelCatalog() {

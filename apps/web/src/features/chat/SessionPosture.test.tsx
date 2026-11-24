@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { PostureNotices, SessionModeChip } from './SessionPosture'
 
@@ -13,23 +13,46 @@ describe('SessionModeChip', () => {
   it('shows the mode the agent reports, not the one Podium asked for', () => {
     render(
       <SessionModeChip
-        session={{ observedMode: 'default', launchPosture: { requestedMode: 'auto', unmet: [] } }}
+        session={{
+          agentKind: 'claude-code',
+          observedMode: 'default',
+          launchPosture: { requestedMode: 'auto', unmet: [] },
+        }}
       />,
     )
     const chip = screen.getByTestId('session-mode')
     expect(chip.textContent).toBe('default')
     expect(chip.dataset.provenance).toBe('observed')
+    expect(chip.getAttribute('aria-label')).toContain('Asks before file edits and commands')
   })
 
   it('shows the requested mode, marked as requested, until the agent reports one', () => {
-    render(<SessionModeChip session={{ launchPosture: { requestedMode: 'auto', unmet: [] } }} />)
+    render(
+      <SessionModeChip
+        session={{ agentKind: 'claude-code', launchPosture: { requestedMode: 'auto', unmet: [] } }}
+      />,
+    )
     const chip = screen.getByTestId('session-mode')
     expect(chip.textContent).toBe('auto')
     expect(chip.dataset.provenance).toBe('requested')
+    expect(chip.getAttribute('aria-label')).toContain('Requested, not yet confirmed')
+  })
+
+  it('gives keyboard users the same practical help as the tooltip', async () => {
+    render(<SessionModeChip session={{ agentKind: 'codex', observedMode: 'on-request' }} />)
+    const chip = screen.getByTestId('session-mode')
+    fireEvent.focus(chip)
+    const tooltip = await screen.findByRole('tooltip')
+    expect(chip.getAttribute('aria-label')).toBe(`Permissions: on-request. ${tooltip.textContent}`)
+    expect(tooltip.textContent).toContain('asks you before running beyond its limits')
   })
 
   it('draws nothing when no mode is known', () => {
-    render(<SessionModeChip session={{ launchPosture: { requestedMode: null, unmet: [] } }} />)
+    render(
+      <SessionModeChip
+        session={{ agentKind: 'claude-code', launchPosture: { requestedMode: null, unmet: [] } }}
+      />,
+    )
     expect(screen.queryByTestId('session-mode')).toBeNull()
   })
 })
@@ -52,9 +75,9 @@ describe('PostureNotices', () => {
         }}
       />,
     )
-    const lines = screen.getAllByText(/cannot/)
+    const lines = screen.getAllByText(/without asking/)
     expect(lines.map((line) => line.textContent)).toEqual([
-      'Pi cannot run in the chosen mode here: Pi has no approval gate, so it cannot ask first',
+      'Pi edits files and runs commands without asking for approval. If you need approval prompts, choose another agent in the new-task box.',
     ])
   })
 

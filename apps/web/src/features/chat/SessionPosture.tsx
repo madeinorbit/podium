@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { postureNotices, sessionModeReadout } from '@podium/client-core/values'
+import { postureNotices, sessionModeHelp, sessionModeReadout } from '@podium/client-core/values'
 import { ShieldAlert, ShieldCheck } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
@@ -15,14 +15,11 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 export const SessionModeChip = observer(function SessionModeChip({
   session,
 }: {
-  session: Pick<SessionView, 'observedMode' | 'launchPosture'> | undefined
+  session: Pick<SessionView, 'agentKind' | 'observedMode' | 'launchPosture'> | undefined
 }): JSX.Element | null {
   const readout = session ? sessionModeReadout(session) : undefined
-  if (!readout) return null
-  const why =
-    readout.source === 'observed'
-      ? 'The mode this agent reports it is in.'
-      : 'The mode Podium asked for at launch. This agent has not reported the mode it is in.'
+  if (!session || !readout) return null
+  const why = sessionModeHelp(session.agentKind, readout)
   return (
     <TooltipProvider>
       <Tooltip>
@@ -35,7 +32,7 @@ export const SessionModeChip = observer(function SessionModeChip({
               className="model-token inline-flex h-7 min-w-0 max-w-full cursor-default items-center gap-1 rounded-[7px] px-2 text-[12px] leading-none text-text-faint focus-visible:outline-2 focus-visible:outline-ring"
               data-testid="session-mode"
               data-provenance={readout.source}
-              aria-label={`Mode ${readout.mode}. ${why}`}
+              aria-label={`Permissions: ${readout.mode}. ${why}`}
             />
           }
         >

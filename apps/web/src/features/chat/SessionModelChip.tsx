@@ -1,6 +1,7 @@
 import { effortLabel, issueAgentKind, modelLabel } from '@podium/client-core/agent-models'
 import { useCommands } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
+import { effortControlHelp, modelControlHelp, modelReadoutHelp } from '@podium/client-core/values'
 import type { EffectModel } from '@podium/client-graph/models'
 import { awaitEffect } from '@podium/client-graph/write/await-effect'
 import { cursorEffortVariant, cursorModelEffort } from '@podium/harness/browser'
@@ -93,20 +94,20 @@ function tellEnding(change: EffectModel): void {
   if (change.status === 'succeeded') {
     toast.success(
       answer && 'ok' in answer && answer.effective === 'now'
-        ? 'The running session changed.'
-        : 'The change applies from the next turn.',
+        ? 'Your model or thinking time changed for this session.'
+        : 'Your choice applies to your next message.',
     )
     return
   }
   if (change.status === 'cancelled') return
   if (answer && 'reason' in answer) {
-    toast.error(answer.detail ?? `Could not change the running session (${answer.reason}).`)
+    toast.error(answer.detail ?? 'Your model or thinking time could not be changed. Try again.')
     return
   }
   toast.error(
     change.status === 'expired'
-      ? 'The change was not made in time; the session runs as before.'
-      : (change.error?.message ?? 'Could not change the running session.'),
+      ? 'Your change timed out; the previous choice still applies. Try again.'
+      : (change.error?.message ?? 'Your model or thinking time could not be changed. Try again.'),
   )
 }
 
@@ -163,7 +164,7 @@ const ConfigurableChip = observer(function ConfigurableChip({
         if (pool) void awaitEffect(pool, id).then(tellEnding)
       } catch {
         setAsked((current) => (current?.patch === patch ? null : current))
-        toast.error('Could not change the running session.')
+        toast.error('Your model or thinking time could not be changed. Try again.')
       }
     },
     [sessionId, configureSession, pool],
@@ -184,6 +185,12 @@ const ConfigurableChip = observer(function ConfigurableChip({
         agentKind={agentKind}
         machineId={session.machineId}
         value={model}
+        help={modelControlHelp(
+          modelLabel(agentKind, model, liveModels),
+          model === 'auto',
+          pending ? 'pending' : 'ready',
+          true,
+        )}
         disabled={pending !== undefined}
         onChange={(next) => {
           if (next === model) return
@@ -210,6 +217,19 @@ const ConfigurableChip = observer(function ConfigurableChip({
         machineId={session.machineId}
         model={model}
         value={effort}
+        help={effortControlHelp(
+          effort,
+          pending
+            ? 'pending'
+            : session.configureFields?.includes('effort') !== true
+              ? 'fixed'
+              : !model || model === 'auto'
+                ? 'pick-model'
+                : !liveModels?.find((entry) => entry.value === model)?.efforts?.length
+                  ? 'unsupported'
+                  : 'ready',
+          true,
+        )}
         disabled={pending !== undefined || session.configureFields?.includes('effort') !== true}
         className="shrink-0"
         onChange={(next) => {
@@ -243,7 +263,7 @@ const ReadoutChip = observer(function ReadoutChip({
   const model = raw && listed === raw ? compactModelId(raw) : listed
   const effort = rawEffort ? effortLabel(agentKind, rawEffort) : undefined
   const text = [model, effort].filter(Boolean).join(' · ')
-  const why = readoutReason(session, verdict)
+  const why = modelReadoutHelp(session, verdict, model)
   return (
     <TooltipProvider>
       <Tooltip>
@@ -275,26 +295,3 @@ const ReadoutChip = observer(function ReadoutChip({
     </TooltipProvider>
   )
 })
-
-/** Why this session's model cannot be changed from here: where the shown value
- *  comes from, then what stops the change. The harness owns model selection;
- *  Podium reports it. */
-export function readoutReason(
-  session: Pick<ModelChipSession, 'observedModel' | 'requestedModel'>,
-  verdict: ConfigurableVerdict,
-): string {
-  const provenance = session.observedModel
-    ? 'The model this agent is running, read from its transcript.'
-    : session.requestedModel
-      ? 'Requested on the running session; it applies from the next message.'
-      : 'Requested at launch; not yet seen in the transcript.'
-  const capability =
-    verdict === 'no'
-      ? 'This harness takes its model and effort at launch, so they cannot change mid-conversation. Start a new session to use another.'
-      : verdict === 'yes'
-        ? 'The session is not running. Wake it to change its model or effort.'
-        : // Unknown is said as unknown: the daemon has not reported this
-          // session's driver, and claiming either answer would be invented.
-          'This session has not reported whether its model can change while it runs.'
-  return `${provenance} ${capability}`
-}

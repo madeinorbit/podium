@@ -25,6 +25,7 @@ import { createRoot } from 'react-dom/client'
 import { ThemeProvider } from '@/app/theme'
 import { type ModelChipSession, SessionModelChip } from '@/features/chat/SessionModelChip'
 import { PostureNotices, SessionModeChip } from '@/features/chat/SessionPosture'
+import { ControlHelpPreview } from './control-help-fixtures'
 import { chipSessions, configureChip, setConfigureChange } from './model-chip-pool'
 import '@/index.css'
 import '@/styles.css'
@@ -69,6 +70,7 @@ function ModeRow({ label, observedMode }: { label: string; observedMode?: string
         <SessionModelChip session={{ ...running(`mode-${label}`), configureFields: [] }} />
         <SessionModeChip
           session={{
+            agentKind: 'claude-code',
             ...(observedMode ? { observedMode } : {}),
             launchPosture: { requestedMode: 'auto', unmet: [] },
           }}
@@ -80,6 +82,7 @@ function ModeRow({ label, observedMode }: { label: string; observedMode?: string
 
 const POSTURE_ONLY = new URLSearchParams(window.location.search).has('posture')
 const MODELS_ONLY = new URLSearchParams(window.location.search).has('models')
+const HELP = new URLSearchParams(window.location.search).get('help')
 const runtime = { commands: { sessions: { configure: configureChip } } } as never
 
 function HarnessRow({
@@ -117,7 +120,9 @@ function Page(): JSX.Element {
     <RuntimeProvider runtime={runtime}>
       <ThemeProvider>
         <div className="min-h-screen bg-background p-6 text-foreground">
-          {MODELS_ONLY ? (
+          {HELP ? (
+            <ControlHelpPreview id={HELP} />
+          ) : MODELS_ONLY ? (
             <div className="mx-auto max-w-2xl">
               <h1 className="mb-2 text-xl">Headless session controls</h1>
               <p className="mb-6 text-sm text-text-dim">

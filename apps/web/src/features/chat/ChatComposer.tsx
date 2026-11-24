@@ -1015,6 +1015,7 @@ function BackendRail({
       />
       <EffortPicker
         agentKind={agentKind ?? issueDefaultAgentKind(undefined)}
+        inSession
         machineId={machineId}
         model={agentKind ? backend.model : 'auto'}
         value={backend.effort}

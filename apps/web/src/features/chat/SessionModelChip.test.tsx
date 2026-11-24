@@ -221,7 +221,11 @@ describe('a session whose driver can change model mid-conversation', () => {
         session={{ ...configurable(), requestedModel: 'claude-sonnet-5-5' } as ModelChipSession}
       />,
     )
-    await waitFor(() => expect(toasts.success).toHaveBeenCalledWith('The running session changed.'))
+    await waitFor(() =>
+      expect(toasts.success).toHaveBeenCalledWith(
+        'Your model or thinking time changed for this session.',
+      ),
+    )
     expect(screen.getByTestId('session-model').getAttribute('data-pending')).toBeNull()
     expect(screen.getByRole('button', { name: 'Model' }).textContent).toBe('Sonnet 5.5')
   })
@@ -270,6 +274,7 @@ describe('a session whose driver can change model mid-conversation', () => {
     )
     const effort = screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement
     expect(effort.disabled).toBe(true)
+    expect(effort.getAttribute('aria-description')).toContain('Thinking time is fixed here')
     // Nothing opens, so no chevron promises it.
     expect(effort.querySelector('.lucide-chevron-down')).toBeNull()
   })
@@ -278,7 +283,7 @@ describe('a session whose driver can change model mid-conversation', () => {
     render(<SessionModelChip session={{ ...configurable(), status: 'hibernated' }} />)
     const chip = screen.getByTestId('session-model')
     expect(chip.getAttribute('data-configurable')).toBe('false')
-    expect(chip.getAttribute('aria-label')).toContain('Wake it to change')
+    expect(chip.getAttribute('aria-label')).toContain('Wake this session to change')
   })
 })
 
@@ -292,7 +297,7 @@ describe('a session that takes its model at launch', () => {
     const chip = screen.getByTestId('session-model')
     expect(chip.getAttribute('data-configurable')).toBe('false')
     expect(chip.textContent).toBe('Opus 5.5 · High')
-    expect(chip.getAttribute('aria-label')).toContain('cannot change mid-conversation')
+    expect(chip.getAttribute('aria-label')).toContain('These choices are fixed here')
     // The readout keeps its plain face: no glyph, no chevron.
     expect(chip.querySelector('svg')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Model' })).toBeNull()
@@ -317,7 +322,7 @@ describe('a session that takes its model at launch', () => {
   it('says unknown, not no, when the daemon has not reported', () => {
     render(<SessionModelChip session={session({ observedModel: 'claude-opus-5-5' })} />)
     expect(screen.getByTestId('session-model').getAttribute('aria-label')).toContain(
-      'has not reported',
+      'Model changes are not available yet',
     )
   })
 })

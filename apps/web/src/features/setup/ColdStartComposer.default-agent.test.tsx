@@ -284,7 +284,7 @@ describe('cold-start runtime driver choice', () => {
     state.runtimeDrivers = [{ harness: 'opencode', id: 'opencode-server', family: 'server' }]
     render(<ColdStartComposer first={false} />)
     await waitFor(() => expect(chip().textContent).toContain('OpenCode'))
-    expect(screen.queryByRole('button', { name: 'Driver' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Session interface' })).toBeNull()
     fireEvent.click(screen.getByTestId('cold-start-launch'))
     expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(
       expect.not.objectContaining({ requestedDriverId: expect.anything() }),
@@ -298,11 +298,13 @@ describe('cold-start runtime driver choice', () => {
     state.runtimeDrivers = [{ harness: 'opencode', id: 'generic-pty', family: 'terminal' }]
     render(<ColdStartComposer first={false} />)
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Driver' }).textContent).toContain('Headed'),
+      expect(screen.getByRole('button', { name: 'Session interface' }).textContent).toContain(
+        'Headed',
+      ),
     )
     publishDrivers([{ harness: 'opencode', id: 'opencode-server', family: 'server' }])
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Driver' }).textContent).toContain(
+      expect(screen.getByRole('button', { name: 'Session interface' }).textContent).toContain(
         'OpenCode 1 (headless)',
       ),
     )
@@ -330,12 +332,14 @@ describe('cold-start runtime driver choice', () => {
     render(<ColdStartComposer first={false} />)
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Driver' }).textContent).toContain(
+      expect(screen.getByRole('button', { name: 'Session interface' }).textContent).toContain(
         'OpenCode 1 (headless)',
       ),
     )
-    expect(screen.getByRole('button', { name: 'Driver' }).textContent).not.toContain('contract')
-    fireEvent.click(screen.getByRole('button', { name: 'Driver' }))
+    expect(screen.getByRole('button', { name: 'Session interface' }).textContent).not.toContain(
+      'contract',
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Session interface' }))
     expect(await screen.findByRole('menuitem', { name: 'Headed' })).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: 'OpenCode 1 (headless)' })).toBeTruthy()
 
@@ -346,7 +350,7 @@ describe('cold-start runtime driver choice', () => {
     )
     expect(store.setPanelMode).toHaveBeenLastCalledWith(asSessionId('session-new'), 'native')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Driver' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Session interface' }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'OpenCode 1 (headless)' }))
     fireEvent.click(screen.getByTestId('cold-start-launch'))
     expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(
@@ -361,10 +365,12 @@ describe('cold-start runtime driver choice', () => {
     state.installed = ['opencode']
     state.runtimeDrivers = [{ harness: 'opencode', id: 'opencode-server', family: 'server' }]
     render(<ColdStartComposer first={false} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Driver' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Session interface' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'OpenCode 1 (headless)' }))
     publishDrivers([])
-    expect((await screen.findByRole('status')).textContent).toContain('opencode-server unavailable')
+    expect((await screen.findByRole('status')).textContent).toContain(
+      'This session interface is unavailable. Choose another interface to start.',
+    )
     expect((screen.getByTestId('cold-start-launch') as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(screen.getByTestId('cold-start-launch'))
     expect(store.spawnDraftAgent).not.toHaveBeenCalled()
@@ -380,16 +386,18 @@ describe('cold-start runtime driver choice', () => {
       { harness: 'opencode', id: 'opencode-server', family: 'server' },
     ]
     render(<ColdStartComposer first={false} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Driver' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Session interface' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'OpenCode 1 (headless)' }))
     publishDrivers([headed])
-    expect((await screen.findByRole('status')).textContent).toContain('opencode-server unavailable')
+    expect((await screen.findByRole('status')).textContent).toContain(
+      'This session interface is unavailable. Choose another interface to start.',
+    )
     // The remaining headed driver keeps a recovery menu beside the refusal.
-    expect(screen.getByRole('button', { name: 'Driver' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Session interface' })).toBeTruthy()
     expect((screen.getByTestId('cold-start-launch') as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(screen.getByTestId('cold-start-launch'))
     expect(store.spawnDraftAgent).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: 'Driver' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Session interface' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Headed' }))
     expect(screen.queryByRole('status')).toBeNull()
     expect((screen.getByTestId('cold-start-launch') as HTMLButtonElement).disabled).toBe(false)

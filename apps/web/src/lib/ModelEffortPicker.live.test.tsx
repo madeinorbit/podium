@@ -55,13 +55,13 @@ describe('ModelPicker live catalog', () => {
 })
 
 describe('ModelPicker without a live catalog (POD-3911)', () => {
-  it('offers only Auto and says the machine has not reported its models', async () => {
+  it('offers only Auto and says the machine model list is unavailable', async () => {
     modelCatalogFixture.current = {}
     render(<ModelPicker agentKind="claude-code" value="auto" onChange={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))
     expect(await screen.findByRole('menuitem', { name: 'Auto' })).toBeTruthy()
     expect(screen.queryByRole('menuitem', { name: 'Opus' })).toBeNull()
-    expect(screen.getByText(/has not reported its models/)).toBeTruthy()
+    expect(screen.getByText(/model list is unavailable/)).toBeTruthy()
   })
 })
 
@@ -111,6 +111,9 @@ describe('EffortPicker follows the selected model', () => {
     const pill = screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement
     expect(pill.textContent).toContain('Auto')
     expect(pill.disabled).toBe(true)
+    expect(pill.getAttribute('aria-description')).toBe(
+      'Auto lets the agent choose how much time to spend thinking. Choose a model here first to see its thinking levels.',
+    )
     fireEvent.click(pill)
     expect(screen.queryByRole('menuitem', { name: 'Max' })).toBeNull()
   })
@@ -177,4 +180,7 @@ it('shows a stored effort inert when the live model has no levels', () => {
   const pill = screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement
   expect(pill.disabled).toBe(true)
   expect(pill.textContent).toContain('High')
+  expect(pill.getAttribute('aria-description')).toBe(
+    'Uses more thinking time for difficult tasks, which can take longer. This model offers no thinking levels here; choose another model to set one.',
+  )
 })

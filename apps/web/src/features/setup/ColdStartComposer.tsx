@@ -16,11 +16,13 @@ import {
   AGENT_NOT_READY_COPY,
   activationAgentReadiness,
   agentCanLaunch,
+  agentControlHelp,
   indexedRepoUsageAt,
   launchAgentKind,
   machineViewsFromWire,
   type RepoView,
   reposToViews,
+  sessionInterfaceHelp,
   signInInTerminalCopy,
   usableMachines,
 } from '@podium/client-core/values'
@@ -62,6 +64,7 @@ import {
   CapabilityAgentMenu,
   candidateFromAvailability,
 } from '@/lib/agent-capability'
+import { HelpButton } from '@/lib/ControlHelp'
 import {
   ISSUE_AGENT_KINDS,
   issueAgentIcon,
@@ -1089,15 +1092,16 @@ export function ColdStartComposer({
                 <CapabilityAgentMenu
                   typeahead
                   trigger={
-                    <button
+                    <HelpButton
                       type="button"
                       data-pressable
                       aria-label="Agent"
+                      help={agentControlHelp(agent)}
                       className="inline-flex h-7 items-center gap-1.5 rounded-[7px] pr-1 pl-2 hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring"
                     >
                       {issueAgentIcon(agent, 13)}
                       {issueAgentLabel(agent)}
-                    </button>
+                    </HelpButton>
                   }
                   options={agentOptions}
                   setup={{ machineId: selectedMachine?.id, machines: targetMachines }}
@@ -1184,9 +1188,15 @@ export function ColdStartComposer({
                 <PropertyMenu
                   typeahead
                   trigger={
-                    <button type="button" data-pressable aria-label="Driver" className={chip}>
+                    <HelpButton
+                      type="button"
+                      data-pressable
+                      aria-label="Session interface"
+                      help={sessionInterfaceHelp(headedLaunch)}
+                      className={chip}
+                    >
                       {driverChoice === HEADED_DRIVER ? 'Headed' : runtimeDriverLabel(driverChoice)}
-                    </button>
+                    </HelpButton>
                   }
                   options={[
                     ...(availableHeadedDriver ? [{ value: HEADED_DRIVER, label: 'Headed' }] : []),
@@ -1203,7 +1213,7 @@ export function ColdStartComposer({
               ) : null}
               {driverUnavailable && (
                 <span role="status" className="px-1 text-[11px] text-danger">
-                  {driverChoice} unavailable
+                  This session interface is unavailable. Choose another interface to start.
                 </span>
               )}
               <button

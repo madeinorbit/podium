@@ -9,11 +9,13 @@ import {
   modelLabel,
   modelOptions,
 } from '@podium/client-core/agent-models'
+import { effortControlHelp, modelControlHelp } from '@podium/client-core/values'
 import type { MachineId } from '@podium/model'
 import { ChevronDown, Cpu, Gauge } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
 import { forwardRef } from 'react'
 import { Button } from '@/components/ui/button'
+import { ControlHelp } from './ControlHelp'
 import type { IssueAgentKind } from './issue-agents'
 import { PropertyMenu } from './PropertyMenu'
 import { useHarnessDescriptors } from './use-harness-descriptors'
@@ -38,111 +40,120 @@ import { cn } from './utils'
  */
 type Variant = 'pill' | 'field' | 'composer' | 'inline' | 'quiet' | 'selector'
 
-const PickerTrigger = forwardRef<
-  HTMLButtonElement,
-  Omit<ComponentProps<typeof Button>, 'variant'> & {
-    variant?: Variant
-    icon: ReactNode
-    label: string
-  }
->(({ variant = 'pill', icon, label, className, ...props }, ref) =>
-  variant === 'field' ? (
-    <Button
-      ref={ref}
-      type="button"
-      variant="outline"
-      size="sm"
-      className={cn('w-full flex-1 justify-between font-normal', className)}
-      {...props}
-    >
-      <span className="flex min-w-0 items-center gap-1.5">
-        {icon}
-        <span className="truncate">{label}</span>
-      </span>
-      {/* The same glyph `Select` uses (components/ui/select.tsx). This is a
+type PickerProps = Omit<ComponentProps<typeof Button>, 'variant'> & {
+  variant?: Variant
+  icon: ReactNode
+  label: string
+}
+
+const PickerButton = forwardRef<HTMLButtonElement, PickerProps>(
+  ({ variant = 'pill', icon, label, className, ...props }, ref) =>
+    variant === 'field' ? (
+      <Button
+        ref={ref}
+        type="button"
+        variant="outline"
+        size="sm"
+        className={cn('w-full flex-1 justify-between font-normal', className)}
+        {...props}
+      >
+        <span className="flex min-w-0 items-center gap-1.5">
+          {icon}
+          <span className="truncate">{label}</span>
+        </span>
+        {/* The same glyph `Select` uses (components/ui/select.tsx). This is a
           field-shaped trigger for a menu that opens DOWNWARD, sitting in a
           Settings row directly above real Selects — ChevronsUpDown promised a
           different interaction and delivered the same one, which is two control
           languages for one control. The `pill` variant carries no chevron at
           all and is unaffected. */}
-      <ChevronDown size={14} aria-hidden="true" className="shrink-0 opacity-50" />
-    </Button>
-  ) : variant === 'inline' ? (
-    // Bare words inside a caller's chip (the new-task box, POD-2079): no rim,
-    // no chevron, the caller's ink. The menu is still one press away.
-    <button
-      data-pressable
-      ref={ref}
-      type="button"
-      className={cn('inline-flex min-w-0 items-center disabled:cursor-default', className)}
-      {...(props as ComponentProps<'button'>)}
-    >
-      <span className="min-w-0 truncate">{label}</span>
-    </button>
-  ) : variant === 'selector' ? (
-    <button
-      ref={ref}
-      type="button"
-      data-pressable
-      className={cn(
-        'inline-flex h-7 min-w-0 items-center gap-1.5 rounded-[7px] px-2 text-[12px] leading-none text-text-dim transition-colors duration-150 hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring aria-expanded:bg-accent aria-expanded:text-text-strong disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-text-dim motion-reduce:transition-none',
-        className,
-      )}
-      {...(props as ComponentProps<'button'>)}
-    >
-      {/* The Settings pickers' glyph, a step quieter than the value it names. */}
-      <span className="flex flex-none [&>svg]:text-text-faint">{icon}</span>
-      <span className="min-w-0 truncate">{label}</span>
-      {!props.disabled && (
-        <ChevronDown size={12} aria-hidden="true" className="-ml-0.5 flex-none opacity-70" />
-      )}
-    </button>
-  ) : variant === 'quiet' ? (
-    <Button
-      ref={ref}
-      type="button"
-      variant="ghost"
-      size="sm"
-      className={cn(
-        'h-6 max-w-[22ch] rounded-[5px] px-1 text-[11.5px] font-normal text-text-dim hover:bg-chip hover:text-text-strong',
-        className,
-      )}
-      {...props}
-    >
-      <span className="min-w-0 truncate">{label}</span>
-    </Button>
-  ) : variant === 'composer' ? (
-    <Button
-      ref={ref}
-      type="button"
-      variant="ghost"
-      size="sm"
-      className={cn(
-        'h-7 gap-1 rounded-none px-2.5 font-mono text-[11px] font-normal text-text-dim hover:bg-accent hover:text-text-strong',
-        className,
-      )}
-      {...props}
-    >
-      {/* The label is its own truncating box (POD-1224). A bare text node in a
+        <ChevronDown size={14} aria-hidden="true" className="shrink-0 opacity-50" />
+      </Button>
+    ) : variant === 'inline' ? (
+      // Bare words inside a caller's chip (the new-task box, POD-2079): no rim,
+      // no chevron, the caller's ink. The menu is still one press away.
+      <button
+        data-pressable
+        ref={ref}
+        type="button"
+        className={cn('inline-flex min-w-0 items-center disabled:cursor-default', className)}
+        {...(props as ComponentProps<'button'>)}
+      >
+        <span className="min-w-0 truncate">{label}</span>
+      </button>
+    ) : variant === 'selector' ? (
+      <button
+        ref={ref}
+        type="button"
+        data-pressable
+        className={cn(
+          'inline-flex h-7 min-w-0 items-center gap-1.5 rounded-[7px] px-2 text-[12px] leading-none text-text-dim transition-colors duration-150 hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring aria-expanded:bg-accent aria-expanded:text-text-strong disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-text-dim motion-reduce:transition-none',
+          className,
+        )}
+        {...(props as ComponentProps<'button'>)}
+      >
+        {/* The Settings pickers' glyph, a step quieter than the value it names. */}
+        <span className="flex flex-none [&>svg]:text-text-faint">{icon}</span>
+        <span className="min-w-0 truncate">{label}</span>
+        {!props.disabled && (
+          <ChevronDown size={12} aria-hidden="true" className="-ml-0.5 flex-none opacity-70" />
+        )}
+      </button>
+    ) : variant === 'quiet' ? (
+      <Button
+        ref={ref}
+        type="button"
+        variant="ghost"
+        size="sm"
+        className={cn(
+          'h-6 max-w-[22ch] rounded-[5px] px-1 text-[11.5px] font-normal text-text-dim hover:bg-chip hover:text-text-strong',
+          className,
+        )}
+        {...props}
+      >
+        <span className="min-w-0 truncate">{label}</span>
+      </Button>
+    ) : variant === 'composer' ? (
+      <Button
+        ref={ref}
+        type="button"
+        variant="ghost"
+        size="sm"
+        className={cn(
+          'h-7 gap-1 rounded-none px-2.5 font-mono text-[11px] font-normal text-text-dim hover:bg-accent hover:text-text-strong',
+          className,
+        )}
+        {...props}
+      >
+        {/* The label is its own truncating box (POD-1224). A bare text node in a
           flex button is an anonymous flex item, so `text-overflow` has nothing
           to apply to — inside a fixed-width well (the issue rail's launch box is
           232px) a long model name pushed the chevron out of the segment instead
           of ellipsising. */}
-      <span className="min-w-0 truncate">{label}</span>
-      <ChevronDown size={13} aria-hidden="true" className="text-text-faint" />
-    </Button>
-  ) : (
-    <Button
-      ref={ref}
-      type="button"
-      variant="outline"
-      size="sm"
-      className={cn('h-6 gap-1 rounded-full px-2 text-[12px] font-normal', className)}
-      {...props}
-    >
-      {icon}
-      {label}
-    </Button>
+        <span className="min-w-0 truncate">{label}</span>
+        <ChevronDown size={13} aria-hidden="true" className="text-text-faint" />
+      </Button>
+    ) : (
+      <Button
+        ref={ref}
+        type="button"
+        variant="outline"
+        size="sm"
+        className={cn('h-6 gap-1 rounded-full px-2 text-[12px] font-normal', className)}
+        {...props}
+      >
+        {icon}
+        {label}
+      </Button>
+    ),
+)
+PickerButton.displayName = 'PickerButton'
+
+const PickerTrigger = forwardRef<HTMLButtonElement, PickerProps & { help: string }>(
+  ({ help, ...props }, ref) => (
+    <ControlHelp help={help} disabled={props.disabled}>
+      <PickerButton ref={ref} {...props} aria-description={help} />
+    </ControlHelp>
   ),
 )
 PickerTrigger.displayName = 'PickerTrigger'
@@ -159,6 +170,7 @@ export function ModelPicker({
   machineId,
   disabled = false,
   allowFreeText = false,
+  help,
 }: {
   agentKind: IssueAgentKind
   value: string
@@ -173,6 +185,7 @@ export function ModelPicker({
    *  what the machine reported — the new-task box (POD-3911). Settings keeps it
    *  for managed accounts, which report no list. */
   allowFreeText?: boolean
+  help?: string
 }): JSX.Element {
   // Live models as the machine's own harness reports them, fetched and cached by
   // the server. Nothing else is offered (POD-3911): until the list arrives, or if
@@ -186,15 +199,17 @@ export function ModelPicker({
     live && live.length > 0
       ? undefined
       : status === 'loading'
-        ? 'Loading models from this machine…'
-        : 'This machine has not reported its models. Auto lets the agent choose.'
+        ? 'Loading the model list… You can use Auto while it loads.'
+        : 'The model list is unavailable. Use Auto to let the agent choose a model.'
+  const label = modelLabel(agentKind, value, live, served)
   return (
     <PropertyMenu
       trigger={
         <PickerTrigger
           variant={variant}
           icon={cpuIcon}
-          label={modelLabel(agentKind, value, live, served)}
+          label={label}
+          help={help ?? modelControlHelp(label, !value || value === AUTO)}
           aria-label="Model"
           disabled={disabled}
           {...(className ? { className } : {})}
@@ -240,6 +255,11 @@ export function AllConnectorsModelPicker({
           variant={variant}
           icon={cpuIcon}
           label={allConnectorModelLabel(agentKind, value, live, served)}
+          help={
+            !value || value === AUTO
+              ? 'Auto uses the agent and model in Settings → Agents → Superagent. Choose a model here to change the agent and model for your next message.'
+              : `${allConnectorModelLabel(agentKind, value, live, served)} generates the replies. Choose a model here to change the agent and model for your next message.`
+          }
           aria-label="Model"
         />
       }
@@ -263,6 +283,8 @@ export function EffortPicker({
   className,
   machineId,
   disabled = false,
+  help,
+  inSession = false,
 }: {
   agentKind: IssueAgentKind
   /** The currently-selected model — effort is scoped to it. */
@@ -274,6 +296,8 @@ export function EffortPicker({
   className?: string
   machineId?: MachineId
   disabled?: boolean
+  help?: string
+  inSession?: boolean
 }): JSX.Element | null {
   const live = useModelCatalog(machineId)[agentKind]
   const { served } = useHarnessDescriptors(machineId)
@@ -292,10 +316,13 @@ export function EffortPicker({
         // offer still rides the launch, and the pill must not hide that.
         label={effortLabel(agentKind, value)}
         aria-label="Effort"
-        title={
-          !model || model === AUTO
-            ? 'Pick a model to choose its effort'
-            : 'This model reports no effort levels'
+        help={
+          help ??
+          effortControlHelp(
+            value,
+            !model || model === AUTO ? 'pick-model' : 'unsupported',
+            inSession,
+          )
         }
         disabled
         {...(className ? { className } : {})}
@@ -310,6 +337,7 @@ export function EffortPicker({
           icon={gaugeIcon}
           label={effortLabel(agentKind, value)}
           aria-label="Effort"
+          help={help ?? effortControlHelp(value, disabled ? 'pending' : 'ready', inSession)}
           disabled={disabled}
           {...(className ? { className } : {})}
         />
