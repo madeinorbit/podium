@@ -250,6 +250,23 @@ const leasesOfIds = preparedFamily((db, t, size: number) =>
     .prepare(),
 )
 
+/** A set of sessions' lease identities, without the checkpoint (POD-7574). */
+const leaseIdentitiesOfIds = preparedFamily((db, t, size: number) =>
+  db
+    .select({
+      sessionId: t.sessionObservationCheckpoints.sessionId,
+      providerSessionId: t.sessionObservationCheckpoints.providerSessionId,
+    })
+    .from(t.sessionObservationCheckpoints)
+    .where(
+      inWorkspace(
+        t.sessionObservationCheckpoints,
+        inListOf(t.sessionObservationCheckpoints.sessionId, size),
+      ),
+    )
+    .prepare(),
+)
+
 /** The terminal candidates of a known set of sessions (POD-7036). */
 const terminalCandidatesOfIds = preparedFamily((db, t, size: number) =>
   db
@@ -321,6 +338,43 @@ const advanceLeaseGeneration = prepared((db, t) =>
           t.sessionObservationCheckpoints.provider,
           param(t.sessionObservationCheckpoints.provider, 'provider'),
         ),
+      ),
+    )
+    .prepare(),
+)
+
+/**
+ * {@link advanceLeaseGeneration} for a set of one provider's leases that keep
+ * their provider identity (POD-7574): the COALESCE there changes nothing for them.
+ */
+const advanceLeaseGenerationsOfIds = preparedFamily((db, t, size: number) =>
+  db
+    .update(t.sessionObservationCheckpoints)
+    .set({
+      observationGeneration: sql`${t.sessionObservationCheckpoints.observationGeneration} + 1`,
+      updatedAt: P('updatedAt'),
+    })
+    .where(
+      inWorkspace(
+        t.sessionObservationCheckpoints,
+        eq(
+          t.sessionObservationCheckpoints.provider,
+          param(t.sessionObservationCheckpoints.provider, 'provider'),
+        ),
+        inListOf(t.sessionObservationCheckpoints.sessionId, size),
+      ),
+    )
+    .prepare(),
+)
+
+/** The consumed terminal candidates of a set of sessions, removed together (POD-7574). */
+const deleteTerminalCandidatesOfIds = preparedFamily((db, t, size: number) =>
+  db
+    .delete(t.sessionTerminalCandidates)
+    .where(
+      inWorkspace(
+        t.sessionTerminalCandidates,
+        inListOf(t.sessionTerminalCandidates.sessionId, size),
       ),
     )
     .prepare(),
@@ -756,6 +810,86 @@ export class ObservationCheckpointsRepository {
       }
       return lease
     })
+  }
+
+  /**
+   * {@link advanceGeneration} for a set of sessions, in one transaction and a
+   * fixed number of statements per 500 sessions (POD-7574): a daemon attach
+   * fences every survivor it probes, thousands on a machine with that many
+   * exited sessions, and one transaction each was a commit and five statements
+   * each. Same result per session: a missing lease is opened, the generation
+   * advances, a provider id fills in only where none is stored, a consumed proof
+   * is cancelled, and a lease held by another provider throws.
+   */
+  async advanceGenerations(
+    entries: readonly {
+      sessionId: SessionId
+      provider: ObservationLeaseRecord['provider']
+      /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
+      providerSessionId: string | null
+    }[],
+  ): Promise<Map<SessionId, ObservationLeaseRecord>> {
+    const wanted = new Map(entries.map((entry) => [entry.sessionId, entry]))
+    if (wanted.size === 0) return new Map()
+    return await this.createOrJoinTransaction(async () => {
+      const updatedAt = new Date().toISOString()
+      const ids = [...wanted.keys()]
+      const before = await this.leaseRowsOf(ids)
+      // Grouped by provider for the set update; a lease that is missing, or that
+      // takes the provider id it lacks, goes through the one-row statements.
+      const byProvider = new Map<ObservationLeaseRecord['provider'], SessionId[]>()
+      for (const entry of wanted.values()) {
+        const row = before.get(entry.sessionId)
+        if (!row || (row.providerSessionId === null && entry.providerSessionId !== null)) {
+          if (!row) await openLease(this.db).run({ ...entry, updatedAt })
+          await advanceLeaseGeneration(this.db).run({ ...entry, updatedAt })
+          continue
+        }
+        const group = byProvider.get(entry.provider) ?? []
+        group.push(entry.sessionId)
+        byProvider.set(entry.provider, group)
+      }
+      for (const [provider, group] of byProvider) {
+        for (let at = 0; at < group.length; at += 500) {
+          const chunk = group.slice(at, at + 500)
+          const size = inListSize(chunk.length)
+          await advanceLeaseGenerationsOfIds(this.db, size).run(
+            inListValues(chunk, size, 'in', { provider, updatedAt }),
+          )
+        }
+      }
+      // A spent proof does not survive its observer's life (see advanceGeneration).
+      const consumed = [...(await this.terminalCandidatesOf(ids))]
+        .filter(([, candidate]) => candidate.consumedAt)
+        .map(([sessionId]) => sessionId)
+      for (let at = 0; at < consumed.length; at += 500) {
+        const chunk = consumed.slice(at, at + 500)
+        const size = inListSize(chunk.length)
+        await deleteTerminalCandidatesOfIds(this.db, size).run(inListValues(chunk, size))
+      }
+      const leases = await this.leasesOf(ids)
+      for (const entry of wanted.values()) {
+        if (leases.get(entry.sessionId)?.provider !== entry.provider) {
+          throw new Error(`unable to advance observation generation for ${entry.sessionId}`)
+        }
+      }
+      return leases
+    })
+  }
+
+  /** The raw lease rows of a set of sessions, unparsed: what the fence decides on. */
+  private async leaseRowsOf(
+    sessionIds: readonly SessionId[],
+  ): Promise<Map<SessionId, { providerSessionId: string | null }>> {
+    const rows = new Map<SessionId, { providerSessionId: string | null }>()
+    for (let at = 0; at < sessionIds.length; at += 500) {
+      const chunk = sessionIds.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      for (const row of await leaseIdentitiesOfIds(this.db, size).all(inListValues(chunk, size))) {
+        rows.set(row.sessionId as SessionId, { providerSessionId: row.providerSessionId })
+      }
+    }
+    return rows
   }
 
   /**

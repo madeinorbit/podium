@@ -281,8 +281,174 @@ it('keeps exact rebind retries idempotent across repository reopen', async () =>
   }
 })
 
+// POD-7574: a daemon attach fences every survivor it probes, a set at a time.
+describe('advanceGenerations', () => {
+  const ids = (n: number, prefix = 'g') =>
+    Array.from({ length: n }, (_, index) => asSessionId(`${prefix}${index}`))
+
+  it('fences each session as advanceGeneration would, in one call', async () => {
+    const store = await openTestStore(':memory:')
+    try {
+      const oc = store.observationCheckpoints
+      const [known, unnamed, missing, kept] = ids(4)
+      await oc.advanceGeneration(known!, 'codex', 'thread-known')
+      await oc.advanceGeneration(known!, 'codex', 'thread-known')
+      await oc.advanceGeneration(unnamed!, 'claude-code', null)
+      await oc.advanceGeneration(kept!, 'codex', 'thread-kept')
+      const leases = await oc.advanceGenerations([
+        { sessionId: known!, provider: 'codex', providerSessionId: 'thread-known' },
+        { sessionId: unnamed!, provider: 'claude-code', providerSessionId: 'thread-learned' },
+        { sessionId: missing!, provider: 'codex', providerSessionId: 'thread-new' },
+        // A stored provider id is never replaced by a conflicting hint.
+        { sessionId: kept!, provider: 'codex', providerSessionId: 'thread-other' },
+      ])
+      expect([...leases.keys()].sort()).toEqual([known, unnamed, missing, kept].sort())
+      expect(leases.get(known!)).toMatchObject({
+        provider: 'codex',
+        providerSessionId: 'thread-known',
+        observationGeneration: 3,
+      })
+      expect(leases.get(unnamed!)).toMatchObject({
+        provider: 'claude-code',
+        providerSessionId: 'thread-learned',
+        observationGeneration: 2,
+      })
+      expect(leases.get(missing!)).toMatchObject({
+        provider: 'codex',
+        providerSessionId: 'thread-new',
+        bindingVersion: 1,
+        observationGeneration: 1,
+      })
+      expect(leases.get(kept!)).toMatchObject({
+        providerSessionId: 'thread-kept',
+        observationGeneration: 2,
+      })
+      for (const [sessionId, lease] of leases) expect(await oc.get(sessionId)).toEqual(lease)
+      expect(await oc.advanceGenerations([])).toEqual(new Map())
+    } finally {
+      await store.close()
+    }
+  })
+
+  it('cancels a consumed proof and leaves an unconsumed one', async () => {
+    const store = await openTestStore(':memory:')
+    try {
+      const oc = store.observationCheckpoints
+      const [spent, armed] = ids(2, 'proof')
+      for (const sessionId of [spent!, armed!]) {
+        await oc.advanceGeneration(sessionId, 'codex', `thread-${sessionId}`)
+        await oc.save(terminalCheckpoint(sessionId))
+        await oc.recordTerminalCandidate(terminalFactsOf(sessionId), at)
+        expect(await oc.confirmTerminalCandidate(terminalFactsOf(sessionId), 1, at)).toBe(
+          'confirmed',
+        )
+      }
+      expect(await oc.consumeTerminalCandidate(terminalFactsOf(spent!), at)).toBe(true)
+      await oc.advanceGenerations(
+        [spent!, armed!].map((sessionId) => ({
+          sessionId,
+          provider: 'codex' as const,
+          providerSessionId: `thread-${sessionId}`,
+        })),
+      )
+      expect(await oc.getTerminalCandidate(spent!)).toBeNull()
+      expect((await oc.getTerminalCandidate(armed!))?.consumedAt).toBeNull()
+    } finally {
+      await store.close()
+    }
+  })
+
+  it('throws for a lease another provider holds, and writes nothing', async () => {
+    const store = await openTestStore(':memory:')
+    try {
+      const oc = store.observationCheckpoints
+      const [mine, theirs] = ids(2, 'p')
+      await oc.advanceGeneration(mine!, 'codex', 'thread-mine')
+      await oc.advanceGeneration(theirs!, 'claude-code', 'thread-theirs')
+      await expect(
+        oc.advanceGenerations([
+          { sessionId: mine!, provider: 'codex', providerSessionId: 'thread-mine' },
+          { sessionId: theirs!, provider: 'codex', providerSessionId: 'thread-theirs' },
+        ]),
+      ).rejects.toThrow(`unable to advance observation generation for ${theirs}`)
+      expect((await oc.get(mine!))?.observationGeneration).toBe(1)
+    } finally {
+      await store.close()
+    }
+  })
+
+  it('runs the same statements for 5 and 200 sessions', async () => {
+    await expectConstantStatements(
+      {
+        name: 'advanceGenerations',
+        async setup(size) {
+          const store = await openTestStore(':memory:')
+          const sessions = ids(size, 'n')
+          for (const [index, sessionId] of sessions.entries()) {
+            await store.observationCheckpoints.advanceGeneration(
+              sessionId,
+              index % 2 === 0 ? 'codex' : 'claude-code',
+              `thread-${sessionId}`,
+            )
+          }
+          return { store, sessions }
+        },
+        target: ({ store }) => store,
+        run: ({ store, sessions }) =>
+          store.observationCheckpoints.advanceGenerations(
+            sessions.map((sessionId, index) => ({
+              sessionId,
+              provider: index % 2 === 0 ? ('codex' as const) : ('claude-code' as const),
+              providerSessionId: `thread-${sessionId}`,
+            })),
+          ),
+        check: (result, _fixture, size) => {
+          const leases = result as Map<string, { observationGeneration: number }>
+          expect(leases.size).toBe(size)
+          for (const lease of leases.values()) expect(lease.observationGeneration).toBe(2)
+        },
+        teardown: ({ store }) => store.close(),
+      },
+      5,
+    )
+  })
+})
+
+function terminalFactsOf(sessionId: SessionId): TerminalCandidateFacts {
+  return {
+    ...terminalFacts('a', sessionId),
+    providerSessionId: `thread-${sessionId}`,
+    lastTransitionId: `last-${sessionId}`,
+    terminalTransitionId: `terminal-${sessionId}`,
+  }
+}
+
+function terminalCheckpoint(sessionId: SessionId): SessionObservationCheckpointV1 {
+  const facts = terminalFactsOf(sessionId)
+  return {
+    ...seededCheckpoint('a', 1, sessionId),
+    providerSessionId: facts.providerSessionId,
+    providerCursor: facts.providerCursor,
+    lastTransitionId: facts.lastTransitionId,
+    terminalFence: {
+      turnEpoch: 1,
+      providerCursor: facts.providerCursor,
+      verdict: 'done',
+      transitionId: facts.terminalTransitionId,
+    },
+  } as SessionObservationCheckpointV1
+}
+
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { SessionId } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
+import { describe } from 'vitest'
 import { openTestStore } from '../test-support/open-test-store'
+import { expectConstantStatements } from '../test-support/statement-count'
+import {
+  checkpoint as seededCheckpoint,
+  terminalFacts,
+} from '../test-support/workspace-seeds/events'
+import type { TerminalCandidateFacts } from './types'

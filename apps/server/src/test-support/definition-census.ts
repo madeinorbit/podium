@@ -226,6 +226,10 @@ export const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = 
   ['apps/server/src/store/observation-checkpoints.ts:checkpointRecordFactsOfIds', SIZES],
   ['apps/server/src/store/observation-checkpoints.ts:leasesOfIds', SIZES],
   ['apps/server/src/store/observation-checkpoints.ts:terminalCandidatesOfIds', SIZES],
+  // The set fence of a daemon attach's probes (POD-7574).
+  ['apps/server/src/store/observation-checkpoints.ts:leaseIdentitiesOfIds', SIZES],
+  ['apps/server/src/store/observation-checkpoints.ts:advanceLeaseGenerationsOfIds', SIZES],
+  ['apps/server/src/store/observation-checkpoints.ts:deleteTerminalCandidatesOfIds', SIZES],
   ['apps/server/src/store/messages.ts:pendingForSessionsProof', SIZES],
   ['apps/server/src/store/events.ts:runtimeTranscriptSubjectsOfIds', SIZES],
   ['apps/server/src/store/conversations/registry.ts:podiumIdsOfSegments', SIZES],

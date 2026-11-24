@@ -737,6 +737,10 @@ describe('the observation checkpoints repository reads and writes only its own w
         expect.any(String),
       )
       await oc.advanceGeneration(sid(1), 'codex', `${tag}-thread-${sid(1)}`)
+      // The set fence (POD-7574), at ids both hold.
+      await oc.advanceGenerations([
+        { sessionId: sid(1), provider: 'codex', providerSessionId: `${tag}-thread-${sid(1)}` },
+      ])
       await oc.cancelTerminalCandidate(sid(3))
       await oc.purge(sid(2))
       expect(await rowsOf(store, other)).toEqual(before)
