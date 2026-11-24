@@ -55,6 +55,7 @@ export const CORPUS_RECORDS: Readonly<Record<string, readonly Row[]>> = {
       parentId: 'i2',
       stage: 'backlog',
       archived: false,
+      startedBySession: 's1',
       updatedAt: ago(8),
     },
     { id: 'i4', repoId: 'r1', seq: 4, stage: 'proposed', archived: false, updatedAt: ago(2) },
@@ -65,6 +66,7 @@ export const CORPUS_RECORDS: Readonly<Record<string, readonly Row[]>> = {
       parentId: 'i4',
       stage: 'review',
       archived: true,
+      duplicateOf: 'i4',
       updatedAt: ago(3),
     },
     {
@@ -87,6 +89,8 @@ export const CORPUS_RECORDS: Readonly<Record<string, readonly Row[]>> = {
       priority: 2,
       closedReason: 'cancelled',
       archived: false,
+      startedBySession: 's1',
+      supersededBy: 'i1',
       updatedAt: ago(30),
     },
     // A parent cycle: the walk must end.
@@ -151,6 +155,7 @@ export const CORPUS_RECORDS: Readonly<Record<string, readonly Row[]>> = {
       status: 'exited',
       archived: true,
       issueId: 'i1',
+      refIssueId: 'i2',
       agentKind: 'claude',
       lastActiveAt: ago(30),
     },
@@ -176,6 +181,7 @@ export const CORPUS_RECORDS: Readonly<Record<string, readonly Row[]>> = {
       status: 'live',
       archived: false,
       issueId: 'i3',
+      refIssueId: 'i2',
       agentKind: 'claude',
       lastActiveAt: ago(2),
       agentState: {
@@ -336,6 +342,8 @@ export const CORPUS_CASES: readonly CorpusCase[] = [
   { rule: 'session.noIssue', args: { recentDays: 1 }, expect: ['s2', 's5'] },
   { rule: 'session.ofIssue', args: { issueId: 'i1' }, expect: ['s1', 's3', 's8', 's10', 's11'] },
   { rule: 'session.ofIssue', args: { issueId: 'nope' }, expect: [] },
+  { rule: 'session.bornOf', args: { issueId: 'i2' }, expect: ['s3', 's6'] },
+  { rule: 'session.bornOf', args: { issueId: 'i1' }, expect: [] },
   { rule: 'session.one', args: { id: 's5' }, expect: ['s5'] },
   {
     rule: 'session > issueProjection.one if',
@@ -356,6 +364,11 @@ export const CORPUS_CASES: readonly CorpusCase[] = [
     expect: ['i8'],
   },
   { rule: 'issueProjection.byStagePriority', args: { stage: 'review', priority: 2 }, expect: [] },
+  { rule: 'issueProjection.startedBy', args: { sessionId: 's1' }, expect: ['i3', 'i8'] },
+  { rule: 'issueProjection.startedBy', args: { sessionId: 's2' }, expect: [] },
+  { rule: 'issueProjection.supersededBy', args: { issueId: 'i1' }, expect: ['i8'] },
+  { rule: 'issueProjection.duplicateOf', args: { issueId: 'i4' }, expect: ['i5'] },
+  { rule: 'issueProjection.duplicateOf', args: { issueId: 'i1' }, expect: [] },
   { rule: 'issueProjection.one', args: { id: 'i3' }, expect: ['i3'] },
   { rule: 'issueProjection.one', args: { id: 'nope' }, expect: [] },
   {
@@ -381,6 +394,9 @@ export const CORPUS_CASES: readonly CorpusCase[] = [
   { rule: 'issueProjection.tree > session.ofIssue', args: { issueId: 'i3' }, expect: ['s6'] },
   // What comes with an issue or a session
   { rule: 'issueDep.ofIssue', args: { issueId: 'i1' }, expect: ['d1'] },
+  // The edges into an issue, each with the issue that depends
+  { rule: 'issueDep.toIssue', args: { issueId: 'i1' }, expect: ['d2'] },
+  { rule: 'issueDep.toIssue', args: { issueId: 'i3' }, expect: [] },
   {
     rule: 'issueUserState.ofIssue',
     args: { issueId: 'i2' },

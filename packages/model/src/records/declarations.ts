@@ -262,6 +262,10 @@ const session = defineRecord({
       'issueId',
       'The sessions of one issue: what an issue comes with, and the issue page.',
     ),
+    bornOf: ofIssue(
+      'refIssueId',
+      'The sessions whose reference was minted under one issue, wherever they work now: what `issue.bornSessions` holds (POD-7582).',
+    ),
     one: one('sessionId'),
   },
   why: 'One agent or shell session.',
@@ -380,6 +384,19 @@ const issueProjection = defineRecord({
       },
       why: 'One page of a stage under a priority filter: a board column whose count the stub cannot answer, so its total comes with the page.',
     },
+    startedBy: {
+      part: 'main',
+      where: { startedBySession: { eq: param('sessionId') } },
+      why: 'The issues one session started: what `session.startedIssues` and `missionStartedIssues` hold (POD-7582).',
+    },
+    supersededBy: ofIssue(
+      'supersededBy',
+      'The issues one issue supersedes: what `issue.supersededIssues` holds (POD-7582).',
+    ),
+    duplicateOf: ofIssue(
+      'duplicateOf',
+      'The issues marked duplicates of one issue: what `issue.duplicateIssues` holds (POD-7582).',
+    ),
     one: one('id'),
   },
   why: 'The issue record without its body: the unit of work.',
@@ -400,6 +417,19 @@ const issueDep = defineRecord({
   },
   collections: {
     ofIssue: ofIssue('fromId', 'The dependency edges of one issue.'),
+    toIssue: {
+      ...ofIssue(
+        'toId',
+        'The edges that name one issue as their target, each with the issue that depends: what `issue.spinOffs` and `pageDependents` hold (POD-7582).',
+      ),
+      comesWith: [
+        {
+          collection: 'issueProjection.one',
+          key: 'fromId',
+          why: 'An incoming edge is read through the issue that depends, whose deps list carries it.',
+        },
+      ],
+    },
   },
   why: 'One issue dependency edge.',
 })

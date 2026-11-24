@@ -95,7 +95,10 @@ const PLANTED: readonly Planted[] = [
     id: 's-headless',
     row: { headless: true, issueId: 'iss_a' as IssueId, status: 'exited', lastActiveAt: ago(40) },
   },
-  { id: 's-shell', row: { agentKind: 'shell', issueId: 'iss_b' as IssueId } },
+  {
+    id: 's-shell',
+    row: { agentKind: 'shell', issueId: 'iss_b' as IssueId, refIssueId: 'iss_a' as IssueId },
+  },
 ]
 
 /** Issue rows: a tree with a grandchild, a closed one, a proposed one, a deleted one. */
@@ -109,9 +112,31 @@ const ISSUES = [
     closedReason: 'done',
     updatedAt: ago(20),
   },
-  { id: 'iss_c', seq: 3, parentId: 'iss_b', stage: 'backlog', updatedAt: ago(8) },
-  { id: 'iss_d', seq: 4, parentId: null, stage: 'proposed', updatedAt: ago(2) },
-  { id: 'iss_e', seq: 5, parentId: null, stage: 'review', archived: true, updatedAt: ago(3) },
+  {
+    id: 'iss_c',
+    seq: 3,
+    parentId: 'iss_b',
+    stage: 'backlog',
+    startedBySession: 's-offer',
+    updatedAt: ago(8),
+  },
+  {
+    id: 'iss_d',
+    seq: 4,
+    parentId: null,
+    stage: 'proposed',
+    supersededBy: 'iss_a',
+    updatedAt: ago(2),
+  },
+  {
+    id: 'iss_e',
+    seq: 5,
+    parentId: null,
+    stage: 'review',
+    archived: true,
+    duplicateOf: 'iss_b',
+    updatedAt: ago(3),
+  },
 ] as const
 
 /** Arguments every declared rule over these types can be answered with. */
@@ -119,12 +144,21 @@ const ARGS: readonly RuleArgs[] = [
   {
     recentDays: 7,
     issueId: 'iss_a',
+    sessionId: 's-offer',
     id: 's-offer',
     root: 'iss_a',
     stage: 'in_progress',
     priority: 2,
   },
-  { recentDays: 30, issueId: 'iss_b', id: 'iss_c', root: 'iss_b', stage: 'proposed', priority: 1 },
+  {
+    recentDays: 30,
+    issueId: 'iss_b',
+    sessionId: 's-shell',
+    id: 'iss_c',
+    root: 'iss_b',
+    stage: 'proposed',
+    priority: 1,
+  },
 ]
 
 function sessionRow(
