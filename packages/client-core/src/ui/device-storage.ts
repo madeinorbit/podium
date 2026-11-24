@@ -5,4 +5,6 @@ export interface DeviceStorage {
   readonly keyPrefix: string
   readonly enumerateKeys?: () => readonly string[]
   readonly flush?: () => void | Promise<void>
+  /** A native cold boot: uploads the last run left unfinished have no promise. */
+  readonly recoverInterruptedDraftUploads?: boolean
 }

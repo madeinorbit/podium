@@ -43,6 +43,22 @@ afterEach(() => {
 })
 
 describe('OfferBar', () => {
+  it('changes the decision age exactly at the formatter boundary', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(100_000)
+    const timed = { ...offer, createdAt: new Date(41_000).toISOString() }
+    act(() => root.render(<OfferBar offer={timed} disabled={false} onAction={() => {}} />))
+    expect(container.querySelector('.offer-card-age')?.textContent).toContain('now')
+    act(() => vi.advanceTimersByTime(499))
+    expect(container.querySelector('.offer-card-age')?.textContent).toContain('now')
+    act(() => vi.advanceTimersByTime(1))
+    expect(container.querySelector('.offer-card-age')?.textContent).toContain('1m')
+    act(() => vi.advanceTimersByTime(29_999))
+    expect(container.querySelector('.offer-card-age')?.textContent).toContain('1m')
+    act(() => vi.advanceTimersByTime(1))
+    expect(container.querySelector('.offer-card-age')?.textContent).toContain('2m')
+  })
+
   it('renders a URL in the detail as a link that opens a new window', () => {
     const linked: SessionOffer = {
       ...offer,

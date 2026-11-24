@@ -29,6 +29,9 @@ const { IOSConfig, withAppDelegate, withInfoPlist, withXcodeProject } = require(
  * The AppDelegate's existing Linking overrides stay: under scenes UIKit no
  * longer calls them, but `ExpoAppSceneDelegate` re-feeds URL and user-activity
  * events to them and de-duplicates the `RCTLinkingManager` notification.
+ * React Native's `Linking` was still seen to miss those links on iOS 26
+ * (POD-2364), so the profile gate also reads expo-linking's native module;
+ * see src/client/app-links.ts.
  */
 
 const MARKER = '// @podium scene-lifecycle'

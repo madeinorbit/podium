@@ -43,12 +43,14 @@ async function readAll(files: readonly File[]): Promise<PickedFile[]> {
 
 export const canPickFiles = true
 
-export function pickFiles(): Promise<PickedFile[]> {
+function pickWebFiles(options?: { accept?: string; capture?: string }): Promise<PickedFile[]> {
   if (typeof document === 'undefined') return Promise.resolve([])
   return new Promise((resolve) => {
     const input = document.createElement('input')
     input.type = 'file'
     input.multiple = true
+    if (options?.accept) input.accept = options.accept
+    if (options?.capture) input.setAttribute('capture', options.capture)
     input.style.display = 'none'
     // `change` never fires on cancel in any browser, so the promise would hang
     // on a dismissed dialog; `cancel` is the modern signal and the focus
@@ -63,6 +65,11 @@ export function pickFiles(): Promise<PickedFile[]> {
     input.click()
   })
 }
+
+export const pickFiles = () => pickWebFiles()
+export const pickDocuments = pickFiles
+export const pickPhotos = () => pickWebFiles({ accept: 'image/*' })
+export const takePhoto = () => pickWebFiles({ accept: 'image/*', capture: 'environment' })
 
 /** True when this transfer carries FILES rather than only text. Copied prose
  *  arrives as `'string'` items and must fall through to the field untouched —
@@ -97,17 +104,26 @@ function filesOf(transfer: DataTransfer | null): File[] {
  * relies on). Attaching here rather than at the document keeps a paste into the
  * PROMPT distinct from a paste anywhere else on the page.
  */
-export function onMediaPaste(node: unknown, handler: (files: PickedFile[]) => void): () => void {
+export function onMediaPaste(
+  node: unknown,
+  handler: (files: PickedFile[]) => void,
+  fromSource?: (source: () => Promise<PickedFile[]>) => void,
+): () => void {
   const el = node as HTMLElement | null
   if (!el || typeof el.addEventListener !== 'function') return () => {}
+
+  const acceptTransfer = (transfer: DataTransfer | null) => {
+    const files = filesOf(transfer)
+    const read = () => readAll(files)
+    if (fromSource) fromSource(read)
+    else void read().then(handler)
+  }
 
   const onPaste = (event: Event) => {
     const clipboard = (event as ClipboardEvent).clipboardData
     if (!hasFiles(clipboard?.items)) return
     event.preventDefault()
-    void readAll(filesOf(clipboard)).then((files) => {
-      if (files.length > 0) handler(files)
-    })
+    acceptTransfer(clipboard)
   }
   const onDragOver = (event: Event) => {
     if (hasFiles((event as DragEvent).dataTransfer?.items)) event.preventDefault()
@@ -116,9 +132,7 @@ export function onMediaPaste(node: unknown, handler: (files: PickedFile[]) => vo
     const transfer = (event as DragEvent).dataTransfer
     if (!hasFiles(transfer?.items)) return
     event.preventDefault()
-    void readAll(filesOf(transfer)).then((files) => {
-      if (files.length > 0) handler(files)
-    })
+    acceptTransfer(transfer)
   }
 
   el.addEventListener('paste', onPaste)

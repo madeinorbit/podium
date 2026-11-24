@@ -14,7 +14,7 @@ import {
   resolveUserPreferences,
   userPreferencesRowId,
 } from '@podium/model'
-import { actionBound, observableRef, reaction, runInAction } from 'mobx'
+import { actionBound, observable, observableRef, reaction, runInAction } from 'mobx'
 import type { PodiumClientApi } from '../api'
 import { type Commands, createCommands } from '../commands'
 import { ConversationCache, type ConversationCacheOptions } from '../conversation/cache'
@@ -49,12 +49,14 @@ import { LayoutAccess } from '../ui/layout-access'
 import { type NavigationIntent, planNavigation } from '../ui/navigation'
 import { UiPersistence } from '../ui/persistence'
 import type { ScreenState } from '../ui/state'
+import type { UserFocus } from '../ui/types'
 import {
   asIssueIdOrNull,
   NAVIGATION_LOADING,
   type NavigationProvider,
   overlayState,
   resolvedWorkspaceKey,
+  visibleScreenSessions,
   type WorkspacePatch,
   workspaceFor,
   workspaceWritePatch,
@@ -143,6 +145,10 @@ export interface ClientRuntimeInit<TApi extends PodiumClientApi = PodiumClientAp
    */
   /** Where visibility comes from. Default: `document.visibilityState`. */
   visibility?: VisibilitySource
+  /** Optional route-owned focus (POD-2451). A phone passes a reader that
+   *  answers null until a focused task or session screen attaches its own;
+   *  omitted, the desktop workspace decides what is read and watched. */
+  screenFocus?: () => UserFocus | null
   /** Connectivity transitions for the outbox. Default: the window's `online`. */
   onlineEvents?: OnlineEvents
   /** Connectivity probe for the outbox. Default: `navigator.onLine`. */
@@ -198,6 +204,56 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private readonly clientServices: ClientServices
   private started = false
   private disposed = false
+  /** The focus reader in force: the init default, or the top screen's own. */
+  private readonly screenFocusReader = observable.box<(() => UserFocus | null) | undefined>(
+    undefined,
+    { deep: false, name: 'ClientRuntime.screenFocus' },
+  )
+  private defaultScreenFocus: (() => UserFocus | null) | undefined
+  /** The mode the top screen renders its session in. Transient: the saved
+   *  panel choice never changes for it. */
+  private readonly screenModeBox = observable.box<'chat' | 'native' | undefined>(undefined, {
+    name: 'ClientRuntime.screenMode',
+  })
+
+  /** What the screen shows on a phone; undefined keeps the desktop workspace. */
+  private screenFocus(): UserFocus | null | undefined {
+    return this.screenFocusReader.get()?.()
+  }
+
+  /**
+   * A route attaches its focus for as long as it is the top screen (POD-2451).
+   * Its lifetime is independent of the remembered worklist row: a late blur
+   * or unmount from the previous route cannot clear its successor's.
+   */
+  /** What this device shows, for the notification sounds: the top screen on a
+   *  phone (nothing while hidden), else the desktop workspace's own focus. */
+  readonly userFocusNow = (): UserFocus => {
+    if (this.screenFocusReader.get() === undefined) return this.ui.getUserFocus()
+    if (!this.visibility.isVisible()) return { visibleSessionIds: [] }
+    const focus = this.screenFocus()
+    return focus
+      ? { ...focus, visibleSessionIds: visibleScreenSessions(this.ui.screen, focus) }
+      : { visibleSessionIds: [] }
+  }
+
+  readonly attachScreenFocus = (
+    read: () => UserFocus | null,
+    mode: 'chat' | 'native' = 'chat',
+  ): (() => void) => {
+    if (this.disposed) return () => {}
+    runInAction(() => {
+      this.screenFocusReader.set(read)
+      this.screenModeBox.set(mode)
+    })
+    return () => {
+      if (this.disposed || this.screenFocusReader.get() !== read) return
+      runInAction(() => {
+        this.screenFocusReader.set(this.defaultScreenFocus)
+        this.screenModeBox.set(undefined)
+      })
+    }
+  }
 
   readonly router: Router
   readonly ui: UiStore
@@ -250,6 +306,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private booted = false
 
   constructor(init: ClientRuntimeInit<TApi>) {
+    this.defaultScreenFocus = init.screenFocus
+    this.screenFocusReader.set(init.screenFocus)
     this.principal = init.principal
     this.api = init.api
     this.httpOrigin = init.config.httpOrigin
@@ -466,6 +524,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       connection: this.services.connection,
       markSessionRead: (id, at) => this.commands.sessions.markRead(id, at),
       markIssueRead: (id, at) => this.commands.issues.markRead(id, at),
+      screenFocus: () => this.screenFocus(),
     })
     this.paneLinks = new PaneLinkService({
       state: () => this.ui.screen,
@@ -512,6 +571,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         state: () => this.ui.screen,
         hub: this.services.connection.hub,
         connection: this.services.connection,
+        screenFocus: () => this.screenFocus(),
+        screenMode: () => this.screenModeBox.get(),
       }),
       notifications: new NotificationService(this.services.connection.hub, this.visibility),
       draftResend: new DraftResendService(this.drafts, this.services.connection),
@@ -623,7 +684,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.sounds ??= createNotificationSounds({
       ui: this.deviceState,
       phases: () => this.sessionPhases?.() ?? [],
-      visibleSessionIds: () => this.ui.getUserFocus().visibleSessionIds ?? [],
+      visibleSessionIds: () => this.userFocusNow().visibleSessionIds ?? [],
     })
     // The provider starts the runtime before attaching the pool. Wait for its
     // observable source; attachSessionPhases starts sounds when it arrives.

@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { EXAMPLE_USAGE_REPORT, EXAMPLE_USAGE_REPORT_DISPLAY } from './example'
-import { UsageReport } from './schema'
+import { TELEMETRY_STAR_EVENTS, TELEMETRY_STAR_SURFACES, UsageReport } from './schema'
 
 describe('the example usage report', () => {
   it('is a report the schema actually accepts', () => {
@@ -45,6 +45,8 @@ describe('the example usage report', () => {
       ...Object.keys(UsageReport.shape),
       ...Object.keys(EXAMPLE_USAGE_REPORT.sessions),
       ...Object.keys(EXAMPLE_USAGE_REPORT.features),
+      ...TELEMETRY_STAR_EVENTS,
+      ...TELEMETRY_STAR_SURFACES,
     ])
     for (const key of shown) {
       expect(allowed.has(key), `the example display invents the field "${key}"`).toBe(true)

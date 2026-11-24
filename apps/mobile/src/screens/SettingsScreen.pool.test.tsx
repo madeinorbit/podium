@@ -30,9 +30,11 @@ const seams = vi.hoisted(() => ({
   remove: vi.fn(async () => {}),
   switch: vi.fn(async () => {}),
   back: vi.fn(),
+  push: vi.fn(),
   replace: vi.fn(),
   devices: [] as DeviceSignInView[],
   reloadDevices: () => {},
+  readDevices: vi.fn(),
 }))
 vi.mock('../client/mobile-pool', async (importOriginal) => {
   const real = await importOriginal<typeof import('../client/mobile-pool')>()
@@ -44,7 +46,7 @@ vi.mock('../client/mobile-pool', async (importOriginal) => {
   }
 })
 vi.mock('expo-router', () => ({
-  useRouter: () => ({ back: seams.back, replace: seams.replace }),
+  useRouter: () => ({ back: seams.back, replace: seams.replace, push: seams.push }),
   useFocusEffect: (effect: () => void | (() => void)) => useEffect(effect, [effect]),
 }))
 vi.mock('expo-haptics', () => ({
@@ -86,7 +88,10 @@ vi.mock('../client/ServerProfileGate', () => ({
   }),
 }))
 vi.mock('../client/connected-devices-api', () => ({
-  readConnectedDevices: async () => seams.devices,
+  readConnectedDevices: async () => {
+    seams.readDevices()
+    return seams.devices
+  },
 }))
 vi.mock('../client/connected-devices', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../client/connected-devices')>()),
@@ -115,7 +120,9 @@ vi.mock('../components/Screen', () => ({
   ),
 }))
 vi.mock('../components/Icon', () => ({ Icon: () => null }))
-const { SettingsScreen } = await import('./SettingsScreen')
+const { SettingsScreen, SettingsDevicesScreen, SettingsServersScreen, SettingsVersionScreen } =
+  await import('./SettingsScreen')
+const { SettingsOpening } = await import('./settings-opening')
 const { createMobilePool, useMobilePool } = await import('../client/mobile-pool')
 
 beforeEach(() => {
@@ -184,10 +191,23 @@ async function mount(count = 8, scale?: number, status: AuthStatus | null = null
     const [shown, setShown] = useState(true)
     show = setShown
     seen.push(useMobilePool())
-    return shown ? <MeasuredSettings /> : null
+    return shown ? (
+      <SettingsOpening>
+        <MeasuredSettings />
+      </SettingsOpening>
+    ) : null
   }
   function MeasuredSettings() {
-    return insideReader('phone.SettingsScreen', () => SettingsScreen())
+    // The home screen and its three pushed screens, mounted together so one
+    // pass covers every row they split between them.
+    return insideReader('phone.SettingsScreen', () => (
+      <>
+        {SettingsScreen()}
+        {SettingsDevicesScreen()}
+        {SettingsServersScreen()}
+        {SettingsVersionScreen()}
+      </>
+    ))
   }
   storeStats.enable()
   storeStats.reset()
@@ -214,9 +234,8 @@ async function mount(count = 8, scale?: number, status: AuthStatus | null = null
   )
   await waitFor(
     () => {
-      expect(rowValue(view.container, 'Tasks')).toBe(String(count))
-      expect(rowValue(view.container, 'Sessions')).toBe(
-        String(referenceState(runtime).sessions.length),
+      expect(dataLine(view.container)).toBe(
+        `${referenceState(runtime).sessions.length.toLocaleString('en-US')} sessions · ${count.toLocaleString('en-US')} tasks`,
       )
     },
     { timeout: 5000 },
@@ -316,6 +335,10 @@ it('measures phone settings and its real device feed at 1x and 4x', async () => 
     current.view.unmount()
   }
 }, 30_000)
+/** The server card's "N sessions · N tasks" line. */
+function dataLine(container: HTMLElement): string | undefined {
+  return container.querySelector('[aria-label="Data on this phone"]')?.textContent ?? undefined
+}
 function rowValue(container: HTMLElement, label: string): string | undefined {
   return (
     [...container.querySelectorAll('div')].find(
@@ -351,7 +374,7 @@ it('uses zero legacy selectors and issue models while relevant updates still pai
   })
   await waitFor(() => expect(enabled.view.getByText('Host 1 updated')).toBeTruthy())
   expect(count).not.toHaveBeenCalled()
-  expect(rowValue(enabled.view.container, 'Tasks')).toBe('8')
+  expect(dataLine(enabled.view.container)).toMatch(/ · 8 tasks$/)
   expect(enabled.errors).toEqual([])
 })
 
@@ -361,8 +384,13 @@ it('keeps server controls and logout on their existing owners', async () => {
   })
   {
     const current = await mount()
-    fireEvent.click(current.view.getByText('Done'))
-    fireEvent.click(current.view.getByLabelText('Add server'))
+    const reload = vi.spyOn(window.location, 'reload').mockImplementation(() => {})
+    // A root tab and native pushes on iOS: no Screen hands out a dismiss handler.
+    for (const done of current.view.getAllByText('Done')) fireEvent.click(done)
+    fireEvent.click(current.view.getByLabelText('Version'))
+    fireEvent.click(current.view.getByLabelText('Where you’re signed in'))
+    fireEvent.click(current.view.getAllByLabelText('Add server')[0]!)
+    fireEvent.click(current.view.getAllByLabelText('Add server')[1]!)
     fireEvent.click(current.view.getByLabelText('Switch to Other server'))
     fireEvent.change(current.view.getByLabelText('Server name'), {
       target: { value: 'Renamed phone' },
@@ -376,6 +404,8 @@ it('keeps server controls and logout on their existing owners', async () => {
     )
     expect(seams.erase).toHaveBeenCalled()
     expect(seams.credential).toHaveBeenLastCalledWith(null)
+    expect(reload).not.toHaveBeenCalled()
+    expect(Alert.alert).not.toHaveBeenCalled()
     expect(current.view.getByText('Logged out')).toBeTruthy()
     expect(alert).not.toHaveBeenCalled()
     await act(async () => fireEvent.click(current.view.getByLabelText('Remove Phone')))
@@ -384,8 +414,13 @@ it('keeps server controls and logout on their existing owners', async () => {
     expect(current.errors).toEqual([])
     current.view.unmount()
   }
-  expect(seams.back).toHaveBeenCalledTimes(1)
+  expect(seams.back).not.toHaveBeenCalled()
   expect(seams.add).toHaveBeenCalledTimes(1)
+  expect(seams.push.mock.calls.map(([href]) => href)).toEqual([
+    '/settings/version',
+    '/settings/devices',
+    '/settings/servers',
+  ])
   expect(seams.switch).toHaveBeenCalledWith('other')
   expect(seams.rename).toHaveBeenCalledWith('phone', 'Renamed phone')
 })
@@ -425,6 +460,13 @@ it('keeps unsynced phone changes until sign-out is explicitly confirmed', async 
   expect(seams.logout).toHaveBeenCalledOnce()
   expect(seams.credential).toHaveBeenLastCalledWith(null)
   expect(current.errors).toEqual([])
+})
+
+it('shares the device inventory between summary and detail and refreshes on demand', async () => {
+  await mount()
+  expect(seams.readDevices).toHaveBeenCalledTimes(1)
+  await act(async () => seams.reloadDevices())
+  expect(seams.readDevices).toHaveBeenCalledTimes(2)
 })
 
 it('account device management omits phone pairing instructions', async () => {

@@ -1,15 +1,27 @@
-import { issueAgentKind, issueAgentLabel, modelLabel } from '@podium/client-core/agent-models'
+import { issueAgentKind, issueAgentLabel, modelName } from '@podium/client-core/agent-models'
 import { useCommands, useHarnessDescriptors } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { sessionValues } from '@podium/client-core/session-values'
-import { isDraftAgentVessel, sessionTitle } from '@podium/client-core/values'
+import { isDraftAgentVessel, readoutModel, sessionTitle } from '@podium/client-core/values'
 import type { SessionId, WorkState } from '@podium/model'
 import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
 import { isShortSessionIdentifier, issueDisplayRef } from '@podium/protocol'
-import { useLocalSearchParams, useRouter } from 'expo-router'
+import { useLocalSearchParams } from 'expo-router'
+import { compareStructural, computed } from 'mobx'
 import { observer } from 'mobx-react-lite'
-import { type ComponentProps, type ReactNode, useCallback, useEffect, useState } from 'react'
+import {
+  type ComponentProps,
+  forwardRef,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
+import { useScreenReadFocus } from '../client/screen-read-focus'
 import { useSessionCredentialLabel } from '../client/session-credential'
 import type { MobileTrpc } from '../client/trpc'
 import {
@@ -22,18 +34,31 @@ import {
   useSessionContextSpawnPending as useSpawnPending,
   useSessionContextSpawnPrompt as useSpawnPrompt,
 } from '../client/use-session-context'
-import { ActionSheet, type SheetAction } from '../components/ActionSheet'
-import { HarnessChip } from '../components/AgentMark'
-import { Icon } from '../components/Icon'
-import { MoreVertical, SquareTerminal } from '../components/icons'
+import { ActionSheet } from '../components/ActionSheet'
+import {
+  Archive,
+  ArchiveRestore,
+  MoonZzz,
+  MoreVertical,
+  Pin,
+  PinOff,
+  RefreshCw,
+  Search,
+  SkipForward,
+  SquareStack,
+  SquareTerminal,
+  Trash2,
+  XOctagon,
+} from '../components/icons'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
-import { HeaderButton, Screen } from '../components/Screen'
+import { Screen, type ScreenAction, type ScreenMenuEntry } from '../components/Screen'
 import { SessionConversation } from '../components/SessionConversation'
 import { EmptyState } from '../components/ui'
 import { WorkingMark } from '../components/WorkingMark'
 import { hasSessionBackTarget, sessionBackTarget, sessionHref } from '../lib/session-route'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
-import { color } from '../theme/theme'
+import { useHeaderInset } from '../navigation/header-inset'
+import { useRootScreenRouter } from '../navigation/use-root-screen-router'
 import { sessionAbsence, sessionAbsenceShowsLoader, sessionLinkAbsence } from './session-absence'
 import { useSessionLink } from './session-link'
 
@@ -67,10 +92,7 @@ export function SessionScreen() {
   const sessionId = rawSessionId ? asSessionId(rawSessionId) : undefined
   const backTarget = sessionBackTarget(params.backTo)
   const hasBackTarget = hasSessionBackTarget(params.backTo)
-  const router = useRouter()
-  // Actions + replica are identity-stable statics: this subscription never
-  // re-renders the screen on store publishes.
-  const store = useCommands<MobileTrpc>()
+  const router = useRootScreenRouter()
   const exitKind = useSessionContextExit(sessionId)
   const readNextSession = useSessionContextNextSession()
   const session = useSession(sessionId)
@@ -80,6 +102,7 @@ export function SessionScreen() {
   const spawnPending = useSpawnPending(sessionId)
   const observedSpawnPrompt = useSpawnPrompt(sessionId)
   const issue = useIssue(session?.issueId)
+  useScreenReadFocus(issue?.id, session?.sessionId)
   const booting = useBooting()
   // A short id or birth ref in the route is answered by the server (POD-4637);
   // a `session` answer is the full id this route should have named.
@@ -91,10 +114,18 @@ export function SessionScreen() {
     }
   }, [backTarget, resolvedSessionId, router, sessionId])
 
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [workMenuOpen, setWorkMenuOpen] = useState(false)
-  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
+  // The ••• is a header menu action: a native pull-down on iOS that UIKit
+  // opens without any render, and on Android and web a button that holds its
+  // own sheet. Opening it never re-renders this screen, whose every render
+  // re-sends the header's options to the native bar (that churn moved the
+  // transcript).
+  const menus = useRef<SessionMenusHandle>(null)
+  const confirmDelete = useCallback(() => menus.current?.confirmDelete(), [])
   const [findRequest, setFindRequest] = useState(0)
+  const find = useCallback(() => setFindRequest((request) => request + 1), [])
+  const openTerminal = useCallback(() => {
+    if (sessionId) router.push(`/session/${encodeURIComponent(sessionId)}/terminal`)
+  }, [router, sessionId])
   // Replica confirmation retires the engine-owned prompt in the same update
   // that replaces the provisional session. Keep the text until the transcript
   // itself proves the first turn landed.
@@ -127,11 +158,10 @@ export function SessionScreen() {
     const next = readNextSession(sessionId)
     if (next && next !== sessionId) router.replace(sessionHref(next, backTarget))
   }, [backTarget, readNextSession, router, sessionId])
-
-  // How many agents the draft-delete confirm names. Task scope, counted live:
-  // the vessel can hold more than the one session this sheet opened from, and
-  // the sentence must say so before anything is removed.
-  const draftAgentCount = useSessionContextIssueAgentCount(issue?.id, confirmDeleteOpen)
+  const menuHandlers = useMemo<SessionMenuHandlers>(
+    () => ({ nextSession, onFind: find, onDelete: confirmDelete, openTerminal }),
+    [confirmDelete, find, nextSession, openTerminal],
+  )
 
   if (!sessionId || !session) {
     // A SESSION THAT IS NOT HERE IS THREE DIFFERENT FACTS (doc §3.1 ¶2).
@@ -173,26 +203,13 @@ export function SessionScreen() {
       onBack={goBack}
       backLabel="Back"
       bareBack
-      monoSubtitle
+      underHeader
       // No `safeBottom`: the floating composer is the bottom-most thing on this
       // screen and pays that inset itself, so it can drop it when the keyboard
       // takes the bottom edge [POD-502].
-      right={
-        <>
-          <HeaderButton
-            label="Open terminal"
-            size={32}
-            onPress={() => router.push(`/session/${encodeURIComponent(sessionId)}/terminal`)}
-          >
-            <Icon as={SquareTerminal} size={17} color={color.textDim} />
-          </HeaderButton>
-          <HeaderButton label="Session actions" onPress={() => setMenuOpen(true)} size={32} bare>
-            <Icon as={MoreVertical} size={17} color={color.textDim} />
-          </HeaderButton>
-        </>
-      }
+      menu={menuHandlers}
     >
-      <SessionConversation
+      <HeaderInsetConversation
         session={session}
         issue={issue}
         findRequest={findRequest}
@@ -200,186 +217,276 @@ export function SessionScreen() {
         onInitialPendingSettled={settleOptimisticFirstPrompt}
         deferInitialTranscript={spawnPending}
       />
-      <SessionActionMenu
-        session={session}
-        issue={issue}
-        open={menuOpen}
-        onClose={() => setMenuOpen(false)}
-        nextSession={nextSession}
-        onFind={() => setFindRequest((request) => request + 1)}
-        onDelete={() => setConfirmDeleteOpen(true)}
-        onWorkState={() => setWorkMenuOpen(true)}
-      />
-      <ActionSheet
-        visible={confirmDeleteOpen && draftAgentCount !== undefined}
-        title={DELETE_TASK_TITLE}
-        subtitle={deleteTaskSubtitle(draftAgentCount ?? 0)}
-        actions={[
-          {
-            label: 'Delete',
-            destructive: true,
-            onPress: () => {
-              if (issue) {
-                void store.issues.delete(issue.id).catch(() => {})
-                goBack()
-              }
-            },
-          },
-        ]}
-        onClose={() => setConfirmDeleteOpen(false)}
-      />
-      <ActionSheet
-        visible={workMenuOpen}
-        title="Work state"
-        actions={WORK_STATES.map((ws) => ({
-          label: ws ? ws[0].toUpperCase() + ws.slice(1) : 'Unsorted',
-          onPress: () => void store.sessions.setWorkState(sessionId, ws),
-        }))}
-        onClose={() => setWorkMenuOpen(false)}
-      />
+      <SessionMenus ref={menus} issue={issue} onDeleted={goBack} />
     </SessionChrome>
   )
 }
+
+/**
+ * The transcript runs under the transparent navigation bar (POD-2387): the
+ * Screen opts in with `underHeader`. The feed pays the measured bar height in
+ * its content padding and marks its native scroll view for the iOS 26 edge
+ * effect. The hook reads the Screen's context, hence a component below it.
+ */
+function HeaderInsetConversation(props: ComponentProps<typeof SessionConversation>) {
+  return <SessionConversation {...props} topInset={useHeaderInset()} />
+}
+
+interface SessionMenusHandle {
+  confirmDelete(): void
+}
+
+interface SessionMenuHandlers {
+  nextSession: () => void
+  onFind: () => void
+  onDelete: () => void
+  openTerminal: () => void
+}
+
+/** The draft-delete confirmation, holding its own open state. */
+const SessionMenus = forwardRef<
+  SessionMenusHandle,
+  {
+    issue: IssueViewModel | undefined
+    onDeleted: () => void
+  }
+>(function SessionMenus({ issue, onDeleted }, ref) {
+  const store = useCommands<MobileTrpc>()
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
+  useImperativeHandle(ref, () => ({ confirmDelete: () => setConfirmDeleteOpen(true) }), [])
+  // How many agents the draft-delete confirm names. Task scope, counted live:
+  // the vessel can hold more than the one session this sheet opened from, and
+  // the sentence must say so before anything is removed.
+  const draftAgentCount = useSessionContextIssueAgentCount(issue?.id, confirmDeleteOpen)
+  return (
+    // A true confirmation: the system sheet in system colours.
+    <ActionSheet
+      visible={confirmDeleteOpen && draftAgentCount !== undefined}
+      title={DELETE_TASK_TITLE}
+      subtitle={deleteTaskSubtitle(draftAgentCount ?? 0)}
+      actions={[
+        {
+          label: 'Delete',
+          destructive: true,
+          onPress: () => {
+            if (issue) {
+              void store.issues.delete(issue.id).catch(() => {})
+              onDeleted()
+            }
+          },
+        },
+      ]}
+      onClose={() => setConfirmDeleteOpen(false)}
+    />
+  )
+})
 
 const SessionChrome = observer(function SessionChrome({
   issue,
   session,
   served,
+  menu,
   children,
   ...screen
 }: {
   issue: IssueViewModel | undefined
   session: SessionView
   served: ReturnType<typeof useHarnessDescriptors<MobileTrpc>>['served']
+  /** The bar's actions: the terminal, then the ••• menu. */
+  menu: SessionMenuHandlers
   children: ReactNode
 } & Omit<ComponentProps<typeof Screen>, 'title' | 'subtitle' | 'leading' | 'children'>) {
   const kind = issueAgentKind(session.agentKind)
-  const selectedModel = session.observedModel ?? session.model
+  const selectedModel = readoutModel(session)
   // Served descriptors for the session's machine (POD-4475): the harness
   // name and model render from the report, bundled copy offline.
   // The credential it runs on (credential management §9), read-only here.
   const credential = useSessionCredentialLabel(session.credentialId)
-  const provenance = `${issueAgentLabel(session.agentKind, served)}${kind && selectedModel ? ` · ${modelLabel(kind, selectedModel, undefined, served)}` : ''}${credential && session.agentKind !== 'shell' ? ` · ${credential}` : ''}`
+  const provenance = `${issueAgentLabel(session.agentKind, served)}${kind && selectedModel ? ` · ${modelName(kind, selectedModel, undefined, served)}` : ''}${credential && session.agentKind !== 'shell' ? ` · ${credential}` : ''}`
+  const entries = useSessionMenuEntries(session, issue, menu)
+  const menuTitle = sessionTitle(session)
+  const actions = useMemo<readonly ScreenAction[]>(
+    () => [
+      { label: 'Open terminal', icon: SquareTerminal, onPress: menu.openTerminal },
+      { label: 'Session actions', icon: MoreVertical, items: entries, menuTitle },
+    ],
+    [entries, menu, menuTitle],
+  )
 
   return (
     <Screen
       {...screen}
+      actions={actions}
       title={issue?.title ?? sessionTitle(session)}
       subtitle={`${issue ? `${issueDisplayRef(issue)}   ` : ''}${provenance}`}
-      leading={<HarnessChip kind={session.agentKind} size={20} descriptors={served} />}
     >
       {children}
     </Screen>
   )
 })
 
-const SessionActionMenu = observer(function SessionActionMenu({
-  session,
-  issue,
-  open,
-  onClose,
-  nextSession,
-  onFind,
-  onDelete,
-  onWorkState,
-}: {
-  session: SessionView
-  issue: IssueViewModel | undefined
-  open: boolean
-  onClose: () => void
-  nextSession: () => void
-  onFind: () => void
-  onDelete: () => void
-  onWorkState: () => void
-}) {
+/** The facts the ••• menu is drawn from, so its entries change only when one does. */
+function sessionMenuFacts(session: SessionView, issue: IssueViewModel | undefined) {
+  return {
+    sessionId: session.sessionId,
+    issueId: issue?.id ?? null,
+    draft: issue ? isDraftAgentVessel(issue, [session]) : false,
+    pinned: issue?.pinned === true,
+    archived: session.archived === true,
+    workState: session.workState ?? null,
+    snoozed: sessionValues(session).snoozedUntil !== undefined,
+    errored: session.agentState?.phase === 'errored',
+    live:
+      // A reconnecting session is a live or starting one (isSessionReconnecting).
+      session.status === 'live' || session.status === 'starting',
+  }
+}
+type SessionMenuFacts = ReturnType<typeof sessionMenuFacts>
+
+/**
+ * The ••• entries. Read through one structural `computed`, so a host observer
+ * re-renders (and re-sends the native bar items) only when a menu fact
+ * changes, not on every agent-state tick.
+ */
+function useSessionMenuEntries(
+  session: SessionView,
+  issue: IssueViewModel | undefined,
+  handlers: SessionMenuHandlers,
+): readonly ScreenMenuEntry[] {
   const store = useCommands<MobileTrpc>()
-  const actions = open
-    ? (() => {
-        if (!session) return []
-        // A DRAFT'S CHAT GETS A DRAFT'S MENU (2026-08-27 device review). A draft
-        // vessel has no worktree and no lifecycle yet — every session-scoped verb
-        // below (archive, work state, snooze, next session) manages work that does
-        // not exist. The one decision a draft supports is discarding it, so the
-        // sheet is exactly Delete plus the standard Cancel.
-        //
-        // DISCARDING IT IS A TASK DELETE, NOT A SESSION DELETE. `deleteIssue`
-        // tombstones the issue AND every member session, so this row must confirm
-        // first with the same cascade sentence the desktop's task menu uses —
-        // never silently from a session's own sheet.
-        if (issue && isDraftAgentVessel(issue, [session])) {
-          return [
+  const facts = useMemo(
+    () => computed(() => sessionMenuFacts(session, issue), { equals: compareStructural }),
+    [issue, session],
+  )
+  const current = facts.get()
+  const key = JSON.stringify(current)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `key` is `current` by value.
+  return useMemo(() => sessionMenuEntries(current, store, handlers), [handlers, key, store])
+}
+
+type SessionMenuStore = ReturnType<typeof useCommands<MobileTrpc>>
+
+function sessionMenuEntries(
+  facts: SessionMenuFacts,
+  store: SessionMenuStore,
+  { nextSession, onFind, onDelete }: SessionMenuHandlers,
+): ScreenMenuEntry[] {
+  const sessionId = facts.sessionId
+  // A DRAFT'S CHAT GETS A DRAFT'S MENU (2026-08-27 device review). A draft
+  // vessel has no worktree and no lifecycle yet — every session-scoped verb
+  // below (archive, work state, snooze, next session) manages work that does
+  // not exist. The one decision a draft supports is discarding it.
+  //
+  // DISCARDING IT IS A TASK DELETE, NOT A SESSION DELETE. `deleteIssue`
+  // tombstones the issue AND every member session, so this row must confirm
+  // first with the same cascade sentence the desktop's task menu uses —
+  // never silently from a session's own menu.
+  if (facts.draft) {
+    return [{ label: 'Delete…', icon: Trash2, destructive: true, onPress: onDelete }]
+  }
+  const issueId = facts.issueId
+  return [
+    {
+      items: [
+        { label: 'Find in Transcript', icon: Search, onPress: onFind },
+        {
+          label: 'Next Session',
+          hint: 'The next one waiting on you',
+          icon: SkipForward,
+          onPress: nextSession,
+        },
+      ],
+    },
+    {
+      items: [
+        ...(issueId
+          ? [
+              {
+                label: facts.pinned ? 'Unpin' : 'Pin',
+                icon: facts.pinned ? PinOff : Pin,
+                onPress: () => void store.preferences.setPinned('issue', issueId, !facts.pinned),
+              },
+            ]
+          : []),
+        {
+          label: facts.archived ? 'Unarchive' : 'Archive',
+          icon: facts.archived ? ArchiveRestore : Archive,
+          onPress: () => void store.sessions.archive(sessionId, !facts.archived),
+        },
+        {
+          title: 'Work State',
+          icon: SquareStack,
+          submenu: true,
+          items: WORK_STATES.map((ws) => ({
+            label: ws ? ws[0].toUpperCase() + ws.slice(1) : 'Unsorted',
+            selected: facts.workState === ws,
+            onPress: () => void store.sessions.setWorkState(sessionId, ws),
+          })),
+        },
+        {
+          title: 'Snooze',
+          icon: MoonZzz,
+          submenu: true,
+          items: [
             {
-              label: 'Delete',
-              destructive: true,
-              onPress: onDelete,
-            },
-          ]
-        }
-        const actions: SheetAction[] = [
-          {
-            label: 'Find in transcript',
-            onPress: onFind,
-          },
-          ...(issue
-            ? [
+              items: [
                 {
-                  label: issue.pinned ? 'Unpin' : 'Pin',
-                  onPress: () => void store.preferences.setPinned('issue', issue.id, !issue.pinned),
+                  label: 'Until Next Message',
+                  onPress: () => void store.sessions.snooze(sessionId, null),
                 },
-              ]
-            : []),
+                {
+                  label: 'For 1 Hour',
+                  onPress: () => void store.sessions.snooze(sessionId, snoozeUntil1h(Date.now())),
+                },
+                {
+                  label: 'Until Tomorrow',
+                  onPress: () =>
+                    void store.sessions.snooze(sessionId, snoozeUntilTomorrow5am(Date.now())),
+                },
+              ],
+            },
+            ...(facts.snoozed
+              ? [
+                  {
+                    items: [
+                      {
+                        label: 'Clear Snooze',
+                        onPress: () => void store.sessions.clearSnooze(sessionId),
+                      },
+                    ],
+                  },
+                ]
+              : []),
+          ],
+        },
+      ],
+    },
+    ...(facts.errored
+      ? [
           {
-            label: 'Next session',
-            hint: 'Jump to the next one waiting on you',
-            onPress: nextSession,
-          },
-          {
-            label: session.archived ? 'Unarchive' : 'Archive',
-            onPress: () => void store.sessions.archive(session.sessionId, !session.archived),
-          },
-          { label: 'Set work state…', onPress: onWorkState },
-          {
-            label: 'Snooze until next message',
-            onPress: () => void store.sessions.snooze(session.sessionId, null),
-          },
-          {
-            label: 'Snooze for 1 hour',
-            onPress: () => void store.sessions.snooze(session.sessionId, snoozeUntil1h(Date.now())),
-          },
-          {
-            label: 'Snooze until tomorrow',
-            onPress: () =>
-              void store.sessions.snooze(session.sessionId, snoozeUntilTomorrow5am(Date.now())),
+            items: [
+              {
+                label: 'Continue After Error',
+                icon: RefreshCw,
+                onPress: () => void store.sessions.continueSession(sessionId),
+              },
+            ],
           },
         ]
-        if (sessionValues(session).snoozedUntil !== undefined) {
-          actions.push({
-            label: 'Clear snooze',
-            onPress: () => void store.sessions.clearSnooze(session.sessionId),
-          })
-        }
-        if (session.agentState?.phase === 'errored') {
-          actions.push({
-            label: 'Continue after error',
-            onPress: () => void store.sessions.continueSession(session.sessionId),
-          })
-        }
-        if (session.status === 'live' || session.status === 'starting') {
-          actions.push({
-            label: 'Kill session',
-            destructive: true,
-            onPress: () => void store.sessions.killSession(session.sessionId),
-          })
-        }
-        return actions
-      })()
-    : []
-  return (
-    <ActionSheet
-      visible={open}
-      title={open ? sessionTitle(session) : ''}
-      actions={actions}
-      onClose={onClose}
-    />
-  )
-})
+      : []),
+    ...(facts.live
+      ? [
+          {
+            items: [
+              {
+                label: 'Kill Session',
+                icon: XOctagon,
+                destructive: true,
+                onPress: () => void store.sessions.killSession(sessionId),
+              },
+            ],
+          },
+        ]
+      : []),
+  ]
+}

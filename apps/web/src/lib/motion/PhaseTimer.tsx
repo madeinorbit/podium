@@ -26,7 +26,6 @@ import { cn } from '@/lib/utils'
 import { usePhaseMorph } from './usePhaseMorph'
 import { WorkingMark } from './WorkingMark'
 
-
 export function PhaseTimer({
   phase,
   sinceMs,
@@ -70,7 +69,12 @@ export function PhaseTimer({
   className?: string
 }): JSX.Element | null {
   const morph = usePhaseMorph(phase)
-  const now = useAgeNow(sinceMs, phase === 'working' ? baseMs : 0, phase === 'working' || phase === 'waiting')
+  const now = useAgeNow(
+    sinceMs,
+    phase === 'working' ? baseMs : 0,
+    phase === 'working' || phase === 'waiting',
+    phase === 'working' ? 3_600_000 : 0,
+  )
 
   if (phase === 'working') {
     return (

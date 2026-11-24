@@ -1,4 +1,4 @@
-import { useCommands } from '@podium/client-core/react'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -6,18 +6,21 @@ import { asIssueId } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useState } from 'react'
-import { useMissionOpening } from '../client/hooks'
+import { Platform } from 'react-native'
+import { useMissionOpening, useTaskSeatMemory } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
-import type { MobileTrpc } from '../client/trpc'
-import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
+import { useScreenReadFocus } from '../client/screen-read-focus'
 import { DetailSkeleton } from '../components/LaunchPlaceholders'
-import { MissionDeck } from '../components/MissionDeck'
+import { MissionDeck, useRevealSeat } from '../components/MissionDeck'
 import { MissionNotFound } from '../components/MissionNotFound'
 import { Screen } from '../components/Screen'
-import { WorkIssueMenu } from '../components/WorkIssueMenu'
+import { WorkIssueMenu, type WorkMenuSheet } from '../components/WorkIssueMenu'
+import { deckTaskOpen } from '../navigation/mission-deck-targets'
 
-const ignoreContentHeight = (_height: number): void => undefined
-
+/**
+ * The flight deck as its own URL, for the web build whose history records only
+ * focused screens. Native shows the same deck as the page right of the chat.
+ */
 export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
   const params = useLocalSearchParams<{
     missionId: string | string[]
@@ -30,65 +33,93 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
   const ready = resolved && screen?.ready === true
   const rootValue = ready ? screen.reader.issue(screen.rootId) : undefined
   const root = rootValue && rootValue !== LOADING ? rootValue : undefined
-  const store = useCommands<MobileTrpc>()
+  const rootId = root?.id
+  useScreenReadFocus(root?.id)
   const router = useRouter()
-  const [menuIssue, setMenuIssue] = useState<IssueNavigationModel | null>(null)
+  const seatMemory = useTaskSeatMemory()
+  const [menu, setMenu] = useState<{
+    issue: IssueNavigationModel
+    sheet?: WorkMenuSheet
+  } | null>(null)
+  const menuIssue = menu?.issue ?? null
   const menuIssueId = menuIssue?.id
   const readSessionCount = useCallback(
     (pool: MobxPool) => (menuIssueId ? pool.graph.size('issue', menuIssueId, 'pageSessions') : 0),
     [menuIssueId],
   )
   const sessionCount = useMobilePoolProjection(readSessionCount, 0)
-  const [launchIssue, setLaunchIssue] = useState<IssueNavigationModel | null>(null)
+  useRevealSeat(screen, rawSession)
+  const openSession = useCallback(
+    (session: SessionView) => {
+      if (!rootId) return
+      const path =
+        `/mission/${encodeURIComponent(rootId)}?sessionId=${encodeURIComponent(session.sessionId)}` as const
+      if (Platform.OS === 'web') router.dismissTo(path)
+      else router.push(path)
+    },
+    [rootId, router],
+  )
+  const openTask = useCallback(
+    (issue: IssueNavigationModel) => {
+      if (!screen || !rootId) return
+      if (Platform.OS === 'web' || issue.stage === 'proposed') {
+        const path = `/inspect/${encodeURIComponent(issue.id)}` as const
+        if (Platform.OS === 'web') router.replace(path)
+        else router.push(path)
+        return
+      }
+      const open = deckTaskOpen(issue, screen, seatMemory.recall(rootId))
+      router.push(
+        open.kind === 'chat'
+          ? `/mission/${encodeURIComponent(issue.id)}?sessionId=${encodeURIComponent(open.sessionId)}`
+          : open.href,
+      )
+    },
+    [screen, seatMemory, rootId, router],
+  )
+  const openTaskMenu = useCallback((issue: IssueNavigationModel, sheet?: WorkMenuSheet) => {
+    setMenu({ issue, ...(sheet ? { sheet } : {}) })
+  }, [])
+  const screenProposals = useCallback(() => {
+    if (Platform.OS === 'web') router.replace('/screen-proposed')
+    else router.push('/screen-proposed')
+  }, [router])
 
   return (
     <Screen
-      title="Mission details"
+      grouped
+      title={root?.title ?? 'Flight deck'}
+      subtitle="Flight deck"
+      underHeader
       refreshing={screen?.refreshing ?? false}
-      onBack={() => router.back()}
-      backAs="text"
-      backLabel="Done"
+      onBack={() => (router.canGoBack() ? router.back() : router.replace('/work'))}
+      backLabel={Platform.OS === 'web' ? 'Back' : 'Work'}
     >
       {!resolved ? (
         <DetailSkeleton />
       ) : root && screen ? (
         <MissionDeck
           screen={screen}
+          showTitle={false}
           currentSessionId={
             screen.crew.find((session) => session.sessionId === rawSession)?.sessionId
           }
-          onOpenSession={(session) =>
-            router.dismissTo(
-              `/mission/${encodeURIComponent(root.id)}?sessionId=${encodeURIComponent(session.sessionId)}`,
-            )
-          }
-          onOpenTask={(issue) => router.replace(`/inspect/${encodeURIComponent(issue.id)}`)}
-          onOpenTaskMenu={setMenuIssue}
-          onLaunchAgent={() => setLaunchIssue(root)}
-          onTuckRoot={() => {
-            void store.issues.setTucked(root.id, true).catch(() => {})
-          }}
-          onFileRoot={() => {
-            void store.issues
-              .close(root.id, 'done')
-              .then(() => store.issues.setTucked(root.id, true))
-              .catch(() => {})
-          }}
-          onOpenDeparture={(issueId) =>
-            router.replace(`/mission/${encodeURIComponent(issueId)}/details`)
-          }
-          onContentHeight={ignoreContentHeight}
+          onOpenSession={openSession}
+          onOpenTask={openTask}
+          onOpenTaskMenu={openTaskMenu}
+          onScreenProposals={screenProposals}
         />
       ) : (
         <MissionNotFound fill />
       )}
       {menuIssue ? (
         <WorkIssueMenu
+          key={`${menuIssue.id}:${menu?.sheet?.kind ?? 'menu'}`}
           target={{ issue: menuIssue, lane: 'live', sessionCount }}
-          onClose={() => setMenuIssue(null)}
+          {...(menu?.sheet ? { initialSheet: menu.sheet } : {})}
+          onClose={() => setMenu(null)}
         />
       ) : null}
-      <ConfiguredIssueLaunchSheet issue={launchIssue} onClose={() => setLaunchIssue(null)} />
     </Screen>
   )
 })

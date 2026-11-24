@@ -1,9 +1,9 @@
-import { useSocketHub, useCommands, useReplica } from '@podium/client-core/react'
+import { useCommands, useReplica, useSocketHub } from '@podium/client-core/react'
 import { checkoutRefresh, replicaAnswerMachines } from '@podium/client-graph/answer-refresh'
 import { GitView, type ReviewDiffAnswer } from '@podium/client-graph/git-view'
 import type { MachineId } from '@podium/model'
 import { memo, useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, AppState, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, AppState, StyleSheet, View } from 'react-native'
 import { issueObserver as observer } from '../../client/issue-observer'
 import {
   type DiffRow,
@@ -18,16 +18,22 @@ import { Icon } from '../Icon'
 import { ChevronDown, ChevronRight, RefreshCw } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { SectionHeading } from './chrome'
+import { DetailText as Text } from './DetailText'
+import { useDetailSize } from './detail-type'
 
 /** Changed-file inventory and wrapped, per-file diffs on the task page. It uses
  * only the store's existing read-only Git and file contracts. */
 export const GitReviewSection = observer(function GitReviewSection({
   root,
   machineId,
+  headless = false,
 }: {
   root: string
   machineId?: MachineId
+  /** Inside a fold whose header already names it: drop the heading, keep refresh. */
+  headless?: boolean
 }) {
+  const size = useDetailSize()
   const hub = useSocketHub()
   const { status: gitStatus, read: readFileScoped, diff: gitDiffFile } = useCommands().files
 
@@ -77,28 +83,34 @@ export const GitReviewSection = observer(function GitReviewSection({
   const visibleEntries = entries.slice(0, visibleFiles)
   const remainingFiles = entries.length - visibleEntries.length
 
+  const refreshControl = (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel="Refresh changed files"
+      disabled={refreshing}
+      hitSlop={8}
+      onPress={() => void refresh()}
+      style={[styles.refresh, refreshing && styles.muted]}
+    >
+      {refreshing ? (
+        <ActivityIndicator size="small" color={color.textFaint} />
+      ) : (
+        <Icon as={RefreshCw} size={size(14)} color={color.textFaint} />
+      )}
+    </PressableScale>
+  )
+
   return (
-    <View style={styles.section} testID="git-review-section">
-      <SectionHeading
-        label="Changes"
-        count={entries.length > 0 ? String(entries.length) : undefined}
-        right={
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel="Refresh changed files"
-            disabled={refreshing}
-            hitSlop={8}
-            onPress={() => void refresh()}
-            style={[styles.refresh, refreshing && styles.muted]}
-          >
-            {refreshing ? (
-              <ActivityIndicator size="small" color={color.textFaint} />
-            ) : (
-              <Icon as={RefreshCw} size={14} color={color.textFaint} />
-            )}
-          </PressableScale>
-        }
-      />
+    <View style={headless ? undefined : styles.section} testID="git-review-section">
+      {headless ? (
+        <View style={styles.headlessBar}>{refreshControl}</View>
+      ) : (
+        <SectionHeading
+          label="Changes"
+          count={entries.length > 0 ? String(entries.length) : undefined}
+          right={refreshControl}
+        />
+      )}
       {branchDetail ? <Text style={styles.branch}>{branchDetail}</Text> : null}
       {statusError ? (
         <Text accessibilityLiveRegion="polite" style={styles.error}>
@@ -120,7 +132,11 @@ export const GitReviewSection = observer(function GitReviewSection({
                   onPress={() => toggle(entry)}
                   style={({ pressed }) => [styles.fileRow, pressed && styles.fileRowPressed]}
                 >
-                  <Icon as={open ? ChevronDown : ChevronRight} size={13} color={color.textFaint} />
+                  <Icon
+                    as={open ? ChevronDown : ChevronRight}
+                    size={size(13)}
+                    color={color.textFaint}
+                  />
                   <Text
                     style={[
                       styles.badge,
@@ -190,7 +206,7 @@ const DiffBody = memo(function DiffBody({ state }: { state: ReviewDiffAnswer | u
         <Text style={styles.delCount}>−{parsed.removed}</Text>
       </Text>
       {parsed.rows.slice(0, visibleRows).map((row, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: parsed lines have no identity and DiffLine is stateless.
+        // biome-ignore lint/suspicious/noArrayIndexKey: diff lines are immutable and ordered within this file.
         <DiffLine key={`${index}:${row.kind}`} row={row} />
       ))}
       {visibleRows < parsed.rows.length ? (
@@ -260,11 +276,11 @@ export const DiffLine = observer(function DiffLine({ row }: { row: DiffRow }) {
 })
 
 const styles = StyleSheet.create({
-  section: { marginTop: space.xl },
+  section: {},
+  headlessBar: { flexDirection: 'row', justifyContent: 'flex-end', minHeight: 44 },
   refresh: {
     width: 44,
     height: 44,
-    marginVertical: -14,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -272,7 +288,7 @@ const styles = StyleSheet.create({
   branch: {
     ...mono(500),
     color: color.textFaint,
-    fontSize: font.micro,
+    fontSize: font.tiny,
     marginBottom: space.xs,
   },
   empty: { ...sans(400), color: color.textFaint, fontSize: font.small, paddingVertical: space.sm },
@@ -286,12 +302,12 @@ const styles = StyleSheet.create({
   fileRow: {
     minHeight: 48,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: space.sm,
     marginHorizontal: -space.sm,
     paddingHorizontal: space.sm,
     paddingVertical: space.sm,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
   },
   fileRowPressed: { backgroundColor: color.quaternaryFill },
   moreButton: {
@@ -299,12 +315,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: space.sm,
+    paddingVertical: space.sm,
     paddingHorizontal: space.sm,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
   },
-  moreText: { ...sans(600), color: color.accentTint, fontSize: font.small },
+  moreText: { ...sans(600), color: color.accentTint, fontSize: font.small, flexShrink: 1 },
   moreCount: { ...sans(400), color: color.textFaint, fontSize: font.tiny },
-  badge: { ...mono(600), width: 22, fontSize: font.micro, textAlign: 'center' },
+  badge: { ...mono(600), minWidth: 22, fontSize: font.tiny, textAlign: 'center' },
   badgeStaged: { color: color.workingText },
   badgeUnstaged: { color: color.accentTint },
   badgeUntracked: { color: color.textFaint },
@@ -315,20 +334,20 @@ const styles = StyleSheet.create({
     fontSize: font.small,
     lineHeight: leading(font.small, 'ui'),
   },
-  renamed: { ...mono(400), color: color.textFaint, fontSize: font.micro, marginTop: 2 },
+  renamed: { ...mono(400), color: color.textFaint, fontSize: font.tiny, marginTop: space.xs },
   diff: {
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.border,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     overflow: 'hidden',
     marginBottom: space.md,
     backgroundColor: color.bgSunken,
   },
   summary: {
     ...mono(600),
-    fontSize: font.micro,
+    fontSize: font.tiny,
     paddingHorizontal: space.sm,
-    paddingVertical: 6,
+    paddingVertical: space.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: color.border,
   },
@@ -338,24 +357,34 @@ const styles = StyleSheet.create({
   addLine: { backgroundColor: color.workingSoft },
   delLine: { backgroundColor: color.dangerSoft },
   noteLine: { backgroundColor: color.tertiaryFill },
-  hunkLine: { backgroundColor: color.surface, paddingHorizontal: space.sm, paddingVertical: 5 },
-  hunkText: { ...mono(500), color: color.workingText, fontSize: font.micro, lineHeight: 17 },
+  hunkLine: {
+    backgroundColor: color.surface,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.sm,
+  },
+  hunkText: {
+    ...mono(500),
+    color: color.workingText,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny),
+  },
   sign: {
     ...mono(600),
-    width: 20,
-    paddingTop: 2,
+    minWidth: 20,
+    paddingHorizontal: space.xs,
+    paddingTop: space.xs,
     textAlign: 'center',
-    fontSize: font.micro,
-    lineHeight: 17,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny),
   },
   code: {
     ...mono(400),
     flex: 1,
     minWidth: 0,
     color: color.body,
-    fontSize: font.micro,
-    lineHeight: 17,
-    paddingVertical: 2,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny),
+    paddingVertical: space.xs,
     paddingRight: space.sm,
   },
   diffMessage: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: space.sm },

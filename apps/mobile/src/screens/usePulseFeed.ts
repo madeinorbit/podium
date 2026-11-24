@@ -2,23 +2,15 @@ import type { MachineTargetUnavailableReasons } from '@podium/client-core/values
 import { type MachineCapacityReadings, machineViewsFromWire } from '@podium/client-core/values'
 import { instancePreferences } from '@podium/client-graph/instance-preferences'
 import type { MobxPool } from '@podium/client-graph/pool'
-import type {
-  HostMetricsWire,
-  MachineFacts,
-  MachineId,
-  MachineQuotaWire,
-  QuotaWindowHistoryWire,
-  UsageBucketWire,
-} from '@podium/model'
+import type { PulseView } from '@podium/client-graph/pulse-view'
+import type { MachineFacts, MachineId, MachineQuotaWire, UsageBucketWire } from '@podium/model'
 import type { HostMemoryBreakdown } from '@podium/protocol'
 import { useFocusEffect } from 'expo-router'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import {
-  DEMO_HOST_METRICS,
   DEMO_MACHINES,
   DEMO_MEMORY_BREAKDOWNS,
   DEMO_QUOTA,
-  DEMO_QUOTA_HISTORY,
   DEMO_USAGE_BUCKETS,
   demoEnabled,
 } from '../client/demoData'
@@ -26,7 +18,8 @@ import { useTrpc } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useServerProfile } from '../client/server-profile-context'
 import { serverProfileRequestKey } from '../client/server-profiles'
-import { usePulseLive } from '../client/use-pool-links'
+import { usePulseMachines } from '../client/use-pool-links'
+import { useContentActive } from '../lib/visible-content'
 import {
   beginCapacityRefresh,
   CapacityRefreshFence,
@@ -39,29 +32,23 @@ import {
 import { MachineUpdateReasons, useMachineUpdateReasons } from './machine-update-reasons'
 
 /**
- * The Pulse tab's readings [POD-662].
+ * The Pulse tab's readings [POD-662], on the pushed values of POD-5798.
  *
- * QUOTA, USAGE AND HOST METRICS ARE PUSHED (POD-5798). The server sends this
- * account's quota on `account.quota` (held for the app's life), its usage on
- * `account.usage` (held while Pulse is mounted), and each machine's samples on
- * `machine.metrics`; the LiveStore holds them, so the tab paints the newest
- * figures it has on its first frame and nothing here polls them.
+ * QUOTA AND USAGE ARE PUSHED and read through the shared `PulseView`, which
+ * holds `account.usage` only while the tab is focused; host metrics subscribe
+ * in the verdict and machines components. Nothing here polls.
  *
- * WHAT IS STILL ASKED FOR, on focus and on pull-to-refresh only: the quota
- * history (a request answer), the per-machine memory breakdown (until
- * POD-6645 moves it to a topic) and the load threshold from settings. Those
- * answers are kept per server profile in this module, never persisted.
- *
- * `nowMs` IS THE READING'S CLOCK, NOT THE RENDER'S. Every derived figure on the
- * screen — the reset countdown, the rolling windows, the day slots — is
- * evaluated against the moment the payload was taken, so the whole screen
- * describes one instant instead of mixing a fresh clock with stale buckets.
+ * WHAT IS STILL ASKED FOR, on focus and on pull-to-refresh: the task-cost rows
+ * (again after each fresh usage value, since the usage harvest folds them) and
+ * the per-machine memory breakdown (until POD-6645 moves it to a
+ * topic). Machine-list changes only re-check capacity. The breakdowns are kept
+ * per server profile in this module, never persisted. The load threshold is the
+ * synced instance settings (POD-6677): no request.
  */
 
 const CAPACITY_CONCURRENCY = 3
 
 interface PulseCache {
-  history: QuotaWindowHistoryWire[]
   capacityReadings: MachineCapacityReadings
 }
 
@@ -76,12 +63,9 @@ export function resetPulseCache(): void {
 }
 
 export interface PulseFeed {
-  /** Null only until this launch has had an answer: the one cold state. */
+  /** Each reading is null until its own first value. */
   quota: MachineQuotaWire[] | null
   buckets: UsageBucketWire[] | null
-  history: QuotaWindowHistoryWire[] | null
-  /** Streamed, so never cold in the way the polled pair is. */
-  hosts: readonly HostMetricsWire[]
   /** The same per-principal projection the desktop machine surface receives. */
   machines: readonly MachineFacts[]
   /** Answers only for machines whose live `use` gate admitted the daemon walk. */
@@ -90,21 +74,23 @@ export interface PulseFeed {
   targetUnavailableReasons: MachineTargetUnavailableReasons | undefined
   /** The auto-park threshold the load meter fills against; null = policy off. */
   loadPerCore: number | null
-  /** When the quota and usage reading was taken — and the clock every figure
-   *  is derived against. Falls back to now while unknown so nothing renders NaN. */
+  /** When the usage on screen was received, with quota's as a cold fallback:
+   *  the clock every figure is derived against. */
   nowMs: number
   fetchedAt: number | null
-  /** The figures on screen are not current: the connection was lost. */
-  failed: boolean
-  historyFailed: boolean
+  /** The connection was lost; the quota on screen is the last value. */
+  quotaFailed: boolean
+  /** Asks again for what is requested: task costs and capacity. */
   reload: () => void
 }
 
-export function usePulseFeed(): PulseFeed {
-  // Subscribe only to the three live values Pulse paints. A whole-store
-  // subscription would re-render this tab for unrelated replica publishes.
+export function usePulseFeed(pulse: PulseView | null): PulseFeed {
+  const active = useContentActive()
   const trpc = useTrpc()
-  const { hosts: hostMetrics, machines, quota: quotaReading, usage: usageReading } = usePulseLive()
+  const machines = usePulseMachines()
+  const machinesRef = useRef(machines)
+  machinesRef.current = machines
+  const loadPerCore = useMobilePoolProjection(loadThresholdOf, null)
   const { profile } = useServerProfile()
   const profileKey = serverProfileRequestKey(profile)
   // biome-ignore lint/correctness/useExhaustiveDependencies: each profile owns a separate transient request.
@@ -116,65 +102,49 @@ export function usePulseFeed(): PulseFeed {
   const demo = demoEnabled()
   const [answer, setAnswer] = useState<{
     profileKey: string
-    history: QuotaWindowHistoryWire[] | null
     capacityReadings: MachineCapacityReadings
-    historyFailed: boolean
   }>(() => ({
     profileKey,
-    history: cached?.history ?? null,
     capacityReadings: cached?.capacityReadings ?? {},
-    historyFailed: false,
   }))
-  // The auto-park threshold is the synced instance settings (POD-6677): no
-  // request, and an admin's change moves the meter on its own.
-  const loadPerCore = useMobilePoolProjection(loadThresholdOf, null)
   // A pull-to-refresh asks for ANOTHER READ of the request answers. Unfocused,
   // there is no loader and the pull is a no-op, which is correct: nothing is on
   // screen to refresh.
   const loadRef = useRef<() => void>(() => {})
+  const capacityLoadRef = useRef<() => void>(() => {})
   const reload = useCallback(() => loadRef.current(), [])
   const capacityFence = useRef(new CapacityRefreshFence(profileKey)).current
   const capacityScheduler = useRef(new CapacityRefreshScheduler()).current
+  // A fresh usage value means the harvest ran, and folded the cost rows.
+  const usageStamp = pulse?.usageStamp ?? null
 
   // ASKING FOLLOWS FOCUS. A tab navigator keeps every visited tab mounted; the
   // request answers are asked for when the tab comes into view, never on a timer.
   useFocusEffect(
     useCallback(() => {
-      if (demo) return
+      if (!active) return
+      if (demo) {
+        pulse?.showFixture(DEMO_USAGE_BUCKETS, DEMO_QUOTA)
+        void pulse?.refreshCosts(() => Promise.resolve([]))
+        return () => pulse?.cancel()
+      }
+      // Reading usage while focused is what holds `account.usage`.
+      pulse?.setActive(true)
       let cancelled = false
       const capacityOwner = profileKey
       const updateCache = (patch: Partial<PulseCache>): PulseCache => {
         const prior = cacheByProfile.get(profileKey)
         const next: PulseCache = {
-          history: prior?.history ?? [],
           capacityReadings: prior?.capacityReadings ?? {},
           ...patch,
         }
         cacheByProfile.set(profileKey, next)
         return next
       }
-      const loadHistory = (): void => {
-        void trpc.quota.history.query({ days: 42 }).then(
-          (history) => {
-            updateCache({ history })
-            if (!cancelled) {
-              setAnswer((current) => ({
-                ...current,
-                profileKey,
-                history,
-                historyFailed: false,
-              }))
-            }
-          },
-          () => {
-            if (!cancelled) setAnswer((current) => ({ ...current, historyFailed: true }))
-          },
-        )
-      }
 
       const runBreakdowns = (force: boolean): Promise<void> => {
         if (cancelled) return Promise.resolve()
-        const views = machineViewsFromWire(machines)
+        const views = machineViewsFromWire(machinesRef.current)
         const retained = views.filter((view) => view.grants.use).map((view) => view.machine)
         const available = views
           .filter((view) => view.grants.use && view.availability === 'available')
@@ -208,7 +178,6 @@ export function usePulseFeed(): PulseFeed {
               : {
                   ...current,
                   profileKey,
-                  history: null,
                   capacityReadings: {},
                 }),
             capacityReadings: started,
@@ -257,25 +226,45 @@ export function usePulseFeed(): PulseFeed {
         capacityScheduler.schedule(capacityOwner, force, runBreakdowns)
       }
 
-      const load = (forceCapacity = false): void => {
-        loadHistory()
-        loadBreakdowns(forceCapacity)
+      capacityLoadRef.current = () => loadBreakdowns(false)
+      // A pull asks again for everything requested: costs and capacity.
+      loadRef.current = () => {
+        void pulse?.refreshCosts(() => trpc.cost.tasks.query())
+        loadBreakdowns(true)
       }
-      loadRef.current = () => load(true)
-      load()
+      loadBreakdowns(false)
       return () => {
         cancelled = true
         loadRef.current = () => {}
+        capacityLoadRef.current = () => {}
+        pulse?.cancel()
+        pulse?.setActive(false)
       }
-    }, [capacityFence, capacityScheduler, demo, machines, profileKey, trpc]),
+    }, [active, capacityFence, capacityScheduler, pulse, demo, profileKey, trpc]),
+  )
+
+  // TASK COSTS: asked once on focus, and again after each fresh usage value
+  // while focused, since that harvest folded the rows (see PulseView).
+  useFocusEffect(
+    useCallback(() => {
+      if (demo) return
+      void usageStamp
+      void pulse?.refreshCosts(() => trpc.cost.tasks.query())
+    }, [demo, pulse, usageStamp, trpc]),
+  )
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!active) return
+      machinesRef.current = machines
+      capacityLoadRef.current()
+    }, [machines, active]),
   )
 
   if (demo) {
     return {
       quota: DEMO_QUOTA,
       buckets: DEMO_USAGE_BUCKETS,
-      history: DEMO_QUOTA_HISTORY,
-      hosts: DEMO_HOST_METRICS,
       machines: DEMO_MACHINES,
       targetUnavailableReasons: undefined,
       capacityReadings: Object.fromEntries(
@@ -287,53 +276,22 @@ export function usePulseFeed(): PulseFeed {
       loadPerCore: 1.5,
       nowMs: Date.now(),
       fetchedAt: Date.now(),
-      failed: false,
-      historyFailed: false,
+      quotaFailed: false,
       reload,
     }
   }
 
-  // Quota and usage are two readings (POD-5798); the screen's clock is quota's.
-  const reading = quotaReading
-  const value = reading ? (reading.known ? reading.value : reading.last) : undefined
-  const usage = usageReading
-    ? usageReading.known
-      ? usageReading.value
-      : usageReading.last
-    : undefined
-  const fetchedAt = reading?.known ? reading.at : value ? (reading?.since ?? null) : null
-  const live = {
-    quota: value?.machines ?? null,
-    buckets: usage === undefined ? null : (usage?.buckets ?? []),
-    fetchedAt,
-    failed:
-      (value !== undefined && reading?.known !== true) ||
-      (usage !== undefined && usageReading?.known !== true),
-  }
-
-  if (answer.profileKey !== profileKey) {
-    return {
-      ...live,
-      history: null,
-      hosts: hostMetrics,
-      machines,
-      targetUnavailableReasons,
-      capacityReadings: {},
-      loadPerCore,
-      nowMs: live.fetchedAt ?? Date.now(),
-      historyFailed: false,
-      reload,
-    }
-  }
-
+  const fetchedAt = pulse?.usageAt ?? pulse?.quotaAt ?? null
   return {
-    ...answer,
-    ...live,
-    targetUnavailableReasons,
-    loadPerCore,
-    hosts: hostMetrics,
+    quota: pulse?.quota ?? null,
+    quotaFailed: pulse?.quotaFailed ?? false,
+    buckets: pulse?.buckets ?? null,
     machines,
-    nowMs: live.fetchedAt ?? Date.now(),
+    targetUnavailableReasons,
+    capacityReadings: answer.profileKey === profileKey ? answer.capacityReadings : {},
+    loadPerCore,
+    nowMs: fetchedAt ?? Date.now(),
+    fetchedAt,
     reload,
   }
 }

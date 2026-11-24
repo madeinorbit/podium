@@ -1,14 +1,14 @@
-import { PODIUM_SCHEME, formatPodiumLink } from '@podium/protocol'
+import { formatPodiumLink, PODIUM_SCHEME } from '@podium/protocol'
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   captureMobileHandoffUrl,
   consumePendingMobileHandoff,
   decideMobileHandoff,
+  type MobileHandoffContext,
+  type MobileHandoffRequest,
   mobileHandoffFallbackStatus,
   parseMobileHandoffUrl,
   pendingMobileHandoffSnapshot,
-  type MobileHandoffContext,
-  type MobileHandoffRequest,
 } from './mobile-handoff'
 import type { ServerProfile } from './server-profiles'
 
@@ -175,6 +175,21 @@ describe('profile-bound mobile handoff decisions', () => {
 })
 
 describe('incoming handoff scope', () => {
+  it('keeps native console URLs on the authenticated handoff path', () => {
+    const parsed = parseMobileHandoffUrl('podium://session/REP-138-A/terminal')
+    const target = { kind: 'view', path: '/session/REP-138-A/terminal', search: '', hash: '' }
+    expect(parsed).toEqual({ kind: 'navigation', target })
+    if (!parsed) throw new Error('Expected console request')
+    expect(decideMobileHandoff(parsed, context())).toEqual({ kind: 'open', target })
+    expect(decideMobileHandoff(parsed, context({ replicaReady: false }))).toEqual({
+      kind: 'wait-replica',
+    })
+    expect(decideMobileHandoff(parsed, context({ authentication: 'unauthenticated' }))).toEqual({
+      kind: 'authenticate',
+      profileId: 'profile-one',
+    })
+  })
+
   it('captures ordinary issue and session links as navigation targets', () => {
     expect(
       parseMobileHandoffUrl(formatPodiumLink(PODIUM_SCHEME, { kind: 'issue', issue: 'POD-1710' })),

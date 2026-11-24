@@ -198,3 +198,66 @@ export function modelReadoutHelp(
         : 'Model changes are not available yet; you can choose a model in the new-task box for a new session.'
   return `${meaning}. ${action}`
 }
+
+/** Why this session's model cannot be changed from here: where the shown value
+ *  comes from, then what stops the change. The harness owns model selection;
+ *  Podium reports it. Shared by the web chip and the phone chip. */
+export function modelReadoutReason(
+  session: { observedModel?: string | null; requestedModel?: string | null },
+  verdict: ConfigurableVerdict,
+): string {
+  const provenance = session.observedModel
+    ? 'The model this agent is running, read from its transcript.'
+    : session.requestedModel
+      ? 'Requested on the running session; it applies from the next message.'
+      : 'Requested at launch; not yet seen in the transcript.'
+  const capability =
+    verdict === 'no'
+      ? 'This harness takes its model and effort at launch, so they cannot change mid-conversation. Start a new session to use another.'
+      : verdict === 'yes'
+        ? 'The session is not running. Wake it to change its model or effort.'
+        : // Unknown is said as unknown: the daemon has not reported this
+          // session's driver, and claiming either answer would be invented.
+          'This session has not reported whether its model can change while it runs.'
+  return `${provenance} ${capability}`
+}
+
+/** The words for a `session.configure` write that never reached the queue. */
+export const CONFIGURE_WRITE_FAILED = 'Could not change the running session.'
+
+/**
+ * How a `session.configure` change ended (POD-6523), as one sentence and
+ * whether it worked; null for a cancel, which is the person's own choice. The
+ * web chip's toast and the phone composer's caption say the same words.
+ */
+export function configureEndingNotice(change: {
+  readonly status: string
+  readonly result?: unknown
+  readonly error?: { readonly message?: string } | null | undefined
+}): { ok: boolean; text: string } | null {
+  const answer = change.result as
+    | { ok?: unknown; effective?: string; reason?: string; detail?: string }
+    | null
+    | undefined
+  if (change.status === 'succeeded')
+    return {
+      ok: true,
+      text:
+        answer?.effective === 'now'
+          ? 'The running session changed.'
+          : 'The change applies from the next turn.',
+    }
+  if (change.status === 'cancelled') return null
+  if (typeof answer?.reason === 'string')
+    return {
+      ok: false,
+      text: answer.detail ?? `Could not change the running session (${answer.reason}).`,
+    }
+  return {
+    ok: false,
+    text:
+      change.status === 'expired'
+        ? 'The change was not made in time; the session runs as before.'
+        : (change.error?.message ?? CONFIGURE_WRITE_FAILED),
+  }
+}

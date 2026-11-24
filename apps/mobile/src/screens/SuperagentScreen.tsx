@@ -1,27 +1,25 @@
-import { here } from '@podium/client-graph/lookup'
 import { useModelCatalog } from '@podium/client-core/react'
-import type { MobileChatViewModel } from '../lib/chat-view-model'
 import type { SuperagentSliceValue } from '@podium/client-core/values'
 import { buildImagePrompt, matchesQuestionInteraction } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
+import { here } from '@podium/client-graph/lookup'
 import { superagentQuestion, superagentState } from '@podium/client-graph/superagent'
 import { asThreadId, type SessionId } from '@podium/model'
-import { useCallback, useMemo, useRef, useState } from 'react'
 import { action } from 'mobx'
 import { observer } from 'mobx-react-lite'
-import { useThreadConversation } from '../client/use-thread-conversation'
-import { pendingTurnOf } from '../components/pending-delivery'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useHttpOrigin, useTrpc } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
-import { menuAnswer, useAnswerSession } from '../lib/answer-session'
+import { useThreadConversation } from '../client/use-thread-conversation'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
 import { Eraser } from '../components/icons'
 import { BootstrapCrossfade, TranscriptSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
+import { pendingTurnOf } from '../components/pending-delivery'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SuperagentBackendRail } from '../components/SuperagentBackendRail'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
@@ -30,12 +28,12 @@ import { type SentAttachment, useComposerAttachments } from '../components/useCo
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { useTabBarInset } from '../hooks/useTabBarInset'
+import { menuAnswer, useAnswerSession } from '../lib/answer-session'
+import type { MobileChatViewModel } from '../lib/chat-view-model'
 import { humanizeSendFailure } from '../lib/send-failure'
+import { resolveSuperagentBackend, superagentTurnChoice } from '../lib/superagent-backend'
 import { superagentWrites } from '../lib/superagent-writes'
-import {
-  resolveSuperagentBackend,
-  superagentTurnChoice,
-} from '../lib/superagent-backend'
+import { useHeaderInset } from '../navigation/header-inset'
 import { color, font, sans, space } from '../theme/theme'
 
 /**
@@ -74,7 +72,10 @@ function usePoolQuestion(id: SessionId | undefined) {
   return useMobilePoolProjection(read, undefined)
 }
 function usePoolTranscriptSession(id: SessionId | undefined) {
-  const read = useCallback((pool: MobxPool) => id ? here(pool.model('session', id)) : undefined, [id])
+  const read = useCallback(
+    (pool: MobxPool) => (id ? here(pool.model('session', id)) : undefined),
+    [id],
+  )
   return useMobilePoolProjection(read, undefined)
 }
 
@@ -101,12 +102,18 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
   const { conversation, podiumSid, binding } = useThreadConversation()
-  const followTranscript = useCallback((following: boolean) => {
-    conversation?.setFollowing(following)
-  }, [conversation])
-  const searchTranscript = useCallback((searching: boolean) => {
-    conversation?.setSearching(searching)
-  }, [conversation])
+  const followTranscript = useCallback(
+    (following: boolean) => {
+      conversation?.setFollowing(following)
+    },
+    [conversation],
+  )
+  const searchTranscript = useCallback(
+    (searching: boolean) => {
+      conversation?.setSearching(searching)
+    },
+    [conversation],
+  )
   const backend = conversation?.backend ?? resolveSuperagentBackend(superagent.active, {})
   const transcript = conversation
   const transcriptLoaded = transcript?.initialLoaded ?? false
@@ -225,11 +232,7 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
     : true
   const resolved = !booting && transcriptResolved
   const empty =
-    resolved &&
-    itemCount === 0 &&
-    !hasStreamingText &&
-    visiblePendingTurns.length === 0 &&
-    !working
+    resolved && itemCount === 0 && !hasStreamingText && visiblePendingTurns.length === 0 && !working
 
   return (
     <Screen
@@ -312,6 +315,7 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
                 }
                 answerInteractionId={currentQuestion?.id}
                 onAnswer={async (answer) => {
+                  if ('reply' in answer) throw new Error('This question requires a session chat.')
                   if (
                     currentQuestion &&
                     (answer.interactionId !== currentQuestion.id ||
@@ -357,8 +361,12 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
   )
 })
 
-const ThreadTranscript = observer(function ThreadTranscript({ chat, ...props }: React.ComponentProps<typeof TranscriptList> & { chat?: MobileChatViewModel }) {
-  return <TranscriptList {...props} liveItem={chat?.liveItem} />
+const ThreadTranscript = observer(function ThreadTranscript({
+  chat,
+  ...props
+}: React.ComponentProps<typeof TranscriptList> & { chat?: MobileChatViewModel }) {
+  const topInset = useHeaderInset()
+  return <TranscriptList topInset={topInset} {...props} liveItem={chat?.liveItem} />
 })
 
 const ThreadComposer = observer(function ThreadComposer({

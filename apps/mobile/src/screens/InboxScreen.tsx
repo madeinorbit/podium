@@ -78,6 +78,7 @@ export const InboxScreen = observer(function InboxScreen() {
   return (
     <Screen large title="Inbox" subtitle={unread > 0 ? `${unread} unread` : 'all read'}>
       <FlatList
+        contentInsetAdjustmentBehavior="automatic"
         {...listWindow}
         data={noticeIds}
         keyExtractor={(id) => id}

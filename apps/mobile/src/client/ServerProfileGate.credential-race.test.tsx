@@ -3,7 +3,7 @@ import { formatPodiumLink, PODIUM_SCHEME } from '@podium/protocol'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { accountCapabilities } from '../test-support/auth-capabilities'
+import { accountCapabilities, passwordCapabilities } from '../test-support/auth-capabilities'
 import type { ServerProfileContextValue } from './server-profile-context'
 import type { ServerProfileState } from './server-profiles'
 
@@ -14,6 +14,7 @@ const seams = vi.hoisted(() => ({
   claimPairing: vi.fn(),
   credentials: new Map<string, string>(),
   deleteCredential: vi.fn<(profileId: string) => Promise<void>>(),
+  erase: vi.fn(async () => {}),
   durableProfiles: null as ServerProfileState | null,
   getCredential: vi.fn<(profileId: string) => Promise<string | null>>(),
   getInitialUrl: vi.fn<() => Promise<string | null>>(),
@@ -35,7 +36,11 @@ const seams = vi.hoisted(() => ({
   renders: [] as Array<{ profileId: string; origin: string; bearer: string | null }>,
 }))
 
-vi.mock('expo-haptics', () => ({ selectionAsync: vi.fn() }))
+vi.mock('expo-haptics', () => ({
+  selectionAsync: vi.fn(),
+  notificationAsync: vi.fn(async () => {}),
+  NotificationFeedbackType: { Success: 'success' },
+}))
 vi.mock('expo-router', () => ({ router: seams.router, useRouter: () => seams.router }))
 vi.mock('react-native', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-native')>()
@@ -99,6 +104,7 @@ vi.mock('./launch-ready', () => ({
 }))
 vi.mock('./pairing', () => ({
   claimMobilePairing: seams.claimPairing,
+  forgetMobilePairingClaim: vi.fn(),
   normalizeManualServer: (origin: string) => origin,
   parsePairingLink: seams.parsePairing,
   pollMobilePairing: seams.pollPairing,
@@ -128,28 +134,74 @@ vi.mock('./override-lifecycle', () => ({
   clearLocalCredentialSurfaces: vi.fn(),
   preflightNativeOverride: vi.fn(),
 }))
-vi.mock('./trpc', () => ({
-  envServer: () => null,
-  setActiveServerRuntime: (config: { httpOrigin: string } | undefined, bearer: string | null) => {
-    seams.runtime.push({ origin: config?.httpOrigin ?? null, bearer })
-  },
+vi.mock('./trpc', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./trpc')>()
+  return {
+    ...actual,
+    envServer: () => null,
+    setActiveServerRuntime: (
+      config: Parameters<typeof actual.setActiveServerRuntime>[0],
+      bearer: string | null,
+    ) => {
+      actual.setActiveServerRuntime(config, bearer)
+      seams.runtime.push({ origin: config?.httpOrigin ?? null, bearer })
+    },
+  }
+})
+vi.mock('./auth', () => ({
+  logout: seams.logout,
+  fetchAuthStatus: seams.authStatus,
+  probeAuth: async (_origin: string, bearer: string | null) =>
+    bearer
+      ? { kind: 'ready', auth: { kind: 'ready' } }
+      : {
+          kind: 'login',
+          // Upstream's login screen draws only the sign-in options the server offers.
+          status: {
+            needsAuth: true,
+            authed: false,
+            userId: null,
+            capabilities: passwordCapabilities,
+            prompt: 'password',
+          },
+        },
 }))
-vi.mock('./auth', () => ({ logout: seams.logout, fetchAuthStatus: seams.authStatus }))
+vi.mock('./shell', () => ({ useMobileShell: () => ({ eraseLocalData: seams.erase }) }))
+vi.mock('./hooks', () => ({
+  useHttpOrigin: () => 'https://a.example',
+  useConnected: () => true,
+}))
+vi.mock('./connected-devices', () => ({ useConnectedDevices: () => null }))
+vi.mock('../screens/settings-readers', () => ({
+  useSettingsData: () => null,
+  useSettingsMachineStatus: () => null,
+  // Nothing unsynced: sign-out proceeds without the confirmation (POD-6292).
+  useSettingsUnsyncedChangeCount: () => 0,
+}))
+vi.mock('../components/Screen', () => ({
+  Screen: ({ children }: { children: ReactNode }) => children,
+}))
+vi.mock('../components/OutboxRecoveryPanel', () => ({ OutboxRecoveryPanel: () => null }))
+vi.mock('../hooks/useContentBottomInset', () => ({ useContentBottomInset: () => 0 }))
 vi.mock('./hosted-sign-in-runtime', () => ({
   hostedSignIn: { redeem: seams.hostedRedeem, cancel: seams.hostedCancel, begin: vi.fn() },
 }))
 
+import { SettingsServersScreen } from '../screens/SettingsScreen'
+import { AuthGate } from './AuthGate'
 import {
   captureMobileHandoffUrl,
   consumePendingMobileHandoff,
   pendingMobileHandoffSnapshot,
 } from './mobile-handoff'
 import { installMobileMetadataStorage } from './mobile-metadata-storage'
+import { ReadinessGate } from './ReadinessGate'
 import {
   resetInitialNativeLinkConsumptionForTests,
   ServerProfileGate,
   useServerProfile,
 } from './ServerProfileGate'
+import * as trpc from './trpc'
 
 function ProfileProbe() {
   const context = useServerProfile()
@@ -237,6 +289,7 @@ async function mountActiveProfileA() {
 }
 
 beforeEach(() => {
+  trpc.setActiveServerRuntime(undefined, null)
   // The gate retries durable removal intents before selecting a saved server.
   const metadata = new Map<string, string>()
   installMobileMetadataStorage({
@@ -254,7 +307,13 @@ beforeEach(() => {
   seams.hostedCancel.mockReset().mockResolvedValue(undefined)
   seams.authStatus
     .mockReset()
-    .mockResolvedValue({ authed: true, needsAuth: true, userId: 'user:cloud' })
+    .mockResolvedValue({
+      authed: true,
+      needsAuth: true,
+      userId: 'user:cloud',
+      capabilities: passwordCapabilities,
+      prompt: 'password',
+    })
   seams.alert.mockReset()
   seams.announce.mockReset()
   seams.getInitialUrl.mockReset()
@@ -300,6 +359,7 @@ beforeEach(() => {
   seams.router.replace.mockReset()
   seams.logout.mockReset()
   seams.logout.mockResolvedValue(undefined)
+  seams.erase.mockClear()
   seams.saveProfiles.mockReset()
   seams.saveProfiles.mockImplementation(async (state) => {
     seams.durableProfiles = state
@@ -320,9 +380,146 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  trpc.setActiveServerRuntime(undefined, null)
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
+})
+
+it('logs out on native without a browser location and returns to the saved server sign-in screen', async () => {
+  render(
+    <ServerProfileGate>
+      <ProfileProbe />
+      <AuthGate>
+        <SettingsServersScreen />
+      </AuthGate>
+    </ServerProfileGate>,
+  )
+  const logout = await screen.findByRole('button', { name: 'Log out' })
+  // React Native defines window but has no location under it.
+  vi.spyOn(window, 'location', 'get').mockReturnValue(undefined as unknown as Location)
+  fireEvent.click(logout)
+
+  await screen.findByRole('button', { name: 'Log in' })
+  expect(seams.logout).toHaveBeenCalledWith('https://a.example', 'token-a', undefined)
+  expect(seams.erase).toHaveBeenCalledTimes(1)
+  expect(seams.credentials.has('profile-a')).toBe(false)
+  expect(seams.durableProfiles?.profiles[0]?.signedOut).toBe(true)
+  expect(seams.activeContext?.bearer).toBeNull()
+  expect(seams.alert).not.toHaveBeenCalled()
+  expect(screen.queryByRole('button', { name: 'Log out' })).toBeNull()
+})
+
+it('clears a failed manual server check when Back returns to Welcome', async () => {
+  seams.durableProfiles = { activeProfileId: null, profiles: [] }
+  seams.preflight.mockResolvedValue({
+    ok: false,
+    kind: 'insecure-lan',
+    title: 'LAN HTTP refused',
+    detail: 'Use a trusted HTTPS address.',
+  })
+  render(
+    <ServerProfileGate>
+      <ProfileProbe />
+    </ServerProfileGate>,
+  )
+  fireEvent.click(await screen.findByRole('button', { name: 'Enter server address' }))
+  fireEvent.change(screen.getByPlaceholderText('https://podium.example'), {
+    target: { value: 'http://192.168.1.20:18787' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Check server' }))
+  await screen.findByText(/LAN HTTP refused/)
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+
+  expect(screen.getByText('Welcome to Podium')).toBeTruthy()
+  expect(screen.queryByText(/LAN HTTP refused/)).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Enter server address' }))
+  expect(screen.queryByText(/LAN HTTP refused/)).toBeNull()
 })
 
 describe('handoff profile selection', () => {
+  it.each([
+    { url: 'podium://issue/POD-1710', navigation: true },
+    { url: 'podium://sessions/POD-1710-A', navigation: true },
+    { url: 'podium://inspect/private-id', navigation: false },
+    { url: handoffLink('https://missing.example', 'missing-instance'), navigation: false },
+  ])('withholds the cold $url anchor stack until saved-profile activation finishes', async ({
+    url,
+    navigation,
+  }) => {
+    // Native has neither a browser location nor a development server override.
+    vi.spyOn(window, 'location', 'get').mockReturnValue(undefined as unknown as Location)
+    vi.stubGlobal('__PODIUM_SERVER__', undefined)
+    vi.stubEnv('EXPO_PUBLIC_PODIUM_SERVER', '')
+    expect(() => trpc.readServerConfig()).toThrow('native server profile has not been selected')
+    const readConfig = vi.spyOn(trpc, 'readServerConfig')
+    const fetch = vi.fn(async () =>
+      Response.json({ state: 'ready', reason: null, dataPlane: 'available' }),
+    )
+    vi.stubGlobal('fetch', fetch)
+
+    let resolveInitialUrl = (_url: string | null) => {}
+    const initialUrl = new Promise<string | null>((resolve) => {
+      resolveInitialUrl = resolve
+    })
+    let resolvePreflight = (_result: ReturnType<typeof successfulPreflight>) => {}
+    const preflight = new Promise<ReturnType<typeof successfulPreflight>>((resolve) => {
+      resolvePreflight = resolve
+    })
+    let resolveCredential = (_bearer: string | null) => {}
+    const credential = new Promise<string | null>((resolve) => {
+      resolveCredential = resolve
+    })
+    seams.getInitialUrl.mockReturnValue(initialUrl)
+    seams.preflight.mockReturnValue(preflight)
+    seams.getCredential.mockReturnValue(credential)
+
+    // Expo Router requests the Work anchor before profile restoration resolves.
+    // Keep the real readiness/auth gates above that eagerly requested stack.
+    render(
+      <ServerProfileGate>
+        <ReadinessGate>
+          <AuthGate>
+            <ProfileProbe />
+            <div>WORK ANCHOR</div>
+          </AuthGate>
+        </ReadinessGate>
+      </ServerProfileGate>,
+    )
+    expect(screen.queryByText('WORK ANCHOR')).toBeNull()
+    expect(readConfig).not.toHaveBeenCalled()
+
+    await act(async () => resolveInitialUrl(url))
+    await waitFor(() => expect(seams.preflight).toHaveBeenCalledTimes(1))
+    expect(seams.preflight).toHaveBeenCalledWith('https://a.example', undefined)
+    expect(readConfig).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+    expect(screen.queryByText('WORK ANCHOR')).toBeNull()
+
+    await act(async () => resolvePreflight(successfulPreflight('https://a.example')))
+    await waitFor(() => expect(seams.getCredential).toHaveBeenCalledWith('profile-a'))
+    expect(readConfig).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+    expect(pendingMobileHandoffSnapshot().profileSelected).toBe(false)
+    expect(screen.queryByText('WORK ANCHOR')).toBeNull()
+
+    await act(async () => resolveCredential('token-a'))
+    expect(await screen.findByText('WORK ANCHOR')).toBeTruthy()
+    expect(fetch).toHaveBeenCalledWith('https://a.example/readiness', expect.anything())
+    expect(seams.renders.length).toBeGreaterThan(0)
+    expect(
+      seams.renders.every((row) => row.profileId === 'profile-a' && row.bearer === 'token-a'),
+    ).toBe(true)
+    if (navigation) {
+      expect(pendingMobileHandoffSnapshot().profileSelected).toBe(true)
+      expect(seams.router.replace).not.toHaveBeenCalled()
+    } else {
+      expect(pendingMobileHandoffSnapshot().request).toBeNull()
+      expect(seams.router.replace).toHaveBeenCalledExactlyOnceWith('/work')
+    }
+    expect(seams.parsePairing).not.toHaveBeenCalled()
+  })
+
   it('captures a cold ordinary navigation link without invoking pairing', async () => {
     seams.getInitialUrl.mockResolvedValue(
       formatPodiumLink(PODIUM_SCHEME, { kind: 'issue', issue: 'POD-1710' }),
@@ -339,6 +536,114 @@ describe('handoff profile selection', () => {
       target: { kind: 'issue', issue: 'POD-1710' },
     })
     expect(seams.parsePairing).not.toHaveBeenCalled()
+    expect(seams.router.replace).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    'cold',
+    'warm',
+  ])('opens Work for a %s unsupported path with neutral copy', async (delivery) => {
+    const url = 'podium://inspect/private-id'
+    if (delivery === 'cold') {
+      seams.getInitialUrl.mockResolvedValue(url)
+      render(
+        <ServerProfileGate>
+          <ProfileProbe />
+        </ServerProfileGate>,
+      )
+    } else {
+      await mountActiveProfileA()
+      act(() => seams.linkListener?.({ url }))
+    }
+
+    await waitFor(() => {
+      expect(seams.activeContext?.profile.id).toBe('profile-a')
+      expect(seams.activeContext?.bearer).toBe('token-a')
+      expect(seams.announce).toHaveBeenCalledWith('Opened Work because this link is not supported.')
+    })
+    expect(seams.router.replace.mock.calls).toEqual([['/work']])
+    expect(pendingMobileHandoffSnapshot().request).toBeNull()
+    expect(seams.durableProfiles?.activeProfileId).toBe('profile-a')
+    expect(seams.parsePairing).not.toHaveBeenCalled()
+    expect(screen.queryByText(/does not identify a saved server/)).toBeNull()
+  })
+
+  it.each([
+    'cold',
+    'warm',
+  ])('leaves a %s mission link on the native chat route', async (delivery) => {
+    const url = 'podium://mission/iss_one/session-one'
+    if (delivery === 'cold') {
+      seams.getInitialUrl.mockResolvedValue(url)
+      render(
+        <ServerProfileGate>
+          <ProfileProbe />
+        </ServerProfileGate>,
+      )
+    } else {
+      await mountActiveProfileA()
+      act(() => seams.linkListener?.({ url }))
+    }
+    await waitFor(() => expect(seams.activeContext?.profile.id).toBe('profile-a'))
+    expect(pendingMobileHandoffSnapshot().request).toBeNull()
+    expect(seams.parsePairing).not.toHaveBeenCalled()
+    expect(seams.router.replace).not.toHaveBeenCalled()
+  })
+
+  it('keeps a newer mission link on A after a pending handoff switch to B settles', async () => {
+    await mountActiveProfileA()
+    let releaseProfileB = () => {}
+    const profileBReleased = new Promise<void>((resolve) => {
+      releaseProfileB = resolve
+    })
+    let reportProfileBStarted = () => {}
+    const profileBStarted = new Promise<void>((resolve) => {
+      reportProfileBStarted = resolve
+    })
+    seams.preflight.mockImplementation(async (origin: string) => {
+      if (origin === 'https://b.example') {
+        reportProfileBStarted()
+        await profileBReleased
+      }
+      return successfulPreflight(origin)
+    })
+
+    act(() => {
+      seams.linkListener?.({
+        url: handoffLink('https://b.example', 'instance-b', 'older-session-on-b'),
+      })
+    })
+    await profileBStarted
+    const olderRequestId = pendingMobileHandoffSnapshot().id
+
+    act(() => {
+      seams.linkListener?.({ url: 'podium://mission/mission-on-a/seat-on-a' })
+    })
+    expect(pendingMobileHandoffSnapshot().id).toBeGreaterThan(olderRequestId)
+    expect(pendingMobileHandoffSnapshot().request).toBeNull()
+
+    await act(async () => {
+      releaseProfileB()
+      await profileBReleased
+    })
+
+    await waitFor(() => {
+      expect(seams.activeContext?.profile.id).toBe('profile-a')
+      expect(seams.activeContext?.bearer).toBe('token-a')
+    })
+    expect(seams.durableProfiles?.activeProfileId).toBe('profile-a')
+    expect(seams.preflight.mock.calls.map(([origin]) => origin)).toEqual([
+      'https://a.example',
+      'https://b.example',
+      'https://a.example',
+    ])
+    expect(seams.renders.some((row) => row.profileId === 'profile-b')).toBe(false)
+    expect(
+      [...seams.runtime, ...seams.socket].some((row) => row.origin === 'https://b.example'),
+    ).toBe(false)
+    expect(seams.parsePairing).not.toHaveBeenCalled()
+    expect(seams.router.replace).not.toHaveBeenCalled()
+    expect(screen.queryByText('Opening the matching saved server.')).toBeNull()
   })
 
   it('handles a mixed-case Podium scheme on cold launch like a warm link', async () => {
@@ -453,7 +758,7 @@ describe('handoff profile selection', () => {
     })
     expect(pendingMobileHandoffSnapshot().request).toBeNull()
     expect(seams.router.replace).toHaveBeenCalledWith('/work')
-    expect(seams.router.replace.mock.calls.map(([route]) => route)).toEqual(['/', '/work'])
+    expect(seams.router.replace.mock.calls.map(([route]) => route)).toEqual(['/work'])
     expect(seams.preflight.mock.calls.map(([origin]) => origin)).toEqual(['https://a.example'])
     expect(seams.getInitialUrl).toHaveBeenCalledTimes(1)
     await waitFor(() =>
@@ -682,6 +987,9 @@ describe('pairing supersedes handoff intent', () => {
     // root replace would remount this gate and lose the pairing (POD-6913).
     expect(seams.router.replace).not.toHaveBeenCalled()
     expect(seams.parsePairing).toHaveBeenCalledWith(PAIRING_LINK)
+    // The router never routes a pairing link (+native-intent), and navigating
+    // here remounted the root layout and wiped the gate's pairing state.
+    expect(seams.router.replace).not.toHaveBeenCalledWith('/')
     expect(JSON.stringify(pendingMobileHandoffSnapshot())).not.toContain(PAIRING_SECRET)
   })
 
@@ -1537,7 +1845,7 @@ describe('hosted sign-in profile activation', () => {
     expect(seams.credentials.get('profile-a')).toBe('token-a')
     expect(seams.credentials.get(seams.activeContext!.profile.id)).toBe('cloud-token')
     expect(seams.parsePairing).not.toHaveBeenCalled()
-    expect(seams.router.replace).toHaveBeenCalledWith('/')
+    expect(seams.router.replace).not.toHaveBeenCalledWith('/')
     expect(JSON.stringify(seams.durableProfiles)).not.toContain('cloud-token')
     expect(
       seams.runtime.some(
@@ -1609,6 +1917,145 @@ it('ignores duplicate OS delivery after a hosted callback succeeds', async () =>
   expect(seams.hostedRedeem).toHaveBeenCalledTimes(1)
   expect(seams.activeContext?.bearer).toBe('cloud-token')
   expect(screen.queryByText('Welcome to Podium')).toBeNull()
+})
+
+describe('pairing links typed into the address field', () => {
+  async function openManualEntry() {
+    seams.durableProfiles = { activeProfileId: null, profiles: [] }
+    render(
+      <ServerProfileGate>
+        <ProfileProbe />
+      </ServerProfileGate>,
+    )
+    fireEvent.click(await screen.findByLabelText('Enter server address'))
+  }
+
+  it('pairs from a pasted pairing link instead of refusing it as a non-origin', async () => {
+    await openManualEntry()
+    const pasted = `https://pair.example/mobile#pair=${PAIRING_SECRET}`
+    fireEvent.change(screen.getByPlaceholderText('https://podium.example'), {
+      target: { value: ` ${pasted} ` },
+    })
+    fireEvent.click(screen.getByLabelText('Check server'))
+    await waitFor(() =>
+      expect(seams.preflight.mock.calls.map(([origin]) => origin)).toContain(
+        'https://pair.example',
+      ),
+    )
+    expect(seams.parsePairing).toHaveBeenCalledWith(pasted)
+    expect(screen.queryByText(/origin only/)).toBeNull()
+  })
+
+  it('shows why a pasted link is invalid and stays on the address step', async () => {
+    await openManualEntry()
+    seams.parsePairing.mockImplementationOnce(() => {
+      throw new Error('This pairing code has expired. Create a new code on your computer.')
+    })
+    fireEvent.change(screen.getByPlaceholderText('https://podium.example'), {
+      target: { value: PAIRING_LINK },
+    })
+    fireEvent.click(screen.getByLabelText('Check server'))
+    expect(await screen.findByText(/This pairing code has expired/)).toBeTruthy()
+    expect(screen.getByPlaceholderText('https://podium.example')).toBeTruthy()
+    expect(seams.preflight).not.toHaveBeenCalled()
+  })
+})
+
+describe('pairing links on a fresh install (POD-2364)', () => {
+  async function mountWelcome() {
+    seams.durableProfiles = { activeProfileId: null, profiles: [] }
+    render(
+      <ServerProfileGate>
+        <ProfileProbe />
+      </ServerProfileGate>,
+    )
+    await screen.findByLabelText('Enter server address')
+  }
+
+  it('checks the server a warm pairing link names while the welcome screen is up', async () => {
+    await mountWelcome()
+    act(() => {
+      seams.linkListener?.({ url: PAIRING_LINK })
+    })
+    await waitFor(() =>
+      expect(seams.preflight.mock.calls.map(([origin]) => origin)).toContain(
+        'https://pair.example',
+      ),
+    )
+    expect(seams.parsePairing).toHaveBeenCalledWith(PAIRING_LINK)
+  })
+
+  it('shows why a warm pairing link was refused', async () => {
+    await mountWelcome()
+    seams.parsePairing.mockImplementationOnce(() => {
+      throw new Error('This is not a valid Podium app link.')
+    })
+    act(() => {
+      seams.linkListener?.({ url: PAIRING_LINK })
+    })
+    expect(await screen.findByText('This is not a valid Podium app link.')).toBeTruthy()
+  })
+
+  it('shows why the linked server could not be reached', async () => {
+    await mountWelcome()
+    seams.preflight.mockResolvedValueOnce({
+      ok: false,
+      kind: 'unreachable',
+      transport: 'trusted-https',
+      title: 'Server unreachable',
+      detail: 'Check the address.',
+    })
+    act(() => {
+      seams.linkListener?.({ url: PAIRING_LINK })
+    })
+    expect(await screen.findByText(/Server unreachable/)).toBeTruthy()
+  })
+})
+
+describe('repeated pairing link refusals', () => {
+  it('shows the same refusal again after the person moved on', async () => {
+    seams.durableProfiles = { activeProfileId: null, profiles: [] }
+    render(
+      <ServerProfileGate>
+        <ProfileProbe />
+      </ServerProfileGate>,
+    )
+    await screen.findByLabelText('Enter server address')
+    seams.parsePairing.mockImplementation(() => {
+      throw new Error('This is not a valid Podium app link.')
+    })
+    act(() => {
+      seams.linkListener?.({ url: PAIRING_LINK })
+    })
+    expect(await screen.findByText('This is not a valid Podium app link.')).toBeTruthy()
+    // A server check clears the error; the same bad link arriving later must
+    // show it again rather than being dropped as an unchanged value.
+    fireEvent.click(screen.getByLabelText('Enter server address'))
+    fireEvent.change(screen.getByPlaceholderText('https://podium.example'), {
+      target: { value: 'https://b.example' },
+    })
+    fireEvent.click(screen.getByLabelText('Check server'))
+    await waitFor(() =>
+      expect(screen.queryByText('This is not a valid Podium app link.')).toBeNull(),
+    )
+    act(() => {
+      seams.linkListener?.({ url: `${PAIRING_LINK}&again=1` })
+    })
+    expect(await screen.findByText('This is not a valid Podium app link.')).toBeTruthy()
+  })
+})
+
+describe('non-pairing app links (POD-2364)', () => {
+  it('never opens pairing setup for an ordinary app link', async () => {
+    await mountActiveProfileA()
+    act(() => {
+      seams.linkListener?.({ url: 'podium:///settings' })
+    })
+    await waitFor(() => expect(seams.activeContext?.profile.id).toBe('profile-a'))
+    expect(seams.parsePairing).not.toHaveBeenCalled()
+    expect(screen.queryByLabelText('Enter server address')).toBeNull()
+    expect(screen.queryByLabelText('Scan pairing code')).toBeNull()
+  })
 })
 
 /**

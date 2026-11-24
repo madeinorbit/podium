@@ -76,6 +76,9 @@ export class TranscriptLog {
   @observable accessor initialLoaded = false
   @observable accessor subscriptionHealthy = false
   @observable accessor freshness: TranscriptFreshness = null
+  /** False while this device's stored page is still being read: a host may
+   *  hold back a loading placeholder that stored history would replace. */
+  @observable accessor storedSettled = true
   @observable accessor offlineAsOf: number | null = null
   @observable accessor offlineMachineName: string | null = null
   private readonly initialLimit: number
@@ -144,11 +147,23 @@ export class TranscriptLog {
     const cache = options.cache
     if (cache) {
       this.releaseStored = cache.hold?.(options.sessionId)
-      this.storedRead = cache.load(options.sessionId, this.initialLimit).then(
-        (entry) => this.seedFromStore(entry),
-        () => {},
-      )
+      this.storedSettled = false
+      this.storedRead = cache
+        .load(options.sessionId, this.initialLimit)
+        .then(
+          (entry) => this.seedFromStore(entry),
+          () => {},
+        )
+        .finally(() => this.markStoredSettled())
+      // A stalled store gets the same brief wait the first read gives it; past
+      // that the host may show its loading placeholder.
+      const stall = setTimeout(() => this.markStoredSettled(), STORED_TRANSCRIPT_WAIT_MS)
+      void this.storedRead.finally(() => clearTimeout(stall))
     }
+  }
+
+  @action private markStoredSettled(): void {
+    this.storedSettled = true
   }
 
   @action private seedFromStore(entry: TranscriptCacheEntry | undefined): void {
@@ -1015,5 +1030,10 @@ function continuesStored(
   if (storedNext && first.id === storedNext.id) return true
   const from = decodeCursorPosition(anchor.cursor)
   const to = decodeCursorPosition(first.cursor)
-  return from !== null && to !== null && from.fileId === to.fileId && compareCursorPositions(to, from) > 0
+  return (
+    from !== null &&
+    to !== null &&
+    from.fileId === to.fileId &&
+    compareCursorPositions(to, from) > 0
+  )
 }

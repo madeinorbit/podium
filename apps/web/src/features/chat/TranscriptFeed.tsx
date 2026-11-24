@@ -1,5 +1,6 @@
 import type { HeadlessOverlay, TurnPreview } from '@podium/client-core/conversation'
 import type { SessionView } from '@podium/client-core/session-values'
+import { dayMarksByPosition } from '@podium/client-core/transcript-time'
 import type {
   ChatActivity,
   ChatBlock,
@@ -59,7 +60,7 @@ import { TranscriptTail, trailingRunIsLive } from './TranscriptTail'
 import { TranscriptWindowRow, useTranscriptWindow } from './TranscriptWindow'
 import { lineOwnsTail, previewMembers, TurnLineView, turnTail } from './TurnLineView'
 import { transcriptComputeClient } from './transcript-compute-client'
-import { dayKey, dayLabel, rowTimestamp } from './transcript-time'
+import { rowTimestamp } from './transcript-time'
 import {
   type FoldLine,
   foldLayout,
@@ -172,36 +173,6 @@ function StreamingMarkdown({ text }: { text: string }): JSX.Element {
  * the space comes back out of the middle of exchanges and is spent on their
  * edges, which is the trade the teardown asked for.
  */
-/**
- * WHERE THE DATE CHANGES (POD-701) — mount position → the label to draw above
- * that row. Position-keyed rather than row-keyed because the mounted window is
- * the trailing slice of a much longer list and a row's identity says nothing
- * about which of its neighbours are on screen.
- *
- * The leading mark (`pos 0`) is emitted only when the window does not open on
- * today: "Today" above a transcript entirely from today is a line that tells
- * the reader nothing, while "Tue 5 Aug" above one from last week is the whole
- * point. Rows with no parseable timestamp are transparent — they neither draw a
- * mark nor reset the running day, so an older transcript that predates the
- * field degrades to no marks at all rather than to a mark on every row.
- */
-export function dayMarksByPosition(rows: readonly RenderableRow[], now: Date): Map<number, string> {
-  const marks = new Map<number, string>()
-  let running: string | undefined
-  for (const [pos, { row }] of rows.entries()) {
-    const at = rowTimestamp(row)
-    if (!at) continue
-    const key = dayKey(at)
-    if (running === undefined) {
-      if (key !== dayKey(now)) marks.set(pos, dayLabel(at, now))
-    } else if (key !== running) {
-      marks.set(pos, dayLabel(at, now))
-    }
-    running = key
-  }
-  return marks
-}
-
 export function turnPosition(row: ChatRow): TurnPosition | undefined {
   if (row.kind === 'tools') return 'bind'
   const { item } = row.block
@@ -748,7 +719,10 @@ export const TranscriptFeed = observer(function TranscriptFeed(
   const searchMatches = useMemo(() => new Set(search.matches), [search.matches])
   // Recomputed with the rows rather than on a clock: "Today" only goes stale at
   // midnight, and by the time it does the next row to land refreshes it.
-  const dayMarks = useMemo(() => dayMarksByPosition(feedRows, new Date()), [feedRows])
+  const dayMarks = useMemo(
+    () => dayMarksByPosition(feedRows, new Date(), ({ row }) => rowTimestamp(row)),
+    [feedRows],
+  )
   const previousFolds = useRef(NO_FOLDS)
   useLayoutEffect(() => {
     previousFolds.current = folds

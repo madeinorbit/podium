@@ -3,7 +3,7 @@ import { processColor } from 'react-native'
 import { afterEach, expect, it, vi } from 'vitest'
 import { prosePalette } from '../theme/syntax'
 import { color } from '../theme/theme'
-import { RichMarkdown } from './RichMarkdown'
+import { RichMarkdown, RichMarkdownInline } from './RichMarkdown'
 
 // A distinct resolved label catches substitutions with fixed palette inks.
 vi.mock('../theme/platform-colors', async (original) => ({
@@ -18,6 +18,18 @@ afterEach(() => {
   cleanup()
   vi.useRealTimers()
   vi.unstubAllGlobals()
+})
+
+it.each([
+  'typescript',
+  'patch',
+])('keeps long %s lines in a horizontal scroller with every byte intact', (language) => {
+  const source = `${language === 'patch' ? '+' : ''}${'long_identifier'.repeat(30)} // final bytes`
+  const view = render(<RichMarkdown text={`\`\`\`${language}\n${source}\n\`\`\``} />)
+  const scroller = view.getByTestId('code-scroller')
+  expect(scroller.textContent).toBe(source)
+  expect(getComputedStyle(scroller).overflowX).toBe('auto')
+  expect(getComputedStyle(scroller).width).toBe('100%')
 })
 
 it('colours fenced source and preserves patch lines, headings and whitespace', () => {
@@ -61,4 +73,54 @@ it('distinguishes inline symbols from bold prose without a chip', () => {
   expect(processColor(getComputedStyle(code).backgroundColor)).toBe(processColor('transparent'))
   expect(['', '0px']).toContain(getComputedStyle(code).borderWidth)
   expect(['', '0px']).toContain(getComputedStyle(code).borderRadius)
+})
+
+it('gives a code block a Copy button instead of window dots', async () => {
+  const clipboard = await import('expo-clipboard')
+  const copy = vi.spyOn(clipboard, 'setStringAsync').mockResolvedValue(true)
+  const { getByLabelText } = render(<RichMarkdown text={'```sh\nbun run test\n```'} />)
+  act(() => {
+    getByLabelText('Copy code').click()
+  })
+  expect(copy).toHaveBeenCalledWith('bun run test')
+  expect(getByLabelText('Copied')).toBeTruthy()
+})
+
+it('draws an image on its own line inline and keeps a link for one inside prose', () => {
+  const { container, getByLabelText } = render(
+    <RichMarkdown
+      text={
+        '![login screen](https://example.com/shot.png)\n\nSee ![chart](https://example.com/c.png) here.'
+      }
+    />,
+  )
+  expect(getByLabelText('Open login screen')).toBeTruthy()
+  expect(container.textContent).not.toContain('[image: login screen]')
+  expect(container.textContent).toContain('[image: chart]')
+})
+
+it('renders note preview emphasis, code and links as inline markdown leaves', () => {
+  const { container } = render(
+    <span>
+      <RichMarkdownInline text="Ready **for review** in `chat.ts` with [evidence](https://example.com)." />
+    </span>,
+  )
+  expect(container.textContent).toBe('Ready for review in chat.ts with evidence.')
+  expect(container.querySelector('[role="link"]')?.textContent).toBe('evidence')
+  expect(container.textContent).not.toContain('**')
+})
+
+it('renders quoted and ordered-list note subjects without raw markdown', () => {
+  const { container } = render(
+    <span>
+      <RichMarkdownInline text="> **Ready** in `chat.ts`" />
+    </span>,
+  )
+  expect(container.textContent).toBe('Ready in chat.ts')
+  const second = render(
+    <span>
+      <RichMarkdownInline text="1. **Review** the patch" />
+    </span>,
+  )
+  expect(second.container.textContent).toBe('Review the patch')
 })

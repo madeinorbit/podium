@@ -29,12 +29,14 @@ vi.mock('./ArtifactViewer', async () => {
   const { Text } = await import('react-native')
   return {
     ArtifactViewer: ({
-      artifact,
-      url,
+      items,
+      index,
     }: {
-      artifact: IssuePanelArtifact | null
-      url: string | null
-    }) => <Text testID="viewer">{`${artifact?.path ?? 'none'} ${url ?? 'no-url'}`}</Text>,
+      items: { artifact: IssuePanelArtifact; url: string | null }[]
+      index: number
+    }) => (
+      <Text testID="viewer">{`${items[index]?.artifact.path ?? 'none'} ${items[index]?.url ?? 'no-url'} ${index + 1}/${items.length}`}</Text>
+    ),
   }
 })
 
@@ -87,6 +89,8 @@ describe('OfferArtifactStrip', () => {
     fireEvent.click(screen.getByLabelText('Open notes.md'))
     expect(screen.getByTestId('viewer').textContent).toContain('notes.md')
     expect(screen.getByTestId('viewer').textContent).toContain('/files/asset?')
+    // It opens on the tapped artifact, inside the whole offered list.
+    expect(screen.getByTestId('viewer').textContent).toContain('2/2')
     expect(onShowAll).not.toHaveBeenCalled()
   })
 
@@ -162,4 +166,22 @@ describe('OfferArtifactStrip', () => {
     expect(screen.queryByTestId('offer-artifacts')).toBeNull()
     expect(container.firstChild).toBeNull()
   })
+})
+
+it('uses the board thumbnail size in a session tile and keeps overflow reachable', () => {
+  const paths = ['a.png', 'b.png', 'c.png', 'd.png']
+  const onShowAll = vi.fn()
+  render(
+    <OfferArtifactStrip
+      presentation="tile"
+      offer={offer(paths)}
+      issue={issue(paths.map((path) => art(path)))}
+      onShowAll={onShowAll}
+    />,
+  )
+  const preview = screen.getAllByTestId('offer-artifact-preview')[0]
+  expect(preview && getComputedStyle(preview).height).toBe('80px')
+  expect(screen.getAllByTestId('offer-artifact')).toHaveLength(2)
+  fireEvent.click(screen.getByTestId('offer-artifact-extra'))
+  expect(onShowAll).toHaveBeenCalledOnce()
 })

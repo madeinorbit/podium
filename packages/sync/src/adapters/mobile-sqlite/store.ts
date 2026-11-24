@@ -94,10 +94,10 @@ import {
   cursorTriple,
   decodeCacheMeta,
   EMPTY_CACHE_META,
-  INSTANCE_META_END,
   INSTANCE_META_PREFIX,
   instanceMetaKey,
   isMainRow,
+  LOADING_SINCE_META_KEY,
   type MetaWrite,
   nextCacheMeta,
   type ScopedCacheCursor,
@@ -1100,11 +1100,7 @@ export class SqliteSyncStore {
    * transaction; a crash there repeats the rebuild.
    */
   private async hydrate(): Promise<void> {
-    const meta = this.db.prepare(`SELECT principal, key, value FROM ${META_TABLE}`).all() as {
-      principal: string
-      key: string
-      value: string
-    }[]
+    const meta = this.readMetaRows()
     const stored = this.db.prepare(`SELECT principal, key, value FROM ${INDEX_TABLE}`).all() as {
       principal: string
       key: string
@@ -1216,6 +1212,66 @@ export class SqliteSyncStore {
     this.adoptOutboxRows(outbox)
   }
 
+  /**
+   * Every metadata row, keys decoded (see {@link encodeMetaKey}). A principal
+   * whose markers an earlier build collapsed into the one truncated row
+   * `instance` (POD-2666) holds no marker it can trust: the row goes, and the
+   * load resumes at its first missing collection. `loading-since` 0 sweeps
+   * nothing the device still holds when that load ends.
+   */
+  private readMetaRows(): { principal: string; key: string; value: string }[] {
+    const stored = this.db.prepare(`SELECT principal, key, value FROM ${META_TABLE}`).all() as {
+      principal: string
+      key: string
+      value: string
+    }[]
+    // An engine that keeps NUL (Bun, Node) may hold marker keys written before
+    // the encoding: they move to their encoded key once.
+    const raw = stored.filter((row) => row.key.includes('\u0000'))
+    const collapsed = new Set(
+      stored.filter((row) => row.key === TRUNCATED_INSTANCE_META_KEY).map((row) => row.principal),
+    )
+    if (raw.length > 0 || collapsed.size > 0) {
+      this.db.exec('BEGIN IMMEDIATE')
+      try {
+        for (const row of raw) {
+          this.db
+            .prepare(`DELETE FROM ${META_TABLE} WHERE principal = ? AND key = ?`)
+            .run(row.principal, row.key)
+          this.db
+            .prepare(
+              `INSERT INTO ${META_TABLE} (principal, key, value) VALUES (?, ?, ?)
+               ON CONFLICT(principal, key) DO NOTHING`,
+            )
+            .run(row.principal, encodeMetaKey(row.key), row.value)
+        }
+        for (const principal of collapsed) {
+          this.db
+            .prepare(`DELETE FROM ${META_TABLE} WHERE principal = ? AND key = ?`)
+            .run(principal, TRUNCATED_INSTANCE_META_KEY)
+          this.db
+            .prepare(
+              `INSERT INTO ${META_TABLE} (principal, key, value) VALUES (?, ?, ?)
+               ON CONFLICT(principal, key) DO NOTHING`,
+            )
+            .run(principal, encodeMetaKey(LOADING_SINCE_META_KEY), JSON.stringify(0))
+        }
+        this.db.exec('COMMIT')
+      } catch (error) {
+        this.db.exec('ROLLBACK')
+        throw error
+      }
+    }
+    const rows = stored
+      .filter((row) => row.key !== TRUNCATED_INSTANCE_META_KEY)
+      // A legacy raw key is already the key; only an encoded one decodes.
+      .map((row) => (row.key.includes('\u0000') ? row : { ...row, key: decodeMetaKey(row.key) }))
+    for (const principal of collapsed)
+      if (!rows.some((row) => row.principal === principal && row.key === LOADING_SINCE_META_KEY))
+        rows.push({ principal, key: LOADING_SINCE_META_KEY, value: JSON.stringify(0) })
+    return rows
+  }
+
   private decodeMetas(meta: readonly { principal: string; key: string; value: string }[]): void {
     const metaRows = new Map<string, { key: string; value: unknown }[]>()
     for (const row of meta) {
@@ -1295,11 +1351,7 @@ export class SqliteSyncStore {
         `SELECT principal, entity, entity_id, value, revision, provenance, part, as_of FROM ${ENTITY_TABLE}`,
       )
       .all() as StoredEntityRow[]
-    const meta = this.db.prepare(`SELECT principal, key, value FROM ${META_TABLE}`).all() as {
-      principal: string
-      key: string
-      value: string
-    }[]
+    const meta = this.readMetaRows()
     const outbox = this.selectOutboxRows()
     this.entities.clear()
     this.metas.clear()
@@ -1913,18 +1965,43 @@ function metaOp(principal: string, write: MetaWrite): SqlOp {
     return {
       sql: `INSERT INTO ${META_TABLE} (principal, key, value) VALUES (?, ?, ?)
             ON CONFLICT(principal, key) DO UPDATE SET value = excluded.value`,
-      params: [principal, write.key, JSON.stringify(write.value)],
+      params: [principal, encodeMetaKey(write.key), JSON.stringify(write.value)],
     }
   if (write.kind === 'delete')
     return {
       sql: `DELETE FROM ${META_TABLE} WHERE principal = ? AND key = ?`,
-      params: [principal, write.key],
+      params: [principal, encodeMetaKey(write.key)],
     }
   return {
-    sql: `DELETE FROM ${META_TABLE} WHERE principal = ? AND key >= ? AND key < ?`,
-    params: [principal, INSTANCE_META_PREFIX, INSTANCE_META_END],
+    sql: `DELETE FROM ${META_TABLE} WHERE principal = ? AND substr(key, 1, ?) = ?`,
+    params: [principal, ENCODED_INSTANCE_META_PREFIX.length, ENCODED_INSTANCE_META_PREFIX],
   }
 }
+
+/**
+ * POD-2666: a metadata key as SQLite stores it. expo-sqlite binds text as a C
+ * string, so a NUL ends it, and marker keys carry one (`instance\u0000…`). `%`
+ * and NUL are escaped; every other key is stored as it is.
+ */
+export function encodeMetaKey(key: string): string {
+  return key.includes('%') || key.includes('\u0000')
+    ? key.replaceAll('%', '%25').replaceAll('\u0000', '%00')
+    : key
+}
+
+/** The inverse of {@link encodeMetaKey}. */
+export function decodeMetaKey(stored: string): string {
+  return stored.includes('%')
+    ? stored.replace(/%(25|00)/g, (_, code: string) => (code === '25' ? '%' : '\u0000'))
+    : stored
+}
+
+const ENCODED_INSTANCE_META_PREFIX = encodeMetaKey(INSTANCE_META_PREFIX)
+/** What a NUL-truncating driver made of every marker key before the encoding. */
+const TRUNCATED_INSTANCE_META_KEY = INSTANCE_META_PREFIX.slice(
+  0,
+  INSTANCE_META_PREFIX.indexOf('\u0000'),
+)
 
 class SqliteOutboxStore implements OutboxStorePort {
   constructor(

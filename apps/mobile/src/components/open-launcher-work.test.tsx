@@ -13,6 +13,7 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaFrame: () => ({ x: 0, y: 0, width: 430, height: 900 }),
 }))
 vi.mock('expo-router', () => ({
+  useLocalSearchParams: () => ({}),
   usePathname: () => '/work',
   useRouter: () => ({ back() {}, push() {}, replace() {} }),
 }))
@@ -43,27 +44,31 @@ vi.mock('./BottomSheet', () => ({
 }))
 vi.mock('./ActionSheet', () => ({
   ActionSheet: ({
+    visible,
     actions,
     onClose,
   }: {
-    actions: { label: string; onPress: () => void; disabled?: boolean }[]
+    visible: boolean
+    actions: { label: string; onPress: () => void; disabled?: boolean; selected?: boolean }[]
     onClose: () => void
-  }) => (
-    <div>
-      {actions.map((action) => (
-        <button
-          type="button"
-          key={action.label}
-          aria-label={action.label}
-          disabled={action.disabled}
-          onClick={() => {
-            action.onPress()
-            onClose()
-          }}
-        />
-      ))}
-    </div>
-  ),
+  }) =>
+    visible ? (
+      <div>
+        {actions.map((action) => (
+          <button
+            type="button"
+            key={action.label}
+            aria-label={action.label}
+            aria-pressed={action.selected}
+            disabled={action.disabled}
+            onClick={() => {
+              action.onPress()
+              onClose()
+            }}
+          />
+        ))}
+      </div>
+    ) : null,
 }))
 const { NewWorkButton } = await import('./NewWorkButton')
 const { NewIssueScreen } = await import('../screens/NewIssueScreen')
@@ -113,13 +118,21 @@ function fixture(scale: number) {
   return { machines, repos, sessions }
 }
 
-it.each([
-  'NewWorkButton',
-  'NewIssueScreen',
-] as const)('meters actual open %s at 1x/4x', async (surface) => {
+// dev/tf: the phone's NewWorkButton is a thin launcher that only pushes the
+// New Task compose sheet; the inline launcher sheet this case drove is gone.
+it.each(['NewIssueScreen'] as const)('meters actual open %s at 1x/4x', async (surface:
+  | 'NewWorkButton'
+  | 'NewIssueScreen') => {
   const samples = []
   for (const scale of [1, 4]) {
     const data = fixture(scale)
+    if (surface === 'NewIssueScreen') {
+      // Both hosts have this project, so the machine-choice step switches to
+      // a different host instead of selecting the automatic choice again.
+      const shared = data.repos[1]
+      if (!shared) throw new Error('Missing shared project')
+      data.repos.push({ ...shared, machineId: asMachineId('mine') })
+    }
     let pool: MobxPool | null = null
     let show!: (open: boolean) => void
     function Host() {
@@ -150,7 +163,14 @@ it.each([
           }),
         { pool: attached! },
       )
-      if (
+      // The compose sheet intentionally refreshes recency between menu openings.
+      // Each live delta may query its one path, regardless of catalog size.
+      if (surface === 'NewIssueScreen' && ['usage', 'heartbeat'].includes(action))
+        expect(
+          usageQuery.mock.calls.length,
+          `${surface} ${action} usage reads at ${scale}x`,
+        ).toBeLessThanOrEqual(1)
+      else if (
         ['catalog', 'usage', 'heartbeat', 'picker-heartbeat', 'closed-heartbeat'].includes(action)
       )
         expect(usageQuery, `${surface} ${action} usage reads at ${scale}x`).not.toHaveBeenCalled()
@@ -185,20 +205,23 @@ it.each([
       )
       expect(screen.getByLabelText('Machine, remote')).toBeTruthy()
     } else {
-      expect(screen.getByRole('radio', { name: 'Repository p000' })).toBeTruthy()
+      expect(screen.getByLabelText('Project, p000')).toBeTruthy()
       cells.push(
-        await measured('repository-choice', () =>
-          fireEvent.click(screen.getByRole('radio', { name: 'Repository p001' })),
+        await measured('repository-picker', () =>
+          fireEvent.click(screen.getByLabelText('Project, p000')),
         ),
       )
-      expect(
-        screen.getByRole('radio', { name: 'Repository p001' }).getAttribute('aria-checked'),
-      ).toBe('true')
+      expect(screen.getByLabelText('p000').getAttribute('aria-pressed')).toBe('true')
+      cells.push(
+        await measured('repository-choice', () => fireEvent.click(screen.getByLabelText('p001'))),
+      )
+      expect(screen.getByLabelText('Project, p001')).toBeTruthy()
       cells.push(
         await measured('machine-picker', () =>
-          fireEvent.click(screen.getByLabelText('Machine, Auto')),
+          fireEvent.click(screen.getByLabelText('Machine, mine')),
         ),
       )
+      expect(screen.getByLabelText('remote').getAttribute('aria-pressed')).toBe('false')
       cells.push(
         await measured('machine-choice', () => fireEvent.click(screen.getByLabelText('remote'))),
       )

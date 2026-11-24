@@ -492,7 +492,7 @@ const ToolElapsed = observer(function ToolElapsed({
   count: number
 }) {
   const first = run?.firstBlock ?? blocks[0]
-  const now = useAgeNow(first?.item.ts ?? '', 0, live)
+  const now = useAgeNow(first?.item.ts ?? '', 0, live, 3_600_000)
   const elapsedMs =
     !live && count === 1
       ? first?.item.durationMs

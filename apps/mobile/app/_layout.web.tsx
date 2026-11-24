@@ -3,7 +3,10 @@ import { Easing } from 'react-native'
 import { installE2eRouterHook } from '../src/client/e2e-router-hook'
 import { RootLayoutShell, type RootNavigationProps } from '../src/client/root-layout-shell'
 import { registerPhoneServiceWorker } from '../src/lib/phone-service-worker'
+import { noticeScreenLayout } from '../src/navigation/notice-screen-layout'
 import { color } from '../src/theme/theme'
+
+export const unstable_settings = { initialRouteName: '(tabs)' }
 
 installE2eRouterHook()
 // The precached shell is what opens `/mobile` with no network (POD-7179).
@@ -23,6 +26,7 @@ function WebNavigation({ reduceMotion }: RootNavigationProps) {
   return (
     <Stack
       initialRouteName="(tabs)"
+      screenLayout={noticeScreenLayout}
       screenOptions={{
         headerShown: false,
         animation: 'fade',
@@ -34,7 +38,6 @@ function WebNavigation({ reduceMotion }: RootNavigationProps) {
       }}
     >
       <Stack.Screen name="new-issue" options={{ presentation: 'modal' }} />
-      <Stack.Screen name="settings" options={{ presentation: 'modal' }} />
     </Stack>
   )
 }

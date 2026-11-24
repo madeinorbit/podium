@@ -1,5 +1,3 @@
-import { BlurView } from 'expo-blur'
-import { ArrowUp, ClipboardPaste, Mic, MicOff, Paperclip, Square } from './icons'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import type {
   LayoutChangeEvent,
@@ -16,6 +14,13 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native'
+import Reanimated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useKeyboardVisible } from '../hooks/useKeyboardVisible'
 import { useReduceMotion } from '../hooks/useReduceMotion'
@@ -24,6 +29,7 @@ import { onMediaPaste } from '../lib/composer-media'
 import { alpha } from '../theme/mix'
 import { color, font, leading, radius, sans, space, spring } from '../theme/theme'
 import { AttachmentStrip } from './AttachmentStrip'
+import { ComposerGlass } from './ComposerGlass'
 import {
   COMPOSER_LINE,
   COMPOSER_MIN_HEIGHT,
@@ -34,7 +40,9 @@ import {
 } from './composer-height'
 import { composerKeyAction, hasHardwareKeyboard } from './composer-keys'
 import { useComposerMeasure } from './composer-measure'
+import { createSendGuard } from './composer-send-guard'
 import { Icon } from './Icon'
+import { ArrowUp, ClipboardPaste, Mic, MicOff, Plus, Square } from './icons'
 import { PressableScale } from './PressableScale'
 import type { ComposerAttachmentsApi, SentAttachment } from './useComposerAttachments'
 
@@ -53,6 +61,19 @@ const GLYPH = 20
  * same left edge as the control glyphs below it.
  */
 const TEXT_INSET = space.xs
+/** The floating composer's corner on the Chat board: the system's glass
+ *  capsule shape, larger than a card's 8 because it floats over the feed. */
+const COMPOSER_RADIUS = 14
+/** A control's corner on the 4pt grid's 8. */
+const SEND_RADIUS = 8
+/**
+ * How long a grown field takes to fold back to one line after a send. About
+ * the time the keyboard takes to move: long enough to read as one motion with
+ * the new bubble rising into the feed, short enough to be done before the
+ * operator's thumb is back on the keys.
+ */
+const COLLAPSE_MS = 280
+const COLLAPSE_EASING = Easing.bezier(0.25, 1, 0.5, 1)
 
 export function appendDictation(current: string, phrase: string): string {
   const finalized = phrase.trim()
@@ -92,11 +113,12 @@ export function composerVoiceStatus(
  * It is also the arrangement every reference composer on a phone converges on,
  * which is the shape this was asked for.
  *
- * The row reads outside-in from each end: attach at the leading edge because
- * it acts on what you are about to write, dictation and send at the trailing
- * edge because they are how you finish. Nothing travels when the field grows —
- * the row hangs off the bottom of the capsule and the text expands upward
- * away from it.
+ * The row reads outside-in from each end (board Chat, POD-2380): the
+ * leading slot carries what the message will run on (the session's model ·
+ * effort chip, or the Superagent rail), and attach, dictation and send sit
+ * together at the trailing edge because they are how you finish. Nothing
+ * travels when the field grows — the row hangs off the bottom of the capsule
+ * and the text expands upward away from it.
  *
  * Two deliberate quietings. THE FIELD IS SANS, not the old mono: a prompt is
  * prose, it renders as sans the moment it lands in the transcript, and every
@@ -120,9 +142,12 @@ export function Composer({
   attachments,
   // Aliased: `leading` is also the theme's line-height helper, imported above.
   leading: leadingSlot,
+  stackLeadingAtLargeText = false,
+  header,
   bottomInset = 0,
   onRestingHeight,
   onStop,
+  maxLines,
 }: {
   placeholder: string
   /**
@@ -167,6 +192,13 @@ export function Composer({
    * is left.
    */
   leading?: ReactNode
+  /** Give session info the full width above controls at accessibility text sizes. */
+  stackLeadingAtLargeText?: boolean
+  /**
+   * A row above the field that changes where the words go — "Replying to
+   * POD-1906" with its cancel (POD-2380). Absent takes no space.
+   */
+  header?: ReactNode
   /**
    * Chrome already sitting below the composer that has paid the bottom safe
    * area for it — the floating tab bar. Zero (the default) means the composer
@@ -174,13 +206,15 @@ export function Composer({
    */
   bottomInset?: number
   /**
-   * The composer's total height whenever the field is at rest, so a list
-   * underneath can end its content above it. Deliberately not reported while
+   * The composer's first total height, then its height whenever the field is
+   * at rest, so a list underneath can end its content above it. Not reported while
    * the field is grown: the reference composers do not reflow the conversation
    * under you as you type, and doing so would relayout the feed on every
    * content-size update.
    */
   onRestingHeight?: (height: number) => void
+  /** A pinned question can reserve room for the feed while typing. */
+  maxLines?: number
   /**
    * Ends the running turn. Passed only while one runs and may be stopped;
    * absent draws no control, so an idle composer keeps its two-control rail.
@@ -193,10 +227,22 @@ export function Composer({
     if (controlledValue === undefined) setLocalText(next)
     onDraftChange?.(next)
   }
-  const [focused, setFocused] = useState(false)
   const [measured, setMeasured] = useState<number | null>(null)
   const [line, setLine] = useState(COMPOSER_LINE)
   const inputRef = useRef<TextInput>(null)
+  const [pasteInput, setPasteInput] = useState<TextInput | null>(null)
+  const sendGuard = useRef(createSendGuard()).current
+  /**
+   * THE FOLD BACK TO ONE LINE (POD-2423). Sending empties the field, and on its
+   * own the capsule would jump from six lines to one in a frame, the feed
+   * jumping with it. Instead the field keeps a floor at its last height and
+   * that floor glides down to one line on the UI thread. It is a MIN height,
+   * so whatever is typed next can still grow past it, and 0 means no floor.
+   */
+  const collapseFloor = useSharedValue(0)
+  const collapseStyle = useAnimatedStyle(() => ({ minHeight: collapseFloor.value }))
+  const collapsingUntil = useRef(0)
+  const lastDockHeight = useRef<number | null>(null)
   const voice = useVoiceInput()
   const committedText = appendDictation(text, voice.session?.finalText ?? '')
   const composedText = appendDictation(committedText, voice.session?.interimText ?? '')
@@ -211,6 +257,7 @@ export function Composer({
   const keyboardVisible = useKeyboardVisible()
   const reduceMotion = useReduceMotion()
   const { width, fontScale } = useWindowDimensions()
+  const stackedLeading = stackLeadingAtLargeText && fontScale > 1.35
   const attached = attachments?.attachments ?? []
   const uploading = attachments?.uploading ?? false
   const takesAttach = Boolean(attachments?.pick ?? attachments?.paste)
@@ -224,9 +271,9 @@ export function Composer({
     !uploading &&
     (committedText.trim().length > 0 || attached.some((file) => file.state === 'ready'))
 
-  const height = composerFieldHeight(measured, line)
-  const scrolls = composerScrolls(measured, line)
-  const maxHeight = composerMaxHeight(line)
+  const height = composerFieldHeight(measured, line, maxLines)
+  const scrolls = composerScrolls(measured, line, maxLines)
+  const maxHeight = composerMaxHeight(line, maxLines)
   const atRest = composerAtRest(measured, line)
 
   // Web has to be asked for the content height; native volunteers it through
@@ -247,16 +294,25 @@ export function Composer({
    * Wired to the composer's own text node rather than the document: a paste into
    * the PROMPT is a different event from a paste anywhere else on the page, and
    * a page-level listener would swallow both. `accept` is read through a ref so
-   * re-binding the listener is not the price of one chip arriving.
+   * re-binding the listener is not the price of one chip arriving. The initial
+   * pager page can mount before Fabric registers its input, so wait for layout
+   * from the actual field, as the New Task prompt does.
    */
   const acceptRef = useRef(attachments?.accept)
   acceptRef.current = attachments?.accept
+  const fromSourceRef = useRef(attachments?.fromSource)
+  fromSourceRef.current = attachments?.fromSource
   const takesMedia = attachments !== undefined
   useEffect(() => {
-    if (!takesMedia) return
-    return onMediaPaste(inputRef.current, (files) => acceptRef.current?.(files))
-  }, [takesMedia])
+    if (!takesMedia || !pasteInput) return
+    return onMediaPaste(
+      pasteInput,
+      (files) => acceptRef.current?.(files),
+      (source) => fromSourceRef.current?.(source),
+    )
+  }, [takesMedia, pasteInput])
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a keyed insertion runs once; each render has the current writer.
   useEffect(() => {
     if (!draftInsertion) return
     clearVoiceRef.current()
@@ -270,15 +326,44 @@ export function Composer({
   }, [disabled, voice.listening, voice.starting, voice.stop])
 
   const send = () => {
-    if (!canSend) return
+    if (!canSend || attachments?.uploading) return
     const trimmed = committedText.trim()
     const files = attachments?.ready() ?? []
     if (!trimmed && files.length === 0) return
+    if (
+      !sendGuard.admit(
+        trimmed,
+        files.map((file) => file.ref?.id ?? file.path ?? file.name),
+      )
+    )
+      return
     voice.clear()
     onSend(trimmed, files.length > 0 ? files : undefined)
     attachments?.clear()
+    foldToOneLine()
     writeText('')
     setMeasured(null)
+  }
+
+  const foldToOneLine = () => {
+    const from = height
+    const to = composerFieldHeight(null, line)
+    // Web sizes the field itself from the measurement (CONTROLLED_HEIGHT).
+    if (CONTROLLED_HEIGHT || reduceMotion || from <= to) return
+    collapsingUntil.current = Date.now() + COLLAPSE_MS
+    // Set and animate in one assignment, so the first frame after the clear
+    // already holds the old height and nothing jumps before the glide.
+    collapseFloor.value = withSequence(
+      withTiming(from, { duration: 0 }),
+      withTiming(to, { duration: COLLAPSE_MS, easing: COLLAPSE_EASING }, (finished) => {
+        if (finished) collapseFloor.value = 0
+      }),
+    )
+    // The feed underneath pays for the composer's RESTING height. Mid-fold it
+    // is neither grown nor at rest, so report once the fold has landed.
+    setTimeout(() => {
+      if (lastDockHeight.current !== null) onRestingHeight?.(lastDockHeight.current)
+    }, COLLAPSE_MS + 16)
   }
 
   // ENTER MAKES A NEWLINE ON A PHONE. See ./composer-keys.ts for why, and for
@@ -301,7 +386,11 @@ export function Composer({
   }
 
   const onLayout = (e: LayoutChangeEvent) => {
-    if (atRest) onRestingHeight?.(e.nativeEvent.layout.height)
+    const firstLayout = lastDockHeight.current === null
+    lastDockHeight.current = e.nativeEvent.layout.height
+    if (Date.now() < collapsingUntil.current) return
+    // A saved multiline draft still needs an initial feed inset.
+    if (firstLayout || atRest) onRestingHeight?.(e.nativeEvent.layout.height)
   }
 
   // The keyboard covers the home indicator AND the floating tab bar, so both
@@ -309,14 +398,26 @@ export function Composer({
   // float the composer that far above the keyboard. (Web never reports a
   // keyboard here — the visual-viewport root owns that geometry.)
   const chrome = keyboardVisible ? 0 : bottomInset > 0 ? bottomInset : insets.bottom
-  const voiceStatus = composerVoiceStatus(voice)
+  // ON iOS THE MIC IS ALWAYS THERE (board Chat): dictation is part of how a
+  // message is finished. Where the private speech model is not available
+  // (simulator, older iOS, still downloading) a tap says why on the status
+  // line instead of the control vanishing. Web keeps hiding it without a
+  // speech API, since nothing there could ever make it work.
+  const showVoice = voice.supported || Platform.OS === 'ios'
+  const [voiceNote, setVoiceNote] = useState<string | null>(null)
+  const voiceStatus = composerVoiceStatus(voice) || (voiceNote ?? '')
 
   const changeText = (next: string) => {
+    if (voiceNote) setVoiceNote(null)
     if (voice.session || voice.starting || voice.listening || voice.error) voice.clear()
     writeText(next)
   }
 
   const startVoice = () => {
+    if (!voice.supported) {
+      setVoiceNote(voice.statusMessage ?? 'Dictation is not available on this device.')
+      return
+    }
     // A completed session remains visible until the next draft boundary. Move
     // its finalized text into the typed base before starting the new session.
     writeText(committedText)
@@ -329,15 +430,12 @@ export function Composer({
       pointerEvents="box-none"
       onLayout={onLayout}
     >
-      <BlurView
-        intensity={32}
-        tint="dark"
+      <ComposerGlass
         testID="composer-bar"
-        style={[styles.surface, focused && styles.surfaceFocused, disabled && styles.disabled]}
+        radius={COMPOSER_RADIUS}
+        style={[styles.surface, disabled && styles.disabled]}
       >
-        {/* The blur is not a surface on its own — it needs a tint to sit on,
-            the way the tab-bar capsule does. */}
-        <View style={styles.fill} pointerEvents="none" />
+        {header}
         {caption ? (
           <Text
             numberOfLines={1}
@@ -369,7 +467,7 @@ export function Composer({
             sight (2026-08-29, device). Native grows from its own content and is
             capped by `maxHeight`; react-native-web's <textarea> cannot do that,
             so it keeps the measured height (see ./composer-measure.web). */}
-        <View style={[styles.fieldWrap, CONTROLLED_HEIGHT ? { height } : null]}>
+        <Reanimated.View style={[styles.fieldWrap, CONTROLLED_HEIGHT ? { height } : collapseStyle]}>
           <TextInput
             ref={inputRef}
             {...composerFieldProps}
@@ -377,12 +475,11 @@ export function Composer({
             style={[styles.input, CONTROLLED_HEIGHT && styles.inputFill, { maxHeight }]}
             value={composedText}
             onChangeText={changeText}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
             placeholder={placeholder}
             placeholderTextColor={color.textDim}
             multiline
             editable={!disabled}
+            onLayout={() => setPasteInput(inputRef.current)}
             onKeyPress={onKeyPress}
             // react-native-web answers this with a scrollHeight that can only
             // grow; useComposerMeasure asks the node directly instead.
@@ -394,12 +491,21 @@ export function Composer({
             // handled in `onKeyPress` instead, where the modifiers are legible.
             submitBehavior="newline"
           />
-        </View>
+        </Reanimated.View>
+        {leadingSlot && stackedLeading ? (
+          <View testID="composer-leading-info" style={styles.leadingInfo}>
+            {leadingSlot}
+          </View>
+        ) : null}
         {/* Leading cluster, then the gap, then the trailing cluster. The
             spacer is a flexing view rather than `justifyContent: space-between`
             so the row keeps its shape when one end is empty — a composer with
             no attach control must not centre its send disc. */}
         <View style={styles.controls}>
+          {leadingSlot && !stackedLeading ? (
+            <View style={styles.leading}>{leadingSlot}</View>
+          ) : null}
+          <View style={styles.controlGap} pointerEvents="none" />
           {takesAttach ? (
             <AttachButton
               mode={attachments?.pick ? 'pick' : 'paste'}
@@ -407,12 +513,8 @@ export function Composer({
               onPress={attachments?.pick ?? attachments?.paste ?? (() => {})}
             />
           ) : null}
-          {leadingSlot ? (
-            <View style={[styles.leading, !takesAttach && styles.leadingAlone]}>{leadingSlot}</View>
-          ) : null}
-          <View style={styles.controlGap} pointerEvents="none" />
           {onStop ? <StopTurnButton onPress={onStop} /> : null}
-          {voice.supported ? (
+          {showVoice ? (
             <VoiceButton
               starting={voice.starting}
               listening={voice.listening}
@@ -424,7 +526,7 @@ export function Composer({
           ) : null}
           <SendButton ready={canSend} onPress={send} reduceMotion={reduceMotion} />
         </View>
-      </BlurView>
+      </ComposerGlass>
     </View>
   )
 }
@@ -557,7 +659,7 @@ function AttachButton({
       scaleTo={0.9}
       style={({ pressed }) => [styles.control, pressed && styles.controlPressed]}
     >
-      <Icon as={mode === 'pick' ? Paperclip : ClipboardPaste} size={GLYPH} color={color.textDim} />
+      <Icon as={mode === 'pick' ? Plus : ClipboardPaste} size={GLYPH} color={color.textDim} />
     </PressableScale>
   )
 }
@@ -606,9 +708,11 @@ function SendButton({
       haptic
       style={styles.control}
     >
+      <View style={[styles.controlDisc, styles.sendKey, styles.sendRest]} />
       <Animated.View
         style={[
           styles.controlDisc,
+          styles.sendKey,
           styles.sendDisc,
           {
             opacity: fill,
@@ -622,10 +726,10 @@ function SendButton({
           { opacity: fill.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) },
         ]}
       >
-        <Icon as={ArrowUp} size={GLYPH} color={color.textDim} />
+        <Icon as={ArrowUp} size={GLYPH} color={color.textFaint} />
       </Animated.View>
       <Animated.View style={[styles.sendGlyph, { opacity: fill }]}>
-        <Icon as={ArrowUp} size={GLYPH} color={color.bg} />
+        <Icon as={ArrowUp} size={GLYPH} color={color.onAccent} />
       </Animated.View>
     </PressableScale>
   )
@@ -644,14 +748,14 @@ const styles = StyleSheet.create({
    * through `controls` and the surface can be square about it.
    */
   surface: {
-    borderRadius: radius.xxl,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.hairline,
-    // The blur is drawn by a child layer, so the radius has to clip it — the
-    // same arrangement as the tab-bar capsule.
+    borderRadius: COMPOSER_RADIUS,
+    // No border of its own: the Glass layer draws the edge (Liquid Glass's
+    // own rim, or the fallback's hairline), and a second one doubled it.
+    // The glass is a child layer, so the radius has to clip it.
     overflow: 'hidden',
     boxShadow: '0 6px 24px rgba(0, 0, 0, 0.5)',
-    paddingHorizontal: space.md,
+    paddingLeft: space.md,
+    paddingRight: space.md,
     paddingTop: space.md,
     // The control row's 44pt target already carries ~12 of air under its
     // glyph; paying the full inset again would hang the capsule open.
@@ -659,19 +763,9 @@ const styles = StyleSheet.create({
   },
   // Focus lifts the seam one tier. It does not change hue: the caret is in the
   // field and the keyboard is already up — the signal has been sent.
-  surfaceFocused: {
-    borderColor: color.border,
-  },
   // Opacity, never geometry: a pending or blocked composer must not resize.
   disabled: {
     opacity: 0.55,
-  },
-  fill: {
-    ...StyleSheet.absoluteFill,
-    // Opaque enough that a coloured row passing underneath reads as a soft
-    // shape rather than as colour inside the composer — an accented action card
-    // sliding past used to tint the capsule itself.
-    backgroundColor: alpha(color.bg, 0.88),
   },
   caption: {
     ...sans(500),
@@ -756,15 +850,13 @@ const styles = StyleSheet.create({
     // a chip kissing the mic once a long label truncates. This is the air the
     // flexing gap cannot guarantee, because at narrow widths there is none.
     marginRight: space.sm,
-  },
-  /**
-   * With no attach control in front of it, the slot pays back half the
-   * difference the row's negative inset took out, so a chip's border starts on
-   * the same left edge a glyph would have. Alongside the paperclip it needs
-   * nothing: that target already carries those 12 points as trailing air.
-   */
-  leadingAlone: {
+    // The slot leads the row, so it pays back what the row's negative inset
+    // took out and the chip's words start on the field's left edge.
     marginLeft: (CONTROL_TARGET - GLYPH) / 2,
+  },
+  leadingInfo: {
+    marginHorizontal: TEXT_INSET,
+    marginTop: space.xs,
   },
   controlGap: {
     flex: 1,
@@ -803,8 +895,16 @@ const styles = StyleSheet.create({
     borderRadius: 2.5,
     backgroundColor: color.dangerText,
   },
+  /** The send key is a control, so a control's corner, not a disc (board Chat). */
+  sendKey: {
+    borderRadius: SEND_RADIUS,
+  },
+  sendRest: {
+    backgroundColor: color.fill,
+  },
+  /** Signal only once there is something to send. */
   sendDisc: {
-    backgroundColor: color.text,
+    backgroundColor: color.accent,
   },
   sendGlyph: {
     ...StyleSheet.absoluteFill,

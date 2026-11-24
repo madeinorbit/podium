@@ -207,6 +207,7 @@ export class ChatViewModel {
       this.session?.status,
       this.session?.agentPhase,
       this.livePendingAskIndex >= 0,
+      this.question,
     )
   }
   @lazy({ equals: compareStructural }) get attribution() {

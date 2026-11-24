@@ -2,7 +2,7 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
 import type { IssuePanelArtifact } from '@podium/model'
 
-export type IssueArtifactPreview = 'image' | 'video' | 'html' | 'markdown' | 'text' | 'file'
+export type IssueArtifactPreview = 'image' | 'video' | 'html' | 'pdf' | 'markdown' | 'text' | 'file'
 
 const TEXT_EXTS = new Set(['txt', 'json', 'ts', 'tsx', 'js', 'jsx', 'css', 'svg', 'log', 'csv'])
 
@@ -28,6 +28,7 @@ export function issueArtifactPreview(path: string): IssueArtifactPreview {
   if (kind === 'image' || kind === 'video') return kind
   const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
   if (ext === 'html' || ext === 'htm') return 'html'
+  if (ext === 'pdf') return 'pdf'
   if (ext === 'md' || ext === 'markdown') return 'markdown'
   if (TEXT_EXTS.has(ext)) return 'text'
   return 'file'
@@ -51,7 +52,11 @@ export function issueArtifactLabel(artifact: IssuePanelArtifact): string {
  */
 export function htmlWithBase(html: string, baseUrl: string): string {
   if (/<base[\s/>]/i.test(html)) return html
-  const tag = `<base href="${baseUrl.replace(/"/g, '&quot;')}">`
+  return insertInHead(html, `<base href="${baseUrl.replace(/"/g, '&quot;')}">`)
+}
+
+/** After `<head>` when present, after the doctype otherwise, else first. */
+function insertInHead(html: string, tag: string): string {
   const insertAfter = (m: RegExpMatchArray | null): string | null => {
     if (!m || m.index === undefined) return null
     const at = m.index + m[0].length
@@ -62,6 +67,21 @@ export function htmlWithBase(html: string, baseUrl: string): string {
     insertAfter(html.match(/^\s*<!doctype[^>]*>/i)) ??
     tag + html
   )
+}
+
+/**
+ * Give an artifact page that declares no viewport the phone-width one, so it
+ * lays out for the screen and stays pinch-zoomable. Only `width=device-width,
+ * initial-scale=1`: a page that sets its own viewport keeps it untouched, even
+ * one whose author turned zoom off, and nothing here ever adds maximum-scale or
+ * user-scalable=no (the app's own web export pins those; artifact documents
+ * are separate data: pages and never inherit them). Without a viewport WebKit
+ * would lay the page out 980px wide and shrink it to fit. Insertion follows
+ * {@link htmlWithBase}.
+ */
+export function htmlWithViewport(html: string): string {
+  if (/<meta[^>]+name\s*=\s*["']?viewport/i.test(html)) return html
+  return insertInHead(html, '<meta name="viewport" content="width=device-width, initial-scale=1">')
 }
 
 /**

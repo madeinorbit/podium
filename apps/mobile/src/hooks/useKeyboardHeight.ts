@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Dimensions, Keyboard, type KeyboardEvent, Platform } from 'react-native'
+import { useEffect, useRef, useState } from 'react'
+import { Keyboard, type KeyboardEvent, Platform, useWindowDimensions } from 'react-native'
 
 /**
  * The keyboard's current overlap with the window bottom, in pt — 0 when hidden.
@@ -26,8 +26,15 @@ import { Dimensions, Keyboard, type KeyboardEvent, Platform } from 'react-native
  * animation rather than after it; Android only reports did-show/did-hide, and
  * its window is resized by the system anyway, so callers there generally want 0.
  * Web returns 0 — the visual-viewport root owns keyboard geometry.
+ *
+ * React Native converts iOS endCoordinates to window coordinates. Keep that
+ * frame and derive its overlap with the current window so rotation and resizing
+ * work regardless of which notification arrives first.
  */
-export function keyboardOverlap(windowHeight: number, event: KeyboardEvent): number {
+export function keyboardOverlap(
+  windowHeight: number,
+  event: Pick<KeyboardEvent, 'endCoordinates'>,
+): number {
   const { screenY, height } = event.endCoordinates
   // A dismissed keyboard reports a frame parked at (or below) the window
   // bottom; overlap is what actually intrudes.
@@ -39,24 +46,51 @@ export function keyboardOverlap(windowHeight: number, event: KeyboardEvent): num
  * and nothing anywhere else. Android's window is resized by the system and web's
  * visual viewport does the same job, so lifting there would double-count.
  */
-export function useKeyboardLift(): number {
-  const height = useKeyboardHeight()
+export function useKeyboardLift(beforeChange?: (event: KeyboardEvent) => void): number {
+  const height = useKeyboardHeight(beforeChange)
   return Platform.OS === 'ios' ? height : 0
 }
 
-export function useKeyboardHeight(): number {
-  const [height, setHeight] = useState(0)
+/** Optional notification timing for a caller that animates its own layout. */
+export function useKeyboardHeight(beforeChange?: (event: KeyboardEvent) => void): number {
+  const { height: windowHeight } = useWindowDimensions()
+  const [endCoordinates, setEndCoordinates] = useState<KeyboardEvent['endCoordinates'] | undefined>(
+    () => (Platform.OS === 'web' ? undefined : Keyboard.metrics?.()),
+  )
+  const height = endCoordinates ? keyboardOverlap(windowHeight, { endCoordinates }) : 0
+  const heightRef = useRef(height)
+  heightRef.current = height
+  const windowHeightRef = useRef(windowHeight)
+  windowHeightRef.current = windowHeight
+  const beforeChangeRef = useRef(beforeChange)
+  beforeChangeRef.current = beforeChange
   useEffect(() => {
     if (Platform.OS === 'web') return
+    const prepareChange = (nextHeight: number, event: KeyboardEvent) => {
+      if (heightRef.current === nextHeight) return
+      // Schedule the caller's native animation before React changes its inset.
+      beforeChangeRef.current?.(event)
+      heightRef.current = nextHeight
+    }
     const onFrame = (event: KeyboardEvent) => {
-      setHeight(keyboardOverlap(Dimensions.get('window').height, event))
+      prepareChange(keyboardOverlap(windowHeightRef.current, event), event)
+      setEndCoordinates(event.endCoordinates)
+    }
+    const onHide = (event: KeyboardEvent) => {
+      prepareChange(0, event)
+      setEndCoordinates(undefined)
     }
     const subs =
       Platform.OS === 'ios'
-        ? [Keyboard.addListener('keyboardWillChangeFrame', onFrame)]
+        ? [
+            Keyboard.addListener('keyboardWillChangeFrame', onFrame),
+            Keyboard.addListener('keyboardDidShow', onFrame),
+            Keyboard.addListener('keyboardWillHide', onFrame),
+            Keyboard.addListener('keyboardDidHide', onHide),
+          ]
         : [
             Keyboard.addListener('keyboardDidShow', onFrame),
-            Keyboard.addListener('keyboardDidHide', () => setHeight(0)),
+            Keyboard.addListener('keyboardDidHide', onHide),
           ]
     return () => {
       for (const sub of subs) sub.remove()

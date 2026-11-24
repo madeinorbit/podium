@@ -26,9 +26,15 @@ import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useRefreshableTab } from '../hooks/useRefreshableTab'
 import { type PoolWorkMenuData, resolvePoolWorkMenu } from '../lib/pool-work-menu'
 import { sessionHref } from '../lib/session-route'
+import { startupTiming } from '../lib/startup-timing'
 import type { WorkMenuActionId } from '../lib/work-menu'
 import { WorkSurface } from './WorkSurface'
-import { readWorkNavigation, type WorkRouteParams, workFilterParams } from './work-navigation'
+import {
+  readWorkNavigation,
+  type WorkRouteParams,
+  workFilterParams,
+  workTaskHref,
+} from './work-navigation'
 import { saveWorkNavigation } from './work-restoration'
 
 const EMPTY_LAYOUT: SidebarState = Object.freeze({
@@ -47,7 +53,9 @@ const foldKey = (key: string) =>
 
 /** Both phone presentations borrow desktop membership and the same per-task companions. */
 export function WorkScreen() {
+  startupTiming.mark('work.render')
   const pool = useMobilePool()
+  if (pool) startupTiming.mark('work.pool-ready')
   return (
     <WorklistProvider model={pool ? worklistView(pool) : null}>
       <PoolWorkScreen />
@@ -87,6 +95,13 @@ const PoolWorkScreen = observer(function PoolWorkScreen() {
     model?.phone.setFilters(filters)
     return model?.phone
   }, [model, filters])
+  // A retained Work screen lends the shared worklist its own route filters
+  // when focused. Search stays on this list until the native field clears it.
+  useFocusEffect(
+    useCallback(() => {
+      model?.phone.setFilters(filters)
+    }, [model, filters]),
+  )
   const keys = phone?.sections.map((section) => section.key) ?? []
   const { collapsed, toggle } = useCollapsedSet(keys, foldKey)
   const [pendingNav, setPendingNav] = useState<string | null>(null)
@@ -112,12 +127,11 @@ const PoolWorkScreen = observer(function PoolWorkScreen() {
             workFocus: issue.id,
           }),
         () => {
-          router.push(`/mission/${encodeURIComponent(issue.id)}`)
-          void store.issues.markRead(issue.id)
+          router.push(workTaskHref(pool, issue.id))
         },
       )
     },
-    [filters, model, router, store],
+    [filters, model, pool, router],
   )
   const openSession = useCallback(
     (sessionId: SessionId, rowKey: string) => {
@@ -156,8 +170,11 @@ const PoolWorkScreen = observer(function PoolWorkScreen() {
       if (action === 'read')
         void (issue.unread ? store.issues.markRead(id) : store.issues.markUnread(id))
       else if (action === 'undefer') void store.issues.undefer(id)
-      else if (action === 'bringBack') void store.issues.setTucked(id, false)
-      else if (action === 'placement') {
+      else if (action === 'tuck') {
+        if (row.canTuck) void store.issues.setTucked(id, true)
+      } else if (action === 'bringBack') {
+        if (row.canBringBack) void store.issues.setTucked(id, false)
+      } else if (action === 'placement') {
         const placement = discoveredPlacement(issue)
         if (placement?.originId)
           void store.issues.setPlacement(

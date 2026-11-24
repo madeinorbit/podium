@@ -89,4 +89,20 @@ describe('Work long-press menu projection', () => {
       [],
     )
   })
+
+  it('offers Tuck and its inverse only from the shared row capabilities', () => {
+    expect(workMenuActionIds(issue(), 'live', { placement: false })).not.toContain('tuck')
+    expect(
+      workMenuActionIds(issue({ stage: 'done' }), 'live', {
+        placement: false,
+        canTuck: true,
+      }),
+    ).toEqual(['rename', 'read', 'status', 'tuck', 'delete'])
+    expect(
+      workMenuActionIds(issue({ stage: 'done' }), 'live', {
+        placement: false,
+        canBringBack: true,
+      }),
+    ).toEqual(['rename', 'read', 'status', 'bringBack', 'delete'])
+  })
 })

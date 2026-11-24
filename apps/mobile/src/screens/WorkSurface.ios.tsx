@@ -1,359 +1,627 @@
 import { Host } from '@expo/ui'
 import {
   Button,
-  ContextMenu,
   HStack,
   Image,
   List,
   Picker,
   ProgressView,
+  RNHostView,
   Section,
   Spacer,
+  SwipeActions,
   Text,
   VStack,
 } from '@expo/ui/swift-ui'
 import {
-  accessibilityAddTraits,
+  Animation,
   accessibilityElement,
   accessibilityHidden,
   accessibilityHint,
   accessibilityIdentifier,
   accessibilityLabel,
   accessibilityValue,
-  alignmentGuide,
+  animation,
   background,
   buttonStyle,
   contentShape,
-  disabled,
+  controlSize,
   font,
   foregroundStyle,
   frame,
+  labelsHidden,
   lineLimit,
   listRowBackground,
   listRowInsets,
   listRowSeparator,
-  listRowSeparatorTint,
+  listSectionMargins,
+  listSectionSpacing,
   listStyle,
   monospacedDigit,
   onAppear,
+  onDisappear,
+  onGeometryChange,
   pickerStyle,
   refreshable,
   scrollContentBackground,
   shapes,
   tag,
+  tint,
 } from '@expo/ui/swift-ui/modifiers'
 import { relativeTime } from '@podium/client-core/focus'
-import { discoveredPlacement, type IssueNavigationModel } from '@podium/client-core/values'
+import type { IssueNavigationModel } from '@podium/client-core/values'
+import { headerView } from '@podium/client-graph/header-views'
+import { omitGone } from '@podium/client-graph/lookup'
+import { MOBILE_TASK_WINDOW_SIZE } from '@podium/client-graph/mobile-tasks'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { observer, useWorklistModel } from '@podium/client-graph/react'
 import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
-import type { PhoneWorkLane, PhoneWorkSection } from '@podium/client-graph/worklist/phone'
-import { issueStatusMenuEntries, issueStatusValueOf, type SessionId } from '@podium/model'
+import type {
+  PhoneWorkLane,
+  PhoneWorklist,
+  PhoneWorkSection,
+} from '@podium/client-graph/worklist/phone'
+import { issueStatusValue, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { Stack, useFocusEffect, useRouter } from 'expo-router'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import * as Haptics from 'expo-haptics'
+import { Stack, useRouter } from 'expo-router'
+import { type ComponentProps, Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { StyleSheet, useWindowDimensions, View } from 'react-native'
-import type { SearchBarCommands } from 'react-native-screens'
+import { useMobilePoolProjection } from '../client/mobile-pool'
+import { UPDATING_SUBTITLE, useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
+import { ContextMenu } from '../components/ContextMenu.ios'
+import { IssueRowMenuItems } from '../components/IssueRowMenuItems.ios'
+import { ListNotices } from '../components/list-notices.ios'
+import {
+  contentVisibility,
+  listRowHairline,
+  listRowPress,
+  listSearchStartsHidden,
+} from '../components/list-row-press.ios'
+import { ListSearchBar, useSearchLaunchTransition } from '../components/list-search-bar.ios'
+import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { useUnreadNotices } from '../components/NoticeBell'
-import { ScreenRefreshMark } from '../components/ScreenRefreshMark'
-import { MIN_REFRESH_CONFIRMATION_MS } from '../hooks/useRefreshableTab'
+import { RevealSwipeActions } from '../components/RevealSwipeActions.ios'
+import { WorkingMark } from '../components/WorkingMark'
 import { useAgeNow } from '../lib/clock-hooks'
-import { workMenuActionIds } from '../lib/work-menu'
+import { listOrderRevision } from '../lib/list-order-revision'
+import { startupTiming } from '../lib/startup-timing'
+import { useRowPrime } from '../lib/use-row-prime'
+import { sectionAnimationValue, useSettledOrder } from '../lib/use-settled-order'
+import { VisibleContent } from '../lib/visible-content'
+import { quietProjectsLabel, workLaneTitle, workSubtitle } from '../lib/work-row-copy'
 import { mobileRowStamp } from '../lib/work-sections'
+import { headerSubtitleOptions, nativeSubtitleAvailable } from '../navigation/native-stack'
 import { color } from '../theme/theme'
 import { NAV_LOADER_DELAY_MS, useDelayedFlag } from './WorkListRow'
 import { WORK_LANE_LABELS, WORK_LANES, type WorkSurfaceProps } from './WorkSurface.types'
 import { workPaper as paper } from './work-paper'
-import { workSectionWindow } from './work-section-window'
 
-const PAGE_SIZE = 120
-const plainRow = [
-  listRowBackground(paper.ground),
-  listRowSeparatorTint(paper.separator),
-  listRowInsets({ leading: 20, trailing: 20, top: 11, bottom: 11 }),
+/** Card rows: 12 inset, 14 status column + 8 gap, so titles and separators share x=34. */
+/** Accessibility text sizes, as Tasks uses them: layouts switch, not just grow. */
+const ACCESSIBILITY_SCALE = 1.6
+
+const CARD_INSET = 12
+/** Header and card sections sit flush; the 44pt header rows carry the rhythm (as on Tasks). */
+const COMPACT_SECTION = [listSectionMargins({ edges: 'vertical', length: 0 })]
+const MARK_WIDTH = 14
+const MARK_GAP = 8
+/** A card's first and last rows keep this much more room against its rounded corners. */
+const CARD_EDGE = 8
+/** Task rows keep the system cell background (paper.card's exact values): a custom
+ * listRowBackground suppresses the List's native touch-down highlight. */
+const taskRowAt = (first: boolean, last: boolean) => [
+  listRowInsets({
+    leading: CARD_INSET,
+    trailing: CARD_INSET,
+    top: 8 + (first ? CARD_EDGE : 0),
+    bottom: 8 + (last ? CARD_EDGE : 0),
+  }),
 ]
-const quietRow = [...plainRow, listRowSeparator('hidden')]
+const cardRowAt = (first: boolean, last: boolean) => [
+  listRowBackground(paper.card),
+  ...taskRowAt(first, last),
+]
+const loneCardRow = cardRowAt(true, true)
+/** Rows that sit on the ground rather than in a card (lane control, notes, empty state). */
+const groundRow = [listRowBackground(paper.ground), listRowSeparator('hidden')]
+const quietRow = [...groundRow, listRowInsets({ leading: 0, trailing: 0, top: 4, bottom: 4 })]
+const noteRow = [
+  // List-row inset traits do not compose: inheriting quietRow's zero inset
+  // lets the rounded cell mask cut the first/last lines' leading glyphs.
+  ...groundRow,
+  listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 8, bottom: 8 }),
+]
 
 /** A real SwiftUI plain list. UIKit owns the stack, search, toolbar and tab bar. */
 export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps) {
+  startupTiming.mark('work.surface-render')
+  const { phone } = props
   const router = useRouter()
   const unreadNotices = useUnreadNotices()
-  const { phone } = props
-  const searchRef = useRef<SearchBarCommands | null>(null)
-  const nativeQuery = useRef<string | undefined>(undefined)
-  const restoreQuery = useCallback(() => {
-    if (searchRef.current && nativeQuery.current !== phone.query) {
-      searchRef.current.setText(phone.query)
-      nativeQuery.current = phone.query
-    }
-  }, [phone, phone.query])
-  useEffect(restoreQuery, [restoreQuery])
-  useFocusEffect(
-    useCallback(() => {
-      const frame = requestAnimationFrame(restoreQuery)
-      return () => cancelAnimationFrame(frame)
-    }, [restoreQuery]),
+  const searchLaunch = useSearchLaunchTransition()
+  const quiet = phone.quietSections
+  const sections = (
+    phone.quietExpanded && quiet.length ? [...phone.activeSections, ...quiet] : phone.activeSections
+  ).map((section) => ({ section, folded: !phone.needle && props.collapsed.has(section.key) }))
+  const animate = useSettledOrder(
+    listOrderRevision(
+      sections.map(({ section, folded }) => ({ key: section.key, folded, ids: section.ids })),
+    ),
+    !props.loading,
   )
-  // Native List virtualizes the views; bound the number of JS row observers as well.
-  const [window, setWindow] = useState({ scope: '', size: PAGE_SIZE })
-  const scope = `${phone.lane}:${phone.needle}`
-  const { sections, more } = workSectionWindow(
-    phone.sections,
-    props.collapsed,
-    Boolean(phone.needle),
-    window.scope === scope ? window.size : PAGE_SIZE,
+  const { onAction, onStatus } = props
+  const onSwipe = useCallback(
+    (id: string, action: WorkSwipeAction) => {
+      void Haptics.selectionAsync()
+      if (action === 'close') onStatus(id, issueStatusValue('done'))
+      else onAction(id, action)
+    },
+    [onAction, onStatus],
   )
-  const onRefresh = useCallback(async () => {
-    props.refresh.onRefresh()
-    await new Promise((resolve) => setTimeout(resolve, MIN_REFRESH_CONFIRMATION_MS))
-  }, [props.refresh.onRefresh])
-  // At the window's end with every row shown, the search asks the server for its next page.
-  const loadMore = () => {
-    if (!more) phone.moreSearch()
-    setWindow((current) => ({
-      scope,
-      size: (current.scope === scope ? current.size : PAGE_SIZE) + PAGE_SIZE,
-    }))
-  }
+  // W3: two existing shared counts, joined for the title's subtitle.
+  const needYou = useMobilePoolProjection(readNeedYouCount, 0)
+  const working = useMobilePoolProjection(readWorkingCount, 0)
+  const refreshSubtitle = useWorkspaceRefreshSubtitle()
+  // The worklist reloading rows it already shows reads as the same caption.
+  const subtitle =
+    refreshSubtitle ?? (phone.refreshing ? UPDATING_SUBTITLE : workSubtitle(needYou, working))
+  // W8: one launcher for every project header's +, opened with that project picked.
+  const openProjectWork = useRef<((repoPath: string) => void) | null>(null)
+  const onNewInProject = useCallback((repoPath: string) => {
+    openProjectWork.current?.(repoPath)
+  }, [])
 
   return (
-    <View style={styles.root}>
+    <View collapsable={false} style={styles.root}>
       <Stack.Screen
         options={{
           title: 'Work',
           headerLargeTitleEnabled: true,
+          // Match Tasks: UIKit must not resize the hosting view as the large
+          // title stretches/collapses. SwiftUI owns the list's safe-area inset.
+          headerTransparent: true,
           headerLargeTitleShadowVisible: false,
           headerShadowVisible: false,
           contentStyle: { backgroundColor: paper.ground },
           headerTintColor: color.accentTint,
+          // The tint is for bar buttons; titles keep the system label colour.
+          headerTitleStyle: { color: color.text },
+          headerLargeTitleStyle: { color: color.text },
+          ...headerSubtitleOptions(nativeSubtitleAvailable ? subtitle : undefined, { large: true }),
         }}
       />
-      <Stack.Toolbar placement="left">
-        <Stack.Toolbar.View>
-          <ScreenRefreshMark refreshing={phone.refreshing} />
-        </Stack.Toolbar.View>
-        <Stack.Toolbar.Menu accessibilityLabel={`Work list: ${WORK_LANE_LABELS[phone.lane]}`}>
-          <Stack.Toolbar.Label>{WORK_LANE_LABELS[phone.lane]}</Stack.Toolbar.Label>
-          {WORK_LANES.map((lane) => (
-            <Stack.Toolbar.MenuAction
-              key={lane}
-              isOn={phone.lane === lane}
-              onPress={() => phone.setLane(lane)}
-            >
-              {WORK_LANE_LABELS[lane]}
-            </Stack.Toolbar.MenuAction>
-          ))}
-        </Stack.Toolbar.Menu>
-      </Stack.Toolbar>
-      {/* My notices (POD-6881): the bell opens the inbox; badged while unread. */}
-      <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button
-          icon={unreadNotices > 0 ? 'bell.badge' : 'bell'}
-          accessibilityLabel={unreadNotices > 0 ? `Inbox, ${unreadNotices} unread` : 'Inbox'}
-          onPress={() => router.push('/inbox')}
-        >
-          Inbox
-        </Stack.Toolbar.Button>
-      </Stack.Toolbar>
       <NewWorkButton
         renderTrigger={(open) => (
+          // ONE right toolbar: each Stack.Toolbar sets the bar's right items, so a
+          // second one replaced the first, and it reads its buttons by element
+          // type, so they must be direct children (POD-2666).
           <Stack.Toolbar placement="right">
+            {/* My notices (POD-6881): the inbox, `bell.badge` while anything is unread. */}
+            <Stack.Toolbar.Button
+              icon={unreadNotices > 0 ? 'bell.badge' : 'bell'}
+              accessibilityLabel={unreadNotices > 0 ? `Inbox, ${unreadNotices} unread` : 'Inbox'}
+              onPress={() => router.push('/inbox')}
+            >
+              Inbox
+            </Stack.Toolbar.Button>
             <Stack.Toolbar.Button
               icon="square.and.pencil"
               accessibilityLabel="New work"
-              onPress={open}
+              onPress={() => open()}
             >
               New work
             </Stack.Toolbar.Button>
           </Stack.Toolbar>
         )}
       />
-      <Stack.SearchBar
-        ref={searchRef}
-        placeholder="Search tasks or ID"
-        hideWhenScrolling
-        autoCapitalize="none"
-        onChangeText={(event) => {
-          nativeQuery.current = event.nativeEvent.text
-          phone.setQuery(event.nativeEvent.text)
-        }}
-        onCancelButtonPress={() => {
-          nativeQuery.current = ''
-          phone.setQuery('')
+      <ListSearchBar query={phone.query} onQueryChange={(query) => phone.setQuery(query)} />
+      <NewWorkButton
+        renderTrigger={(open) => {
+          // No trigger of its own: the project headers' + buttons open it.
+          openProjectWork.current = open
+          return null
         }}
       />
-      <View>{props.notices}</View>
-      <Host style={styles.host} seedColor={color.accentTint}>
-        <List
-          key={phone.lane}
-          modifiers={[
-            listStyle('plain'),
-            scrollContentBackground('hidden'),
-            background(paper.ground),
-            refreshable(onRefresh),
-            accessibilityIdentifier('work-list'),
-          ]}
-        >
-          {props.loading && !sections.length ? <ProgressView modifiers={quietRow} /> : null}
-          {sections.map(({ section, folded, visible }) => (
-            <Section
-              key={section.key}
-              header={
-                <NativeGroupHeader section={section} folded={folded} onToggle={props.onToggle} />
-              }
-            >
-              {visible.map((id) => (
-                <NativeWorkRow
-                  key={id}
-                  id={id}
-                  lane={phone.lane}
-                  pending={props.pendingNav === id}
-                  onOpenIssue={props.onOpenIssue}
-                  onOpenSession={props.onOpenSession}
-                  onAction={props.onAction}
-                  onStatus={props.onStatus}
-                />
-              ))}
-              {!folded && !section.ids.length ? (
+      {/* Keep the Host first so UIKit can discover the List for tab reselect. */}
+      <View style={styles.listContainer}>
+        <Host style={styles.host} seedColor={color.accentTint}>
+          {/* Keep UIKit's tracked scroll view and hidden search offset across lanes. */}
+          <List
+            modifiers={[
+              listStyle('insetGrouped'),
+              listSectionSpacing(0),
+              scrollContentBackground('hidden'),
+              background(paper.ground),
+              refreshable(props.refresh.onRefresh),
+              accessibilityIdentifier('work-list'),
+              listSearchStartsHidden(searchLaunch),
+              onAppear(() => startupTiming.mark('work.native-list-appear')),
+            ]}
+          >
+            <Section>
+              <ListNotices>{props.notices}</ListNotices>
+              {subtitle && !nativeSubtitleAvailable ? (
                 <Text
                   modifiers={[
-                    ...quietRow,
+                    ...noteRow,
                     font({ textStyle: 'subheadline' }),
-                    foregroundStyle(paper.tertiary),
+                    foregroundStyle(paper.secondary),
                   ]}
                 >
-                  No open tasks
+                  {subtitle}
                 </Text>
               ) : null}
+              <WorkLanePicker phone={phone} />
             </Section>
-          ))}
-          {more || phone.searchMore ? (
-            <Text
-              modifiers={[
-                ...quietRow,
-                onAppear(loadMore),
-                font({ textStyle: 'footnote' }),
-                foregroundStyle(paper.secondary),
-              ]}
-            >
-              Loading more tasks…
-            </Text>
-          ) : null}
-          {!props.loading && !sections.length ? (
-            <VStack alignment="leading" spacing={8} modifiers={quietRow}>
-              <Text modifiers={[font({ textStyle: 'headline' }), foregroundStyle(paper.ink)]}>
-                {phone.needle
-                  ? 'No matching tasks'
-                  : phone.lane === 'open'
-                    ? 'No work yet'
-                    : `No ${phone.lane} tasks`}
-              </Text>
+            {props.loading && !sections.length ? <ProgressView modifiers={noteRow} /> : null}
+            {sections.map(({ section, folded }) => (
+              <Fragment key={section.key}>
+                {/* The project name is its own quiet row: SwiftUI uppercases grouped headers. */}
+                <Section modifiers={COMPACT_SECTION}>
+                  <WorkGroupHeader
+                    section={section}
+                    folded={folded}
+                    onToggle={props.onToggle}
+                    onNew={onNewInProject}
+                  />
+                </Section>
+                {/* Rows animate per section, never the List itself: an animated
+                    List frame drags the large-title header along (sim pass 2).
+                    The section stays mounted when folded so the fold animates. */}
+                <Section
+                  modifiers={[
+                    ...COMPACT_SECTION,
+                    animation(
+                      Animation.default,
+                      sectionAnimationValue(
+                        animate,
+                        listOrderRevision([{ key: section.key, folded, ids: section.ids }]),
+                      ),
+                    ),
+                  ]}
+                >
+                  {folded
+                    ? null
+                    : section.ids.map((id, index) => (
+                        <NativeWorkSlot
+                          key={id}
+                          id={id}
+                          section={section}
+                          first={index === 0}
+                          last={index === section.ids.length - 1}
+                          prime={index < MOBILE_TASK_WINDOW_SIZE}
+                        >
+                          <NativeWorkRow
+                            id={id}
+                            lane={phone.lane}
+                            pending={props.pendingNav === id}
+                            onOpenIssue={props.onOpenIssue}
+                            onOpenSession={props.onOpenSession}
+                            onAction={props.onAction}
+                            onStatus={props.onStatus}
+                            onSwipe={onSwipe}
+                            phone={phone}
+                          />
+                        </NativeWorkSlot>
+                      ))}
+                  {folded || section.ids.length ? null : (
+                    <Text
+                      modifiers={[
+                        ...loneCardRow,
+                        font({ textStyle: 'subheadline' }),
+                        foregroundStyle(paper.tertiary),
+                      ]}
+                    >
+                      No open tasks
+                    </Text>
+                  )}
+                </Section>
+              </Fragment>
+            ))}
+            {quiet.length ? (
+              <Section modifiers={COMPACT_SECTION}>
+                <NativeQuietRow phone={phone} />
+              </Section>
+            ) : null}
+            {/* At the end of a search, ask the server for its next page of hits. */}
+            {phone.searchMore ? (
               <Text
-                modifiers={[font({ textStyle: 'subheadline' }), foregroundStyle(paper.secondary)]}
+                modifiers={[
+                  ...noteRow,
+                  onAppear(() => phone.moreSearch()),
+                  font({ textStyle: 'footnote' }),
+                  foregroundStyle(paper.secondary),
+                ]}
               >
-                {phone.needle
-                  ? 'Try a title, reference or status.'
-                  : phone.lane === 'closed'
-                    ? 'Tasks closed in the last 7 days appear here.'
-                    : phone.lane === 'snoozed'
-                      ? 'Snoozed tasks will appear here until they return to Open.'
-                      : 'Your tasks will appear here, grouped by project.'}
+                Loading more tasks…
               </Text>
-            </VStack>
-          ) : null}
-          {phone.lane === 'closed' && sections.length ? (
-            <Text
-              modifiers={[
-                ...quietRow,
-                font({ textStyle: 'footnote' }),
-                foregroundStyle(paper.secondary),
-              ]}
-            >
-              Closed in the last 7 days
-            </Text>
-          ) : null}
-          {WORK_LANES.filter((lane) => phone.otherLaneHits[lane] > 0).map((lane) => (
-            <Button
-              key={lane}
-              label={`${phone.otherLaneHits[lane]} in ${WORK_LANE_LABELS[lane]}`}
-              onPress={() => phone.setLane(lane)}
-              modifiers={quietRow}
-            />
-          ))}
-        </List>
-      </Host>
+            ) : null}
+            {!props.loading && !sections.length ? (
+              <VStack
+                alignment="leading"
+                spacing={8}
+                modifiers={[...noteRow, frame({ maxWidth: Infinity, alignment: 'leading' })]}
+              >
+                <Text modifiers={[font({ textStyle: 'headline' }), foregroundStyle(paper.ink)]}>
+                  {phone.needle
+                    ? 'No matching tasks'
+                    : phone.lane === 'open'
+                      ? 'No work yet'
+                      : `No ${phone.lane} tasks`}
+                </Text>
+                <Text
+                  modifiers={[font({ textStyle: 'subheadline' }), foregroundStyle(paper.secondary)]}
+                >
+                  {phone.needle
+                    ? 'Try a title, reference or status.'
+                    : phone.lane === 'closed'
+                      ? 'Tasks closed in the last 7 days appear here.'
+                      : phone.lane === 'snoozed'
+                        ? 'Snoozed tasks will appear here until they return to Open.'
+                        : 'Your tasks will appear here, grouped by project.'}
+                </Text>
+              </VStack>
+            ) : null}
+            {phone.lane === 'closed' && sections.length ? (
+              <Text
+                modifiers={[
+                  ...noteRow,
+                  font({ textStyle: 'footnote' }),
+                  foregroundStyle(paper.secondary),
+                ]}
+              >
+                Closed in the last 7 days
+              </Text>
+            ) : null}
+            {WORK_LANES.filter((lane) => phone.otherLaneHits[lane] > 0).map((lane) => (
+              <Button
+                key={lane}
+                label={`${phone.otherLaneHits[lane]} in ${WORK_LANE_LABELS[lane]}`}
+                onPress={() => phone.setLane(lane)}
+                modifiers={noteRow}
+              />
+            ))}
+          </List>
+        </Host>
+      </View>
     </View>
   )
 })
 
-const NativeGroupHeader = observer(function NativeGroupHeader({
+/** Keep each native row in place while its rich observer leaves the viewport.
+ * Measured height is presentation state, including Dynamic Type and child hits. */
+const NativeWorkSlot = observer(function NativeWorkSlot({
+  id,
+  section,
+  first,
+  last,
+  prime,
+  children,
+}: {
+  id: string
+  section: PhoneWorkSection
+  first: boolean
+  last: boolean
+  /** A row in the first window draws itself on mount (an unfold, a first render)
+   * instead of a placeholder that waits for SwiftUI's appearance callback. */
+  prime: boolean
+  children: React.ReactNode
+}) {
+  const active = section.window.has(id)
+  const [primed, unprime] = useRowPrime(prime)
+  const [owner] = useState(() => ({}))
+  useEffect(() => () => section.window.disappear(id, owner), [section, id, owner])
+  const [height, setHeight] = useState(36)
+  const [visible, setVisible] = useState(false)
+  const shown = active || primed
+  const { fontScale } = useWindowDimensions()
+  return (
+    <VStack
+      spacing={0}
+      modifiers={[
+        contentVisibility(setVisible),
+        onAppear(() => {
+          section.window.appear(id, owner)
+        }),
+        onDisappear(() => {
+          setVisible(false)
+          unprime()
+          section.window.disappear(id, owner)
+        }),
+        onGeometryChange((frame) => {
+          if (shown && frame.height > 0) setHeight(frame.height)
+        }),
+        // Keep cell insets outside the measured content, as on Tasks. Otherwise
+        // the placeholder can pay those insets twice during a fast fling.
+        ...taskRowAt(first, last),
+        listRowHairline({ leading: MARK_WIDTH * Math.max(1, fontScale) + MARK_GAP, top: 8, first }),
+      ]}
+    >
+      {shown ? (
+        <VisibleContent visible={visible}>{children}</VisibleContent>
+      ) : (
+        <Spacer modifiers={[frame({ height })]} />
+      )}
+    </VStack>
+  )
+})
+
+/**
+ * Open / Snoozed / Closed as the system segmented control, with counts. A
+ * segmented control keeps its font size, so it follows Dynamic Type through its
+ * control size, and at accessibility sizes, where three labels with counts no
+ * longer fit, it becomes a menu picker whose label scales (POD-2666).
+ */
+const WorkLanePicker = observer(function WorkLanePicker({ phone }: { phone: PhoneWorklist }) {
+  const { fontScale } = useWindowDimensions()
+  const style =
+    fontScale >= ACCESSIBILITY_SCALE
+      ? [pickerStyle('menu'), labelsHidden()]
+      : [
+          pickerStyle('segmented'),
+          controlSize(fontScale >= 1.3 ? 'extraLarge' : fontScale > 1.05 ? 'large' : 'regular'),
+        ]
+  return (
+    <Picker
+      label="Work list"
+      selection={phone.lane}
+      onSelectionChange={(lane: PhoneWorkLane) => phone.setLane(lane)}
+      modifiers={[...quietRow, ...style, accessibilityIdentifier('work-lanes')]}
+    >
+      {WORK_LANES.map((lane) => (
+        <Text key={lane} modifiers={[tag(lane)]}>
+          {workLaneTitle(lane, phone.counts[lane])}
+        </Text>
+      ))}
+    </Picker>
+  )
+})
+
+/** The shared Work/Tasks group header, with Work's per-project + (W8). */
+const WorkGroupHeader = observer(function WorkGroupHeader({
   section,
   folded,
   onToggle,
+  onNew,
 }: {
   section: PhoneWorkSection
   folded: boolean
   onToggle: (key: string) => void
+  onNew?: (repoPath: string) => void
 }) {
+  const repoPath = section.repoPath
+  return (
+    <NativeGroupHeader
+      title={section.label}
+      inlineTrailing
+      count={section.ids.length}
+      folded={folded}
+      onToggle={() => onToggle(section.key)}
+      trailing={
+        onNew && repoPath ? (
+          <Button
+            onPress={() => onNew(repoPath)}
+            modifiers={[
+              buttonStyle('borderless'),
+              accessibilityLabel(`New work in ${section.label}`),
+            ]}
+          >
+            <Image
+              systemName="plus"
+              modifiers={[
+                font({ textStyle: 'body', weight: 'semibold' }),
+                foregroundStyle(paper.tertiary),
+                frame({ width: 44, height: 44 }),
+                contentShape(shapes.rectangle()),
+              ]}
+            />
+          </Button>
+        ) : undefined
+      }
+    />
+  )
+})
+
+/** W4: projects with nothing open fold into this one row; a tap shows them. */
+const NativeQuietRow = observer(function NativeQuietRow({ phone }: { phone: PhoneWorklist }) {
+  const count = phone.quietSections.length
   return (
     <Button
-      onPress={() => onToggle(section.key)}
+      onPress={() => phone.toggleQuiet()}
       modifiers={[
+        ...quietRow,
+        listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 0, bottom: 0 }),
         buttonStyle('plain'),
-        background(paper.ground),
-        accessibilityLabel(section.label),
-        accessibilityValue(`${folded ? 'Collapsed' : 'Expanded'}, ${section.ids.length} tasks`),
-        accessibilityHint('Double tap to fold or unfold this project.'),
-        accessibilityAddTraits(['isHeader']),
+        accessibilityValue(phone.quietExpanded ? 'Expanded' : 'Collapsed'),
       ]}
     >
       <HStack
-        spacing={8}
+        spacing={MARK_GAP}
         modifiers={[
           frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
           contentShape(shapes.rectangle()),
         ]}
       >
-        <Text
-          modifiers={[font({ textStyle: 'body', weight: 'semibold' }), foregroundStyle(paper.ink)]}
-        >
-          {section.label}
-        </Text>
-        <Spacer />
-        {folded ? (
-          <Text
-            modifiers={[
-              font({ textStyle: 'footnote' }),
-              foregroundStyle(paper.secondary),
-              monospacedDigit(),
-            ]}
-          >
-            {String(section.ids.length)}
-          </Text>
-        ) : null}
         <Image
-          systemName={folded ? 'chevron.right' : 'chevron.down'}
+          systemName={phone.quietExpanded ? 'chevron.down' : 'chevron.right'}
           modifiers={[
             font({ textStyle: 'caption2', weight: 'semibold' }),
             foregroundStyle(paper.tertiary),
+            frame({ minWidth: MARK_WIDTH }),
             accessibilityHidden(),
           ]}
         />
+        <Text modifiers={[font({ textStyle: 'footnote' }), foregroundStyle(paper.tertiary)]}>
+          {quietProjectsLabel(count)}
+        </Text>
+        <Spacer />
       </HStack>
     </Button>
   )
 })
 
+/** W7: the sub-task a search matched, under its top-level task. */
+const NativeChildHit = observer(function NativeChildHit({ id }: { id: string }) {
+  const model = useWorklistModel()
+  const issue = model ? omitGone(model.pool.model('issue', id)) : undefined
+  if (!issue || typeof issue === 'symbol') return null
+  return (
+    <HStack spacing={4}>
+      <Image
+        systemName="arrow.turn.down.right"
+        modifiers={[
+          font({ textStyle: 'caption2' }),
+          foregroundStyle(paper.tertiary),
+          accessibilityHidden(),
+        ]}
+      />
+      <Text
+        modifiers={[
+          font({ size: 11, design: 'monospaced' }),
+          foregroundStyle(paper.tertiary),
+          lineLimit(1),
+        ]}
+      >
+        {issue.displayRef}
+      </Text>
+      <Text
+        modifiers={[
+          font({ textStyle: 'footnote' }),
+          foregroundStyle(paper.secondary),
+          lineLimit(1),
+        ]}
+      >
+        {issue.title}
+      </Text>
+    </HStack>
+  )
+})
+
+const readNeedYouCount = (pool: MobxPool) => mobileWorkView(pool).mobileSections().attentionCount
+const readWorkingCount = (pool: MobxPool) => headerView(pool).workingCount()
+
+/** Swipe actions reuse the menu's handlers; only the gesture is new. */
+export type WorkSwipeAction = 'close' | 'status' | 'undefer' | 'tuck' | 'bringBack'
+
 type RowProps = Pick<
   WorkSurfaceProps,
   'onOpenIssue' | 'onOpenSession' | 'onAction' | 'onStatus'
-> & { id: string; lane: PhoneWorkLane; pending: boolean }
+> & {
+  id: string
+  lane: PhoneWorkLane
+  pending: boolean
+  onSwipe: (id: string, action: WorkSwipeAction) => void
+  phone: PhoneWorklist
+}
 const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
   const model = useWorklistModel()
   const row = model?.knownRow(props.id)
   const { fontScale } = useWindowDimensions()
   const expanded = fontScale >= 1.6
+  const markScale = Math.max(1, fontScale)
   const loading = useDelayedFlag(props.pending, NAV_LOADER_DELAY_MS)
   if (row?.ready !== 'ready') return null
   const word =
@@ -374,6 +642,8 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
         : row.statusTone
   const ref = issueDisplayRef(row.issue)
   const unread = row.emphasizeUnread
+  const notSaved = model?.pool.notSaved('issue', row.id) ?? false
+  const childHit = props.phone.childHit(row.id)
   const open = () => {
     if (!model) return
     const current = mobileWorkView(model.pool).mobileRow(row.id)
@@ -382,96 +652,108 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
       props.onOpenSession(current.navigation.id as SessionId, row.id)
     else props.onOpenIssue(current.issue as unknown as IssueNavigationModel)
   }
-  const mark =
-    props.lane === 'snoozed'
-      ? 'moon'
-      : tone === 'working'
-        ? 'circle.dotted'
-        : tone === 'done'
-          ? 'checkmark.circle'
-          : tone === 'closed'
-            ? 'minus.circle'
-            : tone === 'needs' || tone === 'error'
-              ? 'circle.fill'
-              : tone === 'draft'
-                ? 'circle.dashed'
-                : 'circle'
-  const signal =
-    tone === 'error'
-      ? color.dangerText
-      : tone === 'needs'
-        ? color.needsYouText
-        : tone === 'working' || tone === 'done' || tone === 'active'
-          ? color.workingText
-          : paper.tertiary
-  return (
-    <ContextMenu
+  const mark = props.lane === 'snoozed' ? MOON_MARK : (TONE_MARKS[tone] ?? IDLE_MARK)
+  const wordColor =
+    tone === 'error' ? color.dangerText : tone === 'needs' ? color.needsYouText : paper.secondary
+  const refText = (
+    <Text
       modifiers={[
-        ...plainRow,
-        listRowBackground(props.pending ? paper.fill : paper.ground),
-        alignmentGuide('listRowSeparatorLeading', 34),
+        font({ size: 11 * fontScale, design: 'monospaced' }),
+        foregroundStyle(paper.tertiary),
+        lineLimit(1),
       ]}
     >
-      <ContextMenu.Trigger>
-        <Button
-          onPress={open}
-          modifiers={[
-            buttonStyle('plain'),
-            accessibilityElement('ignore'),
-            accessibilityLabel(
-              `${row.title}. ${word}. ${ref}${unread ? '. Unread' : ''}${model?.pool.notSaved('issue', row.id) ? '. Not saved' : ''}`,
-            ),
-            accessibilityHint('Opens task. Actions available in the context menu.'),
-          ]}
-        >
+      {ref}
+    </Text>
+  )
+  return (
+    <SwipeActions modifiers={[...(props.pending ? [listRowBackground(paper.fill)] : [])]}>
+      <ContextMenu preview>
+        <ContextMenu.Trigger>
           <HStack
             alignment="top"
-            spacing={14}
+            spacing={MARK_GAP}
             modifiers={[
-              frame({ minHeight: 44, maxWidth: Infinity, alignment: 'leading' }),
+              frame({ minHeight: 36, maxWidth: Infinity, alignment: 'leading' }),
               contentShape(shapes.rectangle()),
+              accessibilityElement('ignore'),
+              accessibilityLabel(
+                `${row.title}. ${word}. ${ref}${unread ? '. Unread' : ''}${notSaved ? '. Not saved' : ''}`,
+              ),
+              accessibilityHint('Opens task. Swipe or long press for actions.'),
+              // Last: the native row Button (List highlight, label colours, taps only).
+              // VoiceOver reads the Button from its label, so accessibility goes inside.
+              listRowPress(open),
             ]}
           >
-            <Image
-              systemName={mark}
-              modifiers={[
-                font({ textStyle: 'caption2' }),
-                foregroundStyle(signal),
-                frame({ width: 20, minHeight: 24 }),
-                accessibilityHidden(),
-              ]}
-            />
-            <VStack
-              alignment="leading"
-              spacing={5}
-              modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}
-            >
-              <Text
+            {tone === 'working' ? (
+              // The shared animated mark (UI-thread clock), as on desktop rows.
+              <HStack
                 modifiers={[
-                  font({ textStyle: 'body', weight: unread ? 'semibold' : 'regular' }),
-                  foregroundStyle(props.lane === 'closed' ? paper.secondary : paper.ink),
-                  ...(expanded ? [] : [lineLimit(2)]),
+                  frame({ width: MARK_WIDTH * markScale, height: 20 * markScale }),
+                  accessibilityHidden(),
                 ]}
               >
-                {row.title}
-              </Text>
-              <HStack spacing={6}>
+                <RNHostView matchContents>
+                  <WorkingMark size={12 * markScale} tint={color.workingText} />
+                </RNHostView>
+              </HStack>
+            ) : (
+              <Image
+                systemName={mark.symbol}
+                size={mark.size * markScale}
+                color={mark.signal ? toneColor(tone) : paper.tertiary}
+                modifiers={[
+                  frame({ width: MARK_WIDTH * markScale, height: 20 * markScale }),
+                  accessibilityHidden(),
+                ]}
+              />
+            )}
+            <VStack
+              alignment="leading"
+              spacing={2}
+              modifiers={[frame({ maxWidth: Infinity, alignment: 'leading' })]}
+            >
+              <HStack alignment="firstTextBaseline" spacing={MARK_GAP}>
                 <Text
                   modifiers={[
-                    font({ textStyle: 'subheadline' }),
-                    foregroundStyle(
-                      tone === 'error'
-                        ? color.dangerText
-                        : tone === 'needs'
-                          ? color.needsYouText
-                          : paper.secondary,
-                    ),
+                    font({ textStyle: 'body', weight: unread ? 'semibold' : 'regular' }),
+                    foregroundStyle(props.lane === 'closed' ? paper.secondary : paper.ink),
+                    lineLimit(expanded ? 3 : 1),
+                    frame({ maxWidth: Infinity, alignment: 'leading' }),
+                  ]}
+                >
+                  {row.title}
+                </Text>
+                {unread ? (
+                  <Image
+                    systemName="circle.fill"
+                    size={6}
+                    color={color.workingText}
+                    modifiers={[accessibilityHidden()]}
+                  />
+                ) : null}
+                {expanded ? null : loading ? (
+                  <ProgressView />
+                ) : (
+                  <NativeRowStamp row={row} lane={props.lane} />
+                )}
+              </HStack>
+              <HStack alignment="firstTextBaseline" spacing={MARK_GAP}>
+                <Text
+                  modifiers={[
+                    font({ textStyle: 'footnote' }),
+                    foregroundStyle(wordColor),
+                    lineLimit(expanded ? 2 : 1),
+                    frame({ maxWidth: Infinity, alignment: 'leading' }),
                   ]}
                 >
                   {word}
                 </Text>
+                {expanded ? null : refText}
               </HStack>
-              {model?.pool.notSaved('issue', row.id) ? (
+              {childHit ? <NativeChildHit id={childHit} /> : null}
+              {notSaved ? (
                 <Text
                   modifiers={[font({ textStyle: 'caption' }), foregroundStyle(color.dangerText)]}
                 >
@@ -479,67 +761,108 @@ const NativeWorkRow = observer(function NativeWorkRow(props: RowProps) {
                 </Text>
               ) : null}
               {expanded ? (
-                <HStack spacing={10}>
-                  <Text
-                    modifiers={[
-                      font({ textStyle: 'footnote' }),
-                      foregroundStyle(paper.tertiary),
-                      lineLimit(1),
-                    ]}
-                  >
-                    {ref}
-                  </Text>
+                <HStack spacing={MARK_GAP}>
+                  {refText}
                   <NativeRowStamp row={row} lane={props.lane} />
                 </HStack>
               ) : null}
             </VStack>
-            {!expanded ? (
-              <VStack alignment="trailing" spacing={5}>
-                <HStack spacing={5}>
-                  {unread ? (
-                    <Image
-                      systemName="circle.fill"
-                      size={5}
-                      color={color.workingText}
-                      modifiers={[accessibilityHidden()]}
-                    />
-                  ) : null}
-                  <Image
-                    systemName="chevron.right"
-                    modifiers={[
-                      font({ textStyle: 'caption', weight: 'semibold' }),
-                      foregroundStyle(paper.tertiary),
-                      frame({ minHeight: 44 }),
-                      accessibilityHidden(),
-                    ]}
-                  />
-                  {loading ? <ProgressView /> : <NativeRowStamp row={row} lane={props.lane} />}
-                </HStack>
-                <Text
-                  modifiers={[
-                    font({ textStyle: 'caption' }),
-                    foregroundStyle(paper.tertiary),
-                    lineLimit(1),
-                  ]}
-                >
-                  {ref}
-                </Text>
-              </VStack>
-            ) : null}
           </HStack>
-        </Button>
-      </ContextMenu.Trigger>
-      <ContextMenu.Items>
-        <NativeRowActions
-          row={row}
-          lane={props.lane}
-          onAction={props.onAction}
-          onStatus={props.onStatus}
-        />
-      </ContextMenu.Items>
-    </ContextMenu>
+        </ContextMenu.Trigger>
+        <ContextMenu.Items>
+          <NativeRowActions
+            row={row}
+            lane={props.lane}
+            onAction={props.onAction}
+            onStatus={props.onStatus}
+          />
+        </ContextMenu.Items>
+      </ContextMenu>
+      <NativeSwipeActions row={row} lane={props.lane} onSwipe={props.onSwipe} />
+    </SwipeActions>
   )
 })
+
+/** Trailing swipe reveals Close and Status on open rows (the fold's inverse elsewhere); only a tap acts. */
+const NativeSwipeActions = observer(function NativeSwipeActions({
+  row,
+  lane,
+  onSwipe,
+}: {
+  row: WorklistIssue
+  lane: PhoneWorkLane
+  onSwipe: RowProps['onSwipe']
+}) {
+  const id = row.id
+  if (lane === 'snoozed')
+    return (
+      <RevealSwipeActions edge="trailing">
+        <Button
+          label="Unsnooze"
+          systemImage="sun.max"
+          onPress={() => onSwipe(id, 'undefer')}
+          modifiers={[tint(color.workingText)]}
+        />
+      </RevealSwipeActions>
+    )
+  if (lane === 'closed')
+    return row.canBringBack ? (
+      <RevealSwipeActions edge="trailing">
+        <Button
+          label="Bring Back"
+          systemImage="arrow.uturn.backward"
+          onPress={() => onSwipe(id, 'bringBack')}
+          modifiers={[tint(color.workingText)]}
+        />
+      </RevealSwipeActions>
+    ) : null
+  return (
+    <RevealSwipeActions edge="trailing">
+      {row.canTuck ? (
+        <Button
+          label="Tuck"
+          systemImage="arrow.down.to.line"
+          onPress={() => onSwipe(id, 'tuck')}
+          modifiers={[tint(color.workingText)]}
+        />
+      ) : row.finished ? null : (
+        <Button
+          label="Close"
+          systemImage="checkmark.circle"
+          onPress={() => onSwipe(id, 'close')}
+          modifiers={[tint(SWIPE_CLOSE)]}
+        />
+      )}
+      <Button
+        label="Status"
+        systemImage="circle.dashed"
+        onPress={() => onSwipe(id, 'status')}
+        modifiers={[tint(color.workingText)]}
+      />
+    </RevealSwipeActions>
+  )
+})
+
+type SFSymbol = NonNullable<ComponentProps<typeof Image>['systemName']>
+const SWIPE_CLOSE = '#8e8e93'
+type Mark = { symbol: SFSymbol; size: number; signal: boolean }
+const IDLE_MARK: Mark = { symbol: 'circle', size: 9, signal: false }
+const MOON_MARK: Mark = { symbol: 'moon', size: 11, signal: false }
+/** The board's glyphs: dot needs you, ring idle (working rows draw the animated mark), check landed. */
+const TONE_MARKS: Partial<Record<string, Mark>> = {
+  needs: { symbol: 'circle.fill', size: 8, signal: true },
+  error: { symbol: 'circle.fill', size: 8, signal: true },
+  active: { symbol: 'circle', size: 9, signal: true },
+  done: { symbol: 'checkmark.circle', size: 12, signal: true },
+  closed: { symbol: 'minus.circle', size: 12, signal: false },
+  draft: { symbol: 'circle.dashed', size: 9, signal: false },
+}
+function toneColor(tone: string): string {
+  if (tone === 'error') return color.dangerText
+  if (tone === 'needs') return color.needsYouText
+  if (tone === 'working' || tone === 'active' || tone === 'done') return color.workingText
+  return paper.tertiary
+}
 
 const NativeRowStamp = observer(function NativeRowStamp({
   row,
@@ -554,7 +877,12 @@ const NativeRowStamp = observer(function NativeRowStamp({
       ? (row.issue.tuckedAt ?? row.issue.closedAt ?? row.issue.updatedAt)
       : row.issue.updatedAt
   const live = lane === 'open' && (timing.phase === 'working' || timing.phase === 'waiting')
-  const now = useAgeNow(live ? timing.sinceMs : updated, live ? (timing.baseMs ?? 0) : 0)
+  const now = useAgeNow(
+    live ? timing.sinceMs : updated,
+    live ? (timing.baseMs ?? 0) : 0,
+    true,
+    live && timing.phase === 'working' ? 3_600_000 : 0,
+  )
   const stamp = (live ? mobileRowStamp(timing, now) : relativeTime(updated, now))
     ?.replace(/ ago$/, '')
     .replace('just now', 'now')
@@ -578,61 +906,20 @@ const NativeRowActions = observer(function NativeRowActions({
   onAction,
   onStatus,
 }: Pick<RowProps, 'lane' | 'onAction' | 'onStatus'> & { row: WorklistIssue }) {
-  const issue = row.issue as unknown as IssueNavigationModel
-  const placement = discoveredPlacement(issue)
-  const actions = workMenuActionIds(issue, lane === 'open' ? 'live' : lane, {
-    placement: Boolean(placement?.originId),
-  })
   return (
-    <>
-      {actions.map((action) => {
-        if (action === 'status')
-          return (
-            <Picker
-              key={action}
-              label="Status"
-              selection={issueStatusValueOf(issue)}
-              onSelectionChange={(value) => onStatus(row.id, value)}
-              modifiers={[pickerStyle('menu')]}
-            >
-              {issueStatusMenuEntries().map((entry) => (
-                <Text key={entry.value} modifiers={[tag(entry.value)]}>
-                  {entry.label}
-                </Text>
-              ))}
-            </Picker>
-          )
-        const label =
-          action === 'rename'
-            ? 'Rename'
-            : action === 'read'
-              ? issue.unread
-                ? 'Mark as Read'
-                : 'Mark as Unread'
-              : action === 'undefer'
-                ? 'Unsnooze'
-                : action === 'bringBack'
-                  ? 'Bring Back from Closed'
-                  : action === 'placement'
-                    ? placement?.placement === 'mission'
-                      ? 'Move to Top Level'
-                      : 'Move into Parent Task'
-                    : 'Delete…'
-        return (
-          <Button
-            key={action}
-            label={label}
-            role={action === 'delete' ? 'destructive' : 'default'}
-            onPress={() => onAction(row.id, action)}
-            modifiers={action === 'bringBack' ? [disabled(!row.canBringBack)] : []}
-          />
-        )
-      })}
-    </>
+    <IssueRowMenuItems
+      issue={row.issue as unknown as IssueNavigationModel}
+      lane={lane === 'open' ? 'live' : lane}
+      canTuck={row.canTuck}
+      canBringBack={row.canBringBack}
+      onAction={(action) => onAction(row.id, action)}
+      onStatus={(value) => onStatus(row.id, value)}
+    />
   )
 })
 
 const styles = StyleSheet.create({
   root: { flex: 1, minHeight: 0, backgroundColor: paper.ground },
   host: { flex: 1 },
+  listContainer: { flex: 1, minHeight: 0 },
 })

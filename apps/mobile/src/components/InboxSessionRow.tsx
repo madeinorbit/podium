@@ -1,4 +1,3 @@
-import type { MobileTrpc } from '../client/trpc'
 import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -9,6 +8,7 @@ import { useRouter } from 'expo-router'
 import { StyleSheet, Text, View } from 'react-native'
 import { issueObserver } from '../client/issue-observer'
 import { useMobilePool } from '../client/mobile-pool'
+import type { MobileTrpc } from '../client/trpc'
 import { usePendingQuestion } from '../hooks/usePendingQuestion'
 import { menuAnswer, useAnswerSession } from '../lib/answer-session'
 import { sessionHref } from '../lib/session-route'
@@ -72,6 +72,7 @@ const NeedsYouCard = issueObserver(function NeedsYouCard({
             item={pending}
             live
             onAnswer={async (answer) => {
+              if ('reply' in answer) throw new Error('This question requires a session chat.')
               // A `session.answer` record (POD-6415).
               const sent = await answerSession(session.sessionId, menuAnswer(answer))
               if (!sent.ok) throw new Error(sent.reason ?? 'answer not delivered')

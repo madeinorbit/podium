@@ -1,14 +1,12 @@
-import type {
-  PendingInteractionAction,
-  PendingInteractionCard,
-} from '@podium/client-core/values'
+import type { PendingInteractionAction, PendingInteractionCard } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model'
-import { useState } from 'react'
 import { observer } from 'mobx-react-lite'
+import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useAnswerSession } from '../lib/answer-session'
 import { usePoolInteractionCards } from '../client/use-pool-notices'
-import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
+import { useAnswerSession } from '../lib/answer-session'
+import { color, font, leading, sans, space } from '../theme/theme'
+import { decisionTile } from './decision-tile'
 import { PressableScale } from './PressableScale'
 
 /**
@@ -37,7 +35,11 @@ export function PendingInteractionBand({ sessionId }: { sessionId: SessionId }) 
   return <PendingInteractionBandBody cards={cards} />
 }
 
-const PendingInteractionBandBody = observer(function PendingInteractionBandBody({ cards }: { cards: readonly PendingInteractionCard[] }) {
+const PendingInteractionBandBody = observer(function PendingInteractionBandBody({
+  cards,
+}: {
+  cards: readonly PendingInteractionCard[]
+}) {
   const answerSession = useAnswerSession()
   const [sending, setSending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -69,15 +71,7 @@ const PendingInteractionBandBody = observer(function PendingInteractionBandBody(
     <View style={styles.layer}>
       {cards.map((card) => (
         <View key={card.id} style={styles.band} testID="pending-interaction">
-          <View style={styles.headerRow}>
-            {/* The same signal the ask band above it draws — one dot, one
-                mono eyebrow, one rule. The two are the only places on this
-                screen an agent stops for the operator, so they read as one
-                component family rather than as two notices. */}
-            <View style={styles.dot} />
-            <Text style={styles.badge}>{card.title.toUpperCase()}</Text>
-            <View style={styles.rule} />
-          </View>
+          <Text style={styles.title}>{card.title}</Text>
           <Text style={styles.detail}>{card.detail}</Text>
           {card.note !== undefined ? <Text style={styles.note}>{card.note}</Text> : null}
           {card.actions.length > 0 ? (
@@ -86,6 +80,9 @@ const PendingInteractionBandBody = observer(function PendingInteractionBandBody(
                 <PressableScale
                   key={action.id}
                   testID={`pending-interaction-action-${action.id}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={action.label}
+                  hitSlop={6}
                   disabled={sending !== null}
                   onPress={() => {
                     void answer(card, action)
@@ -104,7 +101,6 @@ const PendingInteractionBandBody = observer(function PendingInteractionBandBody(
                       action.tone === 'primary' && styles.actionPrimaryLabel,
                       action.tone === 'danger' && styles.actionDangerLabel,
                     ]}
-                    numberOfLines={1}
                   >
                     {action.label}
                   </Text>
@@ -120,37 +116,9 @@ const PendingInteractionBandBody = observer(function PendingInteractionBandBody(
 })
 
 const styles = StyleSheet.create({
-  layer: {
-    backgroundColor: color.engraved,
-  },
-  band: {
-    backgroundColor: color.needsYouBg,
-    borderTopColor: color.needsYouBorder,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 13,
-    paddingVertical: 13,
-    gap: space.sm,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: color.needsYou,
-  },
-  rule: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: color.needsYouBorder,
-  },
-  badge: {
-    ...monoLabel(),
-    color: color.needsYouText,
-  },
+  layer: { paddingHorizontal: space.lg, paddingVertical: space.sm, gap: space.sm },
+  band: { ...decisionTile.card, ...decisionTile.signal },
+  title: decisionTile.title,
   detail: {
     ...sans(500),
     color: color.text,
@@ -163,20 +131,8 @@ const styles = StyleSheet.create({
     fontSize: font.tiny,
     lineHeight: leading(font.tiny, 'prose'),
   },
-  actions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.sm,
-  },
-  action: {
-    minHeight: 38,
-    justifyContent: 'center',
-    paddingHorizontal: space.lg,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: color.border,
-    backgroundColor: color.surfaceHigh,
-  },
+  actions: decisionTile.actions,
+  action: decisionTile.button,
   actionPrimary: {
     borderColor: color.needsYou,
     backgroundColor: color.needsYou,
@@ -192,9 +148,7 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   actionLabel: {
-    ...sans(600),
-    color: color.text,
-    fontSize: font.small,
+    ...decisionTile.buttonText,
   },
   actionPrimaryLabel: {
     color: color.onAccent,

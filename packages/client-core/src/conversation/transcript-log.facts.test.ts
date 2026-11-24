@@ -1,17 +1,19 @@
 import { reaction } from 'mobx'
 import { TranscriptLog, type TranscriptLogOptions } from './transcript-log'
+
 const createTranscriptLog = (options: TranscriptLogOptions) => new TranscriptLog(options)
+
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
+import type {
+  TranscriptPage,
+  TranscriptSource,
+  TranscriptSourceOptions,
+} from '../transcript/contracts'
 import { latestPendingQuestion } from '../values/ask-question'
 import { pairLatestPromptAndAnswer } from '../values/handoff'
 import { parseEnvelopeBatch } from '../values/message-envelope'
-import {
-  type TranscriptSourceOptions,
-  type TranscriptPage,
-  type TranscriptSource,
-} from '../transcript/contracts'
 
 const cursor = (offset: number) =>
   Buffer.from(JSON.stringify(['file', offset, `id${offset}`, 0])).toString('base64url')
@@ -26,7 +28,7 @@ const ask = (id: string, offset: number, answered = false) =>
     text: '',
     toolName: 'AskUserQuestion',
     toolInputJson: '{"questions":[]}',
-    ...(answered ? { toolResult: 'Answered' } : {}),
+    ...(answered ? { toolResult: 'You answered main' } : {}),
   })
 
 async function fixture(
@@ -341,10 +343,12 @@ describe('latest handoff pair (POD-5652)', () => {
     collapseMachineContext,
     operatorTextOf: (text: string) => parseEnvelopeBatch(text)?.operatorText,
   })
-  const norm = (pair: {
-    prompt: { item: TranscriptItem; anchor: { itemKey: string } }
-    answer?: { item: TranscriptItem; anchor: { itemKey: string }; legacy: boolean }
-  } | null) =>
+  const norm = (
+    pair: {
+      prompt: { item: TranscriptItem; anchor: { itemKey: string } }
+      answer?: { item: TranscriptItem; anchor: { itemKey: string }; legacy: boolean }
+    } | null,
+  ) =>
     pair
       ? {
           prompt: pair.prompt.item.id,
@@ -409,11 +413,17 @@ describe('latest handoff pair (POD-5652)', () => {
     },
     {
       name: 'no prompt',
-      items: [row('a1', 'assistant', 1, { text: 'one' }), row('a2', 'assistant', 2, { text: 'two' })],
+      items: [
+        row('a1', 'assistant', 1, { text: 'one' }),
+        row('a2', 'assistant', 2, { text: 'two' }),
+      ],
     },
     {
       name: 'prompt without answer',
-      items: [row('a0', 'assistant', 1, { text: 'earlier' }), row('prompt', 'user', 2, { text: 'Q' })],
+      items: [
+        row('a0', 'assistant', 1, { text: 'earlier' }),
+        row('prompt', 'user', 2, { text: 'Q' }),
+      ],
     },
   ]
 

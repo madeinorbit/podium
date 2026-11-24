@@ -1,5 +1,22 @@
-import { bucketCostUsd, bucketProvider, bucketCostByClass, bucketCacheSavingsUsd, pricingForModel, TOKEN_CLASSES, type TokenClass, type UsageProvider } from '@podium/model/cost-pricing'
-export { bucketCostUsd, bucketProvider, TOKEN_CLASSES, type TokenClass, type UsageProvider } from '@podium/model/cost-pricing'
+import {
+  bucketCacheSavingsUsd,
+  bucketCostByClass,
+  bucketCostUsd,
+  bucketProvider,
+  pricingForModel,
+  TOKEN_CLASSES,
+  type TokenClass,
+  type UsageProvider,
+} from '@podium/model/cost-pricing'
+
+export {
+  bucketCostUsd,
+  bucketProvider,
+  TOKEN_CLASSES,
+  type TokenClass,
+  type UsageProvider,
+} from '@podium/model/cost-pricing'
+
 import type { UsageBucketWire } from '@podium/model'
 
 /**
@@ -62,6 +79,43 @@ export interface UsageModelRow {
   totalTokens: number
   estCostUsd: number
   messages: number
+}
+
+/** How a provider is named on every usage surface. */
+export const USAGE_PROVIDER_LABEL: Record<UsageProvider, string> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  xai: 'xAI',
+  other: 'Other',
+}
+
+/** A model's slice of the window, for a ranked share list. */
+export interface UsageModelShare extends UsageModelRow {
+  /** Share of the window's cost, 0–100. */
+  sharePercent: number
+  /** Bar width against the dearest model, 0–100. */
+  barPercent: number
+}
+
+/**
+ * The week's models that did anything, dearest first, each as a share of the
+ * same week total the summary reports and a bar against the dearest.
+ */
+export function modelShares(
+  summary: Pick<UsageSummaryView, 'models' | 'week'>,
+  limit = Number.POSITIVE_INFINITY,
+): UsageModelShare[] {
+  const total = summary.week.estCostUsd
+  const models = summary.models
+    .filter((m) => m.estCostUsd > 0 || m.messages > 0)
+    .sort((a, b) => b.estCostUsd - a.estCostUsd)
+    .slice(0, limit)
+  const peak = models[0]?.estCostUsd ?? 0
+  return models.map((m) => ({
+    ...m,
+    sharePercent: total > 0 ? (m.estCostUsd / total) * 100 : 0,
+    barPercent: peak > 0 ? (m.estCostUsd / peak) * 100 : 0,
+  }))
 }
 
 export interface UsageProviderRow {

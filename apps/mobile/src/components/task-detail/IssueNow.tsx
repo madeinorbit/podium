@@ -1,12 +1,12 @@
-import { isFinished } from '@podium/model/browser'
-import { issueObserver as observer } from '../../client/issue-observer'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { motionPhase, sessionTitle } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model'
-import { StyleSheet, Text, View } from 'react-native'
+import { isFinished } from '@podium/model/browser'
+import { StyleSheet, View } from 'react-native'
+import { issueObserver as observer } from '../../client/issue-observer'
 import { alpha } from '../../theme/mix'
-import { color, font, mono, radius, sans, space } from '../../theme/theme'
+import { color, font, leading, radius, sans, space } from '../../theme/theme'
 import { AgentMark, kindTone, markSize } from '../AgentMark'
 import { Icon } from '../Icon'
 import { ChevronRight } from '../icons'
@@ -14,6 +14,8 @@ import { PressableScale } from '../PressableScale'
 import { WorkingMark } from '../WorkingMark'
 import { GitStampLine } from '../WorkRowParts'
 import { MachineLabel } from './chrome'
+import { DetailText as Text } from './DetailText'
+import { useDetailSize } from './detail-type'
 
 /** The session tile on this panel. Named because the mark is sized from it. */
 const NOW_TILE = 22
@@ -58,6 +60,7 @@ export const IssueNow = observer(function IssueNow({
   sessions: SessionView[]
   onOpenSession: (sessionId: SessionId) => void
 }) {
+  const size = useDetailSize()
   const ranked = [...sessions]
     .map((session) => ({
       session,
@@ -85,9 +88,7 @@ export const IssueNow = observer(function IssueNow({
   // exceptions underneath it when there are any.
   const git = issue.branch ? (
     <View style={styles.gitRow}>
-      <Text style={styles.branch} numberOfLines={1}>
-        {issue.branch}
-      </Text>
+      <Text style={styles.branch}>{issue.branch}</Text>
       <GitStampLine branch={issue.branch} git={issue.gitState} />
     </View>
   ) : null
@@ -103,11 +104,7 @@ export const IssueNow = observer(function IssueNow({
             ? 'No agent is on this task.'
             : `${sessions.length} session${sessions.length === 1 ? '' : 's'} · none working`}
         </Text>
-        {issue.branch ? (
-          <Text style={styles.branch} numberOfLines={1}>
-            {issue.branch}
-          </Text>
-        ) : null}
+        {issue.branch ? <Text style={styles.branch}>{issue.branch}</Text> : null}
         <GitStampLine branch={issue.branch} git={issue.gitState} />
       </View>
     )
@@ -145,14 +142,31 @@ export const IssueNow = observer(function IssueNow({
               pressed && styles.rowPressed,
             ]}
           >
-            <View style={[styles.tile, { backgroundColor: t.bg, borderColor: alpha(t.fg, 0.4) }]}>
-              <AgentMark kind={session.agentKind} size={markSize(NOW_TILE)} ink={t.fg} />
+            <View
+              style={[
+                styles.tile,
+                {
+                  width: size(NOW_TILE),
+                  height: size(NOW_TILE),
+                  backgroundColor: t.bg,
+                  borderColor: alpha(t.fg, 0.4),
+                },
+              ]}
+            >
+              <AgentMark kind={session.agentKind} size={markSize(size(NOW_TILE))} ink={t.fg} />
             </View>
-            <Text style={styles.name} numberOfLines={1}>
-              {sessionTitle(session)}
-            </Text>
-            {phase === 'working' ? <WorkingMark size={12} /> : <View style={styles.waitingDot} />}
-            <Icon as={ChevronRight} size={14} color={color.textFaint} />
+            <Text style={styles.name}>{sessionTitle(session)}</Text>
+            {phase === 'working' ? (
+              <WorkingMark size={size(12)} />
+            ) : (
+              <View
+                style={[
+                  styles.waitingDot,
+                  { width: size(7), height: size(7), borderRadius: size(4) },
+                ]}
+              />
+            )}
+            <Icon as={ChevronRight} size={size(14)} color={color.textFaint} />
           </PressableScale>
         )
       })}
@@ -173,25 +187,27 @@ const styles = StyleSheet.create({
   // differently from its neighbours recesses rather than lifting. A drop-shadowed
   // panel here would be the page's only floating element.
   panel: {
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.hairline,
-    backgroundColor: color.engraved,
+    borderRadius: radius.card,
+    borderCurve: 'continuous',
+    // engraved is systemBackground now (POD-2387); the recess needs a fill.
+    backgroundColor: color.groupedCard,
     overflow: 'hidden',
-    marginBottom: space.xl,
   },
   head: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 30,
+    minHeight: 44,
+    paddingVertical: space.sm,
+    flexWrap: 'wrap',
+    gap: space.sm,
     paddingHorizontal: space.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: color.hairline,
   },
   summary: {
-    ...mono(400),
+    ...sans(400),
     marginLeft: 'auto',
-    fontSize: font.micro,
+    fontSize: font.tiny,
   },
   live: {
     color: color.workingText,
@@ -202,14 +218,14 @@ const styles = StyleSheet.create({
   row: {
     minHeight: 44,
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm + 2,
+    alignItems: 'flex-start',
+    gap: space.sm,
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
   },
   rowDivider: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: alpha(color.hairline, 0.8),
+    borderTopColor: color.hairline,
   },
   rowWaiting: {
     backgroundColor: color.needsYouSoft,
@@ -231,6 +247,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
     color: color.body,
     fontSize: font.small,
+    lineHeight: leading(font.small),
   },
   waitingDot: {
     width: 7,
@@ -239,31 +256,30 @@ const styles = StyleSheet.create({
     backgroundColor: color.needsYou,
   },
   rest: {
-    ...mono(400),
+    ...sans(400),
     color: color.textMicro,
-    fontSize: font.micro,
+    fontSize: font.tiny,
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
   },
   gitRow: {
-    gap: 2,
+    gap: space.xs,
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: alpha(color.hairline, 0.8),
+    borderTopColor: color.hairline,
   },
   branch: {
-    ...mono(400),
+    ...sans(400),
     color: color.textDim,
-    fontSize: font.micro,
+    fontSize: font.tiny,
   },
   quiet: {
-    gap: 3,
-    marginBottom: space.xl,
+    gap: space.xs,
   },
   quietText: {
-    ...mono(400),
+    ...sans(400),
     color: color.textFaint,
-    fontSize: font.micro,
+    fontSize: font.tiny,
   },
 })

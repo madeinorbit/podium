@@ -21,7 +21,10 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
   useSafeAreaFrame: () => ({ x: 0, y: 0, width: 430, height: 900 }),
 }))
-vi.mock('expo-router', () => ({ useRouter: () => ({ back() {}, replace() {} }) }))
+vi.mock('expo-router', () => ({
+  useRouter: () => ({ back() {}, replace() {} }),
+  useLocalSearchParams: () => ({}),
+}))
 vi.mock('../hooks/useContentBottomInset', () => ({ useContentBottomInset: () => 0 }))
 vi.mock('../components/Screen', () => ({
   Screen: ({ children }: { children: import('react').ReactNode }) => <>{children}</>,
@@ -63,17 +66,17 @@ it('preserves new-task form output from the accepted repository reader', async (
     storeStats.enable()
     storeStats.reset()
     const app = await mount(<NewIssueScreen />)
+    // The phone's New Task is the native compose sheet (dev/tf): its project is
+    // a picker row, and the prompt is the one text field.
     await waitFor(() =>
-      expect(app.view.getByRole('radio', { name: 'Repository project' })).toBeTruthy(),
+      expect(app.view.getByRole('button', { name: 'Project, project' })).toBeTruthy(),
     )
     const output = app.view.container.innerHTML
     expect(output).toMatchSnapshot('last green new-task form')
     expect(readRuntimeStoreStats(app.runtime)?.selectorRuns ?? 0).toBe(0)
-    const title = app.view.getByRole('textbox', { name: 'Task title' })
-    fireEvent.change(title, { target: { value: 'A usable task form' } })
-    expect((title as HTMLInputElement).value).toBe('A usable task form')
-    fireEvent.click(app.view.getByRole('radio', { name: 'Repository project' }))
-    expect((title as HTMLInputElement).value).toBe('A usable task form')
+    const prompt = app.view.getByRole('textbox', { name: 'Task prompt' })
+    fireEvent.change(prompt, { target: { value: 'A usable task form' } })
+    expect((prompt as HTMLTextAreaElement).value).toBe('A usable task form')
     app.view.unmount()
   }
 })

@@ -102,6 +102,9 @@ function pool(
   let outcome: (o: OutboxOutcome) => void = () => {}
   let addressed: (batch: ReplicaAddressedBatch) => void = () => {}
   const errors: string[] = []
+  const errorIds: (string | undefined)[] = []
+  const dismissedErrors: string[] = []
+  let refuseNextWrite: Error | null = null
   const infos: string[] = []
   let serial = 0
   const tx = createPoolTransactions({
@@ -125,6 +128,9 @@ function pool(
     },
     mintId: () => asMutationId(`m-${++serial}`),
     enqueue: async (kind, input, opts) => {
+      const refusal = refuseNextWrite
+      refuseNextWrite = null
+      if (refusal) throw refusal
       queue = [...queue, { kind, input, ...opts }]
       publish(queue.length)
     },
@@ -132,8 +138,12 @@ function pool(
     spawn: {
       userId: USER,
       notices: {
-        error: (message: string) => errors.push(message),
+        error: (message: string, id?: string) => {
+          errors.push(message)
+          errorIds.push(id)
+        },
         info: (message: string) => infos.push(message),
+        dismissError: (id: string) => dismissedErrors.push(id),
       } as never,
       sortKey: () => 'k',
     },
@@ -143,6 +153,11 @@ function pool(
   return {
     tx,
     errors,
+    errorIds,
+    dismissedErrors,
+    refuseNextWrite: (error: Error) => {
+      refuseNextWrite = error
+    },
     infos,
     queue: () => queue,
     shown: (entity: OverlayTarget, id: string) =>
@@ -311,6 +326,19 @@ describe('a draft-agent start as a launch effect (POD-6408)', () => {
     expect(p.painted('sessions', SESSION)).toBe(0)
     p.dismissed()
     expect(p.painted('sessions', SESSION)).toBe(0)
+    p.tx.dispose()
+  })
+
+  it('a failure notice names its launch, and an accepted retry of it dismisses only that one', async () => {
+    const p = pool()
+    p.refuseNextWrite(new Error('storage is full'))
+    expect(await start(p).settled).toBe(false)
+    expect(p.errors).toEqual(["Couldn't start the agent — storage is full"])
+    expect(p.errorIds).toEqual([`launch:${SESSION}`])
+    expect(p.dismissedErrors).toEqual([])
+    // The operator retries the same reservation, and this time it is queued.
+    expect(await start(p).settled).toBe(true)
+    expect(p.dismissedErrors).toEqual([`launch:${SESSION}`])
     p.tx.dispose()
   })
 

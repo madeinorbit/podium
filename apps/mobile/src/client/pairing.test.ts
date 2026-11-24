@@ -75,6 +75,17 @@ describe('mobile pairing links', () => {
     ).toEqual(pairEnvelope)
   })
 
+  it('accepts the empty-authority spelling iOS link delivery produces', () => {
+    // POD-2364: iOS can hand podium://pair?url=… over as podium:///pair?url=…;
+    // the client parser rejected that before the protocol parser ever saw it.
+    const nested = encodeURIComponent(link('https://podium.example'))
+    expect(parsePairingLink(`podium:///pair?url=${nested}`).envelope).toEqual(pairEnvelope)
+    expect(
+      parsePairingLink(`podium:///pair/${encodePairingEnvelope(pairEnvelope)}`).envelope,
+    ).toEqual(pairEnvelope)
+    expect(() => parsePairingLink(`podium:///other?url=${nested}`)).toThrow(PairingLinkError)
+  })
+
   it('rejects protected HTTP, pathful manual URLs, userinfo and expired grants', () => {
     expect(() =>
       parsePairingLink(
@@ -191,12 +202,15 @@ describe('server preflight', () => {
     }
   })
 
-  it('rejects a pre-HTTP-sync wire-2 LAN server before probing authentication', async () => {
+  it('rejects a pre-HTTP-sync wire-2 LAN server despite a successful public auth probe', async () => {
     vi.stubGlobal('__DEV__', true)
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ wireVersion: 2, minSupportedVersion: 1, instanceId: 'old' })),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ needsAuth: false, authed: true, userId: 'user:admin' })),
       )
     vi.stubGlobal('fetch', fetchMock)
     await expect(preflightServer('http://localhost:18790')).resolves.toMatchObject({
@@ -205,8 +219,12 @@ describe('server preflight', () => {
       title: 'Update the server',
       transport: 'insecure-lan',
     })
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(fetchMock.mock.calls[0]?.[0]).toBe('http://localhost:18790/version')
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(init.credentials).toBe('omit')
+      expect(new Headers(init.headers).has('Authorization')).toBe(false)
+    }
   })
 
   it('allows an open HTTP origin only when web-mobile is already in the browser policy', async () => {
@@ -409,5 +427,30 @@ describe('workspace preflight routing', () => {
     const second = new Headers(fetchMock.mock.calls[1]?.[1]?.headers as HeadersInit)
     expect(first.get('Podium-Workspace-Id')).toBe('ws_blue')
     expect(second.get('Podium-Workspace-Id')).toBe('ws_blue')
+  })
+})
+
+describe('pairing claims', () => {
+  it('claims a pairing code once however often the link is processed', async () => {
+    const { claimMobilePairing, forgetMobilePairingClaim } = await import('./pairing')
+    let claims = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        claims += 1
+        return new Response(
+          JSON.stringify({ claimToken: `claim-${claims}`, phrase: ['a', 'b', 'c'] }),
+        )
+      }),
+    )
+    const envelope = { ...pairEnvelope, pairCode: 'fedcba9876543210fedcba9876543210' }
+    const first = claimMobilePairing(envelope, 'device', 'My phone', 'ios')
+    const second = claimMobilePairing(envelope, 'device', 'My phone', 'ios')
+    expect(second).toBe(first)
+    await first.catch(() => {})
+    expect(claims).toBe(1)
+    forgetMobilePairingClaim(envelope.pairCode)
+    await claimMobilePairing(envelope, 'device', 'My phone', 'ios').catch(() => {})
+    expect(claims).toBe(2)
   })
 })

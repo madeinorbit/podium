@@ -275,6 +275,26 @@
       "types": "./src/agent-models.ts",
       "import": "./src/agent-models.ts"
     },
+    "./new-task": {
+      "@podium/source": "./src/new-task.ts",
+      "types": "./src/new-task.ts",
+      "import": "./src/new-task.ts"
+    },
+    "./first-task-draft": {
+      "@podium/source": "./src/first-task-draft.ts",
+      "types": "./src/first-task-draft.ts",
+      "import": "./src/first-task-draft.ts"
+    },
+    "./transcript-time": {
+      "@podium/source": "./src/transcript-time.ts",
+      "types": "./src/transcript-time.ts",
+      "import": "./src/transcript-time.ts"
+    },
+    "./markdown-plain-text": {
+      "@podium/source": "./src/values/markdown-plain-text.ts",
+      "types": "./src/values/markdown-plain-text.ts",
+      "import": "./src/values/markdown-plain-text.ts"
+    },
     "./ui": {
       "@podium/source": "./src/ui/index.ts",
       "types": "./src/ui/index.ts",
@@ -331,6 +351,7 @@
     "@podium/runtime": "workspace:*",
     "@podium/sync": "workspace:*",
     "highlight.js": "11.11.1",
+    "marked": "^18.0.5",
     "mobx": "7.0.3",
     "zod": "^3.24.0",
     "@trpc/client": "^11.0.0",

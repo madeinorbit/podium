@@ -1,0 +1,144 @@
+import { Host } from '@expo/ui'
+import {
+  Button,
+  Form,
+  Group,
+  NavigationStack,
+  Picker,
+  Section,
+  Text,
+  Toggle,
+  Toolbar,
+  ToolbarItem,
+} from '@expo/ui/swift-ui'
+import {
+  disabled,
+  navigationBarTitleDisplayMode,
+  navigationTitle,
+  pickerStyle,
+  presentationDetents,
+  presentationDragIndicator,
+  tag,
+} from '@expo/ui/swift-ui/modifiers'
+import { useState } from 'react'
+import { StyleSheet } from 'react-native'
+import { useDismissOnRootLeave } from '../navigation/use-dismiss-on-root-leave'
+import { color } from '../theme/theme'
+import { ActivitySheet as BottomSheet } from './ActivitySheet.ios'
+import {
+  DISPLAY_FACETS,
+  type Facet,
+  FILTER_FACETS,
+  MORE_FACETS,
+  type TaskFiltersSheetProps,
+  useTaskFilterFacets,
+} from './task-filter-facets'
+
+export type { TaskFiltersSheetProps } from './task-filter-facets'
+
+/**
+ * FILTER AND DISPLAY, the iOS sheet: a real SwiftUI sheet with medium and large
+ * detents, a grouped Form of menu pickers and switches, and the navigation
+ * bar's Reset and Done. iOS draws the sheet's glass, grabber and detents.
+ *
+ * Same facets and writes as the React Native sheet (`useTaskFilterFacets`):
+ * the board's `setFilter`, the shared display preference, the Show-done toggle.
+ */
+export function TaskFiltersSheet(props: TaskFiltersSheetProps) {
+  const { visible, filter, showDone, showAgentTasks, onShowDone, onShowAgentTasks, onClose } = props
+  // The screen mounts this only while open. Done lowers the sheet here and the
+  // screen unmounts it after the dismissal animation (onDismiss), so the sheet
+  // still slides away instead of vanishing.
+  const [presented, setPresented] = useState(true)
+  useDismissOnRootLeave(() => setPresented(false), visible && presented)
+  const { configs, set, reset, activeCount } = useTaskFilterFacets(props)
+  const picker = (facet: Facet) => {
+    const config = configs[facet]
+    if (!config) return null
+    return (
+      <Picker
+        key={facet}
+        label={config.label}
+        selection={config.value}
+        onSelectionChange={(value) => config.apply(String(value))}
+        modifiers={[pickerStyle('menu')]}
+      >
+        {config.options.map((option) => (
+          <Text key={option.value} modifiers={[tag(option.value)]}>
+            {option.label}
+          </Text>
+        ))}
+      </Picker>
+    )
+  }
+
+  return (
+    <Host style={styles.host} seedColor={color.accentTint}>
+      <BottomSheet
+        isPresented={visible && presented}
+        onIsPresentedChange={(open) => setPresented(open)}
+        onDismiss={onClose}
+      >
+        <Group
+          modifiers={[
+            // The board's sheet stands about two thirds of the screen at rest.
+            presentationDetents([{ fraction: 0.65 }, 'large']),
+            presentationDragIndicator('visible'),
+          ]}
+        >
+          <NavigationStack>
+            <Toolbar
+              modifiers={[
+                navigationTitle('Filter and display'),
+                navigationBarTitleDisplayMode('inline'),
+              ]}
+            >
+              <Form>
+                <Section>{FILTER_FACETS.map(picker)}</Section>
+                <Section>
+                  {DISPLAY_FACETS.map(picker)}
+                  <Toggle label="Show done" isOn={showDone} onIsOnChange={onShowDone} />
+                  <Toggle
+                    label="Show agent tasks"
+                    isOn={showAgentTasks}
+                    onIsOnChange={onShowAgentTasks}
+                  />
+                </Section>
+                <Section title="More">
+                  {MORE_FACETS.map(picker)}
+                  <Toggle
+                    label="Archived"
+                    isOn={filter.archived === true}
+                    onIsOnChange={(value) => set('archived', value || undefined)}
+                  />
+                  <Toggle
+                    label="Deleted"
+                    isOn={filter.deleted === true}
+                    onIsOnChange={(value) => set('deleted', value || undefined)}
+                  />
+                </Section>
+              </Form>
+              <Toolbar.Content>
+                <ToolbarItem placement="cancellationAction">
+                  <Button label="Reset" onPress={reset} modifiers={[disabled(activeCount === 0)]} />
+                </ToolbarItem>
+                <ToolbarItem placement="confirmationAction">
+                  <Button
+                    label="Done"
+                    systemImage="checkmark"
+                    onPress={() => setPresented(false)}
+                  />
+                </ToolbarItem>
+              </Toolbar.Content>
+            </Toolbar>
+          </NavigationStack>
+        </Group>
+      </BottomSheet>
+    </Host>
+  )
+}
+
+const styles = StyleSheet.create({
+  // The sheet presents itself; its anchor takes no room in the screen.
+  host: { position: 'absolute', width: 0, height: 0 },
+})

@@ -1,8 +1,10 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { BoardFilter, IssuesOrdering } from '@podium/client-core/values'
+import type { SessionView } from '@podium/client-core/session-values'
+import type { BoardFilter, IssueNavigationModel, IssuesOrdering } from '@podium/client-core/values'
 import {
   clearChip,
   filterChips,
+  issueNeedsHuman,
   orderIssues,
   readSharedIssuesDisplay,
   writeSharedIssuesDisplay,
@@ -21,10 +23,14 @@ import { boardRefreshing } from './issue-board-layout'
 import type { BoardListRow, BoardQuery } from './issue-board-schema'
 import { omitGone } from './lookup'
 import { MOBILE_TASK_STAGES, type MobileTasksOptions } from './mobile-screens-schema'
+import { ProposalQueue } from './mobile-triage'
 import type { IssueModel, ModelOf } from './models'
 import type { MobxPool } from './pool'
 import { createQueryResult, mapQueryResult } from './query-result'
+import { firstResidentChildMatch } from './resident-child-match'
+import { RowWindow } from './row-window'
 import { LOADING, type Loaded } from './worklist/rollup'
+import { worklistView } from './worklist/view-model'
 
 export type MobileTaskIssue = ModelOf['issue'] &
   Readonly<Pick<IssueViewModel, 'type' | 'priority' | 'stage' | 'closedReason'>>
@@ -36,6 +42,9 @@ export interface MobileTaskIds {
   readonly rows: readonly BoardListRow[]
 }
 type Stage = MobileTaskIds['stage']
+
+export { ROW_WINDOW_SIZE as MOBILE_TASK_WINDOW_SIZE } from './row-window'
+export type TaskRowMark = 'needs' | 'working' | 'resting' | 'done'
 
 const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const requireRow = <T>(row: Loaded<T>): T | undefined => {
@@ -52,7 +61,6 @@ const CLOSED_STATUSES: ReadonlySet<string> = new Set([
 /** A filter that asks for closed work shows done work whatever the toggle says. */
 export const filterShowsDone = (filter: BoardFilter): boolean =>
   filter.status === 'closed' || (filter.stage !== undefined && CLOSED_STATUSES.has(filter.stage))
-const PROPOSALS: BoardQuery = { kind: 'board', filter: { stage: 'proposed' }, showAgentTasks: true }
 
 /** The phone board's rules about one issue. Facts about the issue itself stay
  * on its shared model; these answers depend on the board's options and on
@@ -93,6 +101,31 @@ class BoardTask {
     return ids
   }
 
+  /** The task has a conversation to open: an unarchived session on its
+   *  roster. A tap on a seated task opens the chat, any other its details
+   *  (POD-2432). */
+  @lazy get seated(): boolean {
+    return this.board.pool.graph.subsetSize('issue', this.id, 'missionSessions', 'unarchived') > 0
+  }
+
+  /** The board glyph follows the same attention rule as Work and the deck. */
+  @lazy get mark(): TaskRowMark {
+    if (this.finished) return 'done'
+    const sessions = [
+      ...this.board.pool.graph.subset('issue', this.id, 'missionSessions', 'unarchived'),
+    ].flatMap((id) => {
+      const session = requireRow(omitGone(this.board.pool.row('session', id)))
+      return session ? [session as unknown as SessionView] : []
+    })
+    if (issueNeedsHuman(this.issue as unknown as IssueNavigationModel, sessions)) return 'needs'
+    return this.stage === 'in_progress' ? 'working' : 'resting'
+  }
+
+  /** The desktop Work row's accepted-leaf count, shared with the flight deck. */
+  get progress() {
+    return worklistView(this.board.pool).row(this.issue).progress
+  }
+
   // --- Audience and proposals (board options never reach these)
 
   /** Who the issue is for: not shown at all, a person's task, or agent work. */
@@ -113,11 +146,6 @@ class BoardTask {
         !scope.agent &&
         this.stage === 'proposed',
     )
-  }
-
-  /** Counted by the proposals banner: screenable, and not inside another proposal. */
-  @lazy get awaitsScreening(): boolean {
-    return this.screenable && !this.ancestors.some((id) => this.board.task(id).stage === 'proposed')
   }
 
   // --- Membership under the board's options
@@ -203,6 +231,16 @@ class BoardTask {
     return this.childIds.length > 0 && this.board.expanded.includes(this.id)
   }
 
+  /** A collapsed search result names the matching child using Work's resident walk. */
+  @lazy get childHit(): string | null {
+    if (!this.board.searching || this.expanded) return null
+    return firstResidentChildMatch(
+      this.board.pool,
+      this.id,
+      (issue) => this.board.task(issue.id).matched,
+    )
+  }
+
   @lazy get depth(): number {
     if (this.promoted || this.board.roots.has(this.id)) return 0
     const parent = this.parentId
@@ -221,6 +259,10 @@ class BoardTask {
 
 /** One lane of the board: its own tasks and the rows drawn for them. */
 class BoardLane {
+  readonly window = new RowWindow(
+    () => this.rows,
+    (row) => row.id,
+  )
   private readonly results: Record<IssuesOrdering, ReturnType<typeof createQueryResult<string>>>
 
   constructor(
@@ -344,8 +386,10 @@ export class MobileTasksBoard {
   /** The Show-done toggle. */
   @observableRef private accessor fixtureOptions: Pick<
     MobileTasksOptions,
-    'filter' | 'showDone' | 'ordering'
-  > = { filter: {}, showDone: false, ordering: 'priority' }
+    'filter' | 'showDone'
+  > & {
+    ordering: IssuesOrdering
+  } = { filter: {}, showDone: false, ordering: 'priority' }
   @lazy private get options(): Pick<MobileTasksOptions, 'filter' | 'showDone'> {
     if (!this.pool.hasLayout) return this.fixtureOptions
     const value = this.pool.layoutValue('phone.tasks.options') as
@@ -382,7 +426,16 @@ export class MobileTasksBoard {
     return readSharedIssuesDisplay(typeof raw === 'string' ? raw : raw ? JSON.stringify(raw) : null)
       .ordering
   }
-  @observable accessor showAgentTasks: boolean
+  // Explicit options configure standalone boards. The app board omits
+  // showAgentTasks so it follows the shared issues.display preference.
+  @observable private accessor showAgentTasksOverride: boolean | undefined
+  @lazy private get sharedDisplay() {
+    const raw = this.pool.hasLayout ? this.pool.layoutValue('issues.display') : null
+    return readSharedIssuesDisplay(typeof raw === 'string' ? raw : raw ? JSON.stringify(raw) : null)
+  }
+  @lazy get showAgentTasks(): boolean {
+    return this.showAgentTasksOverride ?? this.sharedDisplay.showAgentTasks
+  }
   /** The resolved Assigned to filter (POD-6297): a member id, or undefined
    * for every assignee's tasks. The member's saved choice is resolved by the
    * screen (`assigneeFacet`); it is not a sheet chip, so `filter` never holds it. */
@@ -396,10 +449,10 @@ export class MobileTasksBoard {
       this.fixtureOptions = {
         filter: options.filter,
         showDone: options.showDone,
-        ordering: options.ordering,
+        ordering: options.ordering ?? readSharedIssuesDisplay(null).ordering,
       }
     this.expanded = options.expanded
-    this.showAgentTasks = options.showAgentTasks
+    this.showAgentTasksOverride = options.showAgentTasks
   }
 
   @action configure(options: MobileTasksOptions) {
@@ -407,11 +460,11 @@ export class MobileTasksBoard {
       this.fixtureOptions = {
         filter: options.filter,
         showDone: options.showDone,
-        ordering: options.ordering,
+        ordering: options.ordering ?? readSharedIssuesDisplay(null).ordering,
       }
     this.expanded = options.expanded
     this.query = ''
-    this.showAgentTasks = options.showAgentTasks
+    this.showAgentTasksOverride = options.showAgentTasks
   }
 
   @action setOrdering(ordering: IssuesOrdering): void {
@@ -454,7 +507,7 @@ export class MobileTasksBoard {
   }) {
     if (!this.pool.hasLayout)
       this.fixtureOptions = { ...this.fixtureOptions, ordering: display.ordering }
-    this.showAgentTasks = display.showAgentTasks
+    this.showAgentTasksOverride = display.showAgentTasks
     this.assignee = display.assignee
   }
 
@@ -462,6 +515,20 @@ export class MobileTasksBoard {
   @lazy({ equals: compareStructural }) get searchFilter(): BoardFilter {
     const filter = this.assignee ? { ...this.filter, assignee: this.assignee } : this.filter
     return this.query.trim() ? { ...filter, text: this.query } : filter
+  }
+
+  /** Search results stay visible without rewriting the user's saved folds. */
+  @lazy get searching(): boolean {
+    return Boolean(this.searchFilter.text?.trim())
+  }
+
+  /** Search holds groups open; header taps must not change saved preferences. */
+  isFolded(saved: boolean): boolean {
+    return saved && !this.searching
+  }
+
+  @action toggleFold(toggleSaved: () => void): void {
+    if (!this.searching) toggleSaved()
   }
 
   @lazy({ equals: compareStructural }) get chips() {
@@ -586,15 +653,58 @@ export class MobileTasksBoard {
     for (const lane of this.lanes) lane.dispose()
   }
 
-  /** A separate question: board filters and folds never wake the banner. */
-  @lazy get proposals(): number | typeof LOADING {
+  /**
+   * The groups the phone draws: the non-empty lanes, plus a Proposed group
+   * whenever proposals wait for screening, even if the board's filter hides
+   * every one of them. Its total is the screening queue's count, not the
+   * lane's: the group is the way into the screening deck.
+   */
+  @lazy({ equals: compareShallow }) get groups(): readonly MobileTaskIds[] | typeof LOADING {
+    const sections = this.sections
+    const proposals = this.proposals
+    if (sections === LOADING || proposals === LOADING) return LOADING
+    const lane = sections.find((section) => section.stage === 'proposed')
+    // Nothing to screen: the lane (if any) keeps its own count.
+    if (proposals === 0) return sections
+    const group: MobileTaskIds = {
+      stage: 'proposed',
+      title: ISSUE_STATUS_LABELS.proposed,
+      total: proposals,
+      rows: lane?.rows ?? [],
+    }
+    const rest = sections.filter((section) => section !== lane)
+    const at = rest.findIndex(
+      (section) =>
+        MOBILE_TASK_STAGES.indexOf(section.stage) > MOBILE_TASK_STAGES.indexOf('proposed'),
+    )
+    return at < 0 ? [...rest, group] : [...rest.slice(0, at), group, ...rest.slice(at)]
+  }
+
+  /** How many tasks each lane holds — its roots, the count the group header
+   * shows. The Tasks subtitle reads In Progress and Review from here. */
+  @lazy({ equals: compareStructural }) get stageCounts():
+    | Readonly<Record<Stage, number>>
+    | typeof LOADING {
     try {
-      let total = 0
-      for (const id of this.boardQuery(PROPOSALS)) if (this.task(id).awaitsScreening) total++
-      return total
+      const counts = {} as Record<Stage, number>
+      for (const lane of this.lanes) counts[lane.stage] = lane.rootIds.length
+      return counts
     } catch (error) {
       if (error === LOADING) return LOADING
       throw error
     }
+  }
+
+  /** The count and the opened deck share this selection, ignoring other board filters. */
+  @lazy private get screening() {
+    return new ProposalQueue(this.pool, this.searchFilter.text ?? '')
+  }
+  @lazy({ equals: compareShallow }) get screeningIds() {
+    return this.screening.queue
+  }
+
+  @lazy get proposals(): number | typeof LOADING {
+    const ids = this.screeningIds
+    return ids === LOADING ? LOADING : (ids?.length ?? 0)
   }
 }

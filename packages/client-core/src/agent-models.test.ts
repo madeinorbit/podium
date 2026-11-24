@@ -19,6 +19,7 @@ import {
   encodeModelPick,
   isEffortValid,
   modelLabel,
+  modelName,
   modelOptions,
 } from './agent-models'
 
@@ -336,4 +337,20 @@ it('shares default harness labels and option ordering independently of registry 
   expect(issueAgentOptions('codex').filter(option => option.value === 'codex')).toEqual([])
   expect(issueAgentOptions('auto', undefined, 'codex')[0]).toEqual({ value: '', label: 'Codex (default)' })
   expect(issueAgentOptions('auto', undefined, 'codex').some(option => option.value === 'codex')).toBe(false)
+})
+
+describe('modelName — a model reads as a name, never an id', () => {
+  it('uses the catalog label when the machine lists the value', () => {
+    expect(modelName('claude-code', 'claude-opus-4-8', liveClaude)).toBe('Opus 4.8')
+  })
+  it('title-cases an unlisted id the way the catalog names models', () => {
+    expect(modelName('claude-code', 'claude-opus-5-5')).toBe('Opus 5.5')
+    expect(modelName('claude-code', 'claude-haiku-4-5-20251001')).toBe('Haiku 4.5')
+    expect(modelName('claude-code', 'opus')).toBe('Opus')
+    expect(modelName('codex', 'gpt-6.1-sol')).toBe('GPT 6.1 Sol')
+  })
+  it('keeps Auto for no model', () => {
+    expect(modelName('claude-code', null)).toBe('Auto')
+    expect(modelName('claude-code', 'auto')).toBe('Auto')
+  })
 })

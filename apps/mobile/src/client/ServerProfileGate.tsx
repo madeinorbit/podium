@@ -34,7 +34,6 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   Alert,
-  Linking,
   Platform,
   ScrollView,
   StyleSheet,
@@ -47,9 +46,12 @@ import { MembershipDeniedView } from '../components/MembershipDeniedView'
 import { PairingScanner } from '../components/PairingScanner'
 import { PressableScale } from '../components/PressableScale'
 import { setKnownPodiumOrigins } from '../lib/podium-link'
+import { startupTiming } from '../lib/startup-timing'
 import { color, font, radius, sans, space } from '../theme/theme'
 import { mobileAccountCredentials } from './account-credentials'
 import { mobileAccountEraser } from './account-data'
+import { nativeMissionHref } from './app-link-intent'
+import { clearInitialAppUrl, readInitialAppUrl, subscribeAppUrls } from './app-links'
 import { fetchAuthStatus, logout } from './auth'
 import { mobileBrowserAccounts } from './browser-accounts'
 import {
@@ -84,6 +86,7 @@ import {
 import { clearLocalCredentialSurfaces, preflightNativeOverride } from './override-lifecycle'
 import {
   claimMobilePairing,
+  forgetMobilePairingClaim,
   type MobilePairingEnvelope,
   normalizeManualServer,
   type PairingClaim,
@@ -92,7 +95,6 @@ import {
   preflightServer,
   type ServerPreflight,
 } from './pairing'
-import { isPairingSystemPath } from './pairing-intent'
 import { PairingWelcome } from './pairing-welcome'
 import {
   deleteProfileCredential,
@@ -116,6 +118,7 @@ import {
 import { envServer, sameSiteBuildServer, setActiveServerRuntime } from './trpc'
 
 const followLog = createLogger('mobile:server-follow')
+const pairingLog = createLogger('mobile:pairing')
 
 /** The identity a pairing envelope named, carried on the checked server (POD-5921). */
 const pairedServerIdentity = (result: {
@@ -179,6 +182,13 @@ function isNativeStartupLink(raw: string | null): raw is string {
   } catch {
     return false
   }
+}
+
+/** A full pairing link typed or pasted into the address field (POD-2364). */
+export function isPastedPairingLink(value: string): boolean {
+  return (
+    /^podium:/i.test(value) || /#pair=/.test(value) || /^https?:\/\/[^/?#]+\/mobile$/i.test(value)
+  )
 }
 
 function consumeWebPairingLink(): string | null {
@@ -298,7 +308,10 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
   const [incoming, setIncoming] = useState<MobilePairingEnvelope | null>(
     consumedInitialPairing.envelope,
   )
-  const [linkError, setLinkError] = useState<string | null>(consumedInitialPairing.error)
+  // An object, not the message: the same refusal twice must still re-show (POD-2364).
+  const [linkError, setLinkError] = useState<{ message: string } | null>(() =>
+    consumedInitialPairing.error ? { message: consumedInitialPairing.error } : null,
+  )
   const [activationFailure, setActivationFailure] = useState<ActivationFailure | null>(null)
   const [membershipRefusal, setMembershipRefusal] = useState<{
     reason: string
@@ -380,79 +393,81 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     [],
   )
 
-  const handleLink = useCallback((raw: string) => {
-    // Native app links can contain the one-time secret in router state. Drop
-    // that route before parsing, rendering, logging, or awaiting network I/O.
-    // Best-effort: on a cold launch the router may not be mounted yet, and a
-    // throw here silently swallowed the whole pairing link (found 2026-08-27).
-    //
-    // NOT FOR A PAIRING LINK (POD-6913). The router never holds one:
-    // app/+native-intent.ts keeps it out. And a replace at the root remounts
-    // the root layout, this gate included, so the pairing state set below was
-    // wiped as soon as it was set, and the phone stayed where it was with no
-    // pairing request sent.
-    if (Platform.OS !== 'web') {
-      if (!isPairingSystemPath(raw)) {
-        try {
-          router.replace('/')
-        } catch {
-          // not mounted yet
+  const handleLink = useCallback(
+    (raw: string) => {
+      if (Platform.OS !== 'web') {
+        setupOwnsStartup.current = false
+        // +native-intent opens mission URLs on the existing chat/deck screens.
+        // Resetting the router here used to discard that navigation. Retire an
+        // older handoff and its profile activation before returning to the router.
+        if (nativeMissionHref(raw)) {
+          startupLinkGeneration.current += 1
+          retirePendingMobileHandoff()
+          switchOperation.current += 1
+          setCredentialOwnerRevision((value) => value + 1)
+          nativeLinkIntent.current = null
+          setHandoffStatus('')
+          if (switchInFlight.current) restartSavedProfile()
+          return
         }
       }
-      setupOwnsStartup.current = false
-    }
-    if (Platform.OS !== 'web' && isHostedReturn(raw)) {
-      try {
-        const link = parseHostedReturn(raw)
-        if (lastHostedCode.current === link.code) return
-        lastHostedCode.current = link.code
+      if (Platform.OS !== 'web' && isHostedReturn(raw)) {
+        try {
+          const link = parseHostedReturn(raw)
+          if (lastHostedCode.current === link.code) return
+          lastHostedCode.current = link.code
+          startupLinkGeneration.current += 1
+          const operation = ++switchOperation.current
+          nativeLinkIntent.current = 'pairing'
+          retirePendingMobileHandoff()
+          setIncoming(null)
+          setLinkError(null)
+          setSetupOpen(true)
+          setHostedReturn({ link, operation })
+          setMembershipRefusal(null)
+          setHandoffStatus('Finishing sign-in…')
+        } catch {
+          setHandoffStatus('This sign-in link is invalid. Start sign-in again.')
+        }
+        return
+      }
+      if (Platform.OS !== 'web') {
+        setHostedReturn(null)
+        void hostedSignIn.cancel().catch(() => {})
+      }
+      if (Platform.OS !== 'web' && captureMobileHandoffUrl(raw)) {
         startupLinkGeneration.current += 1
-        const operation = ++switchOperation.current
-        nativeLinkIntent.current = 'pairing'
-        retirePendingMobileHandoff()
+        switchOperation.current += 1
+        setCredentialOwnerRevision((value) => value + 1)
+        if (switchInFlight.current) savedProfileRestartPending.current = true
+        nativeLinkIntent.current = 'handoff'
         setIncoming(null)
         setLinkError(null)
-        setSetupOpen(true)
-        setHostedReturn({ link, operation })
-        setMembershipRefusal(null)
-        setHandoffStatus('Finishing sign-in…')
-      } catch {
-        setHandoffStatus('This sign-in link is invalid. Start sign-in again.')
+        setSetupOpen(false)
+        return
       }
-      return
-    }
-    if (Platform.OS !== 'web') {
-      setHostedReturn(null)
-      void hostedSignIn.cancel().catch(() => {})
-    }
-    if (Platform.OS !== 'web' && captureMobileHandoffUrl(raw)) {
-      startupLinkGeneration.current += 1
-      switchOperation.current += 1
-      setCredentialOwnerRevision((value) => value + 1)
-      if (switchInFlight.current) savedProfileRestartPending.current = true
-      nativeLinkIntent.current = 'handoff'
-      setIncoming(null)
-      setLinkError(null)
-      setSetupOpen(false)
-      return
-    }
-    if (Platform.OS !== 'web') {
-      startupLinkGeneration.current += 1
-      nativeLinkIntent.current = 'pairing'
-      retirePendingMobileHandoff()
-      switchOperation.current += 1
-      setCredentialOwnerRevision((value) => value + 1)
-    }
-    try {
-      const parsed = parsePairingLink(raw)
-      setIncoming(parsed.envelope)
-      setSetupOpen(true)
-      setLinkError(null)
-    } catch (error) {
-      setLinkError(error instanceof Error ? error.message : String(error))
-      setSetupOpen(true)
-    }
-  }, [])
+      if (Platform.OS !== 'web') {
+        startupLinkGeneration.current += 1
+        nativeLinkIntent.current = 'pairing'
+        retirePendingMobileHandoff()
+        switchOperation.current += 1
+        setCredentialOwnerRevision((value) => value + 1)
+      }
+      try {
+        const parsed = parsePairingLink(raw)
+        setIncoming(parsed.envelope)
+        setSetupOpen(true)
+        setLinkError(null)
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        // The reason only: the link itself can carry the pairing secret.
+        pairingLog.warn('pairing link rejected', { reason })
+        setLinkError({ message: reason })
+        setSetupOpen(true)
+      }
+    },
+    [restartSavedProfile],
+  )
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: activationRetry is a deliberate retrigger counter — bumping it re-runs activation from the retry buttons
   useEffect(() => {
@@ -470,11 +485,13 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     setupOwnsStartup.current = false
     let alive = true
     void (async () => {
+      startupTiming.mark('profile.restore.start')
       const shouldReadInitialUrl =
         !initialNativePairingConsumed && !initialNativeUrlConsumed.current
       initialNativeUrlConsumed.current = true
       const initialUrlGeneration = startupLinkGeneration.current
-      const resolvedInitialUrl = shouldReadInitialUrl ? await Linking.getInitialURL() : null
+      const resolvedInitialUrl = shouldReadInitialUrl ? await readInitialAppUrl() : null
+      startupTiming.mark('profile.initial-url.end')
       if (!alive) return
       // A live Linking event that arrived while the cold URL was pending is
       // newer intent. The delayed cold result must never reclaim startup.
@@ -482,6 +499,9 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         initialUrlGeneration === startupLinkGeneration.current ? resolvedInitialUrl : null
       if (isNativeStartupLink(initialUrl)) {
         initialNativePairingConsumed = true
+        // A pairing secret or sign-in code must not stay in expo-linking's
+        // registry for a reload or a later reader to replay.
+        if (!parseMobileHandoffUrl(initialUrl)) clearInitialAppUrl()
         handleLink(initialUrl)
       }
       const buildOverride =
@@ -541,7 +561,9 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           erasePrincipal: mobileAccountEraser.erase,
         }),
       )
+      startupTiming.mark('profile.cleanup.end')
       const stored = await profileWrites.run(() => loadServerProfiles())
+      startupTiming.mark('profile.storage.end')
       // Pairing can finish while cold startup is still draining. Keep orphan
       // cleanup in the same order as every credential read/write so a purge
       // based on the older profile snapshot cannot erase the newly paired
@@ -549,6 +571,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       await credentialWrites.run(() =>
         purgeOrphanedProfileCredentials(stored.profiles.map((row) => row.id)),
       )
+      startupTiming.mark('profile.credentials-purge.end')
       if (!alive || setupOwnsStartup.current) return
       while (alive && !setupOwnsStartup.current) {
         const generation = startupLinkGeneration.current
@@ -564,7 +587,9 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           setReady(true)
           return
         }
-        if (intent === 'handoff' && pending.request) {
+        // Ordinary issue/session links use the saved selection and must finish
+        // its activation before the router's cold-link anchor can mount.
+        if (intent === 'handoff' && pending.request && pending.request.kind !== 'navigation') {
           const selected =
             pending.request.kind === 'destination'
               ? matchingMobileHandoffProfile(
@@ -681,6 +706,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         if (!alive || setupOwnsStartup.current) return
         if (generation !== startupLinkGeneration.current) continue
         setProfileState(next)
+        startupTiming.mark('profile.restore.end')
         setBearer(credential)
         setActivation('verified')
         setActivationFailure(null)
@@ -698,7 +724,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         setReady(true)
       }
     })
-    const subscription = Linking.addEventListener('url', ({ url }) => handleLink(url))
+    const subscription = subscribeAppUrls(handleLink)
     return () => {
       alive = false
       subscription.remove()
@@ -1421,7 +1447,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     }
     if (pendingHandoff.request.kind === 'navigation') {
       if (activationFailure) fallback('identity-unverified')
-      else {
+      else if (credentialReleased) {
         markPendingMobileHandoffProfileSelected(pendingHandoff.id)
         setHandoffStatus('')
       }
@@ -1461,7 +1487,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       return
     }
     if (activationFailure) fallback('identity-unverified')
-    else {
+    else if (credentialReleased) {
       markPendingMobileHandoffProfileSelected(pendingHandoff.id)
       setHandoffStatus('')
     }
@@ -1577,6 +1603,10 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
       </LaunchReadyView>
     )
   }
+  // `ready` also lets gate-owned fallback effects run with a saved profile but
+  // no activated runtime. Keep readiness, auth and route readers unmounted
+  // until that runtime is available, including while switching profiles.
+  if (Platform.OS !== 'web' && !credentialReleased) return null
   return (
     <ServerProfileContext.Provider value={context}>
       <View style={styles.fill} key={context?.runtimeKey}>
@@ -1696,7 +1726,7 @@ function PairingSetup({
   onPairingStart,
 }: {
   incoming: MobilePairingEnvelope | null
-  initialError: string | null
+  initialError: { message: string } | null
   canCancel: boolean
   onPairingStart(): void
   onCancel(): void
@@ -1720,9 +1750,15 @@ function PairingSetup({
   const [envelope, setEnvelope] = useState(incoming)
   const [preflight, setPreflight] = useState<Extract<ServerPreflight, { ok: true }> | null>(null)
   const [claim, setClaim] = useState<PairingClaim | null>(null)
-  const [error, setError] = useState<string | null>(initialError)
+  const [error, setError] = useState<string | null>(initialError?.message ?? null)
   const [offlineCandidate, setOfflineCandidate] = useState<string | null>(null)
   const connectInFlight = useRef(false)
+
+  const returnToWelcome = () => {
+    setError(null)
+    setOfflineCandidate(null)
+    setStep('welcome')
+  }
 
   const check = useCallback(async (origin: string, nextEnvelope: MobilePairingEnvelope | null) => {
     setStep('checking')
@@ -1731,6 +1767,7 @@ function PairingSetup({
     try {
       const result = await preflightServer(origin, nextEnvelope?.workspaceId)
       if (!result.ok) {
+        pairingLog.warn('pairing server check failed', { kind: result.kind, title: result.title })
         setError(`${result.title}\n${result.detail}`)
         if (
           !nextEnvelope &&
@@ -1774,12 +1811,17 @@ function PairingSetup({
     }
   }, [])
 
+  // Once per delivered envelope: StrictMode's dev double-effect and a repeated
+  // render must not re-run the server check for the same link (POD-2364).
+  const checkedIncoming = useRef<MobilePairingEnvelope | null>(null)
   useEffect(() => {
-    if (incoming) void check(incoming.serverUrl, incoming)
+    if (!incoming || checkedIncoming.current === incoming) return
+    checkedIncoming.current = incoming
+    void check(incoming.serverUrl, incoming)
   }, [check, incoming])
 
   useEffect(() => {
-    if (initialError) setError(initialError)
+    if (initialError) setError(initialError.message)
   }, [initialError])
 
   useEffect(() => {
@@ -1797,6 +1839,7 @@ function PairingSetup({
         if (result.status === 'pending') {
           timer = setTimeout(() => void poll(), 1_500)
         } else if (result.status === 'denied') {
+          if (envelope?.mode === 'pair') forgetMobilePairingClaim(envelope.pairCode)
           setError(result.reason)
           setStep('confirm')
         } else {
@@ -1814,9 +1857,9 @@ function PairingSetup({
       alive = false
       if (timer) clearTimeout(timer)
     }
-  }, [claim, onComplete, preflight, step])
+  }, [claim, envelope, onComplete, preflight, step])
 
-  const scan = (raw: string) => {
+  const scan = (raw: string, failedStep: 'welcome' | 'manual' = 'welcome') => {
     try {
       const parsed = parsePairingLink(raw)
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
@@ -1841,13 +1884,13 @@ function PairingSetup({
         void check(url.origin, null)
       } catch {
         setError(cause instanceof Error ? cause.message : String(cause))
-        setStep('welcome')
+        setStep(failedStep)
       }
     }
   }
 
   if (step === 'scan')
-    return <PairingScanner onScanned={scan} onCancel={() => setStep('welcome')} />
+    return <PairingScanner onScanned={(raw) => scan(raw)} onCancel={returnToWelcome} />
 
   const connect = async () => {
     if (!preflight || connectInFlight.current) return
@@ -1930,14 +1973,21 @@ function PairingSetup({
             <PrimaryButton
               label="Check server"
               onPress={() => {
+                const value = manual.trim()
+                // A pasted pairing link (podium://pair…, …/mobile#pair=…) takes
+                // the same path as a scanned code instead of the origin check.
+                if (isPastedPairingLink(value)) {
+                  scan(value, 'manual')
+                  return
+                }
                 try {
-                  void check(normalizeManualServer(manual), null)
+                  void check(normalizeManualServer(value), null)
                 } catch (cause) {
                   setError(cause instanceof Error ? cause.message : String(cause))
                 }
               }}
             />
-            <SecondaryButton label="Back" onPress={() => setStep('welcome')} />
+            <SecondaryButton label="Back" onPress={returnToWelcome} />
           </>
         ) : null}
         {step === 'checking' || step === 'claiming' ? (
@@ -1989,7 +2039,7 @@ function PairingSetup({
               }
               onPress={() => void connect()}
             />
-            <SecondaryButton label="Back" onPress={() => setStep('welcome')} />
+            <SecondaryButton label="Back" onPress={returnToWelcome} />
           </>
         ) : null}
         {step === 'waiting' && claim ? (
@@ -2011,7 +2061,7 @@ function PairingSetup({
               Confirm these exact words on your computer, then approve this phone.
             </Text>
             <ActivityIndicator color={color.workingText} />
-            <SecondaryButton label="Cancel" onPress={() => setStep('welcome')} />
+            <SecondaryButton label="Cancel" onPress={returnToWelcome} />
           </>
         ) : null}
         {offlineCandidate ? (
@@ -2083,8 +2133,15 @@ function SecondaryButton({
 const styles = StyleSheet.create({
   fill: { flex: 1, minHeight: 0 },
   srStatus: { position: 'absolute', width: 1, height: 1, overflow: 'hidden' },
-  overrideBanner: { backgroundColor: color.needsYou, paddingVertical: 4, alignItems: 'center' },
-  overrideText: { color: color.onAccent, ...sans(700), fontSize: font.micro, letterSpacing: 1 },
+  overrideBanner: { backgroundColor: color.needsYou, paddingVertical: 4, flexShrink: 0 },
+  overrideText: {
+    color: color.onAccent,
+    ...sans(700),
+    fontSize: font.micro,
+    letterSpacing: 1,
+    textAlign: 'center',
+    paddingHorizontal: 16,
+  },
   setup: { flex: 1, backgroundColor: color.bg },
   recovery: {
     flex: 1,

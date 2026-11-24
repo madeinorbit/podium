@@ -81,7 +81,8 @@ install shows up the day it happens; after that, one a day.
   "installAge": "1-7d",
   "machines": "2-5",
   "sessions": { "claude-code": 14, "codex": 2 },
-  "features": { "issues": true }
+  "features": { "issues": true },
+  "githubStar": { "shown": { "finished_task": 1 }, "clicked": {} }
 }
 ```
 
@@ -96,6 +97,7 @@ install shows up the day it happens; after that, one a day.
 | `machines` | `1` \| `2-5` \| `6-20` \| `20+` | **Bucketed**, same reason. |
 | `sessions` | counts, keyed by harness | How many sessions you started, per agent kind (`claude-code`, `codex`, `grok`, `opencode`, `cursor`, `pi`, `shell`). Counts only. |
 | `features` | booleans, keyed by feature | Whether you used `issues` — never what you used it on. |
+| `githubStar` | counts, keyed by surface | Only in a report where the star card did something. `shown` and `clicked`, each keyed by `finished_task` or `new_prompt`. Whether you actually starred is not known and not sent. |
 
 ### `crash` — rate-limited, one per distinct crash
 

@@ -311,10 +311,11 @@ describe('test lane configuration', () => {
     expect(config(webConfig).test?.setupFiles, 'web lost hermetic setup files').toEqual(
       sharedSetupFiles,
     )
-    // Mobile keeps the shared hermetic pair and adds `one-react.ts` last so a
+    // Mobile keeps shared hermetic setup and navigation boundaries, with `one-react.ts` last so a
     // dual-React checkout fails with a message that names the fix (3c11c8f43).
     expect(config(mobileConfig).test?.setupFiles, 'mobile lost hermetic setup files').toEqual([
       ...sharedSetupFiles,
+      fileURLToPath(new URL('../apps/mobile/test/navigation.ts', import.meta.url)),
       fileURLToPath(new URL('../apps/mobile/test/one-react.ts', import.meta.url)),
     ])
     for (const [name, appConfig] of [
@@ -697,7 +698,7 @@ describe('test lane configuration', () => {
       'packages/client-graph/src/reader-queries.ts',
       'packages/mobx-helpers/src/debug-name.ts',
       'apps/web/src/app/workspace-mission-reads.ts',
-      'apps/mobile/src/lib/mission-session.ts',
+      'packages/client-graph/src/mission-seat.ts',
     ])
       expect(
         inputs.some((input) => input.endsWith(file)),

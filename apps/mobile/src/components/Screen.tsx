@@ -1,10 +1,21 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
 import { color, font, mono, radius, sans, space, tracking } from '../theme/theme'
 import { Icon } from './Icon'
 import { ChevronLeft } from './icons'
+import { MenuSheet } from './MenuSheet'
 import { PressableScale } from './PressableScale'
+import type { ScreenAction } from './screen-actions'
+
+export type {
+  ScreenAction,
+  ScreenMenuEntry,
+  ScreenMenuItem,
+  ScreenMenuSection,
+} from './screen-actions'
+
 import { ScreenRefreshMark } from './ScreenRefreshMark'
 
 /**
@@ -16,24 +27,33 @@ import { ScreenRefreshMark } from './ScreenRefreshMark'
  */
 export function Screen({
   title,
-  subtitle,
+  grouped,
+  subtitle: normalSubtitle,
   onBack,
   backLabel,
   backAs = 'chevron',
   leading,
-  right,
+  right: customRight,
+  actions,
   children,
   large,
   noHeader,
   safeBottom,
   bareBack = false,
   monoSubtitle = false,
+  onTitlePress,
   refreshing,
 }: {
   title?: string
+  /** Use the system grouped-list ground beneath content and navigation. */
+  grouped?: boolean
   subtitle?: ReactNode
   onBack?: () => void
   backLabel?: string
+  /** Native only: the system back button's title when it does not go to the previous screen. */
+  backTitle?: string
+  /** Native only: show the previous screen's name when the bar has room. */
+  backButtonDisplayMode?: 'default' | 'generic' | 'minimal'
   /**
    * How the leading dismiss control reads [POD-366]. A pushed destination gets
    * the chevron; a sheet you can abandon (the create forms, settings) gets the
@@ -43,6 +63,13 @@ export function Screen({
   /** Slot between the back chevron and the titles (the 18px ID square). */
   leading?: ReactNode
   right?: ReactNode
+  /**
+   * Trailing header actions. Native draws bar button items; this fallback draws
+   * a header button per plain action and leaves pull-down menus to native.
+   */
+  actions?: readonly ScreenAction[]
+  /** Native leading bar items (iOS); this fallback leaves them to native. */
+  leadingActions?: readonly ScreenAction[]
   children: ReactNode
   large?: boolean
   noHeader?: boolean
@@ -52,11 +79,44 @@ export function Screen({
   bareBack?: boolean
   /** Ledger/chat metadata uses the compact monospace datum voice. */
   monoSubtitle?: boolean
+  /** Native only: content runs under the transparent iOS bar (see Screen.native). */
+  underHeader?: boolean
+  /** Makes the compact title block one button (Messages' contact-name tap). */
+  onTitlePress?: () => void
   refreshing?: boolean
 }) {
+  const refreshSubtitle = useWorkspaceRefreshSubtitle()
+  const subtitle = large ? (refreshSubtitle ?? normalSubtitle) : normalSubtitle
+  const compactTitles = (
+    <>
+      {title ? (
+        <Text style={styles.title} numberOfLines={1}>
+          {title}
+        </Text>
+      ) : null}
+      {subtitle ? (
+        <Text style={[styles.subtitle, monoSubtitle && styles.monoSubtitle]} numberOfLines={1}>
+          {subtitle}
+        </Text>
+      ) : null}
+    </>
+  )
   const insets = useSafeAreaInsets()
+  const right =
+    customRight ??
+    (actions?.length
+      ? actions.map((action) =>
+          action.items ? (
+            <HeaderMenuButton key={action.label} action={action} />
+          ) : action.onPress ? (
+            <HeaderButton key={action.label} label={action.label} onPress={action.onPress}>
+              <Icon as={action.icon} size={17} color={color.textDim} />
+            </HeaderButton>
+          ) : null,
+        )
+      : null)
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, grouped && styles.grouped]}>
       <View
         style={[
           styles.inner,
@@ -109,21 +169,19 @@ export function Screen({
               )
             ) : null}
             {leading}
-            <View style={styles.titles}>
-              {title ? (
-                <Text style={styles.title} numberOfLines={1}>
-                  {title}
-                </Text>
-              ) : null}
-              {subtitle ? (
-                <Text
-                  style={[styles.subtitle, monoSubtitle && styles.monoSubtitle]}
-                  numberOfLines={1}
-                >
-                  {subtitle}
-                </Text>
-              ) : null}
-            </View>
+            {onTitlePress ? (
+              <PressableScale
+                accessibilityRole="button"
+                accessibilityHint="Opens task details"
+                haptic={false}
+                onPress={onTitlePress}
+                style={styles.titles}
+              >
+                {compactTitles}
+              </PressableScale>
+            ) : (
+              <View style={styles.titles}>{compactTitles}</View>
+            )}
             <View style={styles.right}>
               {refreshing !== undefined ? <ScreenRefreshMark refreshing={refreshing} /> : null}
               {right}
@@ -137,6 +195,25 @@ export function Screen({
 }
 
 /** Square chip icon button for header action rows (28px `color.surface`). */
+/** A menu action off iOS: its button, and its entries as the action sheet. */
+export function HeaderMenuButton({ action }: { action: ScreenAction }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <HeaderButton label={action.label} onPress={() => setOpen(true)}>
+        <Icon as={action.icon} size={17} color={color.textDim} />
+      </HeaderButton>
+      <MenuSheet
+        visible={open}
+        {...(action.menuTitle ? { title: action.menuTitle } : {})}
+        {...(action.testID ? { testID: action.testID } : {})}
+        entries={action.items ?? []}
+        onClose={() => setOpen(false)}
+      />
+    </>
+  )
+}
+
 export function HeaderButton({
   label,
   onPress,
@@ -169,6 +246,7 @@ export function HeaderButton({
 }
 
 const styles = StyleSheet.create({
+  grouped: { backgroundColor: color.groupedBg },
   root: {
     flex: 1,
     backgroundColor: color.bg,

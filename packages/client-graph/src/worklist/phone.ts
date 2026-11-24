@@ -1,10 +1,14 @@
+import { boardTextMatcher } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { action, compareShallow, compareStructural, observable, observableRef } from 'mobx'
 import { ISSUE_SEARCH_PAGE, issueSearch } from '../issue-search'
 import type { MobxPool } from '../pool'
+import { firstResidentChildMatch } from '../resident-child-match'
+import { RowWindow } from '../row-window'
 import { isFinished } from '../shared/predicates'
 import { compareRank } from '../shared/row-view'
 import { type GroupNode, repoLabelOf, worklistGroups } from './groups'
+import type { WorklistIssue } from './issue'
 import type { MobileWorkRef } from './mobile'
 import type { SidebarBand } from './sidebar'
 import type { Worklist } from './view-model'
@@ -14,6 +18,7 @@ export type PhoneWorkLane = 'open' | 'snoozed' | 'closed'
 
 const EMPTY_IDS: readonly string[] = Object.freeze([])
 const EMPTY_REFS: readonly MobileWorkRef[] = Object.freeze([])
+const EMPTY_SECTIONS: readonly PhoneWorkSection[] = Object.freeze([])
 
 /** SectionList's identity-only boundary; displayed facts stay on the section. */
 export interface PhoneListSection {
@@ -80,7 +85,15 @@ export class PhoneWorklist {
     (group: GroupNode) => new PhoneWorkSection(group.key, this),
   )
 
+  private readonly searchHit = companion((row: WorklistIssue) => new PhoneSearchHit(row, this))
+  /** Whether the "projects with nothing open" row is unfolded; per worklist, not saved. */
+  @observable accessor quietExpanded = false
+
   constructor(readonly worklist: Worklist) {}
+
+  @action toggleQuiet() {
+    this.quietExpanded = !this.quietExpanded
+  }
 
   @action setFilters(filters: PhoneWorkFilters) {
     filters.bind(this.worklist.pool)
@@ -150,6 +163,35 @@ export class PhoneWorklist {
     return sections
   }
 
+  /** Unfiltered Open folds projects with nothing open into one row (data plan W4);
+   * search and the other lanes already leave empty projects out. */
+  @lazy({ equals: compareShallow }) get quietSections(): readonly PhoneWorkSection[] {
+    if (this.lane !== 'open' || this.needle) return EMPTY_SECTIONS
+    const quiet = this.sections.filter((section) => !section.pinned && section.ids.length === 0)
+    return quiet.length ? quiet : EMPTY_SECTIONS
+  }
+
+  /** {@link sections} without the folded quiet projects. */
+  @lazy({ equals: compareShallow }) get activeSections(): readonly PhoneWorkSection[] {
+    const quiet = this.quietSections
+    return quiet.length
+      ? this.sections.filter((section) => !quiet.includes(section))
+      : this.sections
+  }
+
+  /** The Tasks board's text rule, built once per query (W7). */
+  @lazy get textMatcher() {
+    return boardTextMatcher(this.query)
+  }
+
+  /** A sub-task of the row that matches the search by title or ref (data plan W7),
+   * or null. Only sub-tasks already in the pool are searched. */
+  childHit(id: string): string | null {
+    if (!this.needle) return null
+    const row = this.worklist.knownRow(id)
+    return row?.ready === 'ready' ? this.searchHit(row).childId : null
+  }
+
   @lazy({ equals: compareShallow }) get listSections(): readonly PhoneListSection[] {
     return this.sections.map((section) => section.listSection)
   }
@@ -157,8 +199,12 @@ export class PhoneWorklist {
   matches(id: string): boolean {
     if (!this.needle) return true
     const row = this.worklist.knownRow(id)
+    if (row?.ready !== 'ready') return false
     return (
-      row?.ready === 'ready' && (row.searchText.includes(this.needle) || this.searchIds.has(id))
+      Boolean(this.textMatcher?.(row.issue)) ||
+      row.searchText.includes(this.needle) ||
+      this.searchIds.has(id) ||
+      this.searchHit(row).childId !== null
     )
   }
 
@@ -215,10 +261,29 @@ export class PhoneWorklist {
         row.issue.isDraftVessel
       )
         continue
+      // A sub-task a listed ancestor already names as its search hit shows
+      // there (dev/tf's sub-task matches). Any other hit, for example one that
+      // matches only by description or brief on the server, keeps its row.
+      if (this.representedByListedAncestor(id, row.issue.parentId, present)) continue
       const lane = isFinished(row.issue) ? 'closed' : row.issue.deferred ? 'snoozed' : 'open'
       hits[lane].push(id)
     }
     return hits
+  }
+
+  private representedByListedAncestor(
+    id: string,
+    parentId: string | null | undefined,
+    present: ReadonlySet<string>,
+  ): boolean {
+    const seen = new Set<string>()
+    for (let at = parentId; at && !seen.has(at); ) {
+      if (present.has(at) && this.childHit(at) === id) return true
+      seen.add(at)
+      const parent = this.worklist.knownRow(at)
+      at = parent?.ready === 'ready' ? parent.issue.parentId : undefined
+    }
+    return false
   }
 
   @lazy get counts(): Readonly<Record<PhoneWorkLane, number>> {
@@ -260,6 +325,10 @@ export class PhoneWorklist {
 
 /** One section companion over the existing desktop band, with no second filing/index. */
 export class PhoneWorkSection {
+  readonly window = new RowWindow(
+    () => this.ids,
+    (id) => id,
+  )
   readonly foldedListSection: PhoneListSection
   constructor(
     readonly key: string,
@@ -274,6 +343,10 @@ export class PhoneWorkSection {
 
   get pinned() {
     return this.key === 'pinned'
+  }
+  /** The project's repository, for starting new work in it; null for Pinned. */
+  get repoPath(): string | null {
+    return this.pinned ? null : (this.band?.repoPath ?? null)
   }
   get label() {
     if (this.key === 'search-results') return 'Search results'
@@ -337,5 +410,24 @@ export class PhoneWorkSection {
   }
   @lazy get listSection(): PhoneListSection {
     return this.listBoundary(this.ids.map((id) => ({ id, listKey: `${this.key}:${id}` })))
+  }
+}
+
+/** A row's search rule: the first resident descendant, breadth first, whose
+ * title or ref the query matches. Deleted and archived sub-tasks never match. */
+class PhoneSearchHit {
+  constructor(
+    readonly row: WorklistIssue,
+    readonly phone: PhoneWorklist,
+  ) {}
+
+  @lazy get childId(): string | null {
+    const matches = this.phone.textMatcher
+    if (!matches) return null
+    return firstResidentChildMatch(
+      this.phone.worklist.pool,
+      this.row.id,
+      (issue) => !issue.deletedAt && !issue.archived && matches(issue),
+    )
   }
 }

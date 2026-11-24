@@ -5,13 +5,19 @@ import { LOADING } from '@podium/client-graph/loading'
 import { ProposalScreening } from '@podium/client-graph/mobile-triage'
 import { issueWrites } from '@podium/commands/issues-synced'
 import type { IssueId } from '@podium/model'
-import { useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import {
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTrpc } from '../client/hooks'
-import { issueObserver } from '../client/issue-observer'
 import { useMobilePool } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import { Icon } from '../components/Icon'
@@ -32,15 +38,14 @@ interface Failure {
 
 const repoName = (issue: IssueViewModel) => issueRepoName(issue)
 const refOf = (issue: IssueViewModel) => issue.displayRef ?? `#${issue.seq}`
-const VisibleScreeningCard = issueObserver(ScreeningCard)
-
 /**
  * "Screen proposed" [POD-277] — one agent proposal at a time, decided in a
  * couple of seconds from the couch.
  *
- * Right (or the Start button) promotes the proposal and starts its agent; left
- * (or Decline) closes it as `cancelled`; Skip advances without touching the issue,
- * so it stays proposed for the next pass. Decisions apply optimistically — the
+ * Start promotes the proposal and starts its agent; Decline closes it as
+ * `cancelled`. Both are buttons only, so no swipe changes a task [POD-2527].
+ * Skip (the button, or swiping the card either way) advances without touching
+ * the issue, so it stays proposed for the next pass. Decisions apply optimistically — the
  * next card is immediately live — and a mutation that fails surfaces as a
  * retryable banner rather than a silently lost decision.
  *
@@ -50,12 +55,15 @@ const VisibleScreeningCard = issueObserver(ScreeningCard)
  */
 export const ProposalScreeningScreen = observer(function ProposalScreeningScreen() {
   const router = useRouter()
+  const { text = '' } = useLocalSearchParams<{ text?: string }>()
   const pool = useMobilePool()
   const trpc = useTrpc()
   const { close: closeIssue } = useCommands<MobileTrpc>().issues,
     { startIssueSession } = useCommands<MobileTrpc>().sessions
   const insets = useSafeAreaInsets()
-  const deck = useMemo(() => (pool ? new ProposalScreening(pool) : null), [pool])
+  const expanded = useWindowDimensions().fontScale >= 1.6
+  const CardStack = expanded ? ScrollView : View
+  const deck = useMemo(() => (pool ? new ProposalScreening(pool, text) : null), [pool, text])
   useEffect(() => deck?.open(), [deck])
   const [outcomes, setOutcomes] = useState<Record<string, ScreeningOutcome>>({})
   const [failures, setFailures] = useState<Failure[]>([])
@@ -240,22 +248,26 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
             />
           ))}
         </View>
-        <View style={styles.stack}>
-          <View style={styles.cardWrap}>
+        <CardStack
+          key={current.id}
+          style={styles.stack}
+          {...(expanded ? { contentContainerStyle: styles.stackContent } : {})}
+        >
+          <View style={[styles.cardWrap, expanded && styles.growingCard]}>
             {/* The card underneath, peeking as a rim — the deck has depth only
                 while something is actually behind it. */}
             {deck.nextId ? <View style={styles.behindCard} pointerEvents="none" /> : null}
-            <VisibleScreeningCard
+            <ScreeningCard
               key={current.id}
               issue={current}
               repoName={repoName(current)}
               parent={current.parentId ? issueById(current.parentId) : undefined}
-              onDecide={(gesture) => decide(current, gesture)}
+              onSkip={() => decide(current, 'skipped')}
               onOpen={() => router.push(`/issue/${encodeURIComponent(current.id)}`)}
             />
           </View>
-        </View>
-        <Text style={styles.hint}>Swipe right to start · left to decline</Text>
+        </CardStack>
+        <Text style={styles.hint}>Swipe to skip · tap Start or Decline to decide</Text>
       </View>
     )
   })()
@@ -314,7 +326,7 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
           <View style={[styles.actions, { paddingBottom: Math.max(insets.bottom, space.md) }]}>
             <ActionButton
               label="Decline"
-              hint={`Close ${refOf(current)} as won't fix — same as swiping left`}
+              hint={`Close ${refOf(current)} as won't fix`}
               icon={X}
               tint={color.dangerText}
               onPress={() => decide(current, 'declined')}
@@ -328,7 +340,7 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
             />
             <ActionButton
               label="Start"
-              hint={`Accept ${refOf(current)} and start its agent — same as swiping right`}
+              hint={`Accept ${refOf(current)} and start its agent`}
               icon={Play}
               tint={color.accent}
               primary
@@ -371,10 +383,24 @@ function ActionButton({
       ]}
     >
       <Icon as={icon} size={16} color={primary ? color.onAccent : tint} />
-      <Text style={[styles.actionLabel, { color: primary ? color.onAccent : tint }]}>{label}</Text>
+      <Text
+        style={[styles.actionLabel, { color: primary ? color.onAccent : tint }]}
+        numberOfLines={1}
+        maxFontSizeMultiplier={ACTION_MAX_SCALE}
+        adjustsFontSizeToFit
+        minimumFontScale={0.8}
+      >
+        {label}
+      </Text>
     </PressableScale>
   )
 }
+
+/**
+ * Three equal buttons share the bottom bar, so their labels stop at the bar-chrome
+ * cap the deck and mission bar use; uncapped, "Decline" broke mid-word at AX3.
+ */
+const ACTION_MAX_SCALE = 1.35
 
 const styles = StyleSheet.create({
   body: {
@@ -393,7 +419,7 @@ const styles = StyleSheet.create({
   },
   deck: {
     flex: 1,
-    paddingHorizontal: space.md,
+    paddingHorizontal: space.lg,
     paddingTop: space.sm,
     gap: space.sm,
   },
@@ -422,6 +448,8 @@ const styles = StyleSheet.create({
   cardWrap: {
     maxHeight: '100%',
   },
+  stackContent: { paddingBottom: space.md },
+  growingCard: { maxHeight: undefined },
   behindCard: {
     position: 'absolute',
     left: 9,
@@ -487,7 +515,7 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     gap: space.sm,
-    paddingHorizontal: space.md,
+    paddingHorizontal: space.lg,
     paddingTop: space.sm + 2,
   },
   action: {

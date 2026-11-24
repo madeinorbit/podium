@@ -10,6 +10,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'
 import type { EpicProgress, IssuesDisplay } from './issues-display'
 
+export { cardAge } from '@podium/client-core/focus'
 // Pure label helpers live in lib so non-issues features can use them without a
 // cross-feature import (features.structure.test.ts). Re-export for issue-local
 // call sites that already import from this module.
@@ -163,23 +164,4 @@ export function issueStateWord(
   workingAgents: number,
 ): { text: string; tone: 'attention' | 'alert' | 'live' | 'quiet' } | null {
   return taskStateWord(issue, workingAgents)
-}
-
-/** A short, stable age stamp for the card's top row (`12h`, `3d`, `6w`). The
- *  board is scanned, not read: `relativeTime`'s "about 12 hours ago" is four
- *  times the width for the same fact. */
-export function cardAge(iso: string, now: number): string {
-  const at = Date.parse(iso)
-  if (!Number.isFinite(at)) return ''
-  const s = Math.max(0, Math.floor((now - at) / 1000))
-  if (s < 60) return 'now'
-  const m = Math.floor(s / 60)
-  if (m < 60) return `${m}m`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h`
-  const d = Math.floor(h / 24)
-  if (d < 7) return `${d}d`
-  const w = Math.floor(d / 7)
-  if (w < 53) return `${w}w`
-  return `${Math.floor(d / 365)}y`
 }

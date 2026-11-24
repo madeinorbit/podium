@@ -5,6 +5,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { DraftStore } from '@podium/client-core/conversation'
+import {
+  type ComposerAttachment,
+  EMPTY_FIRST_TASK_DRAFT,
+  readFirstTaskDraft,
+  serializeFirstTaskDraft,
+} from '@podium/client-core/first-task-draft'
 import type { NoticeSink } from '@podium/client-core/notices'
 import {
   createAsyncStorageReplicaStorage,
@@ -21,8 +27,10 @@ import {
 import type { CreateEngineOutbox, EngineOutbox } from '@podium/client-core/runtime-root'
 import { openSqliteTranscriptBackend } from '@podium/client-core/transcript-store'
 import { openLegacyDeviceKeys } from '@podium/client-core/ui'
+import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import { asMutationId, asSessionId, IssueProjection } from '@podium/model'
 import type { SqlDatabaseLike } from '@podium/sync/adapters/mobile-sqlite'
+import { Platform } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // AsyncStorage's native CommonJS entry requires React Native directly, outside
@@ -345,6 +353,68 @@ function seedIssue(
 // ---------------------------------------------------------------------------
 
 describe('the mobile replica composition root', () => {
+  it.each([
+    'ios',
+    'android',
+    'web',
+  ] as const)('recovers interrupted draft uploads only for native cold boot on %s', async (platform) => {
+    const originalOS = Platform.OS
+    Platform.OS = platform
+    const principal = JSON.stringify(['installation-a', 'alice'])
+    const uploading: ComposerAttachment = {
+      id: 'interrupted-chip',
+      name: 'unfinished.pdf',
+      previewUri: '',
+      state: 'uploading',
+    }
+    const ready: ComposerAttachment = {
+      id: 'completed-chip',
+      name: 'shot.png',
+      previewUri: '',
+      state: 'ready',
+      ref: { id: 'held-image', filename: 'shot.png', mediaType: 'image/png', kind: 'image' },
+    }
+    const uiKey = `${principalKeyPrefix(REPLICA_KEY_PREFIX, principal)}.uistate.v1`
+    const storage = deviceStorage({
+      [uiKey]: JSON.stringify({
+        [FIRST_TASK_ACTIVATION_DRAFT_KEY]: serializeFirstTaskDraft({
+          ...EMPTY_FIRST_TASK_DRAFT,
+          title: 'Keep the prompt and ready file',
+          attachments: [uploading, ready],
+        }),
+      }),
+    })
+    let opened: Awaited<ReturnType<typeof open>> | undefined
+    try {
+      opened = await open({ file: freshDatabaseFile(), storage, principal })
+      const expected = {
+        title: 'Keep the prompt and ready file',
+        attachments: [
+          platform === 'web'
+            ? uploading
+            : {
+                ...uploading,
+                state: 'failed',
+                error: 'Upload interrupted. Remove and attach the file again.',
+              },
+          ready,
+        ],
+      }
+      // The runtime opens this replica's device keys at boot (upstream's draft store).
+      const device = openLegacyDeviceKeys(opened.replica.deviceStorage())
+      expect(readFirstTaskDraft(device.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))).toMatchObject(
+        expected,
+      )
+      const checkpoint = JSON.parse(storage.getItem(uiKey) ?? '{}')
+      expect(readFirstTaskDraft(checkpoint[FIRST_TASK_ACTIVATION_DRAFT_KEY])).toMatchObject(
+        expected,
+      )
+    } finally {
+      await opened?.dispose()
+      Platform.OS = originalOS
+    }
+  })
+
   it('erases a tombstoned profile replica before completing its durable cleanup intent', async () => {
     const file = freshDatabaseFile()
     const device = deviceStorage({})

@@ -1,3 +1,5 @@
 import { NewIssueScreen } from '../src/screens/NewIssueScreen'
 
-export default NewIssueScreen
+export default function NewTaskRoute() {
+  return <NewIssueScreen />
+}

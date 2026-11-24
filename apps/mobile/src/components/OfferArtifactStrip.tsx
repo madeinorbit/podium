@@ -4,12 +4,12 @@ import { useState } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
 import { authenticatedImageSource } from '../client/authenticated-assets'
 import { useHttpOrigin } from '../client/hooks'
-import { useIssueModel } from '../client/use-issue-model'
 // Read the profile without importing the gate's boot graph.
 import { useServerProfile } from '../client/server-profile-context'
+import { useIssueModel } from '../client/use-issue-model'
 import { OFFER_STRIP_MAX, type OfferArtifactRow, offerArtifactRows } from '../lib/offer-artifacts'
 import { color, monoLabel, radius, sans, space } from '../theme/theme'
-import { ArtifactViewer } from './ArtifactViewer'
+import { ArtifactViewer, type ArtifactViewerItem } from './ArtifactViewer'
 import { Icon } from './Icon'
 import { FileText, Globe, Image as ImageGlyph, Play } from './icons'
 import { PressableScale } from './PressableScale'
@@ -30,33 +30,32 @@ export function OfferArtifactStrip({
   issue,
   lastInputAt,
   onShowAll,
+  presentation,
 }: {
   offer: SessionOffer
   issue: IssueViewModel | undefined
   lastInputAt?: string
   onShowAll?: () => void
+  presentation?: 'tile'
 }) {
   const httpOrigin = useHttpOrigin()
   const { bearer, config } = useServerProfile()
   const workspace = config?.workspaceId ?? config?.workspaceSlug
-  const [open, setOpen] = useState<OfferArtifactRow | null>(null)
+  const [open, setOpen] = useState<string | null>(null)
   const [broken, setBroken] = useState<readonly string[]>([])
   const [width, setWidth] = useState(0)
   const compact = width <= 520
-  const tileWidth = compact ? 112 : 148
-  const previewHeight = compact ? 70 : 92
+  const tileWidth = presentation === 'tile' ? 64 : compact ? 112 : 148
+  const previewHeight = presentation === 'tile' ? 80 : compact ? 70 : 92
+  const gap = presentation === 'tile' ? 6 : TILE_GAP
+  const max = presentation === 'tile' ? 3 : OFFER_STRIP_MAX
   const slots =
-    width > 0
-      ? Math.max(
-          1,
-          Math.min(OFFER_STRIP_MAX, Math.floor((width + TILE_GAP) / (tileWidth + TILE_GAP))),
-        )
-      : OFFER_STRIP_MAX
+    width > 0 ? Math.max(1, Math.min(max, Math.floor((width + gap) / (tileWidth + gap)))) : max
 
   // The panel the paths resolve against is its own records (POD-6778): the
   // pool's issue model answers it; the session header's summary row carries none.
   const model = useIssueModel(issue?.id)
-  const { rows, extra } = offerArtifactRows({
+  const { rows, extra, allRows } = offerArtifactRows({
     offer,
     issue: model ?? undefined,
     httpOrigin,
@@ -65,11 +64,15 @@ export function OfferArtifactStrip({
     ...(lastInputAt ? { lastInputAt } : {}),
   })
   if (rows.length === 0 && extra === 0) return null
+  // The viewer pages through every offered artifact this phone can reach, in
+  // the strip's order, including the ones folded into +N.
+  const viewerItems: ArtifactViewerItem[] = open ? allRows.filter((item) => item.url !== null) : []
+  const openIndex = open ? viewerItems.findIndex((item) => item.key === open) : -1
 
   return (
     <>
       <View
-        style={styles.strip}
+        style={[styles.strip, presentation === 'tile' && { gap: 6, marginTop: 0 }]}
         testID="offer-artifacts"
         onLayout={(event) => {
           const measured = event.nativeEvent.layout.width
@@ -91,7 +94,7 @@ export function OfferArtifactStrip({
                 url
                   ? (event) => {
                       event.stopPropagation()
-                      setOpen(row)
+                      setOpen(row.key)
                     }
                   : undefined
               }
@@ -119,7 +122,9 @@ export function OfferArtifactStrip({
                 ) : (
                   <View style={styles.kind}>
                     <Icon as={glyphFor(row.preview)} size={20} color={color.textDim} />
-                    <Text style={styles.kindLabel}>{row.kind}</Text>
+                    {presentation !== 'tile' ? (
+                      <Text style={styles.kindLabel}>{row.kind}</Text>
+                    ) : null}
                   </View>
                 )}
               </View>
@@ -151,8 +156,8 @@ export function OfferArtifactStrip({
           </PressableScale>
         ) : null}
       </View>
-      {open ? (
-        <ArtifactViewer artifact={open.artifact} url={open.url} onClose={() => setOpen(null)} />
+      {openIndex >= 0 ? (
+        <ArtifactViewer items={viewerItems} index={openIndex} onClose={() => setOpen(null)} />
       ) : null}
     </>
   )

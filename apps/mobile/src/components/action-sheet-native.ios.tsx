@@ -1,7 +1,10 @@
 import { Host } from '@expo/ui'
 import { Menu, Picker, RNHostView, Text } from '@expo/ui/swift-ui'
 import { disabled, pickerStyle, tag } from '@expo/ui/swift-ui/modifiers'
-import type { NativePickerProps } from './action-sheet-native'
+import { useState } from 'react'
+import type { NativePickerProps } from './action-sheet-spec'
+
+export type { NativePickerOption, NativePickerProps } from './action-sheet-spec'
 
 /**
  * A compact SwiftUI picker hosted inside a real UIMenu. SwiftUI owns the
@@ -16,13 +19,21 @@ export function NativePicker({
   style,
   children,
 }: NativePickerProps) {
+  const [selectionRevision, setSelectionRevision] = useState(0)
   return (
-    <Host matchContents style={style}>
+    <Host matchContents ignoreSafeArea="all" style={style}>
       <Menu label={<RNHostView matchContents>{children(undefined)}</RNHostView>}>
         <Picker
+          key={selectionRevision}
           label={label}
           selection={selected}
-          onSelectionChange={onSelect}
+          onSelectionChange={(value) => {
+            // SwiftUI changes its own selection first. A guarded or refused
+            // choice can leave selected unchanged, so recreate just the Picker
+            // to restore the accepted value without replacing its Menu or Host.
+            setSelectionRevision((revision) => revision + 1)
+            onSelect(value)
+          }}
           modifiers={[pickerStyle('inline')]}
         >
           {options.map((option) => (

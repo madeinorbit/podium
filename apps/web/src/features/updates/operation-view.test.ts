@@ -666,6 +666,25 @@ describe('operationView — the seven states', () => {
   it('treats a canceled operation as nothing to say', () => {
     expect(view(operationPayload({ state: 'canceled' })).state).toBe('none')
   })
+
+  it('takes the notes from a matching stale offer, and never from another version', () => {
+    const notes = { summary: '**Calmer chat.**' }
+    const stale = (version: string) =>
+      operationView({
+        operation: null,
+        offer: { state: 'local-stale', version, notes },
+        local: BEHIND,
+        surface: 'web',
+        now: NOW,
+      })
+    expect(stale('0.4.3').notes).toEqual(notes)
+
+    const elsewhere = view(operationPayload({ state: 'done', finishedAt: NOW }), {
+      local: BEHIND,
+      offer: { state: 'local-stale', version: '0.4.2', notes },
+    })
+    expect(elsewhere.notes).toBeUndefined()
+  })
 })
 
 describe('operationView — the frozen contract (P8, §8)', () => {

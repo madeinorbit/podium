@@ -44,6 +44,7 @@ import {
   settledAll,
 } from './mission-view'
 import type { IssueModel } from './models'
+import { sidebarIssueProgress } from './worklist/sidebar'
 
 /** The Full view's filter tabs (v6 mockup). Done is a separate toggle. */
 export const FULL_DECK_FILTERS = ['all', 'needs-you', 'active', 'up-next'] as const
@@ -405,6 +406,12 @@ export class FullDeck {
   @lazy({ equals: compareStructural }) get buckets(): MissionBuckets {
     return tallyMissionBuckets(this.leafIds, (id) => this.task(id).entity.missionBucket)
   }
+  /** PHONE ONLY (POD-2518): the same execution count Tasks and the desktop
+   * worklist read. The drawn tree can retain a vacated origin or graft that is
+   * not a progress unit. The web deck keeps {@link buckets}. */
+  @lazy({ equals: compareStructural }) get phoneBuckets(): MissionBuckets {
+    return requireLoaded(sidebarIssueProgress(this.root.entity))
+  }
   /** Shipping counts as working but licenses no motion without a computing session. */
   @lazy get computing(): boolean {
     return this.leafIds.some((id) => {
@@ -418,13 +425,20 @@ export class FullDeck {
   }
   /** The tab counts and the Done toggle's count. */
   @lazy({ equals: compareStructural }) get counts(): FullDeckCounts {
+    return this.countsFrom(this.buckets)
+  }
+  /** PHONE ONLY (POD-2518): {@link counts} over {@link phoneBuckets}. */
+  @lazy({ equals: compareStructural }) get phoneCounts(): FullDeckCounts {
+    return this.countsFrom(this.phoneBuckets)
+  }
+  private countsFrom(buckets: MissionBuckets): FullDeckCounts {
     const t = this.tally
     return {
-      all: this.buckets.total,
+      all: buckets.total,
       'needs-you': t.error + t['needs-you'],
       active: t.error + t['needs-you'] + t.working + t.idle,
       'up-next': t.blocked + t['not-started'],
-      done: this.buckets.done,
+      done: buckets.done,
     }
   }
   /** The filters, Show done and search sort the rows under the root. A
@@ -472,9 +486,19 @@ export class FullDeck {
     readonly phases: number
     readonly tasks: number
   } | null {
+    return this.doneLineFrom(this.buckets)
+  }
+  /** PHONE ONLY (POD-2518): {@link doneLine} over {@link phoneBuckets}. */
+  @lazy({ equals: compareStructural }) get phoneDoneLine(): {
+    readonly phases: number
+    readonly tasks: number
+  } | null {
+    return this.doneLineFrom(this.phoneBuckets)
+  }
+  private doneLineFrom(buckets: MissionBuckets) {
     if (this.showDone) return null
     const phases = this.phaseIds.filter((id) => this.task(id).workComplete).length,
-      tasks = this.buckets.done
+      tasks = buckets.done
     return phases || tasks ? { phases, tasks } : null
   }
 

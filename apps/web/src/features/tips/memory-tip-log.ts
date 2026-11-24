@@ -1,5 +1,5 @@
 import { action, observable } from 'mobx'
-import { TIP_IDS, type TipId, type TipLog, type TipOutcome } from './types'
+import { ALL_TIP_IDS, type TipId, type TipLog, type TipOutcome } from './types'
 
 /** Temporary, host-scoped log. The account source replaces this in production. */
 export class MemoryTipLog implements TipLog {
@@ -11,7 +11,7 @@ export class MemoryTipLog implements TipLog {
   }
   @action record(id: TipId, outcome: TipOutcome): void {
     if (outcome === 'skipped-all') {
-      for (const tip of TIP_IDS) this.seen.add(tip)
+      for (const tip of ALL_TIP_IDS) this.seen.add(tip)
       this.enabled = false
     } else if (outcome !== 'shown') this.seen.add(id)
   }

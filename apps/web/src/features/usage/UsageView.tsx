@@ -10,7 +10,7 @@ import {
   formatUsdTick,
   formatWindowSpan,
   niceAxisMax,
-  type UsageProvider,
+  USAGE_PROVIDER_LABEL,
   type UsageSummaryView,
   usageSummary,
 } from '@podium/client-core/values'
@@ -387,13 +387,6 @@ function UsageReadouts({
   )
 }
 
-const PROVIDER_LABEL: Record<UsageProvider, string> = {
-  anthropic: 'Anthropic',
-  openai: 'OpenAI',
-  xai: 'xAI',
-  other: 'Other',
-}
-
 /** Provider is the first useful grouping above individual model ids. */
 function UsageProviders({
   summary,
@@ -431,7 +424,9 @@ function UsageProviders({
               const pct = totalCost > 0 ? (provider.estCostUsd / totalCost) * 100 : 0
               return (
                 <div key={provider.provider} className="usage-provider-row">
-                  <span className="usage-provider-name">{PROVIDER_LABEL[provider.provider]}</span>
+                  <span className="usage-provider-name">
+                    {USAGE_PROVIDER_LABEL[provider.provider]}
+                  </span>
                   <ShareTrack pct={pct} cold={false} />
                   <span className="usage-provider-cost">{formatUsd(provider.estCostUsd)}</span>
                   <span className="usage-provider-sub">
@@ -806,7 +801,7 @@ function UsageModels({ summary, cold }: { summary: UsageSummaryView; cold: boole
                   <tr key={m.model}>
                     <td className="usage-td-model">{m.model}</td>
                     <td className="usage-th-provider usage-td-provider">
-                      {PROVIDER_LABEL[m.provider]}
+                      {USAGE_PROVIDER_LABEL[m.provider]}
                     </td>
                     <td className="usage-td-share">
                       <span className="usage-share-track">

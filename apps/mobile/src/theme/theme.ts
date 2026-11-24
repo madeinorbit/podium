@@ -38,9 +38,10 @@ export const color = {
   bg: semanticColor('systemBackground', appearancePalette.dark.bg),
   bgGradientTop: semanticColor('systemBackground', appearancePalette.dark.bg),
   bgSunken: semanticColor('secondarySystemBackground', appearancePalette.dark.sunken),
-  /** The work list and the conversation field — a flat surface that steps
-   *  AWAY from the work. The name outlived the groove. */
-  engraved: semanticColor('secondarySystemBackground', appearancePalette.dark.sunken),
+  /** The conversation field. It sits on the screen ground (systemBackground:
+   *  pure black in dark mode, as the chat board draws it); a grey field here
+   *  read as #1c1c1e under the chat. The name outlived the groove. */
+  engraved: semanticColor('systemBackground', appearancePalette.dark.bg),
   /** Compact section bars, key-bar strip — lifted just above the ground. */
   bar: semanticColor('secondarySystemBackground', '#1b1d21'),
   /** Agent-roster band tier. */
@@ -55,16 +56,21 @@ export const color = {
   /** Raised chips ("New Claude in podium"), neutral ID-square fill. */
   elevated: semanticColor('tertiarySystemBackground', appearancePalette.dark.raised),
   glass: semanticColor('secondarySystemBackground', 'rgba(27, 29, 33, 0.78)'),
+  /** Grouped lists (Settings): the ground and the inset card on it, as UIKit draws them. */
+  groupedBg: semanticColor('systemGroupedBackground', appearancePalette.dark.bg),
+  groupedCard: semanticColor('secondarySystemGroupedBackground', appearancePalette.dark.surface),
   // Legacy aliases
   card: semanticColor('secondarySystemBackground', appearancePalette.dark.surface),
   cardPressed: semanticColor('systemFill', '#2c3038'),
 
-  // Seam / hairline tiers — row rules → panel/bar seams → chip rims
-  border: semanticColor('separator', '#26292f'),
+  // Seam / hairline tiers — row rules → panel/bar seams → chip rims. iOS draws
+  // its system separator; elsewhere a translucent white that reads on both the
+  // ground and the raised card (an opaque grey matched the card and vanished).
+  border: semanticColor('separator', 'rgba(255, 255, 255, 0.1)'),
   borderStrong: semanticColor('opaqueSeparator', '#3a3f48'),
-  hairline: semanticColor('separator', '#24272d'),
+  hairline: semanticColor('separator', 'rgba(255, 255, 255, 0.1)'),
   /** Hairlines on the #1b1d21 bars. */
-  hairlineBar: semanticColor('separator', '#26292f'),
+  hairlineBar: semanticColor('separator', 'rgba(255, 255, 255, 0.1)'),
   fill: semanticColor('systemFill', 'rgba(120, 120, 128, 0.36)'),
   secondaryFill: semanticColor('secondarySystemFill', 'rgba(120, 120, 128, 0.32)'),
   tertiaryFill: semanticColor('tertiarySystemFill', 'rgba(118, 118, 128, 0.24)'),
@@ -138,6 +144,12 @@ export const color = {
   toolText: semanticColor('tertiaryLabel', '#6f7580'),
 } as const
 
+/**
+ * One 4pt grid. Every margin, gap and inset is a multiple of four: `grid(3)` is
+ * the 12pt card inset, `grid(4)` the 16pt screen margin.
+ */
+export const grid = (steps: number) => steps * 4
+
 export const space = {
   xs: 4,
   sm: 8,
@@ -147,8 +159,17 @@ export const space = {
   xxl: 32,
 } as const
 
-/** Discrete redesign radii — the workhorse row/square radius is 7. */
+/**
+ * Inset groups follow the iOS 26 native List shape. Decision tiles keep `card`
+ * 8, buttons and chips use `control` 6, and nested thumbnails use `inner` 4.
+ * System glass, the tab bar and sheets keep the shapes UIKit draws.
+ */
 export const radius = {
+  card: 8,
+  /** Inset-grouped list cards follow the iOS 26 native List shape. */
+  insetGroup: Platform.OS === 'ios' ? 26 : 8,
+  control: 6,
+  inner: 4,
   xs: 5,
   sm: 6,
   md: 7,

@@ -10,6 +10,14 @@ import {
 } from './composer-height'
 
 describe('composer field height', () => {
+  it('scrolls a long draft at the question-specific cap, including Dynamic Type', () => {
+    for (const line of [COMPOSER_LINE, COMPOSER_LINE * 2]) {
+      expect(composerFieldHeight(line * 12, line, 3)).toBe(line * 3)
+      expect(composerScrolls(line * 4, line, 3)).toBe(true)
+      expect(composerScrolls(line * 2, line, 3)).toBe(false)
+      expect(composerMaxHeight(line)).toBe(line * 6)
+    }
+  })
   it('rests at one line before anything has been measured', () => {
     for (const unmeasured of [null, undefined, 0, Number.NaN]) {
       expect(composerFieldHeight(unmeasured)).toBe(COMPOSER_MIN_HEIGHT)

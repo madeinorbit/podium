@@ -436,3 +436,89 @@ export function paceHint(pace: QuotaPace, usedPercent: number, elapsedPercent: n
       return `${used}% used with only ${elapsed}% elapsed — burning faster than time; may hit the limit early.`
   }
 }
+
+/** One gating window of one pool: the unit a person actually runs out of. */
+export interface QuotaRowView {
+  key: string
+  agent: AgentKind
+  /** "Claude Code · Weekly". */
+  title: string
+  /** Null for a pool we cannot read; the row then shows only its status line. */
+  usedPercent: number | null
+  /** The window is used up. */
+  out: boolean
+  /** 0–100 share of the window elapsed, for the pace tick. */
+  elapsedPercent: number | null
+  /** "On pace", "Used up", or the pool's status note. */
+  paceText: string
+  /** "Resets in 9h 4m". */
+  resetText: string
+  /** Set when the pool has already lost a model-scoped bucket. */
+  modelNote: string | null
+  /** "1,250 AI credits remaining", on the pool's first row only. */
+  credits: string | null
+}
+
+/** Literal exhaustion, separate from the launch-headroom warning threshold. */
+export function quotaExhausted(usedPercent: number): boolean {
+  return usedPercent >= 100
+}
+
+function capitalise(text: string): string {
+  return text ? `${text[0]?.toUpperCase()}${text.slice(1)}` : text
+}
+
+/**
+ * Every readable pool's gating windows, tightest first, then a status row for
+ * each pool we cannot read [POD-2379].
+ *
+ * Model-scoped windows are not rows: spending one drops that model, not the
+ * harness (POD-271), so they become a note under the pool instead.
+ */
+export function gatingQuotaRows(
+  groups: readonly AccountQuotaGroup[],
+  nowMs: number,
+  served?: readonly HarnessDescriptorWire[],
+): QuotaRowView[] {
+  const readable: QuotaRowView[] = []
+  const unreadable: QuotaRowView[] = []
+  for (const group of groups) {
+    const name = quotaGroupLabel(group, served)
+    const credits = group.credits ? quotaCreditLabel(group.credits) : null
+    if (group.status !== 'ok') {
+      unreadable.push({
+        key: `${group.key}:status`,
+        agent: group.agent,
+        title: name,
+        usedPercent: null,
+        out: false,
+        elapsedPercent: null,
+        paceText: statusNote(group),
+        resetText: '',
+        modelNote: null,
+        credits,
+      })
+      continue
+    }
+    const modelNote = modelLimitNote(group.agent, group.windows, served)
+    for (const [index, window] of splitQuotaWindows(group.windows).gating.entries()) {
+      const used = Math.max(0, Math.min(100, window.usedPercent))
+      const out = quotaExhausted(window.usedPercent)
+      const pace = windowPace(window, nowMs)
+      readable.push({
+        key: `${group.key}:${window.key}`,
+        agent: group.agent,
+        title: `${name} · ${window.pool ? quotaWindowShortLabel(window) : window.label}`,
+        usedPercent: used,
+        out,
+        elapsedPercent: windowElapsedPercent(window.resetsAt, window.windowMinutes, nowMs),
+        paceText: out ? 'Used up' : pace ? paceLabel(pace) : '',
+        resetText: window.resetsAt ? capitalise(formatReset(window.resetsAt, nowMs)) : '',
+        modelNote,
+        credits: index === 0 ? credits : null,
+      })
+    }
+  }
+  readable.sort((a, b) => (b.usedPercent ?? 0) - (a.usedPercent ?? 0))
+  return [...readable, ...unreadable]
+}

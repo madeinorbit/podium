@@ -1,28 +1,34 @@
-import { panelLabel, sessionDotTone, sessionTitle } from '@podium/client-core/values'
+import { panelLabel, sessionTitle } from '@podium/client-core/values'
 import { asSessionId, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
+import { useFocusEffect, useLocalSearchParams } from 'expo-router'
 import { useCallback, useState } from 'react'
-import { StyleSheet, View } from 'react-native'
+import { Platform, StyleSheet, View } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useScreenReadFocus } from '../../../src/client/screen-read-focus'
 import {
   useSessionContextIssue as useIssue,
   useSessionContextSession as useSession,
 } from '../../../src/client/use-session-context'
-import { HarnessChip } from '../../../src/components/AgentMark'
-import { IdSquare } from '../../../src/components/IdSquare'
-import { PressableScale } from '../../../src/components/PressableScale'
-import { Screen } from '../../../src/components/Screen'
-import { TerminalControlAction } from '../../../src/terminal/TerminalControlAction'
+import { Icon } from '../../../src/components/Icon'
+import { ExternalLink, MoreVertical } from '../../../src/components/icons'
+import { HeaderButton, Screen, type ScreenMenuItem } from '../../../src/components/Screen'
+import { useRootScreenRouter } from '../../../src/navigation/use-root-screen-router'
+import {
+  TerminalControlAction,
+  terminalControlMenuItem,
+} from '../../../src/terminal/TerminalControlAction'
 import { TerminalPane } from '../../../src/terminal/TerminalPane'
 import {
   type TerminalControlState,
   terminalControlCopy,
 } from '../../../src/terminal/terminal-control'
-import { color } from '../../../src/theme/theme'
+import { appearancePalette, color } from '../../../src/theme/theme'
 
 /** Native CLI for the same session and task shown by the chat view. */
 export default function TerminalRoute() {
-  const router = useRouter()
+  const router = useRootScreenRouter()
+  const insets = useSafeAreaInsets()
   // Route params are RAW URL values, so the brand is applied once here — the
   // DECODE EDGE for this screen, mirroring SessionScreen (POD-362).
   const params = useLocalSearchParams<{ sessionId: SessionId | string[] }>()
@@ -30,6 +36,7 @@ export default function TerminalRoute() {
   const sessionId = raw ? asSessionId(raw) : undefined
   const session = useSession(sessionId)
   const issue = useIssue(session?.issueId)
+  useScreenReadFocus(issue?.id, session?.sessionId, 'native')
 
   const [active, setActive] = useState(true)
   useFocusEffect(
@@ -42,48 +49,46 @@ export default function TerminalRoute() {
   // Published by the pane, which owns the mount. The header owns the ACTION —
   // a phone action belongs on the 44pt bar, not floating over the grid.
   const [control, setControl] = useState<TerminalControlState | null>(null)
-  const controlCopy = control ? terminalControlCopy(control) : null
+  const controlCopy = control?.ready ? terminalControlCopy(control) : null
   const kindLabel = session ? panelLabel(session.agentKind) : undefined
+  const openIssue = () => {
+    if (issue) router.push(`/issue/${encodeURIComponent(issue.id)}`)
+  }
+  const menuItems: ScreenMenuItem[] = [
+    ...(issue
+      ? [{ label: `Open task ${issueDisplayRef(issue)}`, icon: ExternalLink, onPress: openIssue }]
+      : []),
+    ...(control?.ready ? [terminalControlMenuItem(control)] : []),
+  ]
 
   return (
     <Screen
       title={session ? sessionTitle(session) : 'Session'}
       subtitle={controlCopy && kindLabel ? `${kindLabel} · ${controlCopy.status}` : kindLabel}
       onBack={() => router.back()}
-      backLabel="Chat"
-      safeBottom
-      // Identity resolves exactly as the chat resolves it, harness mark included
-      // [POD-1355] — same session, same pair of facts, same order.
-      leading={
-        session ? (
-          <View style={styles.ident}>
+      backButtonDisplayMode="default"
+      // UIKit owns the title, subtitle, back label and pull-down menu. There
+      // is no context strip below the bar. Screen pays its measured inset
+      // once, since the terminal's fixed webview cannot scroll under it.
+      actions={
+        Platform.OS === 'ios' && menuItems.length
+          ? [{ label: 'Console actions', icon: MoreVertical, items: menuItems }]
+          : undefined
+      }
+      right={
+        Platform.OS !== 'ios' ? (
+          <>
             {issue ? (
-              <PressableScale
-                accessibilityRole="button"
-                accessibilityLabel={`Task ${issueDisplayRef(issue)} — open`}
-                onPress={() => router.push(`/issue/${encodeURIComponent(issue.id)}`)}
-                hitSlop={8}
-              >
-                <IdSquare
-                  issue={issue}
-                  state={
-                    issue.needsHuman || sessionDotTone(session) === 'attention'
-                      ? 'waiting'
-                      : 'working'
-                  }
-                  size={18}
-                />
-              </PressableScale>
+              <HeaderButton label={`Open task ${issueDisplayRef(issue)}`} onPress={openIssue}>
+                <Icon as={ExternalLink} size={17} color={color.textDim} />
+              </HeaderButton>
             ) : null}
-            <HarnessChip kind={session.agentKind} size={18} />
-          </View>
+            {control?.ready ? <TerminalControlAction control={control} /> : null}
+          </>
         ) : undefined
       }
-      // Offered only once the mount is attached: a control request before the
-      // attach lands has nothing to claim, and a dead tap is worse than no tap.
-      right={control?.ready ? <TerminalControlAction control={control} /> : undefined}
     >
-      <View style={styles.pane}>
+      <View testID="console-ground" style={[styles.pane, { paddingBottom: insets.bottom }]}>
         {sessionId ? (
           <TerminalPane
             sessionId={sessionId}
@@ -98,11 +103,10 @@ export default function TerminalRoute() {
 }
 
 const styles = StyleSheet.create({
-  ident: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   pane: {
     flex: 1,
-    // The terminal paints its own dark canvas, so this shows only in the crop
-    // gutters around the server grid.
-    backgroundColor: color.bgSunken,
+    // The terminal DOM page stays dark in either system appearance. Its
+    // container owns the home-indicator inset so it cannot expose white paper.
+    backgroundColor: appearancePalette.dark.bg,
   },
 })

@@ -55,6 +55,12 @@ export function parsePairingLink(raw: string): ParsedPairingLink {
     throw new PairingLinkError('This is not a valid Podium pairing link.')
   }
   if (url.protocol === 'podium:') {
+    // iOS can deliver podium://pair/… as podium:///pair/… (the authority
+    // collapsed into the path). parseMobilePairingUrl accepts both spellings;
+    // so must this, or every such link fails before reaching it (POD-2364).
+    if (url.hostname === '' && /^\/pair([/?#]|$)/.test(url.pathname + url.search)) {
+      url = new URL(`podium://${url.pathname.replace(/^\/+/, '')}${url.search}${url.hash}`)
+    }
     if (url.hostname !== 'pair' || url.username || url.password || url.hash) {
       throw new PairingLinkError('This is not a valid Podium app link.')
     }
@@ -240,7 +246,7 @@ export async function preflightServer(
     }
   }
   try {
-    const versionResponse = await fetch(
+    const versionRequest = fetch(
       `${origin}/version`,
       workspaceRequestInit(
         `${origin}/version`,
@@ -252,6 +258,24 @@ export async function preflightServer(
         workspaceSelector,
       ),
     )
+    // Both probes are credential-free and independent. Start them together,
+    // but keep version/identity validation ahead of accepting auth mode. Capture
+    // rejection now because an invalid version can return without awaiting auth.
+    const authRequest = fetch(
+      `${origin}/auth/status`,
+      workspaceRequestInit(
+        `${origin}/auth/status`,
+        {
+          credentials: 'omit',
+          signal: timeoutSignal(),
+        },
+        workspaceSelector,
+      ),
+    ).then(
+      (response) => ({ response }),
+      (error: unknown) => ({ error }),
+    )
+    const versionResponse = await versionRequest
     if (!versionResponse.ok) {
       return {
         ok: false,
@@ -312,17 +336,9 @@ export async function preflightServer(
         transport,
       }
     }
-    const authResponse = await fetch(
-      `${origin}/auth/status`,
-      workspaceRequestInit(
-        `${origin}/auth/status`,
-        {
-          credentials: 'omit',
-          signal: timeoutSignal(),
-        },
-        workspaceSelector,
-      ),
-    )
+    const authResult = await authRequest
+    if ('error' in authResult) throw authResult.error
+    const authResponse = authResult.response
     if (!authResponse.ok) {
       const guidance = readHttpsRequiredRefusal(await authResponse.json().catch(() => null))
       if (guidance) return httpsFailure(transport, guidance)

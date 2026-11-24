@@ -3,10 +3,13 @@ import { lazy } from '@podium/mobx-helpers'
 import { SideSet } from '@podium/sync/side-state'
 import { action, compareShallow, observable, observableRef, reaction } from 'mobx'
 import { type IssueStub, stagePage } from './collections'
+import type { BoardQuery } from './issue-board-schema'
 import { type PageIssue, readPageIssue } from './issue-page'
 import { LOADING, type Loaded } from './loading'
+import type {} from './mobile-inbox-schema'
 import { omitGone } from './lookup'
 import type { MobxPool } from './pool'
+import { createQueryResult } from './query-result'
 
 type ScreeningSummary = Pick<
   IssueViewModel,
@@ -91,12 +94,50 @@ export function screeningQueue(pool: MobxPool): Loaded<string[]> {
     'mobileInbox.screeningIds',
     (id) => readScreeningId(pool, id),
     {
-      order: (id) => {
-        const row = omitGone(pool.row('issue', id))
-        return row && row !== LOADING ? screeningOrderKey(row as never) : ''
-      },
+      order: (id) => readScreeningOrder(pool, id),
     },
   )
+}
+
+function readScreeningOrder(pool: MobxPool, id: string) {
+  const row = omitGone(pool.row('issue', id))
+  return row && row !== LOADING ? screeningOrderKey(row as never) : ''
+}
+
+/** The board count and the opened deck share this selection. Text candidates
+ * own the projection's membership, before eligibility or order demands rows. */
+export class ProposalQueue {
+  constructor(
+    readonly pool: MobxPool,
+    readonly text: string,
+  ) {}
+
+  @lazy private get filtered() {
+    const query: BoardQuery = {
+      kind: 'board',
+      filter: { stage: 'proposed', text: this.text },
+      showAgentTasks: true,
+    }
+    const matches = omitGone(this.pool.row('issueBoardQuery', JSON.stringify(query)))
+    if (!matches || matches === LOADING) return matches
+    const ids = new Set(matches.ids)
+    return createQueryResult({
+      name: 'mobileInbox.filteredScreeningIds',
+      ids: () => ids,
+      has: (id) => ids.has(id),
+      read: (id) => readScreeningId(this.pool, id),
+      order: (id) => readScreeningOrder(this.pool, id),
+      // Membership changes invalidate this lazy field, replacing the result.
+      // The result itself observes only the matched rows and their ancestors.
+      subscribe: () => () => {},
+    })
+  }
+
+  @lazy get queue(): Loaded<string[]> {
+    if (!this.text.trim()) return screeningQueue(this.pool)
+    const result = this.filtered
+    return !result || result === LOADING ? result : result.get()
+  }
 }
 
 /** Explicit opening order: retain the decided prefix, remove departed cards and
@@ -123,9 +164,15 @@ export class ProposalScreening {
   @observableRef accessor order: readonly string[] = EMPTY
   @observable accessor index = 0
   private readonly waits = new SideSet<() => void>('proposalScreening.waits')
-  constructor(readonly pool: MobxPool) {}
+  constructor(
+    readonly pool: MobxPool,
+    readonly text = '',
+  ) {}
+  @lazy private get selection() {
+    return new ProposalQueue(this.pool, this.text)
+  }
   @lazy get queue() {
-    return screeningQueue(this.pool)
+    return this.selection.queue
   }
   /** All proposals to screen, from the stubs; LOADING until they answer. */
   @lazy get total() {

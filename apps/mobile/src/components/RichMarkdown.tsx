@@ -1,7 +1,21 @@
 import { codeBlockIdentity } from '@podium/client-core/code-highlight'
+import { parseAnyRef, soleRefToken } from '@podium/protocol'
+import * as Clipboard from 'expo-clipboard'
+import * as Haptics from 'expo-haptics'
 import { LinearGradient } from 'expo-linear-gradient'
-import { type ReactNode, useId, useMemo, useRef, useState } from 'react'
-import { ScrollView, type StyleProp, StyleSheet, Text, type TextStyle, View } from 'react-native'
+import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react'
+import {
+  Image,
+  Text as NativeText,
+  Platform,
+  ScrollView,
+  type StyleProp,
+  StyleSheet,
+  type TextProps,
+  type TextStyle,
+  useWindowDimensions,
+  View,
+} from 'react-native'
 import { useCodeHighlight } from '../hooks/useCodeHighlight'
 import {
   type MarkdownTableCell,
@@ -15,18 +29,39 @@ import { followPodiumLink } from '../lib/podium-link'
 import { selectableProps } from '../lib/selectable'
 import { proseColor } from '../theme/syntax'
 import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
+import { useLiveInk } from '../theme/use-live-ink'
 import { HighlightedCode } from './HighlightedCode'
+import { Icon } from './Icon'
+import { ImageLightbox } from './ImageLightbox'
+import { Check, Copy } from './icons'
+import { PressableScale } from './PressableScale'
 import { RefChip } from './RefChip'
+
+/** Refresh cached attributed-text ink without remounting the reading surface. */
+function Text({ style, ...props }: TextProps) {
+  const { fontScale } = useWindowDimensions()
+  const declared = StyleSheet.flatten(style)?.color
+  const ink = useLiveInk((declared ?? color.body) as string)
+  return (
+    <NativeText key={fontScale} {...props} style={[style, declared != null && { color: ink }]} />
+  )
+}
 
 interface RichMarkdownProps {
   text: string
   textStyle?: StyleProp<TextStyle>
   onRefPress?: (ref: string) => void
+  /** Native text selection on the prose (default true). The iOS transcript
+   *  turns it off: its message context menu owns copy and Select Text, and a
+   *  selectable Text raises a second system edit menu on long-press. */
+  selectable?: boolean
 }
 
 interface RenderContext {
   textStyle?: StyleProp<TextStyle>
   onRefPress?: (ref: string) => void
+  selectable: boolean
+  fontScale?: number
 }
 
 function plainText(token: MarkdownToken): string {
@@ -49,10 +84,10 @@ function renderText(text: string, ctx: RenderContext, key: string): ReactNode[] 
         token={part.ref}
         refKind={part.refKind}
         prefix={part.prefix}
-        // Only issue refs peek: the handler resolves a task, and a session ref
-        // that opened nothing would be a tap that looks answered and is not
-        // (POD-724). It still reads as a ref — muted, glyph-less, underlined.
-        onPress={part.refKind === 'issue' ? ctx.onRefPress : undefined}
+        onPress={ctx.onRefPress}
+        // An issue ref peeks through the caller's handler when there is one;
+        // a session ref (and an issue ref with no handler) opens through the
+        // shared link activator inside the chip (POD-2444).
       />
     ) : (
       part.text
@@ -68,6 +103,14 @@ function renderInline(
   return tokens.map((token, index) => {
     const tokenKey = `${key}:${index}`
     switch (token.type) {
+      case 'paragraph':
+      case 'heading':
+      case 'blockquote':
+        return renderInline(token.tokens ?? [], ctx, tokenKey)
+      case 'list':
+        return (token.items ?? []).flatMap((item, itemIndex) =>
+          renderInline(item.tokens ?? [], ctx, `${tokenKey}:item:${itemIndex}`),
+        )
       case 'strong':
         return (
           <Text key={tokenKey} style={styles.strong}>
@@ -86,12 +129,31 @@ function renderInline(
             {renderInline(token.tokens ?? [], ctx, tokenKey)}
           </Text>
         )
-      case 'codespan':
-        return (
+      case 'codespan': {
+        // `POD-13` in backticks is how agents write refs, so a span holding
+        // ONLY a ref is the chip, as on desktop; a ref quoted inside a longer
+        // span (a command, a path) stays literal code (POD-2444).
+        const code = plainText(token)
+        const literal = (
           <Text key={tokenKey} style={styles.inlineCode}>
-            {plainText(token)}
+            {code}
           </Text>
         )
+        const ref = soleRefToken(code)
+        const parsed = ref ? parseAnyRef(ref) : null
+        if (!ref || !parsed) return literal
+        // An unregistered prefix (`UTF-8`) keeps its code face.
+        return (
+          <RefChip
+            key={tokenKey}
+            token={ref}
+            refKind={parsed.kind}
+            prefix={parsed.prefix}
+            onPress={ctx.onRefPress}
+            fallback={literal}
+          />
+        )
+      }
       case 'link': {
         const safe = safeLinkUrl(token.href)
         return (
@@ -142,19 +204,123 @@ function Inline({
   tokens,
   ctx,
   style,
+  fitSingleWordHeading = false,
 }: {
   tokens: MarkdownToken[]
   ctx: RenderContext
   style?: StyleProp<TextStyle>
+  fitSingleWordHeading?: boolean
 }) {
   return (
-    <Text selectable style={[styles.body, ctx.textStyle, style]}>
+    <Text
+      selectable={ctx.selectable}
+      style={[styles.body, ctx.textStyle, style]}
+      numberOfLines={fitSingleWordHeading ? 1 : undefined}
+      adjustsFontSizeToFit={fitSingleWordHeading}
+      minimumFontScale={0.85}
+      ellipsizeMode="tail"
+    >
       {renderInline(tokens, ctx, 'inline')}
     </Text>
   )
 }
 
-function CodeBlock({ token }: { token: MarkdownToken }) {
+/** Copy for a code block (desktop `code-copy`): the glyph turns into a check
+ *  for a moment so the tap reads as done, with a success haptic. */
+function CopyCodeButton({ source }: { source: string }) {
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const timer = setTimeout(() => setCopied(false), 1500)
+    return () => clearTimeout(timer)
+  }, [copied])
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={copied ? 'Copied' : 'Copy code'}
+      hitSlop={8}
+      onPress={() => {
+        void Clipboard.setStringAsync(source)
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {})
+        setCopied(true)
+      }}
+      style={styles.codeCopy}
+    >
+      <Icon as={copied ? Check : Copy} size={14} color={color.textMicro} />
+    </PressableScale>
+  )
+}
+
+/** A Markdown image the agent linked, drawn inline at the column's width (the
+ *  desktop shows it in place too). Tap opens it full screen; an image that
+ *  fails to load falls back to its text link. */
+function MarkdownImage({ url, alt }: { url: string; alt: string }) {
+  const [aspect, setAspect] = useState(4 / 3)
+  const [failed, setFailed] = useState(false)
+  const [open, setOpen] = useState(false)
+  const label = alt || 'Image'
+  if (failed) {
+    return (
+      <Text
+        accessibilityRole="link"
+        accessibilityLabel={alt || 'Open image'}
+        style={[styles.body, styles.link]}
+        onPress={() => followLink(url)}
+      >
+        {alt ? `[image: ${alt}]` : '[open image]'}
+      </Text>
+    )
+  }
+  return (
+    <>
+      <PressableScale
+        accessibilityRole="imagebutton"
+        accessibilityLabel={`Open ${label}`}
+        onPress={() => setOpen(true)}
+        scaleTo={0.99}
+        style={styles.imageFrame}
+      >
+        <Image
+          source={{ uri: url }}
+          accessibilityLabel={label}
+          resizeMode="cover"
+          style={[styles.image, { aspectRatio: aspect }]}
+          onLoad={(event) => {
+            const { width, height } = event.nativeEvent.source ?? {}
+            if (width && height) setAspect(Math.max(0.5, Math.min(3, width / height)))
+          }}
+          onError={() => setFailed(true)}
+        />
+      </PressableScale>
+      <ImageLightbox
+        visible={open}
+        source={{ uri: url }}
+        label={label}
+        onClose={() => setOpen(false)}
+      />
+    </>
+  )
+}
+
+/** The images of a paragraph that holds nothing else (`![alt](url)` on its own
+ *  line, the way agents share a screenshot), or null when it has prose too or
+ *  any image is not a safe external URL. Those keep the inline text link. */
+function standaloneImages(
+  tokens: readonly MarkdownToken[] | undefined,
+): { url: string; alt: string }[] | null {
+  if (!tokens?.length) return null
+  const images: { url: string; alt: string }[] = []
+  for (const token of tokens) {
+    const blank = token.type === 'br' || (token.type === 'text' && !plainText(token).trim())
+    if (blank) continue
+    const url = token.type === 'image' ? safeExternalUrl(token.href) : undefined
+    if (!url) return null
+    images.push({ url, alt: token.text ?? '' })
+  }
+  return images.length > 0 ? images : null
+}
+
+function CodeBlock({ token, selectable }: { token: MarkdownToken; selectable: boolean }) {
   const language = token.lang?.trim().split(/\s+/)[0]
   const source = plainText(token).replace(/\n$/, '')
   const lines = source.split('\n')
@@ -163,13 +329,18 @@ function CodeBlock({ token }: { token: MarkdownToken }) {
   return (
     <View style={styles.codeFrame}>
       <View style={styles.codeBar}>
-        <View style={styles.codeDot} />
-        <View style={styles.codeDot} />
-        <View style={styles.codeDot} />
         {language ? <Text style={styles.codeLanguage}>{language}</Text> : null}
+        <CopyCodeButton source={source} />
       </View>
-      <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator>
-        <Text selectable style={styles.codeText}>
+      <ScrollView
+        testID="code-scroller"
+        horizontal
+        nestedScrollEnabled
+        showsHorizontalScrollIndicator
+        style={styles.codeScroller}
+        contentContainerStyle={styles.codeContent}
+      >
+        <Text selectable={selectable} style={styles.codeText}>
           {diff ? (
             lines.map((line, index) => {
               const lineStyle =
@@ -306,18 +477,31 @@ function Blocks({
             tokens={token.tokens ?? []}
             ctx={ctx}
             style={[styles.heading, headingStyles[depth]]}
+            fitSingleWordHeading={/^\S+$/.test((token.text ?? '').trim())}
           />
         )
       }
       case 'paragraph':
-      case 'text':
+      case 'text': {
+        const images = standaloneImages(token.tokens)
+        if (images) {
+          return (
+            <View key={key} style={[styles.images, !compact && styles.paragraph]}>
+              {images.map((image, imageIndex) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: parsed markdown is immutable and positional
+                <MarkdownImage key={`${imageIndex}:${image.url}`} url={image.url} alt={image.alt} />
+              ))}
+            </View>
+          )
+        }
         return (
           <View key={key} style={compact ? undefined : styles.paragraph}>
             <Inline tokens={token.tokens ?? []} ctx={ctx} />
           </View>
         )
+      }
       case 'code':
-        return <CodeBlock key={key} token={token} />
+        return <CodeBlock key={key} token={token} selectable={ctx.selectable} />
       case 'blockquote':
         return (
           <View key={key} style={styles.blockquote}>
@@ -338,7 +522,21 @@ function Blocks({
             {(token.items ?? []).map((item, itemIndex) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: parsed list items are immutable and positional
               <View key={`item:${itemIndex}`} style={styles.listItem}>
-                <Text style={styles.listMarker}>
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.listMarker,
+                    {
+                      width:
+                        (ordered
+                          ? Math.max(
+                              24,
+                              (String(start + (token.items?.length ?? 1) - 1).length + 1) * 10,
+                            )
+                          : 24) * Math.max(1, ctx.fontScale ?? 1),
+                    },
+                  ]}
+                >
                   {item.task ? (item.checked ? '☑' : '☐') : ordered ? `${start + itemIndex}.` : '•'}
                 </Text>
                 <View style={styles.listBody}>
@@ -356,7 +554,7 @@ function Blocks({
       default:
         return plainText(token) ? (
           <View key={key} style={compact ? undefined : styles.paragraph}>
-            <Text selectable style={[styles.body, ctx.textStyle]}>
+            <Text selectable={ctx.selectable} style={[styles.body, ctx.textStyle]}>
               {renderText(plainText(token), ctx, key)}
             </Text>
           </View>
@@ -365,35 +563,76 @@ function Blocks({
   })
 }
 
-/** Native GFM transcript renderer. The native shell retains scrolling and interactions. */
-export function RichMarkdown({ text, textStyle, onRefPress }: RichMarkdownProps) {
+/** Text-only markdown leaves for a note subject inside its single-line label. */
+export function RichMarkdownInline({ text, onRefPress }: RichMarkdownProps) {
   const tokens = useMemo(() => parseMarkdown(text), [text])
-  const ctx = useMemo(() => ({ textStyle, onRefPress }), [onRefPress, textStyle])
+  const ctx = { onRefPress, selectable: false }
+  return renderInline(tokens, ctx, 'subject')
+}
+
+/** A bounded reading preview. More opens the complete block rendering. */
+export function RichMarkdownPreview({ text, onRefPress }: RichMarkdownProps) {
+  const tokens = useMemo(() => parseMarkdown(text), [text])
+  const ctx = { onRefPress, selectable: false }
+  return (
+    <Text numberOfLines={3} style={styles.body}>
+      {tokens.flatMap((token, index) => {
+        if (token.type === 'space') return []
+        const content =
+          token.type === 'list'
+            ? (token.items ?? []).flatMap((item, itemIndex) => [
+                ...(itemIndex > 0 ? ['\n'] : []),
+                token.ordered ? `${Number(token.start || 1) + itemIndex}. ` : '• ',
+                ...renderInline(item.tokens ?? [], ctx, `preview:${index}:${itemIndex}`),
+              ])
+            : renderInline([token], ctx, `preview:${index}`)
+        return [...(index > 0 ? ['\n'] : []), ...content]
+      })}
+    </Text>
+  )
+}
+
+/** Native GFM transcript renderer. The native shell retains scrolling and interactions. */
+export function RichMarkdown({
+  text,
+  textStyle,
+  onRefPress,
+  selectable = true,
+}: RichMarkdownProps) {
+  const { fontScale } = useWindowDimensions()
+  const tokens = useMemo(() => parseMarkdown(text), [text])
+  const ctx = useMemo(
+    () => ({ textStyle, onRefPress, selectable, fontScale }),
+    [onRefPress, selectable, textStyle, fontScale],
+  )
   // The web shell disables selection app-wide so long-pressing a card cannot
   // raise iOS's magnifier; agent prose opts back in [POD-366, patch-web-html].
   return (
-    <View style={styles.root} {...selectableProps}>
+    <View key={fontScale} style={styles.root} {...(selectable ? selectableProps : undefined)}>
       <Blocks tokens={tokens} ctx={ctx} />
     </View>
   )
 }
 
 const headingStyles = StyleSheet.create({
-  1: { fontSize: font.title, lineHeight: leading(font.title) },
-  2: { fontSize: font.heading, lineHeight: leading(font.heading) },
-  3: { fontSize: font.heading, lineHeight: leading(font.heading) },
+  1: { fontSize: font.title, ...Platform.select({ web: { lineHeight: leading(font.title) } }) },
+  2: { fontSize: font.heading, ...Platform.select({ web: { lineHeight: leading(font.heading) } }) },
+  3: { fontSize: font.heading, ...Platform.select({ web: { lineHeight: leading(font.heading) } }) },
 })
 
 const styles = StyleSheet.create({
-  root: { minWidth: 0 },
+  root: { minWidth: 0, width: '100%', maxWidth: '100%', flexGrow: 0, flexShrink: 0 },
   body: {
     ...sans(400),
     // Keep UIKit label adaptation, including Increase Contrast, for reading text.
     color: color.body,
-    fontSize: font.body,
-    lineHeight: leading(font.body, 'prose'),
+    fontSize: 16,
+    // Native prose follows the scaled font's intrinsic metrics. Recreate the
+    // blocks when the text size changes so a retained AX5 measurement cannot
+    // leave empty space before the next block after returning to default.
+    ...Platform.select({ web: { lineHeight: 24 } }),
   },
-  paragraph: { marginVertical: 4 },
+  paragraph: { marginVertical: 4, minWidth: 0, maxWidth: '100%' },
   // UIKit primary label can already be black/white: emphasis adds weight there.
   strong: { ...sans(600), color: color.text },
   em: { fontStyle: 'italic' },
@@ -418,46 +657,69 @@ const styles = StyleSheet.create({
     backgroundColor: color.border,
     marginVertical: space.md,
   },
-  list: { marginVertical: space.xs, gap: 3 },
+  list: { marginVertical: space.xs, gap: 4, flexGrow: 0 },
   listItem: { flexDirection: 'row', alignItems: 'flex-start', minWidth: 0 },
   listMarker: {
     ...mono(500),
     color: color.textDim,
     width: 24,
-    lineHeight: leading(font.body, 'prose'),
+    flexShrink: 0,
+    fontSize: 16,
+    ...Platform.select({ web: { lineHeight: 24 } }),
   },
   listBody: { flex: 1, minWidth: 0 },
   codeFrame: {
+    alignSelf: 'stretch',
+    maxWidth: '100%',
     backgroundColor: color.surface,
     borderColor: color.border,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: radius.card,
     marginVertical: space.sm,
     overflow: 'hidden',
   },
+  // Language leading, Copy trailing — no fake window chrome (iOS draws none).
   codeBar: {
-    height: 27,
+    height: 28,
     paddingHorizontal: space.md,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: space.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: color.border,
   },
-  codeDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: color.borderStrong },
   codeLanguage: {
     ...mono(400),
     color: color.textMicro,
     fontSize: font.micro,
-    marginLeft: 'auto',
   },
+  codeCopy: {
+    marginLeft: 'auto',
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  images: { gap: space.sm },
+  imageFrame: {
+    alignSelf: 'stretch',
+    borderRadius: radius.card,
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.border,
+    backgroundColor: color.surface,
+  },
+  image: { width: '100%', maxHeight: 360 },
   codeText: {
+    flexShrink: 0,
     ...mono(400),
     color: color.body,
     fontSize: font.small,
     lineHeight: leading(font.small),
     padding: space.md,
   },
+  codeScroller: { width: '100%' },
+  codeContent: { flexDirection: 'row', flexGrow: 1, alignItems: 'flex-start' },
   diffAdd: { color: '#22c55e', backgroundColor: 'rgba(34, 197, 94, 0.08)' },
   diffDel: { color: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.08)' },
   diffHunk: { color: '#06b6d4' },

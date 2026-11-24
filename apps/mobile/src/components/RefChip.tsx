@@ -1,35 +1,34 @@
 import type { IssueReferenceModel } from '@podium/client-core/values'
-
-import { StyleSheet, Text } from 'react-native'
+import type { ReactNode } from 'react'
+import { Platform, Pressable, StyleSheet, Text } from 'react-native'
 import { usePoolRefChip } from '../client/use-pool-links'
-import { alpha } from '../theme/mix'
-import { stageColor } from '../theme/stage'
-import { color, font, mono } from '../theme/theme'
+import { openPodiumTarget } from '../lib/podium-link'
+import { color, font, mono, radius } from '../theme/theme'
+import { Icon } from './Icon'
+import { SquareTerminal } from './icons'
 import { StageGlyph, UnknownRefGlyph } from './StageGlyph'
 
 /**
- * A `POD-529` mention inside agent output, carrying the task's LIVE workflow
- * stage (POD-724 — the phone twin of the desktop's `a.ref-link` chip and the
- * terminal's stage-coloured underline).
+ * A `POD-529` or `POD-529-A` mention inside chat, drawn as a CHIP (POD-2444):
+ * the phone twin of the desktop's `a.ref-link`. The token sits in a
+ * system-fill capsule at the control corner (6), led by the task's live stage
+ * glyph, or a terminal glyph for a session. Its live stage is resolved HERE
+ * (every markdown caller would otherwise have to know about issues) and also
+ * announced in the accessibility label.
  *
- * Before this the phone painted every ref one flat accent-tinted token, which
- * made the transcript's most common cross-reference the one place where state
- * was invisible: a ref to a task that shipped last week looked exactly like a
- * ref to the task the agent is failing on right now. The stage colours and the
- * glyph geometry come from ../theme/stage and ./StageGlyph — the same tables
- * the desktop and the terminals read — so a fourth surface cannot drift the way
- * the terminals did in POD-583.
- *
- * Resolution is done HERE rather than threaded down from a screen: every caller
- * that renders markdown would otherwise have to know about issues, and a caller
- * that forgot would silently paint stage-less chips.
+ * Tapping opens the ref: an issue goes to the caller's handler when it has
+ * one (the chat's task peek), otherwise, like every session ref, through the
+ * shared Podium link activator, the same route a link to that task takes.
  */
 
 interface RefChipProps {
   token: string
   refKind: 'issue' | 'session'
   prefix: string
+  /** Issue refs only: replaces the default navigation (the chat's peek). */
   onPress?: ((ref: string) => void) | undefined
+  /** What an unregistered prefix renders instead (default: the bare token). */
+  fallback?: ReactNode
 }
 
 export function RefChip(props: RefChipProps) {
@@ -37,79 +36,77 @@ export function RefChip(props: RefChipProps) {
   return <RefChipView {...props} known={known} model={model} />
 }
 
+function openRef(token: string, refKind: 'issue' | 'session', onPress?: (ref: string) => void) {
+  if (refKind === 'issue' && onPress) onPress(token)
+  else
+    openPodiumTarget(
+      refKind === 'session' ? { kind: 'session', session: token } : { kind: 'issue', issue: token },
+    )
+}
+
 function RefChipView({
   token,
   refKind,
   onPress,
+  fallback,
   known,
   model,
 }: RefChipProps & { known: boolean; model: IssueReferenceModel | null }) {
-  // Not a ref, just text that happens to be shaped like one.
-  if (!known) return <>{token}</>
+  // Not a ref, just text that happens to be shaped like one (`UTF-8`).
+  if (!known) return <>{fallback ?? token}</>
 
-  // A stage colour is a CLAIM about a task's state, so it is only ever made
-  // about a task we can see. An issue ref with no live row (a replica page that
-  // has not arrived, a row this principal cannot see, a task that is gone) and
-  // every session ref stay muted — POD-676: a gap must not announce a task as
-  // something it is not, and it must never borrow the brand accent to do it.
-  const stage = model?.status ?? null
-  const ink = refKind === 'issue' ? stageColor(stage) : color.textDim
-  // The done glyph punches its check out of the surface behind it; the chip's
-  // own tint is that surface, so the check reads as a hole rather than a stroke.
-  const ground = color.surface
-
+  // A stage colour is a CLAIM about a task's state, so only a task we can see
+  // gets one; an unresolved issue ref says so with the question ring, and a
+  // session ref wears the terminal mark (POD-676: a gap claims nothing).
+  const stage = refKind === 'issue' ? (model?.status ?? null) : null
   return (
-    <Text
-      accessibilityRole={onPress ? 'link' : 'text'}
+    <Pressable
+      accessibilityRole="link"
       accessibilityLabel={
         model?.accessibleLabel ??
         (refKind === 'session' ? `Session ${token}` : `Task ${token} is unavailable`)
       }
-      style={[
-        styles.chip,
-        {
-          color: ink,
-          backgroundColor: alpha(ink, 0.12),
-          textDecorationColor: alpha(ink, 0.65),
-        },
-        // Dashed under a backlog ref, solid under everything else — the same
-        // pairing the terminal underline and the dashed backlog glyph use.
-        stage === 'backlog' && styles.chipDashed,
-      ]}
-      onPress={onPress ? () => onPress(token) : undefined}
-      suppressHighlighting
+      onPress={() => openRef(token, refKind, onPress)}
+      hitSlop={{ top: 6, bottom: 6, left: 2, right: 2 }}
+      style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
     >
-      {stage ? (
-        <>
-          <StageGlyph stage={stage} size={11} ground={ground} />
-          {/* A hair of air between glyph and token; padding on inline text is
-              not honoured on every target, a space always is. */}{' '}
-        </>
-      ) : refKind === 'issue' ? (
-        // Unresolved, and it says so (POD-676). A session ref gets nothing: it
-        // is not a task whose state we failed to learn, so a question mark
-        // would be claiming a gap that is not there.
-        <>
-          <UnknownRefGlyph size={11} tint={ink} />{' '}
-        </>
-      ) : null}
-      {token}
-    </Text>
+      {refKind === 'session' ? (
+        <Icon as={SquareTerminal} size={GLYPH} color={color.textDim} />
+      ) : stage ? (
+        <StageGlyph stage={stage} size={GLYPH} ground={color.surface} />
+      ) : (
+        <UnknownRefGlyph size={GLYPH} tint={color.textFaint} />
+      )}
+      <Text style={styles.token} numberOfLines={1} allowFontScaling>
+        {token}
+      </Text>
+    </Pressable>
   )
 }
 
+const GLYPH = 11
+const TOKEN_LEADING = font.small + 3
+
 const styles = StyleSheet.create({
   chip: {
-    ...mono(500),
-    fontSize: font.small,
-    // The underline the desktop chip cannot have (dotted underlines rasterize
-    // differently across its two engines); on the phone there is one text
-    // engine, so the ref can carry both the tint and the underline.
-    textDecorationLine: 'underline',
-    borderRadius: 4,
-    paddingHorizontal: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingLeft: 4,
+    paddingRight: 5,
+    paddingVertical: 1,
+    borderRadius: radius.control,
+    backgroundColor: color.tertiaryFill,
+    // iOS hangs an inline view's BOTTOM on the text baseline; dropping it by
+    // the token's descent puts the token's baseline on the sentence's. The web
+    // build aligns inline-flex by its first baseline already.
+    transform: Platform.OS === 'web' ? undefined : [{ translateY: 4 }],
   },
-  chipDashed: {
-    textDecorationStyle: 'dashed',
+  pressed: { backgroundColor: color.secondaryFill },
+  token: {
+    ...mono(500),
+    color: color.text,
+    fontSize: font.small,
+    lineHeight: TOKEN_LEADING,
   },
 })

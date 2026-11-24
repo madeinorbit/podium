@@ -1,16 +1,23 @@
+import { codexQuestionReplyText, parseCodexQuestionReplies } from '@podium/harness/browser'
 import { lazy } from '@podium/mobx-helpers'
-import type { SessionId, SessionOffer, SuperagentTurnFailureWire } from '@podium/model'
-import type { HeadlessActivityEvent, TurnPreviewItem, TurnPreviewMessage } from '@podium/protocol'
 import {
-  action,
-  observable,
-  observableRef,
-  reaction,
-  runInAction,
-} from 'mobx'
+  type AgentNeed,
+  type SessionId,
+  type SessionOffer,
+  type SuperagentTurnFailureWire,
+  type TranscriptItem,
+} from '@podium/model'
+import {
+  type HeadlessActivityEvent,
+  type PendingInteractionWire,
+  type TurnPreviewItem,
+  type TurnPreviewMessage,
+} from '@podium/protocol'
+import { action, observable, observableRef, reaction, runInAction } from 'mobx'
 import type { SocketHub } from '../socket-transport/socket-hub'
-import { transcriptActivitySignal, type TranscriptConnection } from '../transcript/contracts'
-import { nativeSessionCanInterrupt, type ConversationContext } from './contracts'
+import { type TranscriptConnection, transcriptActivitySignal } from '../transcript/contracts'
+import { isCodexAsyncQuestion, isPendingAskQuestion } from '../values/ask-question'
+import { type ConversationContext, nativeSessionCanInterrupt } from './contracts'
 import type { DraftStore } from './draft-store'
 import {
   ConversationFrameScheduler,
@@ -18,8 +25,8 @@ import {
 } from './frame-scheduler'
 import { freezePlain } from './frozen'
 import { Sends, type SendsOptions } from './sends'
-import { TranscriptLog, type TranscriptChange, type TranscriptLogOptions } from './transcript-log'
 import { TranscriptGraph } from './transcript-graph'
+import { type TranscriptChange, TranscriptLog, type TranscriptLogOptions } from './transcript-log'
 
 export const TURN_PREVIEW_STALE_MS = 20_000
 
@@ -42,7 +49,11 @@ export interface ConversationSession {
   agentError?: ConversationContext['agentError']
   lastActiveAt?: string | null
   busy?: boolean | null
-  agentState?: { phase?: string; since?: string; error?: ConversationContext['agentError'] } | null
+  agentState?: {
+    phase?: string
+    since?: string
+    error?: ConversationContext['agentError']
+  } | null
   offer?: SessionOffer | null
 }
 
@@ -50,7 +61,10 @@ export interface ConversationOptions {
   sessionId: SessionId
   drafts: Pick<DraftStore, 'get' | 'set'>
   transcript: Omit<TranscriptLogOptions, 'sessionId' | 'enqueueFrame' | 'onChange' | 'connection'>
-  sends: Omit<SendsOptions, 'sessionId' | 'transcript' | 'drafts' | 'connection' | 'readContext'>
+  sends: Omit<
+    SendsOptions,
+    'sessionId' | 'transcript' | 'drafts' | 'connection' | 'readContext' | 'compactionFor'
+  >
   readSession?: () => ConversationSession | undefined
   streamSessionId?: () => SessionId | undefined
   readTurnRunning?: () => boolean | undefined
@@ -111,6 +125,7 @@ export class ConversationService {
       ...options.sends,
       sessionId: options.sessionId,
       transcript: this.transcript,
+      compactionFor: (id) => this.graph.compaction(id),
       drafts: options.drafts,
       connection: options.connection,
       readContext: () => this.context,
@@ -130,25 +145,82 @@ export class ConversationService {
   @lazy get status(): string | undefined {
     return this.options.readSession?.()?.status
   }
-  @lazy get context(): ConversationContext { return this }
+  @lazy get context(): ConversationContext {
+    return this
+  }
+
+  /** Only a question without a paired result can occupy the native pending slot. */
+  @lazy get pendingQuestion(): TranscriptItem | null {
+    const id = this.graph.pendingQuestionId
+    const block = id === undefined ? undefined : this.graph.block(id)
+    return !block || (this.options.headless && isCodexAsyncQuestion(block.item)) ? null : block.item
+  }
+
+  /** Both clients answer async interviews through the ordinary send lifecycle. */
+  async replyToAsyncQuestion(reply: {
+    itemId: string
+    question: string
+    text: string
+  }): Promise<void> {
+    const block = this.graph.block(reply.itemId)
+    if (
+      !block ||
+      this.options.headless ||
+      !isCodexAsyncQuestion(block.item) ||
+      !isPendingAskQuestion(block) ||
+      this.graph.pendingQuestionId !== reply.itemId ||
+      block.item.toolInputJson !== reply.question
+    ) {
+      throw new Error('The question changed; wait for the current question.')
+    }
+    if (
+      this.sends.pending.some((turn) =>
+        parseCodexQuestionReplies(turn.wire)?.some(
+          (answer) => answer.callId === block.item.toolUseId,
+        ),
+      )
+    )
+      return
+    await this.sends.submit({
+      text: codexQuestionReplyText(reply.text) ?? reply.text,
+      wire: reply.text,
+    })
+  }
 
   @lazy get agentSince(): string | undefined {
-    return this.options.readContext ? this.options.readContext().agentSince : this.options.readSession?.()?.agentSince ?? this.options.readSession?.()?.agentState?.since
+    return this.options.readContext
+      ? this.options.readContext().agentSince
+      : (this.options.readSession?.()?.agentSince ??
+          this.options.readSession?.()?.agentState?.since)
   }
   @lazy get agentPhase(): string | undefined {
-    return this.options.readContext ? this.options.readContext().agentPhase : this.options.readSession?.()?.agentPhase ?? this.options.readSession?.()?.agentState?.phase
+    return this.options.readContext
+      ? this.options.readContext().agentPhase
+      : (this.options.readSession?.()?.agentPhase ??
+          this.options.readSession?.()?.agentState?.phase)
   }
   @lazy get agentError(): ConversationContext['agentError'] {
-    return this.options.readContext ? this.options.readContext().agentError : this.options.readSession?.()?.agentError ?? this.options.readSession?.()?.agentState?.error
+    return this.options.readContext
+      ? this.options.readContext().agentError
+      : (this.options.readSession?.()?.agentError ??
+          this.options.readSession?.()?.agentState?.error)
   }
   @lazy get offer(): SessionOffer | null | undefined {
-    return this.options.readContext ? this.options.readContext().offer : this.options.readSession?.()?.offer
+    return this.options.readContext
+      ? this.options.readContext().offer
+      : this.options.readSession?.()?.offer
   }
   @lazy get canInterrupt(): boolean {
-    return this.options.readContext ? this.options.readContext().canInterrupt : this.options.headless ? this.turnRunning : nativeSessionCanInterrupt(this.status)
+    return this.options.readContext
+      ? this.options.readContext().canInterrupt
+      : this.options.headless
+        ? this.turnRunning
+        : nativeSessionCanInterrupt(this.status)
   }
   @lazy get latestOperatorPrompt(): string | null | undefined {
-    return this.options.readContext ? this.options.readContext().latestOperatorPrompt : this.transcript.latestOperatorPrompt
+    return this.options.readContext
+      ? this.options.readContext().latestOperatorPrompt
+      : this.transcript.latestOperatorPrompt
   }
 
   /** The record's failure, unless this view dismissed it since. */

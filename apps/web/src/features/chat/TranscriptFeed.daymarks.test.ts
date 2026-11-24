@@ -1,7 +1,11 @@
+import { dayMarksByPosition as sharedDayMarks } from '@podium/client-core/transcript-time'
 import type { ChatRow, RenderableRow } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { dayMarksByPosition } from './TranscriptFeed'
+import { rowTimestamp } from './transcript-time'
+
+const dayMarksByPosition = (rows: RenderableRow[], now: Date) =>
+  sharedDayMarks(rows, now, ({ row }) => rowTimestamp(row))
 
 const row = (ts?: string): ChatRow => ({
   kind: 'block',

@@ -11,17 +11,23 @@ import {
 import { Animated, Easing, Platform, StyleSheet, View } from 'react-native'
 import { BootSplash } from '../components/BootSplash'
 import { useReduceMotion } from '../hooks/useReduceMotion'
+import { startupTiming } from '../lib/startup-timing'
 import { color } from '../theme/theme'
+import { markFirstRoute } from './first-route'
 import {
   LaunchReadyProvider,
   LaunchSplashStatusProvider,
   type LaunchSplashStatusSource,
+  LaunchTransitionProvider,
 } from './launch-ready'
 
 // The route-ready signal lives in `./launch-ready`, which does NOT import
 // expo-router — see the note there. Re-exported so existing importers of
 // `./launch` are unaffected.
 export { LaunchReadyView, useLaunchReadySignal } from './launch-ready'
+
+/** Extra reveal budget after fonts and the first route layout are ready. */
+export const LAUNCH_TRANSITION_BUDGET_MS = 500
 
 /**
  * Keep the OS launch surface in place until the one React launch boundary has
@@ -51,13 +57,51 @@ export function LaunchBoundary({
   const reduceMotion = useReduceMotion()
   const [routeReady, setRouteReady] = useState(false)
   const [showSplash, setShowSplash] = useState(true)
+  const [transition, setTransition] = useState<{ pending: boolean } | null>(null)
+  const activeTransition = useRef<{ release: () => void; expire: () => void } | null>(null)
+  const revealStarted = useRef(false)
   const [statusSource, setStatusSource] = useState<LaunchSplashStatusSource | null>(null)
   const splashOpacity = useRef(new Animated.Value(1)).current
-  const ready = fontsReady && routeReady
-  const markRouteReady = useCallback(() => setRouteReady(true), [])
+  const ready = fontsReady && routeReady && !transition?.pending
+  const holdTransition = useCallback((onExpired: () => void) => {
+    // Only the focused native list owns startup's one search transition.
+    if (revealStarted.current || activeTransition.current) return null
+    setTransition({ pending: true })
+    let pending = true
+    const release = () => {
+      if (!pending) return
+      pending = false
+      startupTiming.mark('launch.search-ready')
+      activeTransition.current = null
+      setTransition({ pending: false })
+    }
+    activeTransition.current = {
+      release,
+      expire: () => {
+        startupTiming.mark('launch.search-expired')
+        onExpired()
+        release()
+      },
+    }
+    return release
+  }, [])
+  const markRouteReady = useCallback(() => {
+    startupTiming.mark('launch.route-layout')
+    setRouteReady(true)
+  }, [])
 
   useEffect(() => {
-    if (!ready) return
+    if (!fontsReady || !routeReady || !transition?.pending) return
+    startupTiming.mark('launch.search-budget-start')
+    const timer = setTimeout(() => activeTransition.current?.expire(), LAUNCH_TRANSITION_BUDGET_MS)
+    return () => clearTimeout(timer)
+  }, [fontsReady, routeReady, transition])
+
+  useEffect(() => {
+    // A child can acquire its hold earlier in this effect flush, before the
+    // state update above renders. Its resource already owns readiness now.
+    if (!fontsReady || !routeReady || transition?.pending || activeTransition.current) return
+    revealStarted.current = true
     let alive = true
     void (async () => {
       if (Platform.OS !== 'web') await SplashScreen.hideAsync().catch(() => {})
@@ -79,14 +123,22 @@ export function LaunchBoundary({
     return () => {
       alive = false
     }
-  }, [ready, reduceMotion, splashOpacity])
+  }, [fontsReady, routeReady, reduceMotion, splashOpacity, transition])
+
+  useEffect(() => {
+    if (showSplash) return
+    startupTiming.mark('launch.overlay-hidden')
+    // Work that draws nothing on the first screen starts now, not alongside it.
+    markFirstRoute()
+  }, [showSplash])
 
   const context = useMemo(() => markRouteReady, [markRouteReady])
   return (
     <LaunchSplashStatusProvider value={setStatusSource}>
-      <LaunchReadyProvider value={context}>
-        <View style={styles.root}>
-          {/* The content NEVER carries an animated opacity: a subtree under
+      <LaunchTransitionProvider value={holdTransition}>
+        <LaunchReadyProvider value={context}>
+          <View style={styles.root}>
+            {/* The content NEVER carries an animated opacity: a subtree under
               one renders as an offscreen group, and UIKit disables backdrop
               layers inside such groups — which blanked the iOS 26 Liquid
               Glass tab-bar capsule for the app's whole life (root-caused
@@ -95,17 +147,22 @@ export function LaunchBoundary({
               The reveal is carried entirely by the OPAQUE splash overlay
               fading out above the already-final content — visually the same
               crossfade, structurally inert. */}
-          <View style={styles.content}>{children}</View>
-          {showSplash ? (
-            <Animated.View
-              pointerEvents="auto"
-              style={[StyleSheet.absoluteFill, styles.splash, { opacity: splashOpacity }]}
-            >
-              <LaunchSplash source={statusSource} />
-            </Animated.View>
-          ) : null}
-        </View>
-      </LaunchReadyProvider>
+            <View style={styles.content}>{children}</View>
+            {showSplash ? (
+              <Animated.View
+                // On iOS this is the INITIAL native prop. Changing auto -> none
+                // at fade start can outrun Fabric's prop commit.
+                pointerEvents={Platform.OS === 'ios' || ready ? 'none' : 'auto'}
+                collapsable={false}
+                testID="podium-launch-overlay"
+                style={[StyleSheet.absoluteFill, styles.splash, { opacity: splashOpacity }]}
+              >
+                <LaunchSplash source={statusSource} />
+              </Animated.View>
+            ) : null}
+          </View>
+        </LaunchReadyProvider>
+      </LaunchTransitionProvider>
     </LaunchSplashStatusProvider>
   )
 }

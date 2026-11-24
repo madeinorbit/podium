@@ -14,14 +14,15 @@ import {
 } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useCallback, useEffect, useState } from 'react'
+import { useLocalSearchParams } from 'expo-router'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
 import { useConnected, useTrpc } from '../client/hooks'
 import { issueObserver as observer } from '../client/issue-observer'
 import { IssueOpening, useIssueOpening } from '../client/issue-opening'
 import { useMobileMemberRoster } from '../client/member-roster'
 import { useMobilePool } from '../client/mobile-pool'
+import { useScreenReadFocus } from '../client/screen-read-focus'
 import type { MobileTrpc } from '../client/trpc'
 import { useIssueCloseGuard } from '../client/use-issue-close'
 import {
@@ -31,77 +32,64 @@ import {
   useIssueTargets,
 } from '../client/use-issue-model'
 import { useSessionContextBooting as useBooting } from '../client/use-session-context'
-import { ActionSheet, type SheetAction } from '../components/ActionSheet'
-import { Composer } from '../components/Composer'
-import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
-import { Icon } from '../components/Icon'
-import { IdSquare } from '../components/IdSquare'
+import { ActionSheet } from '../components/ActionSheet'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
 import { IssueQuestionCard } from '../components/IssueQuestionCard'
 import { IssueTargetSheet } from '../components/IssueTargetSheet'
-import { MoreHorizontal } from '../components/icons'
+import {
+  Archive,
+  ArchiveRestore,
+  Flag,
+  MoreHorizontal,
+  Pin,
+  PinOff,
+  Plus,
+  Replace,
+  RotateCcw,
+  SquareTerminal,
+  Trash2,
+  UserPlus,
+} from '../components/icons'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
-import { HeaderButton, Screen } from '../components/Screen'
+import { Screen, type ScreenAction, type ScreenMenuEntry } from '../components/Screen'
 import { PriorityGlyph, StageGlyph } from '../components/StageGlyph'
-import { ErrorNote } from '../components/task-detail/chrome'
+import { ErrorNote, ReferenceGroup } from '../components/task-detail/chrome'
+import { DetailContent, DetailList } from '../components/task-detail/DetailList'
 import { GitReviewSection } from '../components/task-detail/GitReviewSection'
 import { IssueAgentPanel } from '../components/task-detail/IssueAgentPanel'
 import { IssueBanners } from '../components/task-detail/IssueBanners'
 import {
   IssueBrief,
-  IssueDescription,
+  IssueDescriptionPreview,
   IssueTitle,
   LongFormFields,
-  StatusStrip,
 } from '../components/task-detail/IssueBody'
+import { IssueCost } from '../components/task-detail/IssueCost'
 import {
   PhoneMail,
-  PhoneNow,
   PhoneProperties,
   PhoneTimeline,
 } from '../components/task-detail/IssueModelSections'
 import { PropertyBar } from '../components/task-detail/IssueProperties'
 import { IssueSharedSection } from '../components/task-detail/IssueSharedSection'
-import { IssueSubIssues } from '../components/task-detail/IssueSubIssues'
+import { IssueStartAction } from '../components/task-detail/IssueStartAction'
+import { IssueSubIssues, IssueSubIssuesSection } from '../components/task-detail/IssueSubIssues'
 import { PromptSheet } from '../components/task-detail/PromptSheet'
+import { TaskOfferSummary } from '../components/task-detail/TaskOfferSummary'
+import { ArtifactStrip, FoldedSection } from '../components/task-detail/TaskOverview'
+import { TaskSessions } from '../components/task-detail/TaskSessions'
 import { EmptyState } from '../components/ui'
 import { useCollapsed } from '../hooks/useCollapsed'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { TASK_DETAILS_FOLD_KEY } from '../lib/fold-keys'
 import { issueCommands, type RunMutation } from '../lib/issue-detail'
-import { sessionHref } from '../lib/session-route'
+import { launchAgentHref, sessionHref } from '../lib/session-route'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
+import { useRootScreenRouter } from '../navigation/use-root-screen-router'
 import { color, space } from '../theme/theme'
 
-/**
- * THE TASK PAGE, WITH THE DESKTOP'S POWER [POD-724].
- *
- * What this replaced was a thin page: a chip row, the description, a list of
- * sessions and a comment list. Everything else a task carries — its banners, its
- * agent-published artifacts, its sub-tasks, its mail, its relations,
- * its branch, its event history — was desk-only, which meant the phone could show
- * you that something needed you and then could not show you what it was.
- *
- * The section order is the desktop's, re-expressed for a 390pt one-handed screen:
- *
- *   banners → title → status strip → the everyday properties →
- *   NOW (live agents + branch) → description → brief → long-form spec fields →
- *   the agent-published panel → sub-tasks → mail → Details (folded) → activity,
- *   with the comment composer PINNED below the scroll.
- *
- * -------------------------------------------------------------------------
- * THIS FILE IS COMPOSITION AND PAGE-LEVEL STATE. NOTHING ELSE.
- * -------------------------------------------------------------------------
- *
- * Each section is its own module under `../components/task-detail/`, chosen by
- * the question it answers; every mutation is a named command in
- * `../lib/issue-detail.ts`; the three lazy reads are one hook. What is LEFT here
- * is the state that genuinely spans sections — which sheet is open and the
- * busy / error pair — because pushing either of those down would duplicate them.
- *
- * THE COMPOSER IS PINNED, NOT APPENDED. A task with twenty artifacts and a day of
- * events puts the reply box thousands of pixels down the scroll, so replying
- * would mean first travelling past everything you were replying to.
+/** Native task detail composition. Data and commands come from the shared page view.
+ * Title/state, agents and actions lead; activity follows the task's reference content.
  */
 export function IssueScreen(props: { dismiss?: boolean }) {
   return (
@@ -120,8 +108,9 @@ const IssueScreenBody = observer(function IssueScreenBody({
   const issueId = decodeURIComponent(
     Array.isArray(params.issueId) ? params.issueId[0] : (params.issueId ?? ''),
   )
-  const router = useRouter()
+  const router = useRootScreenRouter()
   const issue = useIssueModel(issueId)
+  useScreenReadFocus(issue?.id)
   const booting = useBooting()
   const connected = useConnected()
 
@@ -146,21 +135,21 @@ const IssueScreenBody = observer(function IssueScreenBody({
   const certainAbsence = issue === undefined && !booting && connected
   const resolved = issue !== undefined || certainAbsence
 
-  return (
-    <BootstrapCrossfade resolved={resolved} placeholder={<DetailSkeleton />}>
-      {issue ? (
-        <IssueContent issue={issue} onBack={goBack} dismiss={dismiss} />
-      ) : (
-        <Screen
-          title="Task"
-          onBack={goBack}
-          backAs={dismiss ? 'text' : 'chevron'}
-          backLabel={dismiss ? 'Done' : undefined}
-        >
-          {certainAbsence ? <EmptyState title="Task not found." fill /> : <DetailSkeleton />}
-        </Screen>
-      )}
-    </BootstrapCrossfade>
+  return issue ? (
+    <IssueContent issue={issue} onBack={goBack} dismiss={dismiss} />
+  ) : (
+    <Screen
+      grouped
+      underHeader
+      title="Task"
+      onBack={goBack}
+      backAs={dismiss ? 'text' : 'chevron'}
+      backLabel={dismiss ? 'Done' : undefined}
+    >
+      <BootstrapCrossfade resolved={resolved} placeholder={<DetailSkeleton />}>
+        {certainAbsence ? <EmptyState title="Task not found." fill /> : null}
+      </BootstrapCrossfade>
+    </Screen>
   )
 })
 
@@ -176,7 +165,6 @@ type OpenSheet =
   | { kind: 'relation-type' }
   | { kind: 'relation-target'; type: (typeof RELATION_TYPES)[number] }
   | { kind: 'supersede' }
-  | { kind: 'menu' }
   | { kind: 'confirm-delete' }
   | { kind: 'confirm-archive' }
   /** Carries the ending being recorded — the guard is raised BY a close, so it
@@ -185,13 +173,13 @@ type OpenSheet =
   | { kind: 'child-status'; child: IssueViewModel }
   | { kind: 'confirm-child-close'; child: IssueViewModel; reason: IssueCloseReason }
   | { kind: 'flag' }
-  | { kind: 'launch' }
+  | { kind: 'add-child' }
 
 /** The relation kinds the phone offers. `supersedes` and `duplicates` are
  *  deliberately absent: parentage has its own row and supersede/duplicate are
  *  lifecycle acts on the overflow menu, so offering them here would let the same
  *  fact be stated two ways. */
-const EMPTY_ISSUES: IssueViewModel[] = []
+const _EMPTY_ISSUES: IssueViewModel[] = []
 const EMPTY_SESSIONS: SessionView[] = []
 const EMPTY_TARGET_IDS: string[] = []
 
@@ -206,7 +194,7 @@ const IssueContent = observer(function IssueContent({
   onBack: () => void
   dismiss: boolean
 }) {
-  const router = useRouter()
+  const router = useRootScreenRouter()
   const trpc = useTrpc()
   // The picked action set doubles as the page's IssueWriteActions — every
   // field is identity-stable, so this subscription never re-renders the page.
@@ -244,9 +232,15 @@ const IssueContent = observer(function IssueContent({
   const moreTargets = () => {
     if (targets && targets.length > targetLimit) setTargetLimit((limit) => limit + 14)
   }
-  const hasMates = useHasIssueMates(issue, sheet?.kind === 'menu')
+  // The menu is built before it opens (iOS hands it to UIKit up front).
+  const hasMates = useHasIssueMates(issue, true)
   const [detailsOpen, detailsCollapsed] = useDetailsFold()
   const keyboardLift = useKeyboardLift()
+  // The ••• menu's hooks run before any record read below: the issue observer
+  // catches LOADING inside this render, so a hook after a read that can throw
+  // would change the hook count between renders. The menu is cached by its key.
+  const menuRun = useRef<Parameters<typeof issueMenuEntries>[1]['current']>(null as never)
+  const menuCache = useRef<{ key: string; actions: readonly ScreenAction[] } | null>(null)
 
   /** Run a mutation, surfacing any thrown error verbatim as an inline note. */
   const run: RunMutation = async (fn) => {
@@ -286,15 +280,65 @@ const IssueContent = observer(function IssueContent({
     if (pool) issueActivity(pool, issue.id).appendComment(body)
   }
 
-  const sessions = detail?.phoneSessions ?? EMPTY_SESSIONS
-  if (typeof sessions === 'symbol') throw sessions
+  // Seats still loading are thrown only after every hook below has run: the
+  // issue observer catches LOADING inside this render, so an early throw would
+  // change the hook count between renders.
+  const rawSessions = detail?.phoneSessions ?? EMPTY_SESSIONS
+  const rawActive = detail?.dockActiveSessions ?? EMPTY_SESSIONS
+  const rawMembers = detail?.memberSessions ?? EMPTY_SESSIONS
+  const seatsLoading = [rawSessions, rawActive, rawMembers].find(
+    (value) => typeof value === 'symbol',
+  )
+  const sessions = typeof rawSessions === 'symbol' ? EMPTY_SESSIONS : rawSessions
   const agents = sessions.filter((session) => session.agentKind !== 'shell')
   const parentEdge = resolveEdgeFromPool(pool, issue.parentId)
   const parent = parentEdge.render === 'issue' ? parentEdge.resolution.value : undefined
-  const openIssue = (id: string) => router.replace(`/issue/${encodeURIComponent(id)}`)
+  const openIssue = (id: string) => router.push(`/issue/${encodeURIComponent(id)}`)
   const openSession = (id: SessionId) =>
     router.push(sessionHref(id, `/issue/${encodeURIComponent(issue.id)}`))
   const askingSession = sessions.find((s) => s.sessionId === issue.asked?.by) ?? sessions[0]
+  // The shared page view orders open seats as desktop does: wanting attention
+  // (an open offer), then the coordinator, then most recent. Its first seat
+  // leads the page; a task with none open falls back to its roster.
+  const active = typeof rawActive === 'symbol' ? EMPTY_SESSIONS : rawActive
+  // Archived seats leave the open lists; the shared member roster keeps them,
+  // so a finished task still shows (and opens) the session that did it.
+  const members = typeof rawMembers === 'symbol' ? EMPTY_SESSIONS : rawMembers
+  const seats =
+    active.length > 0
+      ? active
+      : agents.length > 0
+        ? agents
+        : members.filter((session) => session.agentKind !== 'shell')
+  const lead = seats[0]
+
+  // The ••• menu, built once per change of the facts that gate its entries.
+  // Its actions reach the current commands through a ref, so an unrelated
+  // render neither rebuilds the list nor re-sends the native bar items.
+  // From the inspector sheet, launch replaces it: a sheet stacked on a sheet
+  // leaves the chat two screens down, where the stack freezes it blank.
+  const launch = () =>
+    dismiss ? router.replace(launchAgentHref(issue.id)) : router.push(launchAgentHref(issue.id))
+  menuRun.current = { commands, onBack, launch }
+  const menuKey = JSON.stringify({
+    live: !issue.deletedAt,
+    noAgents: agents.length === 0,
+    pinned: issue.pinned === true,
+    archived: issue.archived === true,
+    finished: isFinished(issue),
+    hasMates,
+  })
+  const menuTitle = issueDisplayRef(issue)
+  const menuCacheKey = `${menuKey}\u0000${menuTitle}`
+  if (menuCache.current?.key !== menuCacheKey) {
+    const items = issueMenuEntries(JSON.parse(menuKey) as IssueMenuFacts, menuRun, setSheet)
+    menuCache.current = {
+      key: menuCacheKey,
+      actions: [{ label: 'More actions', icon: MoreHorizontal, items, menuTitle }],
+    }
+  }
+  const menuBarActions = menuCache.current.actions
+  if (seatsLoading) throw seatsLoading
 
   /**
    * Dismiss THIS sheet, and only if it is still the one showing.
@@ -308,7 +352,7 @@ const IssueContent = observer(function IssueContent({
    */
   const closeIf = (kind: NonNullable<OpenSheet>['kind']) => () =>
     setSheet((cur) => (cur?.kind === kind ? null : cur))
-  const resolveEdge = (id: string | undefined | null) => resolveEdgeFromPool(pool, id)
+  const _resolveEdge = (id: string | undefined | null) => resolveEdgeFromPool(pool, id)
 
   const repoName = issueRepoName(issue)
   const breadcrumb = parent
@@ -317,6 +361,10 @@ const IssueContent = observer(function IssueContent({
 
   return (
     <Screen
+      grouped
+      // Content scrolls under the transparent bar (POD-2387); the ScrollView
+      // insets itself below it.
+      underHeader
       title={issueDisplayRef(issue)}
       refreshing={detail?.refreshing ?? false}
       // The desktop header's breadcrumb, at phone width: repo, then the parent's
@@ -327,117 +375,133 @@ const IssueContent = observer(function IssueContent({
       onBack={onBack}
       backAs={dismiss ? 'text' : 'chevron'}
       backLabel={dismiss ? 'Done' : undefined}
-      leading={
-        <IdSquare
-          issue={issue}
-          size={22}
-          state={
-            isFinished(issue)
-              ? 'done'
-              : issue.needsHuman
-                ? 'waiting'
-                : agents.length > 0
-                  ? 'working'
-                  : 'queued'
-          }
-        />
-      }
-      right={
-        <HeaderButton label="More actions" onPress={() => setSheet({ kind: 'menu' })}>
-          <Icon as={MoreHorizontal} size={17} color={color.text} />
-        </HeaderButton>
-      }
+      actions={menuBarActions}
     >
-      {/* The same keyboard contract the chat screens carry: on iOS the pinned
-          composer otherwise sits UNDER the keyboard, so a comment was typed
-          blind — the field disappeared on focus. The lift is the keyboard's own
-          overlap (see useKeyboardHeight), not an avoiding view's frame
-          arithmetic. The sheets stay outside: they are modal layers and place
-          themselves. */}
+      {/* The keyboard contract the chat screens carry: inline editors (title,
+          description, sub-task) stay above the keyboard. The lift is the
+          keyboard's own overlap (see useKeyboardHeight). The sheets stay
+          outside: they are modal layers and place themselves. */}
       <View style={[styles.flex, { paddingBottom: keyboardLift }]} testID="issue-keyboard-avoider">
-        <ScrollView
-          contentContainerStyle={styles.content}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-        >
-          <IssueBanners issue={issue} busy={busy} commands={commands} onRestored={onBack} />
-
-          {issue.needsHuman ? (
-            <View style={styles.question}>
-              <IssueQuestionCard
+        <DetailList>
+          <DetailContent>
+            <View style={styles.header} testID="issue-detail-header">
+              <IssueTitle issue={issue} busy={busy} commands={commands} />
+              <PropertyBar
                 issue={issue}
-                onAnswer={
-                  askingSession
-                    ? async (answer) => {
-                        // A chat send like any other (POD-4762): waits for the
-                        // server, wakes a parked session first.
-                        await sendChat({
-                          sessionId: askingSession.sessionId,
-                          text: answer,
-                          wake: true,
-                        })
-                      }
-                    : undefined
-                }
-                onOpenSession={
-                  askingSession ? () => openSession(askingSession.sessionId) : undefined
-                }
-                // The card awaits its resolver; the command is fire-and-forget
-                // through the page's runner, which already owns the busy/error pair.
-                onResolve={async () => commands.resolveNeedsHuman()}
+                statusOnly
+                onStage={() => setSheet({ kind: 'stage' })}
+                onPriority={() => setSheet({ kind: 'priority' })}
+                onType={() => setSheet({ kind: 'type' })}
+                onSelect={{
+                  status: commands.selectStatus,
+                  priority: (priority) => commands.update({ priority }),
+                  type: (type) => commands.update({ type }),
+                }}
+              />
+              <IssueSharedSection
+                issue={issue}
+                roster={roster}
+                busy={busy}
+                onReassign={(assignee) => commands.update({ assignee })}
               />
             </View>
-          ) : null}
-
-          <IssueTitle issue={issue} busy={busy} commands={commands} />
-          <StatusStrip issue={issue} />
-          <PropertyBar
-            issue={issue}
-            onStage={() => setSheet({ kind: 'stage' })}
-            onPriority={() => setSheet({ kind: 'priority' })}
-            onType={() => setSheet({ kind: 'type' })}
-          />
-          <IssueSharedSection
-            issue={issue}
-            roster={roster}
-            busy={busy}
-            onReassign={(assignee) => commands.update({ assignee })}
-          />
-
-          <PhoneNow issue={issue} onOpenSession={openSession} />
-          <IssueDescription issue={issue} busy={busy} commands={commands} />
-          <IssueBrief issue={issue} />
-          <LongFormFields issue={issue} busy={busy} commands={commands} />
-          <IssueAgentPanel issue={issue} />
-          {issue.worktreePath ? (
-            <GitReviewSection
-              root={issue.worktreePath}
-              {...(issue.machineId === undefined ? {} : { machineId: issue.machineId })}
-            />
-          ) : null}
-          <IssueSubIssues
+          </DetailContent>
+          <TaskSessions issue={issue} sessions={active} onOpenSession={openSession} />
+          <IssueSubIssuesSection
+            key={issue.id}
             issue={issue}
             busy={busy}
             commands={commands}
             onOpen={openIssue}
             onStatus={(child) => setSheet({ kind: 'child-status', child })}
+            onAdd={() => setSheet({ kind: 'add-child' })}
           />
-          <PhoneMail issue={issue} />
-          <PhoneProperties
-            issue={issue}
-            busy={busy}
-            commands={commands}
-            open={detailsOpen}
-            onToggle={detailsCollapsed}
-            onOpenSession={openSession}
-            onOpenIssue={openIssue}
-            onPickParent={() => setSheet({ kind: 'parent' })}
-            onAddRelation={() => setSheet({ kind: 'relation-type' })}
-          />
-          <PhoneTimeline issue={issue} busy={busy} commands={commands} />
-        </ScrollView>
+          <IssueStartAction issue={issue} onStart={launch} />
+          <IssueCost issueId={issue.id} />
+          <DetailContent bleed>
+            <IssueBanners issue={issue} busy={busy} commands={commands} onRestored={onBack} />
+            {issue.needsHuman ? (
+              <View style={styles.question}>
+                <IssueQuestionCard
+                  issue={issue}
+                  onAnswer={
+                    askingSession
+                      ? async (answer) => {
+                          // A chat send like any other (POD-4762): waits for the
+                          // server, wakes a parked session first.
+                          await sendChat({
+                            sessionId: askingSession.sessionId,
+                            text: answer,
+                            wake: true,
+                          })
+                        }
+                      : undefined
+                  }
+                  onOpenSession={
+                    askingSession ? () => openSession(askingSession.sessionId) : undefined
+                  }
+                  // The card awaits its resolver; the command is fire-and-forget
+                  // through the page's runner, which already owns the busy/error pair.
+                  onResolve={async () => commands.resolveNeedsHuman()}
+                />
+              </View>
+            ) : null}
 
-        {/* Pinned with the composer, not placed where the failing control was. A
+            <TaskOfferSummary
+              issue={issue}
+              lead={lead}
+              onOpenSession={openSession}
+              onComment={(text) => commands.postComment(text, appendLocalComment)}
+            />
+            <PhoneMail issue={issue} />
+            <ReferenceGroup>
+              <IssueDescriptionPreview issue={issue} busy={busy} commands={commands} />
+              {issue.acceptance?.trim() ? (
+                <LongFormFields issue={issue} busy={busy} commands={commands} />
+              ) : null}
+              {issue.brief?.trim() ? <IssueBrief issue={issue} /> : null}
+              {issue.panel?.artifacts?.length ? (
+                <FoldedSection label="Artifacts" count={String(issue.panel.artifacts.length)}>
+                  <ArtifactStrip issue={issue}>
+                    <IssueAgentPanel issue={issue} only="artifacts" />
+                  </ArtifactStrip>
+                </FoldedSection>
+              ) : null}
+              {issue.panel?.deferred?.length ? (
+                <FoldedSection label="Deferred" count={String(issue.panel.deferred.length)}>
+                  <IssueAgentPanel issue={issue} only="deferred" />
+                </FoldedSection>
+              ) : null}
+              {issue.worktreePath ? (
+                <FoldedSection label="Changes">
+                  <GitReviewSection
+                    root={issue.worktreePath}
+                    headless
+                    {...(issue.machineId === undefined ? {} : { machineId: issue.machineId })}
+                  />
+                </FoldedSection>
+              ) : null}
+              <PhoneProperties
+                issue={issue}
+                busy={busy}
+                commands={commands}
+                open={detailsOpen}
+                onToggle={detailsCollapsed}
+                onOpenSession={openSession}
+                onOpenIssue={openIssue}
+                onPickParent={() => setSheet({ kind: 'parent' })}
+                onAddRelation={() => setSheet({ kind: 'relation-type' })}
+                onPriority={() => setSheet({ kind: 'priority' })}
+                onType={() => setSheet({ kind: 'type' })}
+              />
+              <FoldedSection label="Activity" testID="issue-activity-fold">
+                <PhoneTimeline issue={issue} busy={busy} commands={commands} />
+              </FoldedSection>
+            </ReferenceGroup>
+          </DetailContent>
+        </DetailList>
+
+        {/* Pinned to the bottom, not placed where the failing control was. A
           rebase fired from the Details fold at the bottom of a long page would
           otherwise report its error a full screen above the thumb that asked
           for it. */}
@@ -446,12 +510,18 @@ const IssueContent = observer(function IssueContent({
             <ErrorNote message={error} />
           </View>
         ) : null}
-
-        <Composer
-          placeholder="Comment, or @mention an agent on this task…"
-          onSend={(text) => commands.postComment(text, appendLocalComment)}
-        />
       </View>
+
+      <PromptSheet
+        visible={sheet?.kind === 'add-child'}
+        title="Add sub-task"
+        placeholder="Sub-task title"
+        confirmLabel="Add"
+        onConfirm={(title) => {
+          if (title.trim()) commands.createSubIssue(title.trim())
+        }}
+        onClose={closeIf('add-child')}
+      />
 
       <ActionSheet
         visible={sheet?.kind === 'stage'}
@@ -495,9 +565,9 @@ const IssueContent = observer(function IssueContent({
         onClose={closeIf('type')}
       />
 
-      {targetPickerOpen && targets === null ? <DetailSkeleton /> : null}
       <IssueTargetSheet
-        visible={sheet?.kind === 'parent' && targets !== null}
+        visible={sheet?.kind === 'parent'}
+        loading={targets === null}
         title="Parent"
         subtitle={
           targets?.length === 0 && !targetQuery
@@ -523,7 +593,8 @@ const IssueContent = observer(function IssueContent({
       />
 
       <IssueTargetSheet
-        visible={sheet?.kind === 'relation-target' && targets !== null}
+        visible={sheet?.kind === 'relation-target'}
+        loading={targets === null}
         title={sheet?.kind === 'relation-target' ? sheet.type : ''}
         ids={mates}
         query={targetQuery}
@@ -536,7 +607,8 @@ const IssueContent = observer(function IssueContent({
       />
 
       <IssueTargetSheet
-        visible={sheet?.kind === 'supersede' && targets !== null}
+        visible={sheet?.kind === 'supersede'}
+        loading={targets === null}
         title="Supersede with"
         subtitle="This task is closed as replaced by the one you pick."
         ids={mates}
@@ -562,13 +634,6 @@ const IssueContent = observer(function IssueContent({
             : []
         }
         onClose={closeIf('child-status')}
-      />
-
-      <ActionSheet
-        visible={sheet?.kind === 'menu'}
-        title={issueDisplayRef(issue)}
-        actions={menuActions()}
-        onClose={closeIf('menu')}
       />
 
       <ActionSheet
@@ -630,70 +695,8 @@ const IssueContent = observer(function IssueContent({
         onConfirm={(q) => commands.flagForHuman(q || undefined)}
         onClose={closeIf('flag')}
       />
-
-      <ConfiguredIssueLaunchSheet
-        issue={sheet?.kind === 'launch' ? issue : null}
-        onClose={closeIf('launch')}
-      />
     </Screen>
   )
-
-  /**
-   * The overflow menu. Every entry is gated on DATA PRESENCE or on the task's own
-   * lifecycle, exactly as the desktop's declarative menu config gates them; the
-   * two acts that cannot be undone by a second tap raise a confirm sheet first.
-   * This is UX gating only — the Authority re-authorizes at apply, and a denied
-   * write surfaces through the same error note every command uses.
-   */
-  function menuActions(): SheetAction[] {
-    const live = !issue.deletedAt
-    const actions: SheetAction[] = []
-    if (agents.length === 0 && live) {
-      actions.push({
-        label: 'Start an agent',
-        hint: 'Choose agent, model, effort, and machine before starting.',
-        onPress: () => setSheet({ kind: 'launch' }),
-      })
-    }
-    // No "Add an agent" once one is running (2026-08-27 device review): a
-    // second agent launches from the mission's deck or its 3-dots menu.
-    if (live) actions.push({ label: 'Add a shell', onPress: commands.addShell })
-    if (live) {
-      actions.push({
-        label: issue.pinned ? 'Unpin' : 'Pin',
-        onPress: commands.togglePinned,
-      })
-      actions.push({
-        label: issue.archived ? 'Unarchive task' : 'Archive task',
-        onPress: () => {
-          // Archiving something still OPEN is the case that surprises people.
-          if (!issue.archived && !isFinished(issue)) {
-            setSheet({ kind: 'confirm-archive' })
-            return
-          }
-          commands.toggleArchived()
-        },
-      })
-      actions.push({ label: 'Flag for human…', onPress: () => setSheet({ kind: 'flag' }) })
-    }
-    if (live && hasMates) {
-      actions.push({
-        label: 'Supersede with…',
-        onPress: () => setSheet({ kind: 'supersede' }),
-        hint: 'Pick the task that replaces this one.',
-      })
-    }
-    if (issue.deletedAt) {
-      actions.push({ label: 'Restore task', onPress: () => commands.restoreIssue(onBack) })
-    } else {
-      actions.push({
-        label: 'Delete',
-        destructive: true,
-        onPress: () => setSheet({ kind: 'confirm-delete' }),
-      })
-    }
-    return actions
-  }
 
   function selectChildStatus(child: IssueViewModel, value: string): void {
     const intent = parseIssueStatusValue(value)
@@ -709,6 +712,107 @@ const IssueContent = observer(function IssueContent({
     void run(() => actions.issues.close(child.id, intent.reason))
   }
 })
+
+interface IssueMenuFacts {
+  live: boolean
+  noAgents: boolean
+  pinned: boolean
+  archived: boolean
+  finished: boolean
+  hasMates: boolean
+}
+
+/**
+ * The overflow menu. Every entry is gated on DATA PRESENCE or on the task's own
+ * lifecycle, exactly as the desktop's declarative menu config gates them; the
+ * two acts that cannot be undone by a second tap raise a confirm sheet first.
+ * This is UX gating only — the Authority re-authorizes at apply, and a denied
+ * write surfaces through the same error note every command uses.
+ */
+function issueMenuEntries(
+  facts: IssueMenuFacts,
+  run: {
+    readonly current: {
+      commands: ReturnType<typeof issueCommands>
+      onBack: () => void
+      launch: () => void
+    }
+  },
+  setSheet: (sheet: OpenSheet) => void,
+): ScreenMenuEntry[] {
+  const commands = () => run.current.commands
+  if (!facts.live) {
+    return [
+      {
+        label: 'Restore Task',
+        icon: RotateCcw,
+        onPress: () => commands().restoreIssue(run.current.onBack),
+      },
+    ]
+  }
+  return [
+    {
+      items: [
+        // No "Add an agent" once one is running (2026-08-27 device review): a
+        // second agent launches from the mission's deck or its 3-dots menu.
+        ...(facts.noAgents
+          ? [
+              {
+                label: 'Start an Agent…',
+                hint: 'Choose agent, model, effort and machine',
+                icon: UserPlus,
+                onPress: () => run.current.launch(),
+              },
+            ]
+          : []),
+        { label: 'Add a Shell', icon: SquareTerminal, onPress: () => commands().addShell() },
+        { label: 'Add sub-task', icon: Plus, onPress: () => setSheet({ kind: 'add-child' }) },
+      ],
+    },
+    {
+      items: [
+        {
+          label: facts.pinned ? 'Unpin' : 'Pin',
+          icon: facts.pinned ? PinOff : Pin,
+          onPress: () => commands().togglePinned(),
+        },
+        {
+          label: facts.archived ? 'Unarchive Task' : 'Archive Task',
+          icon: facts.archived ? ArchiveRestore : Archive,
+          onPress: () => {
+            // Archiving something still OPEN is the case that surprises people.
+            if (!facts.archived && !facts.finished) {
+              setSheet({ kind: 'confirm-archive' })
+              return
+            }
+            commands().toggleArchived()
+          },
+        },
+        { label: 'Flag for Human…', icon: Flag, onPress: () => setSheet({ kind: 'flag' }) },
+        ...(facts.hasMates
+          ? [
+              {
+                label: 'Supersede With…',
+                hint: 'Pick the task that replaces this one',
+                icon: Replace,
+                onPress: () => setSheet({ kind: 'supersede' }),
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      items: [
+        {
+          label: 'Delete…',
+          icon: Trash2,
+          destructive: true,
+          onPress: () => setSheet({ kind: 'confirm-delete' }),
+        },
+      ],
+    },
+  ]
+}
 
 /** The Details fold, remembered per principal in the replica's ui-state — the
  *  same store and key namespace the sidebar's folds use, so the phone and the
@@ -727,10 +831,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
     paddingTop: space.lg,
     paddingBottom: space.xxl,
+    gap: space.xl,
   },
-  question: {
-    paddingBottom: space.md,
+  header: {
+    gap: space.sm,
   },
+  question: {},
   errorBand: {
     paddingHorizontal: space.lg,
     paddingVertical: space.sm,

@@ -128,7 +128,7 @@ function OtherToolBlock({
 function ToolLiveTimer({ since }: { since: string | undefined }) {
   const started = since ? Date.parse(since) : Number.NaN
   const known = Number.isFinite(started)
-  const now = useAgeNow(started, 0, known)
+  const now = useAgeNow(started, 0, known, 3_600_000)
   return known ? (
     <span className="work-line-time">{formatWorkDuration(Math.max(0, now - started))}</span>
   ) : null

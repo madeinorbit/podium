@@ -11,17 +11,24 @@ import '@fontsource-variable/geist'
 import '@fontsource-variable/geist-mono'
 import { useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import type { Trpc } from '@/app/trpc'
 import {
   FIRST_PROMPT_ANCHOR,
   FirstPromptGhost,
   firstPromptCards,
 } from '@/features/setup/FirstPromptTip'
 import { TipHost, useTipMoment } from '@/features/tips'
+import { githubStarCards } from '@/features/tips/github-star-tip'
 import { MemoryTipLog } from '@/features/tips/memory-tip-log'
 import '@/index.css'
 import '@/styles.css'
 
 const params = new URLSearchParams(location.search)
+const star = params.has('star')
+// Isolated layout preview: no telemetry leaves the harness.
+const requestClient = {
+  telemetry: { recordGithubStar: { mutate: async () => ({ ok: true }) } },
+} as unknown as Trpc
 document.documentElement.dataset.theme = 'podium'
 document.documentElement.classList.toggle('dark', params.get('theme') === 'dark')
 document.body.style.background = 'var(--background)'
@@ -30,8 +37,15 @@ function Composer() {
   const input = useRef<HTMLTextAreaElement>(null)
   const [ghost, setGhost] = useState(false)
   const [showing, setShowing] = useState(false)
+  useTipMoment('github-star', {
+    active: star,
+    cards: githubStarCards(FIRST_PROMPT_ANCHOR, 'new_prompt', requestClient, {
+      onShow: () => setShowing(true),
+      onHide: () => setShowing(false),
+    }),
+  })
   useTipMoment('first-prompt', {
-    active: true,
+    active: !star,
     cards: firstPromptCards({
       setGhost,
       setShowing,
@@ -43,7 +57,8 @@ function Composer() {
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <div className="cold-start-body">
           <h2 className="cold-start-head">
-            First task in <span className="cold-start-project">podium</span>
+            {star ? 'New task in' : 'First task in'}{' '}
+            <span className="cold-start-project">podium</span>
           </h2>
           <fieldset
             data-tip-anchor={FIRST_PROMPT_ANCHOR}

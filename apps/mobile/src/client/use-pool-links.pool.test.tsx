@@ -12,6 +12,7 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asUserId } from '@podium/model'
 import type { PodiumTarget } from '@podium/protocol'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { observer } from 'mobx-react-lite'
 import { type ReactNode, useEffect } from 'react'
 import { Linking } from 'react-native'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -34,6 +35,8 @@ import type { MobilePool } from './mobile-pool'
 
 const state = vi.hoisted(() => ({
   host: undefined as MobilePool | undefined,
+  chartRenders: 0,
+  params: {} as { text?: string },
   router: { push: vi.fn(), replace: vi.fn(), canGoBack: () => true, back: vi.fn() },
   profile: {
     id: 'synthetic',
@@ -53,6 +56,8 @@ vi.mock('./mobile-pool', async (original) => {
 })
 vi.mock('expo-router', () => ({
   useRouter: () => state.router,
+  useLocalSearchParams: () => state.params,
+  router: state.router,
   useFocusEffect: (effect: () => void | (() => void)) => useEffect(effect, [effect]),
 }))
 vi.mock('./server-profile-context', () => ({
@@ -99,6 +104,20 @@ vi.mock('../components/Screen', () => ({
     </button>
   ),
 }))
+vi.mock('../hooks/useMinimizeTabBarOnScroll', () => ({ useMinimizeTabBarOnScroll: () => ({}) }))
+vi.mock('../lib/build-stamp', () => ({
+  useBuildStamp: () => ({ text: 'test build', reload: () => {} }),
+}))
+vi.mock('../components/instruments', async (original) => {
+  const real = await original<typeof import('../components/instruments')>()
+  return {
+    ...real,
+    HourTrace: (props: Parameters<typeof real.HourTrace>[0]) => {
+      state.chartRenders++
+      return <real.HourTrace {...props} />
+    },
+  }
+})
 vi.mock('../components/Icon', () => ({ Icon: () => null }))
 vi.mock('../components/NewWorkButton', () => ({ NewWorkButton: () => null }))
 vi.mock('../components/StorageNoticeAlert', () => ({ StorageNoticeAlert: () => null }))
@@ -109,29 +128,37 @@ vi.mock('../components/LaunchPlaceholders', () => ({
   WorkSkeleton: () => null,
 }))
 vi.mock('../components/ScreeningCard', () => ({
-  ScreeningCard: ({
-    issue,
-    parent,
-  }: {
-    issue: {
-      title: string
-      description: string
-      brief: string
-      blockedByNotes: unknown[]
-      childCount: number
-    }
-    parent?: { title: string }
-  }) => (
-    <article data-testid="screening-card">
-      {issue.title} · {issue.description} · {issue.brief} · {issue.blockedByNotes.length} blocked ·{' '}
-      {parent?.title}
-    </article>
+  // The native card is observed, so its export is a React memo object, not a
+  // callable render function. Keep that boundary in this presentation stub.
+  ScreeningCard: observer(
+    ({
+      issue,
+      parent,
+    }: {
+      issue: {
+        title: string
+        description: string
+        brief: string
+        blockedByNotes: unknown[]
+        childCount: number
+      }
+      parent?: { title: string }
+    }) => (
+      <article data-testid="screening-card">
+        {issue.title} · {issue.description} · {issue.brief} · {issue.blockedByNotes.length} blocked
+        · {issue.childCount} children · {parent?.title}
+      </article>
+    ),
   ),
 }))
 
+const { PulseScreen } = await import('../screens/PulseScreen')
 const { ProposalScreeningScreen } = await import('../screens/ProposalScreeningScreen')
 const { RefChip } = await import('../components/RefChip')
 const { PodiumLinkHost } = await import('../components/PodiumLinkHost')
+const { createPulseView } = await import('@podium/client-graph/pulse-view')
+const { useOpeningView } = await import('@podium/client-graph/react')
+const { usePulseLive } = await import('./use-pool-links')
 const { usePulseFeed, resetPulseCache } = await import('../screens/usePulseFeed')
 const { createMobilePool, useMobilePool } = await import('./mobile-pool')
 const { reconcileScreeningIds } = await import('./use-pool-links')
@@ -151,20 +178,21 @@ const tokens = [
   { token: 'SYN-1000-A', kind: 'session' as const, prefix: 'SYN' },
   { token: 'UTF-8', kind: 'issue' as const, prefix: 'UTF' },
 ]
-function PulseProbe() {
-  const data = usePulseFeed()
+const PulseProbe = observer(function PulseProbe() {
+  const pulse = useOpeningView(useMobilePool(), createPulseView)
+  const data = usePulseFeed(pulse)
+  const { hosts } = usePulseLive()
   return (
     <output data-testid="pulse">
       {JSON.stringify({
         machines: data.machines,
-        hosts: data.hosts,
+        hosts,
         quota: data.quota,
         buckets: data.buckets,
-        history: data.history,
       })}
     </output>
   )
-}
+})
 function Screens() {
   return (
     <>
@@ -182,6 +210,7 @@ beforeEach(() => {
   vi.spyOn(Date, 'now').mockReturnValue(NOW)
   state.router.push.mockClear()
   state.router.replace.mockClear()
+  state.params = {}
   resetPulseCache()
   storeStats.enable()
   storeStats.reset()
@@ -200,6 +229,7 @@ async function mount(
   const data = createInboxFixture(),
     seen: (MobxPool | null)[] = [],
     errors: string[] = []
+  Object.assign(data.api, { cost: { tasks: { query: async () => [] } } })
   prepare?.(data)
   state.host = createMobilePool(false)
   let runtime!: ClientRuntime,
@@ -260,6 +290,16 @@ async function painted(app: Awaited<ReturnType<typeof mount>>) {
     expect(app.view.container.querySelector('[aria-label*="SYN-1018"]')).toBeTruthy(),
   )
 }
+it.each([
+  { text: undefined, summary: 'Summary 2' },
+  { text: 'Synthetic task 1', summary: 'Summary 1' },
+])('opens the observed proposal card with route search $text', async ({ text, summary }) => {
+  state.params = { text }
+  const app = await mount(<ProposalScreeningScreen />)
+  await waitFor(() => expect(app.view.getByTestId('screening-card').textContent).toContain(summary))
+  expect(app.errors).toEqual([])
+})
+
 it('preserves rendered proposal, pulse and reference values through real pool attachment', async () => {
   const on = await mount()
   await painted(on)
@@ -403,8 +443,11 @@ it('routes issue and permanent session references and preserves scoped handoff d
     markPendingMobileHandoffProfileSelected(pendingMobileHandoffSnapshot().id)
   })
   await waitFor(() =>
-    expect(state.router.replace).toHaveBeenCalledWith('/session/synthetic-session-7'),
+    expect(state.router.push).toHaveBeenCalledWith('/session/synthetic-session-7', {
+      withAnchor: true,
+    }),
   )
+  expect(state.router.replace).not.toHaveBeenCalled()
   expect(app.errors).toEqual([])
 })
 
@@ -415,9 +458,9 @@ it('updates pulse machines and streamed health without rebuilding quota polling 
     expect(reading().machines).toHaveLength(3)
     expect(reading().hosts).toHaveLength(3)
     expect(reading().quota).toHaveLength(1)
-    expect(reading().history).not.toBeNull()
   })
   const quota = vi.spyOn(app.data.api.quota.summary, 'query'),
+    usage = vi.spyOn(app.data.api.usage.summary, 'query'),
     history = vi.spyOn(
       (app.data.api.quota as never as { history: { query: () => Promise<unknown[]> } }).history,
       'query',
@@ -427,7 +470,9 @@ it('updates pulse machines and streamed health without rebuilding quota polling 
     app.data.publishMetrics(2)
   })
   await waitFor(() => expect(reading().hosts[0].load.one).toBe(0.5))
+  // Quota and usage are pushed, and the redesigned Pulse reads no history.
   expect(quota).not.toHaveBeenCalled()
+  expect(usage).not.toHaveBeenCalled()
   expect(history).not.toHaveBeenCalled()
   expect(readRuntimeStoreStats(app.runtime)?.selectorRuns ?? 0).toBe(0)
   expect(app.errors).toEqual([])
@@ -601,3 +646,90 @@ it('resolves an earlier alias owner before a later claimant and follows its evic
   await waitFor(() => expect(views.route(target)).toBe('/issue/synthetic-7'))
   expect(views.route(target)).toBe('/issue/synthetic-7')
 })
+
+it('keeps the Pulse chart stable across host samples and follows live task identity', async () => {
+  const app = await mount(<PulseScreen />, (data) => {
+    Object.assign(data.api, {
+      cost: {
+        tasks: {
+          query: async () => [
+            {
+              issueId: 'synthetic-0',
+              title: 'Stale cost title',
+              seq: 1000,
+              displayRef: 'STALE-1000',
+              stage: 'proposed',
+              models: [],
+              messages: 1,
+              windowModels: [
+                {
+                  model: 'claude-opus-5',
+                  inputTokens: 1000000,
+                  outputTokens: 0,
+                  cacheReadTokens: 0,
+                  cacheCreationTokens: 0,
+                  cacheCreation1hTokens: 0,
+                  messages: 1,
+                },
+              ],
+              windowMessages: 1,
+              rollupModels: [],
+              rollupMessages: 1,
+              sessionCount: 1,
+              floor: 'none',
+              harnesses: ['claude-code'],
+              uncostedSessionCount: 0,
+            },
+          ],
+        },
+      },
+    })
+  })
+  await waitFor(() =>
+    expect(app.view.getByRole('button', { name: /SYN-1000 Synthetic task 0/ })).toBeTruthy(),
+  )
+  expect(app.view.queryByText('Stale cost title')).toBeNull()
+  const chartBefore = state.chartRenders
+  const costs = vi.spyOn(
+    (app.data.api as unknown as { cost: { tasks: { query: () => Promise<unknown[]> } } }).cost
+      .tasks,
+    'query',
+  )
+  const usage = vi.spyOn(app.data.api.usage.summary, 'query')
+  const beforeText = app.view.container.textContent
+  await act(async () => app.data.publishMetrics(4))
+  await waitFor(() => expect(app.view.container.textContent).not.toBe(beforeText))
+  expect(state.chartRenders).toBe(chartBefore)
+  await act(async () => {
+    app.data.patch('issueProjection', 'synthetic-0', { title: 'Renamed in pool' })
+  })
+  await waitFor(() =>
+    expect(app.view.getByRole('button', { name: /SYN-1000 Renamed in pool/ })).toBeTruthy(),
+  )
+  expect(costs).not.toHaveBeenCalled()
+  expect(usage).not.toHaveBeenCalled()
+  expect(state.chartRenders).toBe(chartBefore)
+  // Positive control: changing the displayed usage range must redraw its chart.
+  fireEvent.click(app.view.getByRole('button', { name: 'Range: Last 7 days' }))
+  expect(state.chartRenders).toBeGreaterThan(chartBefore)
+})
+
+it('keeps healthy usage, quota and machines when the first cost read fails', async () => {
+  const app = await mount(<PulseScreen />, (data) => {
+    Object.assign(data.api, {
+      cost: {
+        tasks: {
+          query: async () => {
+            throw new Error('cost read failed')
+          },
+        },
+      },
+    })
+  })
+  await waitFor(() => expect(app.view.getByText('Couldn’t read task costs.')).toBeTruthy())
+  expect(app.view.getByText(/API-equivalent cost/)).toBeTruthy()
+  expect(app.view.getByText('Machines')).toBeTruthy()
+  expect(app.view.queryByText('Reading quota…')).toBeNull()
+  expect(app.view.queryByText(/No machine is signed in/)).toBeNull()
+})
+

@@ -265,9 +265,10 @@ export const StatusStrip = observer(function StatusStrip({
 }: {
   issue: IssueWithBodies
 }): JSX.Element {
-  const now = useAgeNow(Math.max(Date.parse(issue.createdAt), Date.parse(issue.updatedAt)))
-  const created = relativeTime(issue.createdAt, now)
-  const updated = relativeTime(issue.updatedAt, now)
+  const createdNow = useAgeNow(issue.createdAt)
+  const updatedNow = useAgeNow(issue.updatedAt)
+  const created = relativeTime(issue.createdAt, createdNow)
+  const updated = relativeTime(issue.updatedAt, updatedNow)
   const facts: { key: string; text: string; title?: string }[] = [
     ...(isClosed(issue) ? [{ key: 'closed', text: `Closed · ${issue.closedReason}` }] : []),
     ...(created ? [{ key: 'created', text: `created ${created}`, title: issue.createdAt }] : []),

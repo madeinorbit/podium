@@ -28,6 +28,13 @@ import { ISSUE_BOARD_STAGES, type IssueBoardStage, type IssueStage } from '@podi
 /** How a stage group orders its members. */
 export type IssuesOrdering = 'priority' | 'updated' | 'created'
 
+/** The board's orderings as every Display menu names them. */
+export const ISSUES_ORDERING_LABELS: Readonly<Record<IssuesOrdering, string>> = {
+  priority: 'Priority',
+  updated: 'Last updated',
+  created: 'Created',
+}
+
 /**
  * The minimum an issue must carry to be placed on a board: an identity, a
  * parent edge, the lane it sits in, and the three sort keys. Deliberately not

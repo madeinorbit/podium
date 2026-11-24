@@ -19,7 +19,9 @@
 import {
   type AgentKind,
   type IssueProjection,
-  idleVerdictFinishedTurn, machinePathBasename } from '@podium/model'
+  idleVerdictFinishedTurn,
+  machinePathBasename,
+} from '@podium/model'
 import { isFinished } from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { attentionGroup } from '../focus'
@@ -156,13 +158,16 @@ export interface AgentBadge {
 
 /** Map harness-observed runtime state to the little badge on a session row.
  *  Null = nothing to show (uninstrumented agent kinds stay clean). */
-export function agentBadge(meta: Pick<SessionView, 'agentState' | 'offer'>, issue?: Pick<IssueProjection, 'stage' | 'closedReason'>, offer = meta.offer): AgentBadge | null {
+export function agentBadge(
+  meta: Pick<SessionView, 'agentState' | 'offer'>,
+  issue?: Pick<IssueProjection, 'stage' | 'closedReason'>,
+  offer = meta.offer,
+): AgentBadge | null {
   // An offer is an explicit pending decision even when the turn that produced
   // it has already classified as idle/done. Keep every status surface (session
   // dot, sidebar meta, chat activity) amber until that offer is cleared —
   // except on a finished issue, where the close retired the decision (POD-290).
-  const issueFinished =
-    issue !== undefined && (isFinished(issue))
+  const issueFinished = issue !== undefined && isFinished(issue)
   if (offer && !issueFinished) {
     return { label: 'waiting on decision', tone: 'attention', showContinue: false }
   }
@@ -275,6 +280,36 @@ export function sessionWaking(meta: SessionWakeFields | undefined, justSent = fa
 }
 
 /**
+ * PHONE ONLY (POD-2471): when "Waking the agent…" ends on the phone. Web keeps
+ * {@link sessionWaking}. `justSent` covers the optimistic gap while hibernated.
+ * For an exited session, only a server-stamped request newer than its stop
+ * proves another wake is pending; a leftover queue cannot turn an exit back
+ * into waking. A non-retryable error or a failed wake (`null`) ends it.
+ */
+export function phoneSessionWaking(
+  meta: Pick<SessionView, 'status' | 'queuedMessageCount' | 'stoppedAt' | 'agentState'> | undefined,
+  justSent = false,
+  wakeRequestedAt?: number | null,
+): boolean {
+  if (!meta) return false
+  if (wakeRequestedAt === null) return false
+  if (meta.agentState?.phase === 'errored' && meta.agentState.error?.retryable === false)
+    return false
+  const queued = (meta.queuedMessageCount ?? 0) > 0
+  if (meta.status === 'hibernated') return queued || justSent
+  if (meta.status === 'exited') {
+    const stoppedAt = Date.parse(meta.stoppedAt ?? '')
+    return (
+      wakeRequestedAt !== undefined && Number.isFinite(stoppedAt) && wakeRequestedAt > stoppedAt
+    )
+  }
+  // Resurrection has begun: the process is coming up and the queue drains once
+  // the PTY binds. Nothing local is needed to know that.
+  if (meta.status === 'starting') return queued
+  return false
+}
+
+/**
  * The activity row shown pinned to the bottom of the chat view, or null for
  * nothing. Reuses `agentBadge` for instrumented agents; falls back to the PTY
  * `busy` signal for uninstrumented kinds; and shows an optimistic, still
@@ -334,6 +369,47 @@ export function chatActivity(
   // A live PTY beats the optimistic row — it is an observation of now — but the
   // send still beats everything the last turn left behind.
   if (justSent) {
+    return ptyWorking
+      ? { label: 'Working…', tone: 'working' }
+      : { label: 'Sending', tone: 'idle', transient: 'just-sent' }
+  }
+  if (badge?.tone === 'attention') return { label: badge.label, tone: 'attention' }
+  // Errors and meaningful passive stops belong at the end of the transcript,
+  // too. They used to disappear here even though `agentBadge` had already
+  // classified them, leaving the feed to fall back to a generic idle clock.
+  // Keep ordinary idle silent; only a stop that explains the turn survives.
+  if (badge?.tone === 'error') return { label: badge.label, tone: 'error' }
+  if (badge?.tone === 'idle' && (badge.label === 'interrupted' || badge.label === 'todos open')) {
+    return { label: badge.label, tone: 'idle' }
+  }
+  if (ptyWorking) return { label: 'Working…', tone: 'working' }
+  return null
+}
+
+/** PHONE ONLY (POD-2471): {@link chatActivity} under {@link phoneSessionWaking}. */
+export function phoneChatActivity(
+  meta:
+    | Pick<
+        SessionView,
+        'status' | 'queuedMessageCount' | 'stoppedAt' | 'agentState' | 'offer' | 'busy'
+      >
+    | undefined,
+  justSent: boolean,
+  offer = meta?.offer,
+  wakeRequestedAt?: number | null,
+): ChatActivity | null {
+  if (!meta) return null
+  if (phoneSessionWaking(meta, justSent, wakeRequestedAt))
+    return { label: 'Waking the agent…', tone: 'working' }
+  const parked = meta.status === 'hibernated' || meta.status === 'exited'
+  const badge = agentBadge(meta, undefined, offer)
+  if (badge?.tone === 'working' && !parked) {
+    return { label: badge.label === 'compacting' ? 'Compacting…' : 'Working…', tone: 'working' }
+  }
+  const ptyWorking = !meta.agentState && meta.busy && !parked
+  // A live PTY beats the optimistic row — it is an observation of now — but the
+  // send still beats everything the last turn left behind.
+  if (justSent && !parked) {
     return ptyWorking
       ? { label: 'Working…', tone: 'working' }
       : { label: 'Sending', tone: 'idle', transient: 'just-sent' }
@@ -467,7 +543,10 @@ export type MotionPhase = 'queued' | 'working' | 'waiting' | 'done'
  * (POD-415); starting/exited/uninstrumented-quiet sessions fall through to
  * `queued`.
  */
-export function motionPhase(s: SessionView, issue?: Pick<IssueProjection, 'stage' | 'closedReason'>): MotionPhase {
+export function motionPhase(
+  s: SessionView,
+  issue?: Pick<IssueProjection, 'stage' | 'closedReason'>,
+): MotionPhase {
   const state = s.agentState
   // Offers outlive the turn that created them, so attention must win over the
   // transcript's terminal idle/done verdict — unless the owning issue is already
@@ -475,7 +554,7 @@ export function motionPhase(s: SessionView, issue?: Pick<IssueProjection, 'stage
   // drops historical stale offers so a closed row cannot keep demanding a
   // decision. Open review work still counts.
   if (attentionGroup(s) === 'needsYou') {
-    const finished = issue !== undefined && (isFinished(issue))
+    const finished = issue !== undefined && isFinished(issue)
     if (!(finished && s.offer && !hasNonOfferNeedsYou(s))) return 'waiting'
   }
   if (
@@ -537,6 +616,20 @@ export function motionTiming(s: SessionView): MotionTiming {
 export function formatClock(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+const HOUR_MS = 3_600_000
+/** Days take over once hours stop reading at a glance; 29h 58m stays in hours. */
+const COMPACT_DAYS_FROM_MS = 48 * HOUR_MS
+
+/** A long-running timer in a narrow column: {@link formatClock} under an hour,
+ *  then `29h 58m`, then `3d 4h` from two days. */
+export function formatCompactDuration(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  if (s * 1000 < HOUR_MS) return formatClock(ms)
+  const hours = Math.floor(s / 3600)
+  if (s * 1000 < COMPACT_DAYS_FROM_MS) return `${hours}h ${Math.floor((s % 3600) / 60)}m`
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`
 }
 
 // ---------------------------------------------------------------------------

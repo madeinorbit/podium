@@ -18,6 +18,9 @@ export interface SideCacheInit {
   storageEventApi?: StorageEventApi
   enumerateKeys?: () => string[]
   keyPrefix?: string
+  /** Only a single-process native owner can know persisted uploads lost their
+   * promises. Web tabs share storage with other owners whose uploads may be live. */
+  recoverInterruptedDraftUploads?: boolean
   /** Overridable for tests; defaults to the two homes the legacy path uses. */
   legacyOutboxKeys?: readonly string[]
   /** Surfaced, never swallowed (ADR 6 D4.4 clause 3). Fires when a QUEUED write
@@ -117,6 +120,7 @@ export function createSideCache(init: SideCacheInit): SideCache {
       keyPrefix: prefix,
       enumerateKeys,
       flush: init.flush,
+      ...(init.recoverInterruptedDraftUploads ? { recoverInterruptedDraftUploads: true } : {}),
     }),
     outboxStorage: outbox.outboxStorage,
     outboxAwaitingStorage: outbox.outboxAwaitingStorage,

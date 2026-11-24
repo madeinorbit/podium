@@ -3,7 +3,9 @@
 The shell already mounts `TipHost` and the sidebar badge. Import `useTipMoment` and
 `TipCard` from `@/features/tips`. Do not add another host or write the log yourself.
 
-- Use one registration per ID. Keep it mounted with `active: false` when possible
+- Use one registration per ID. An ask with two possible places can register twice;
+  its queued place passes to the other registration if the first steps down.
+  Keep it mounted with `active: false` when possible
   so the guide can replay it. Use a unique anchor name on a visible real element.
 - `active` means the trigger has happened and this moment is eligible. Keep it true
   while queued. Setting it false cancels a queued moment or dismisses a visible one.
@@ -57,4 +59,12 @@ return <div ref={composer} data-tip-anchor="my-moment-composer">…</div>
 account-scoped log; `MemoryTipLog` serves tests and harnesses only.
 No registration means no visible UI. The badge retires when all seven are seen.
 
+`github-star` uses the same account log and engine but stays outside `TIP_IDS` and
+the guide. It becomes eligible after three successful top-level tasks, counted
+from the current issue stubs. It prefers a watched, just-finished task, then falls
+back to the next new-task composer. Both places require a focused, visible window
+and anchor. Its standalone card is spent on showing and has a plain decline.
+Re-enabling onboarding tips, including Undo, never resets this one ask.
+
 For isolated preview, open `/harness/tips.html` with `bunx vite --config vite.tips.config.ts` from `apps/web`. Its controls cover queueing, missing anchors, replay and reduced motion.
+The star card is at `/harness/first-prompt-tip.html?star=1` on that same harness.

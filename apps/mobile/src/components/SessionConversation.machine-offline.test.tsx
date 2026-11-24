@@ -139,6 +139,11 @@ describe('phone session offline banner (POD-4873)', () => {
 
     await waitFor(() => expect(screen.getByTestId('machine-offline-banner')).toBeTruthy())
     const banner = screen.getByTestId('machine-offline-banner')
+    // UIKit follows only the first native descendant to find the chat's
+    // scroll view. An offline warning must remain an overlay after that path.
+    const first = screen.getByTestId('conversation-viewport').firstElementChild
+    expect(first).toBe(screen.getByTestId('transcript-list'))
+    expect(first?.contains(banner)).toBe(false)
     expect(banner.textContent).toContain('desk')
     expect(banner.textContent?.toLowerCase()).toContain('offline')
     expect(banner.textContent).toContain('showing last known transcript')

@@ -78,30 +78,39 @@ function LifecycleButton({
   session,
   onResume,
   onRemove,
-  compact,
+  notice = false,
 }: {
   action: RecoveryAction
   session: Pick<
     SessionMeta,
-    'sessionId' | 'status' | 'exitCode' | 'spawnFailure' | 'agentKind' | 'resumable' | 'neverBound'
+    | 'sessionId'
+    | 'status'
+    | 'stoppedAt'
+    | 'exitCode'
+    | 'spawnFailure'
+    | 'agentKind'
+    | 'resumable'
+    | 'neverBound'
   >
   onResume: (sessionId: SessionMeta['sessionId']) => Promise<SessionResurrectionResult>
   onRemove: (sessionId: SessionMeta['sessionId']) => Promise<void>
-  compact: boolean
+  notice?: boolean
 }): JSX.Element {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const label = compact ? action.compactLabel : action.label
+  const label = notice ? action.compactLabel : action.label
 
   const run = async (): Promise<void> => {
     if (busy) return
     setBusy(true)
     setError(null)
+    let resumed = false
     try {
       if (action.id === 'remove') {
         await onRemove(session.sessionId)
       } else {
         const result = await onResume(session.sessionId)
+        resumed = result.ok
         if (!result.ok) {
           setError(`Couldn't resume the session — ${result.reason ?? 'unknown error'}`)
         }
@@ -113,7 +122,9 @@ function LifecycleButton({
           : `Couldn't resume the session — ${errorMessage(cause)}`,
       )
     } finally {
-      setBusy(false)
+      // Keep the same note until lifecycle sync replaces it. A fast success
+      // must not flash Resume between the busy label and the live transcript.
+      if (!resumed) setBusy(false)
     }
   }
 
@@ -122,19 +133,21 @@ function LifecycleButton({
       <PressableScale
         accessibilityRole="button"
         accessibilityLabel={label}
+        accessibilityState={{ disabled: busy, busy }}
+        aria-busy={busy}
         disabled={busy}
         testID={['lifecycle-', action.id].join('')}
         onPress={() => void run()}
         style={({ pressed }) => [
-          compact ? styles.barAction : styles.action,
-          !compact && action.id === 'remove' ? styles.removeAction : null,
-          pressed ? (compact ? styles.barActionPressed : styles.actionPressed) : null,
+          notice ? styles.noticeAction : styles.action,
+          !notice && action.id === 'remove' ? styles.removeAction : null,
+          pressed ? (notice ? styles.noticeActionPressed : styles.actionPressed) : null,
         ]}
       >
         <Text
           style={
-            compact
-              ? styles.barActionText
+            notice
+              ? styles.noticeActionText
               : action.id === 'remove'
                 ? styles.removeText
                 : styles.actionText
@@ -161,7 +174,14 @@ export function MobileSessionLifecycle({
 }: {
   session: Pick<
     SessionMeta,
-    'sessionId' | 'status' | 'exitCode' | 'spawnFailure' | 'agentKind' | 'resumable' | 'neverBound'
+    | 'sessionId'
+    | 'status'
+    | 'stoppedAt'
+    | 'exitCode'
+    | 'spawnFailure'
+    | 'agentKind'
+    | 'resumable'
+    | 'neverBound'
   >
   installRecovery?: JSX.Element
   hasTranscript: boolean
@@ -185,128 +205,85 @@ export function MobileSessionLifecycle({
     : recoveryAction('ended', ended?.action ?? 'remove')
   const detail = ended?.detail ?? ''
 
-  if (!hasTranscript) {
+  if (hasTranscript) {
     return (
-      <View style={styles.pane} testID="lifecycle-pane">
-        <Icon as={parked ? Moon : RotateCcw} size={28} color={color.accentTint} />
-        <Text style={styles.paneCopy}>{parked ? action.hint : `${detail} ${action.hint}`}</Text>
+      <View style={styles.notice} testID={parked ? 'hibernated-notice' : 'exited-notice'}>
+        <View style={styles.noticeHeading}>
+          <Icon as={parked ? Moon : RotateCcw} size={13} color={color.textDim} />
+          <Text style={styles.noticeTitle}>{parked ? 'Hibernated' : 'Exited'}</Text>
+        </View>
+        <Text style={styles.noticeCopy}>
+          {parked
+            ? 'Its process was stopped to free memory.\nThe conversation is intact.'
+            : `${detail} Transcript is read-only.`}
+        </Text>
         {!parked && installRecovery}
         <LifecycleButton
+          key={`${session.status}:${session.stoppedAt ?? session.exitCode ?? ''}`}
           action={action}
           session={session}
           onResume={onResume}
           onRemove={onRemove}
-          compact={false}
+          notice
         />
       </View>
     )
   }
 
   return (
-    <View
-      accessibilityRole="summary"
-      style={[styles.banner, parked ? null : styles.faultBanner]}
-      testID="lifecycle-banner"
-    >
-      <View style={parked ? styles.mark : [styles.mark, styles.faultMark]}>
-        <Icon
-          as={parked ? Moon : RotateCcw}
-          size={14}
-          color={parked ? color.textFaint : color.accentTint}
-        />
-      </View>
-      <Text style={styles.bannerText}>
-        {parked ? (
-          <>
-            <Text style={styles.stateWord}>Hibernated</Text> — transcript is read-only until you
-            resume.
-          </>
-        ) : (
-          `${detail} Transcript is read-only.`
-        )}
-      </Text>
+    <View style={styles.pane} testID="lifecycle-pane">
+      <Icon as={parked ? Moon : RotateCcw} size={28} color={color.accentTint} />
+      <Text style={styles.paneCopy}>{parked ? action.hint : `${detail} ${action.hint}`}</Text>
       {!parked && installRecovery}
       <LifecycleButton
+        key={`${session.status}:${session.stoppedAt ?? session.exitCode ?? ''}`}
         action={action}
         session={session}
         onResume={onResume}
         onRemove={onRemove}
-        compact
       />
     </View>
   )
 }
 
 const styles = StyleSheet.create({
-  /**
-   * THE STATE BAR — the phone's copy of web's `.pane-state-bar` (POD-747,
-   * brought over in POD-1251).
-   *
-   * It used to be a tinted slab: an accent ground with accent copy for a parked
-   * session and a RED one for an ended session, which is the enterprise-console
-   * look the design system opens by rejecting — and which spends The Signal
-   * Rule's accent on a state that is asking nothing of anyone. Hibernation is a
-   * STATE, not a request.
-   *
-   * What it is instead, exactly as on web: the `bar` chrome tier, one hairline
-   * seam, machine voice, the state's own word in strong ink and nothing else
-   * emphasised, its glyph carrying the tone. A fault (exited, crashed) tints
-   * that glyph and NOTHING ELSE — never a fill.
-   */
-  banner: {
-    flexShrink: 0,
+  notice: {
+    alignItems: 'center',
+    paddingTop: space.lg,
+    paddingBottom: space.xs,
+  },
+  noticeHeading: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.sm,
-    backgroundColor: color.bar,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: color.hairlineBar,
-    paddingLeft: space.md,
-    paddingRight: space.sm,
-    paddingVertical: space.xs + 1,
+    gap: space.xs,
   },
-  /** A fault line can carry the daemon's diagnosis and run to two lines; the
-   *  mark and the control must not drift down the bar with it. */
-  faultBanner: {
-    alignItems: 'flex-start',
-  },
-  mark: {
-    flexShrink: 0,
-  },
-  faultMark: {
-    paddingTop: 2,
-  },
-  bannerText: {
-    ...mono(400),
-    flex: 1,
+  noticeTitle: {
+    ...sans(600),
     color: color.textDim,
     fontSize: font.tiny,
     lineHeight: leading(font.tiny, 'prose'),
   },
-  /** The state's own word, and nothing else, steps up to strong ink — it is
-   *  what the reader is scanning for; the consequence after it stays in the
-   *  machine voice. */
-  stateWord: {
-    ...mono(500),
-    color: color.text,
+  noticeCopy: {
+    ...sans(400),
+    color: color.textDim,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny, 'prose'),
+    textAlign: 'center',
   },
-  /** The bar's control is chrome inside chrome: an outline cell, not the
-   *  filled-accent primary the pane below uses. */
-  barAction: {
-    alignSelf: 'flex-start',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.borderStrong,
+  noticeAction: {
+    alignSelf: 'center',
+    minHeight: 44,
+    justifyContent: 'center',
     borderRadius: radius.sm,
-    paddingHorizontal: space.sm,
-    paddingVertical: space.xs - 1,
+    paddingHorizontal: space.md,
   },
-  barActionPressed: {
+  noticeActionText: {
+    ...sans(600),
+    color: color.accentTint,
+    fontSize: font.small,
+  },
+  noticeActionPressed: {
     backgroundColor: color.surfacePressed,
-  },
-  barActionText: {
-    ...mono(500),
-    color: color.body,
-    fontSize: font.micro,
   },
   action: {
     alignSelf: 'flex-start',

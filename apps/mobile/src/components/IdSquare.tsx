@@ -86,12 +86,16 @@ export function IdSquare({
       <Text
         style={[mono(600), styles.line, { fontSize, color: squareInk(selected, resting) }]}
         numberOfLines={1}
+        // A fixed-size glyph, like an app icon: Dynamic Type would only clip it.
+        allowFontScaling={false}
       >
         {label.prefix}
       </Text>
       <Text
         style={[mono(600), styles.line, { fontSize, color: squareInk(selected, resting) }]}
         numberOfLines={1}
+        // A fixed-size glyph, like an app icon: Dynamic Type would only clip it.
+        allowFontScaling={false}
       >
         {label.number}
       </Text>

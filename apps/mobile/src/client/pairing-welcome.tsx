@@ -107,6 +107,19 @@ export function PairingWelcome({
       </View>
 
       <View style={styles.actions}>
+        {/* First in the actions, not after the help text: at the bottom of a
+            screen-filling scroll view a rejected pairing link's error sat below
+            the fold, so the link looked ignored (POD-2364). */}
+        {error ? (
+          <Text
+            selectable
+            style={styles.error}
+            accessibilityRole="alert"
+            accessibilityLiveRegion="assertive"
+          >
+            {error}
+          </Text>
+        ) : null}
         {native && cloudAvailable ? (
           <>
             <View style={styles.choice}>
@@ -176,17 +189,6 @@ export function PairingWelcome({
             </Text>
           </>
         )}
-
-        {error ? (
-          <Text
-            selectable
-            style={styles.error}
-            accessibilityRole="alert"
-            accessibilityLiveRegion="assertive"
-          >
-            {error}
-          </Text>
-        ) : null}
       </View>
     </ScrollView>
   )

@@ -5,6 +5,7 @@ import {
   endAtTagBoundary,
   htmlDataUri,
   htmlWithBase,
+  htmlWithViewport,
   issueArtifactHref,
   issueArtifactPreview,
 } from './issue-artifacts'
@@ -69,7 +70,31 @@ describe('issueArtifactPreview', () => {
     expect(issueArtifactPreview('deck.html')).toBe('html')
     expect(issueArtifactPreview('notes.md')).toBe('markdown')
     expect(issueArtifactPreview('log.txt')).toBe('text')
+    expect(issueArtifactPreview('spec.PDF')).toBe('pdf')
     expect(issueArtifactPreview('blob.bin')).toBe('file')
+  })
+})
+
+describe('htmlWithViewport', () => {
+  const meta = '<meta name="viewport" content="width=device-width, initial-scale=1">'
+
+  it('gives a page without a viewport the phone width, zoom left on', () => {
+    const out = htmlWithViewport('<!doctype html><html><head><title>d</title></head></html>')
+    expect(out).toBe(`<!doctype html><html><head>${meta}<title>d</title></head></html>`)
+    expect(out).not.toMatch(/maximum-scale|user-scalable/)
+  })
+
+  it('keeps the doctype first and handles a bare fragment', () => {
+    expect(htmlWithViewport('<!DOCTYPE html><p>hi</p>')).toBe(`<!DOCTYPE html>${meta}<p>hi</p>`)
+    expect(htmlWithViewport('<p>hi</p>')).toBe(`${meta}<p>hi</p>`)
+  })
+
+  it("leaves the author's own viewport alone, even one that turns zoom off", () => {
+    const own = '<head><meta content="width=600" name=viewport></head>'
+    expect(htmlWithViewport(own)).toBe(own)
+    const locked =
+      '<head><meta name="viewport" content="width=device-width, user-scalable=no"></head>'
+    expect(htmlWithViewport(locked)).toBe(locked)
   })
 })
 

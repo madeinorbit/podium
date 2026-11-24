@@ -28,6 +28,7 @@ import {
   SELF_REF_RULE,
   selfRefNudge,
   selfRefRule,
+  soleRefToken,
   truncateTitle,
 } from './refs'
 
@@ -324,5 +325,16 @@ describe('a new issue’s pending number (POD-6400)', () => {
     expect(issueRefText(12, 'POD')).toBe('POD-12')
     expect(issueRefText(12, null)).toBe('#12')
     expect(isPendingIssueSeq(1)).toBe(false)
+  })
+})
+
+describe('soleRefToken', () => {
+  it('returns the token only when the text is exactly one ref', () => {
+    expect(soleRefToken(' POD-13 ')).toBe('POD-13')
+    expect(soleRefToken('POD-13-A')).toBe('POD-13-A')
+    expect(soleRefToken('POD-DRAFT-3')).toBe('POD-DRAFT-3')
+    expect(soleRefToken('podium issue show POD-13')).toBeNull()
+    expect(soleRefToken('POD-13 POD-14')).toBeNull()
+    expect(soleRefToken('')).toBeNull()
   })
 })

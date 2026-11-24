@@ -1,8 +1,13 @@
 import type { TranscriptItem } from '@podium/model'
 import { PendingInteractionWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
+import { claudeRecordToItems } from '../../../harness/src/adapters/claude-code/transcript'
+import { TranscriptGraph } from '../conversation/transcript-graph'
 import {
+  askQuestionAnswerText,
+  askQuestionOutcome,
   codexAsyncQuestionReply,
+  isChosenOption,
   isPendingAskQuestion,
   isPreviewLayout,
   latestPendingQuestion,
@@ -11,6 +16,46 @@ import {
   parseAskQuestions,
   pendingAskFromState,
 } from './ask-question'
+
+it.each([
+  ['Choose a plan?\nKeep the cache or reset?', 'Keep', false],
+  ['Choose a plan?', 'Keep\nthe cache', false],
+  ['Choose a "safe" plan?\nKeep C:\\cache?', 'Keep "warm"\nC:\\cache', true],
+] as const)('settles native multiline and escaped answer %j / %j', (question, answer, escaped) => {
+  const quoted = (value: string) => (escaped ? JSON.stringify(value) : `"${value}"`)
+  const result = `User has answered your questions: ${quoted(question)} = ${quoted(answer)}. You can now continue with the user's answers in mind.`
+  const items = [
+    ...claudeRecordToItems({
+      type: 'assistant',
+      uuid: 'call',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'use',
+            name: 'AskUserQuestion',
+            input: { questions: [{ question, options: [{ label: answer }] }] },
+          },
+        ],
+      },
+    }),
+    ...claudeRecordToItems({
+      type: 'user',
+      uuid: 'result',
+      message: { content: [{ type: 'tool_result', tool_use_id: 'use', content: result }] },
+    }),
+  ]
+  const graph = new TranscriptGraph(items)
+  const block = graph.block(items[0]!.id)!
+  expect(askQuestionOutcome(block)).toBe('answered')
+  expect(askQuestionAnswerText(block)).toBe(answer)
+  expect(graph.pendingQuestionId).toBeUndefined()
+  expect(isChosenOption(result, answer)).toBe(true)
+  expect(
+    askQuestionOutcome({ ...block, result: `Error: answer could not be delivered\n${result}` }),
+  ).toBe('failed')
+  graph.dispose()
+})
 
 function ask(id: string, overrides: Partial<TranscriptItem> = {}): TranscriptItem {
   return {
@@ -24,6 +69,45 @@ function ask(id: string, overrides: Partial<TranscriptItem> = {}): TranscriptIte
     ...overrides,
   }
 }
+
+it('uses only a live native interaction when state announces a question outside the transcript', () => {
+  const row = PendingInteractionWire.parse({
+    id: 'current',
+    sessionId: 'session',
+    askedAt: '2026-11-13T12:00:00Z',
+    source: 'hook',
+    answerable: 'keystroke-emulated',
+    fingerprint: 'current',
+    kind: 'question',
+    status: 'asked',
+    payload: {
+      v: 1,
+      questions: [
+        {
+          question: 'Current?',
+          multiSelect: false,
+          previewLayout: false,
+          options: [{ label: 'One' }],
+        },
+      ],
+    },
+  })
+  const announced = pendingAskFromState(undefined, 'live', 'working', false, row)
+  expect(announced?.item.toolInputJson).toContain('Current?')
+  expect(matchesQuestionInteraction(row, announced?.item.toolInputJson ?? '')).toBe(true)
+  expect(
+    pendingAskFromState(undefined, 'live', 'working', false, { ...row, answerable: 'structured' }),
+  ).toBeNull()
+  expect(
+    pendingAskFromState(undefined, 'live', 'working', false, {
+      ...row,
+      source: 'screen-classifier',
+    }),
+  ).toBeNull()
+  expect(
+    pendingAskFromState(undefined, 'live', 'working', false, { ...row, status: 'superseded' }),
+  ).toBeNull()
+})
 
 describe('ask question view model', () => {
   it('parses questions with options from toolInputJson', () => {
@@ -153,7 +237,6 @@ describe('ask question view model', () => {
   })
 })
 
-
 it('keeps an acknowledged async interview pending and builds a correlated chat reply', () => {
   const item = ask('call_async', { toolName: 'request_user_input_async', toolUseId: 'call_async' })
   // The phone's native-menu reader must not offer to answer this via keystrokes.
@@ -174,18 +257,88 @@ it('keeps an acknowledged async interview pending and builds a correlated chat r
   expect(() => codexAsyncQuestionReply(item, [])).toThrow('unavailable')
 })
 
+it.each([
+  ['', 'unknown'],
+  ['Error: answer could not be delivered', 'failed'],
+  [
+    "[Tool call interrupted: the session ended before this call's result was recorded, so its outcome is unknown.]",
+    'unknown',
+  ],
+  ['{"accepted":true}', 'unknown'],
+  ['Unrecognized output', 'unknown'],
+  ['User has answered your questions: "Which way?"="Left".', 'answered'],
+  ['You answered use another branch', 'answered'],
+  ['Left', 'answered'],
+  ['{"answers":{"question":"Left"}}', 'answered'],
+  ['{"answers":{"question":{"answers":["Left"]}}}', 'answered'],
+  ['{"answers":{}}', 'unknown'],
+  ['{"answers":{"question":{"answers":[]}}}', 'unknown'],
+  ['{"error":"answer could not be delivered","answers":{"question":"Left"}}', 'failed'],
+  ['User declined to answer the questions', 'skipped'],
+] as const)('classifies question result %s as %s without inventing an answer', (result, outcome) => {
+  const block = { item: ask('question'), result }
+  expect(askQuestionOutcome(block)).toBe(outcome)
+  expect(isPendingAskQuestion(block)).toBe(false)
+})
+
+it.each([
+  [
+    'The user answered your questions: "Which way?"="Medium custom". Continue with the answer.',
+    'Medium custom',
+  ],
+  [
+    'User has answered your questions: "Which way?"="Keep \\"warm\\"\\nC:\\\\cache".',
+    'Keep "warm"\nC:\\cache',
+  ],
+  ['User has answered your questions: "Which way?"="Keep\nthe cache".', 'Keep\nthe cache'],
+  ['You answered use another branch', 'use another branch'],
+  ['You selected "Left"', 'Left'],
+  ['Left', 'Left'],
+  ['{"answers":{"Which way?":"Medium custom"}}', 'Medium custom'],
+  ['{"answers":{"question":{"answers":["Left", "Right"]}}}', 'Left, Right'],
+  ['Error: answer could not be delivered', undefined],
+  ['User declined to answer the questions', undefined],
+  ['Unrecognized output', undefined],
+  ['{"accepted":true}', undefined],
+] as const)('shows only the classified answer from %j', (result, answer) => {
+  expect(askQuestionAnswerText({ item: ask('question'), result })).toBe(answer)
+})
+
+it('reads a Codex custom answer and omits its registration acknowledgement', () => {
+  const item = ask('async', { toolName: 'request_user_input_async' })
+  expect(askQuestionAnswerText({ item, result: '[{"answer":"Medium custom"}]' })).toBe(
+    'Medium custom',
+  )
+  expect(askQuestionAnswerText({ item, result: '{"accepted":true}' })).toBeUndefined()
+})
+
 it('refuses a rendered question whose text, options, or layout differs from its interaction', () => {
-  const row = PendingInteractionWire.parse({ id: 'ask:new', sessionId: 'session', askedAt: '2026-09-18T00:00:00.000Z',
-    source: 'screen-classifier', answerable: 'keystroke-emulated', fingerprint: 'runtime:ask:new', kind: 'question', status: 'asked', payload: { v: 1,
-    questions: [{ question: 'Pick', multiSelect: false, previewLayout: false,
-      options: [{ label: 'One' }, { label: 'Two' }],
+  const row = PendingInteractionWire.parse({
+    id: 'ask:new',
+    sessionId: 'session',
+    askedAt: '2026-09-18T00:00:00.000Z',
+    source: 'screen-classifier',
+    answerable: 'keystroke-emulated',
+    fingerprint: 'runtime:ask:new',
+    kind: 'question',
+    status: 'asked',
+    payload: {
+      v: 1,
+      questions: [
+        {
+          question: 'Pick',
+          multiSelect: false,
+          previewLayout: false,
+          options: [{ label: 'One' }, { label: 'Two' }],
         },
       ],
     },
   })
-  const raw = (question = 'Pick', options = [{ label: 'One' }, { label: 'Two' }], multiSelect = false,
-  ) =>
-    JSON.stringify({ questions: [{ question, options, multiSelect }] })
+  const raw = (
+    question = 'Pick',
+    options = [{ label: 'One' }, { label: 'Two' }],
+    multiSelect = false,
+  ) => JSON.stringify({ questions: [{ question, options, multiSelect }] })
   expect(matchesQuestionInteraction(row, raw())).toBe(true)
   expect(matchesQuestionInteraction(row, raw('Old question'))).toBe(false)
   expect(matchesQuestionInteraction(row, raw('Pick', [{ label: 'Old choice' }]))).toBe(false)

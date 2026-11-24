@@ -15,10 +15,11 @@ import {
 } from '@podium/client-core/replica'
 import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { MobxPool } from '@podium/client-graph/pool'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { asIssueId, asSessionId, isSortKey, issueDepId, sortKeyBetween } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import { Profiler, type ReactNode } from 'react'
+import { Profiler, type ReactNode, useEffect, useState } from 'react'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildCorpus } from '../../../../tests/worklist/harness/src/fixture'
 import { startCensus } from '../../../../tests/worklist/harness/src/mobx-census'
@@ -38,7 +39,16 @@ const state = vi.hoisted(() => ({
   rowDerivations: 0,
   errors: [] as string[],
 }))
-const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), setParams: vi.fn() }))
+const router = vi.hoisted(() => ({
+  push: vi.fn(),
+  back: vi.fn(),
+  replace: vi.fn(),
+  setParams: vi.fn(),
+}))
+vi.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
+  useSafeAreaFrame: () => ({ x: 0, y: 0, width: 430, height: 900 }),
+}))
 vi.mock('expo-router', async () => {
   const { useEffect } = await import('react')
   return {
@@ -250,6 +260,7 @@ vi.mock('../hooks/useRefreshableTab', async () => {
 vi.stubEnv('EXPO_OS', 'web')
 const { createMobilePool } = await import('../client/mobile-pool')
 const { WorkScreen } = await import('./WorkScreen')
+const { NewIssueScreen } = await import('./NewIssueScreen')
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -313,7 +324,26 @@ function kernelFixture(corpus: ReturnType<typeof buildCorpus>) {
 }
 
 function Capture() {
-  return <WorkScreen />
+  const [compose, setCompose] = useState(false)
+  const [work] = useState(() => <WorkScreen />)
+  // Native navigation retains Work beneath the compose route. Keep the real
+  // sheet here so both opening and closing still count its pool work.
+  useEffect(() => {
+    router.push.mockImplementation((href) => {
+      if (href?.pathname === '/new-issue') setCompose(true)
+    })
+    router.back.mockImplementation(() => setCompose(false))
+    return () => {
+      router.push.mockReset()
+      router.back.mockReset()
+    }
+  }, [])
+  return (
+    <>
+      {work}
+      {compose ? <NewIssueScreen /> : null}
+    </>
+  )
 }
 // Provider unmount supports a StrictMode restart via dispose(). A finished
 // fixture has no successor mount, so end the permanent runtime lifetime too.
@@ -690,12 +720,19 @@ describe('mobile WorkScreen pool consumer', () => {
         await click(
           'open launch choices',
           () => fireEvent.click(screen.getByLabelText('New work')),
-          () => waitFor(() => expect(screen.getAllByLabelText(/^Start in /)).toHaveLength(1)),
+          () =>
+            waitFor(() =>
+              expect(router.push).toHaveBeenCalledExactlyOnceWith({
+                pathname: '/new-issue',
+                params: { backTo: '/work' },
+              }),
+            ),
         )
+        expect(screen.getByLabelText(/^Project, /)).toBeTruthy()
         await click(
           'close launch choices',
-          () => fireEvent.click(screen.getByLabelText('Close sheet')),
-          () => waitFor(() => expect(screen.queryByLabelText('Close sheet')).toBeNull()),
+          () => fireEvent.click(screen.getByLabelText('Cancel')),
+          () => waitFor(() => expect(screen.queryByTestId('compose-body')).toBeNull()),
         )
       } finally {
         pool.row = originalRow
@@ -795,11 +832,20 @@ describe('mobile WorkScreen pool consumer', () => {
       await drainNativeLoads()
       const singleBand = (id: string) =>
         state.sections.filter((band) => band.data.some((item) => item.id === id)).length === 1
+      // Search also shows ancestors of a matching sub-task. Rename a direct
+      // hit so this check removes exactly that row, rather than its context.
+      const directHit = (id: string) =>
+        singleBand(id) &&
+        worklistView(state.pool!).phone.childHit(id) === null &&
+        corpus.issueProjections
+          .find((issue) => issue.id === id)
+          ?.title.toLowerCase()
+          .includes('reconcile')
       const section = state.sections.find(
-        (band) => band.kind === 'project' && band.data.some((item) => singleBand(item.id)),
+        (band) => band.kind === 'project' && band.data.some((item) => directHit(item.id)),
       )!
       expect(section).toBeDefined()
-      const ref = section.data.find((item) => singleBand(item.id))!
+      const ref = section.data.find((item) => directHit(item.id))!
       const target = corpus.issueProjections.find((row) => row.id === ref.id)!
       expect(target.title.toLowerCase()).toContain('reconcile')
       const before = state.sections
@@ -868,7 +914,10 @@ describe('mobile WorkScreen pool consumer', () => {
         .flatMap((section) => section.data)
         .every((row) => {
           const title = corpus.issueProjections.find((issue) => issue.id === row.id)?.title
-          return title?.toLowerCase().includes(issue.title.toLowerCase())
+          if (title?.toLowerCase().includes(issue.title.toLowerCase())) return true
+          const childId = worklistView(state.pool!).phone.childHit(row.id)
+          const child = corpus.issueProjections.find((issue) => issue.id === childId)
+          return child?.title.toLowerCase().includes(issue.title.toLowerCase())
         }),
     ).toBe(true)
     const row = view.container.querySelector(`[data-label$=" ${issue.title}"]`)!
@@ -881,7 +930,11 @@ describe('mobile WorkScreen pool consumer', () => {
   it('launch choices come from the existing pool without worklistSlice', async () => {
     await mount(1)
     fireEvent.click(screen.getByLabelText('New work'))
-    await waitFor(() => expect(screen.getAllByLabelText(/^Start in /).length).toBe(1))
+    await waitFor(() => expect(screen.getAllByLabelText(/^Project, /).length).toBe(1))
+    expect(router.push).toHaveBeenCalledExactlyOnceWith({
+      pathname: '/new-issue',
+      params: { backTo: '/work' },
+    })
     expect(state.sliceReads).toBe(0)
   }, 120_000)
 })

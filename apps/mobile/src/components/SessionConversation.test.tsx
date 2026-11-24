@@ -1,4 +1,7 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import { asSessionId, type MessageRecordWire } from '@podium/model'
+import { PendingInteractionWire } from '@podium/protocol'
+import { claudeRecordToItems } from '../../../../packages/harness/src/adapters/claude-code/transcript'
 /**
  * ACCEPTING AN OFFER IS A SEND, AND MUST LOOK LIKE ONE [POD-1354].
  *
@@ -17,6 +20,22 @@ import type { PendingTurn } from './TranscriptList'
 
 afterEach(cleanup)
 
+// Live-menu answers are `session.answer` records (POD-6415). Record what the
+// screen hands the shared answer hook, then let the real hook send it.
+const menuAnswers = vi.hoisted(() => [] as [string, unknown][])
+vi.mock('../lib/answer-session', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/answer-session')>()
+  return {
+    ...actual,
+    useAnswerSession: () => {
+      const send = actual.useAnswerSession()
+      return async (sessionId: Parameters<typeof send>[0], answer: Parameters<typeof send>[1]) => {
+        menuAnswers.push([sessionId, answer])
+        return send(sessionId, answer)
+      }
+    },
+  }
+})
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
   NotificationFeedbackType: { Error: 'error' },
@@ -46,7 +65,7 @@ vi.mock('./TaskSheet', () => ({ TaskSheet: () => null }))
 // Same reason as TaskSheet: the offer's artifact strip mounts the artifact
 // viewer, which imports the boot gate this leaf lane cannot load.
 vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: () => null }))
-vi.mock('./Composer', () => ({ Composer: () => null }))
+vi.mock('./Composer', () => ({ Composer: () => <div data-testid="composer" /> }))
 
 /**
  * The transcript, reduced to the facts these tests are about: the footer
@@ -57,20 +76,29 @@ vi.mock('./Composer', () => ({ Composer: () => null }))
 vi.mock('./TranscriptList', () => ({
   TranscriptList: ({
     emptyComponent,
+    transcript,
     footer,
     pendingTurns,
     tail,
   }: {
     emptyComponent?: ReactNode
+    transcript?: { ids: readonly string[] }
     footer?: ReactNode
     pendingTurns?: readonly PendingTurn[]
-    tail?: { label: string; tone: string }
+    tail?: { label: string; tone: string; since?: string }
   }) => (
     <div>
-      <div data-testid="tail">{`${tail?.tone ?? 'none'}:${tail?.label ?? ''}`}</div>
+      <div data-testid="loaded-count">{transcript?.ids.length ?? 0}</div>
+      <div
+        data-testid="tail"
+        data-since={tail?.since}
+      >{`${tail?.tone ?? 'none'}:${tail?.label ?? ''}`}</div>
       {(pendingTurns ?? []).map((turn) => (
         <div key={turn.id} data-testid="pending">
           {turn.failed ? `failed:${turn.text}` : turn.text}
+          {turn.files?.map((file) => (
+            <span key={file.path}>{file.path}</span>
+          ))}
         </div>
       ))}
       {emptyComponent}
@@ -82,6 +110,303 @@ vi.mock('./TranscriptList', () => ({
 const { SessionConversation } = await import('./SessionConversation')
 
 const OFFER_AT = '2026-08-18T12:00:00.000Z'
+
+it.each([
+  '',
+  'Error: answer could not be delivered',
+  '[Tool call interrupted: its outcome is unknown.]',
+])('shows the current native question after resumed history with %j', async (result) => {
+  const current = {
+    questions: [{ question: 'New native question?', options: [{ label: 'New choice' }] }],
+  }
+  const asking = {
+    sessionId: 'resumed',
+    cwd: '/repo',
+    status: 'live',
+    agentKind: 'claude-code',
+    agentState: { phase: 'needs_user', need: { kind: 'question', interview: current } },
+  } as unknown as SessionView
+  const items = [
+    ...claudeRecordToItems({
+      type: 'assistant',
+      uuid: 'old-call',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'old-use',
+            name: 'AskUserQuestion',
+            input: {
+              questions: [{ question: 'Old question?', options: [{ label: 'Old choice' }] }],
+            },
+          },
+        ],
+      },
+    }),
+    ...claudeRecordToItems({
+      type: 'user',
+      uuid: 'old-result',
+      message: { content: [{ type: 'tool_result', tool_use_id: 'old-use', content: result }] },
+    }),
+  ]
+  const answer = vi.fn(async (_input: unknown) => ({ ok: true }))
+  const view = await renderWithMobileStore(
+    <SessionConversation session={asking} issue={undefined} />,
+    {
+      sessions: [asking],
+      api: {
+        sessions: {
+          transcriptRead: { query: async () => ({ items, hasMore: false }) },
+          answerAskUserQuestion: { mutate: answer },
+        },
+      },
+    },
+  )
+  act(() =>
+    view.replica.applySnapshot('pendingInteractions', [
+      PendingInteractionWire.parse({
+        id: 'new-interaction',
+        sessionId: 'resumed',
+        askedAt: '2026-11-13T12:00:00Z',
+        source: 'hook',
+        answerable: 'keystroke-emulated',
+        fingerprint: 'new',
+        kind: 'question',
+        status: 'asked',
+        payload: {
+          v: 1,
+          questions: [{ ...current.questions[0], multiSelect: false, previewLayout: false }],
+        },
+      }),
+    ]),
+  )
+  await screen.findByText('New native question?')
+  fireEvent.click(screen.getByLabelText('New choice'))
+  await waitFor(() =>
+    expect(menuAnswers).toContainEqual([
+      'resumed',
+      expect.objectContaining({
+        via: 'menu',
+        interactionId: 'new-interaction',
+        choices: [{ optionIndices: [1] }],
+      }),
+    ]),
+  )
+})
+
+it.each([
+  'option',
+  'custom',
+])('answers a Codex async %s question through the shared chat route', async (kind) => {
+  const asking = {
+    sessionId: `codex-${kind}`,
+    cwd: '/repo',
+    status: 'live',
+    agentKind: 'codex',
+    agentState: { phase: 'idle' },
+  } as unknown as SessionView
+  const sendText = vi.fn(async (_input: unknown) => ({ ok: true }))
+  const nativeAnswer = vi.fn(async () => ({ ok: false, reason: 'unknown-interaction' }))
+  await renderWithMobileStore(<SessionConversation session={asking} issue={undefined} />, {
+    sessions: [asking],
+    api: {
+      sessions: {
+        transcriptRead: {
+          query: async () => ({
+            items: [
+              {
+                id: 'async',
+                role: 'tool',
+                text: '',
+                toolName: 'request_user_input_async',
+                toolUseId: 'call_async',
+                toolInputJson: JSON.stringify({
+                  questions: [{ question: 'Where?', options: [{ label: 'main' }] }],
+                }),
+              },
+              {
+                id: 'registered',
+                role: 'tool',
+                text: '',
+                toolUseId: 'call_async',
+                toolResult: '{"accepted":true}',
+              },
+            ],
+            hasMore: false,
+          }),
+        },
+        answerAskUserQuestion: { mutate: nativeAnswer },
+        sendText: { mutate: sendText },
+        resumeAndSend: { mutate: sendText },
+      },
+    },
+  })
+  await screen.findByTestId('ask-question-tile')
+  if (kind === 'option') fireEvent.click(screen.getByLabelText('main'))
+  else {
+    fireEvent.click(screen.getByLabelText('Write a different answer'))
+    fireEvent.change(screen.getByLabelText('Type your own answer'), {
+      target: { value: 'an isolated branch' },
+    })
+    fireEvent.click(screen.getByLabelText('Send answer'))
+  }
+  await waitFor(() => expect(sendText).toHaveBeenCalledTimes(1))
+  expect(nativeAnswer).not.toHaveBeenCalled()
+  const payload = sendText.mock.calls[0]?.[0] as unknown as { text: string }
+  expect(payload.text).toContain('<send_user_message_question_reply>')
+  const replies = JSON.parse(payload.text.split('\n')[1] ?? '')
+  expect(replies[0]).toMatchObject({
+    answer: kind === 'option' ? 'main' : 'an isolated branch',
+    questionItemId: '["request_user_input_async","call_async",0]',
+  })
+})
+
+it.each([
+  '',
+  'Error: answer could not be delivered',
+  "[Tool call interrupted: the session ended before this call's result was recorded, so its outcome is unknown.]",
+])('does not pin retired question history with %j', async (result) => {
+  const asking = {
+    sessionId: `unresolved-${result.length}`,
+    cwd: '/repo',
+    status: 'live',
+    agentKind: 'claude-code',
+    agentState: { phase: 'idle' },
+  } as unknown as SessionView
+  await renderWithMobileStore(<SessionConversation session={asking} issue={undefined} />, {
+    sessions: [asking],
+    api: {
+      sessions: {
+        transcriptRead: {
+          query: async () => ({
+            items: [
+              {
+                id: 'ask',
+                role: 'tool',
+                text: '',
+                toolName: 'AskUserQuestion',
+                toolUseId: 'use',
+                toolInputJson: JSON.stringify({
+                  questions: [{ question: 'Where?', options: [{ label: 'main' }] }],
+                }),
+              },
+              { id: 'result', role: 'tool', text: '', toolUseId: 'use', toolResult: result },
+              { id: 'later', role: 'assistant', text: 'A later turn.' },
+            ],
+            hasMore: false,
+          }),
+        },
+      },
+    },
+  })
+  await waitFor(() => expect(screen.getByTestId('loaded-count').textContent).toBe('3'))
+  expect(screen.queryByTestId('ask-question-tile')).toBeNull()
+  expect(screen.queryByLabelText('main')).toBeNull()
+})
+
+it.each([
+  'option',
+  'custom',
+])('unpins a delivered %s answer even after its acknowledgement reported failure', async (kind) => {
+  const sessionId = `answered-${kind}`
+  const asking = {
+    sessionId,
+    cwd: '/repo',
+    status: 'live',
+    agentKind: 'claude-code',
+    agentState: { phase: 'idle' },
+  } as unknown as SessionView
+  const items: import('@podium/model').TranscriptItem[] = [
+    {
+      id: 'ask',
+      role: 'tool',
+      text: '',
+      toolName: 'AskUserQuestion',
+      toolUseId: 'use',
+      toolInputJson: JSON.stringify({
+        questions: [{ question: 'Pick a colour', options: [{ label: 'Red' }, { label: 'Blue' }] }],
+      }),
+    },
+  ]
+  const view = await renderWithMobileStore(
+    <SessionConversation session={asking} issue={undefined} />,
+    {
+      sessions: [asking],
+      api: {
+        sessions: {
+          transcriptRead: { query: async () => ({ items: [...items], hasMore: false }) },
+          answerAskUserQuestion: {
+            mutate: async () => ({ ok: false, reason: 'confirmation timed out' }),
+          },
+        },
+      },
+    },
+  )
+  await screen.findByTestId('ask-question-tile')
+  if (kind === 'option') fireEvent.click(screen.getByLabelText('Red'))
+  else {
+    fireEvent.click(screen.getByLabelText('Write a different answer'))
+    fireEvent.change(screen.getByLabelText('Type your own answer'), { target: { value: 'Purple' } })
+    fireEvent.click(screen.getByLabelText('Send answer'))
+  }
+  await screen.findByText('Not delivered. Try again.')
+  const arrived: import('@podium/model').TranscriptItem[] = [
+    {
+      id: 'result',
+      role: 'tool',
+      text: '',
+      toolUseId: 'use',
+      toolResult: kind === 'option' ? 'You selected "Red"' : 'You answered Purple',
+    },
+    { id: 'reply', role: 'assistant', text: 'You picked a colour.' },
+  ]
+  items.push(...arrived)
+  act(() => view.emit('transcriptDelta', sessionId, arrived, { reset: false }))
+  await waitFor(() => expect(screen.queryByTestId('ask-question-tile')).toBeNull())
+  expect(screen.queryByText('Not delivered. Try again.')).toBeNull()
+})
+
+it('opens an exited transcript without a writable composer', async () => {
+  const ended = {
+    sessionId: 'ended',
+    cwd: '/repo',
+    status: 'exited',
+    agentKind: 'claude-code',
+    transcriptAvailable: true,
+    resumable: true,
+  } as unknown as SessionView
+  await renderWithMobileStore(<SessionConversation session={ended} issue={undefined} />, {
+    sessions: [ended],
+    api: {
+      sessions: {
+        transcriptRead: {
+          query: async () => ({
+            items: [{ id: 'answer', role: 'assistant', text: 'Recorded answer' }],
+            hasMore: false,
+          }),
+        },
+      },
+    },
+  })
+  expect(screen.getByTestId('tail')).toBeTruthy()
+  expect(screen.queryByTestId('composer')).toBeNull()
+})
+
+it('settles an interrupted turn with quiet styling and no running clock', async () => {
+  const stopped = {
+    sessionId: 'stopped',
+    cwd: '/repo',
+    status: 'live',
+    agentKind: 'claude-code',
+    agentState: { phase: 'idle', since: '2026-11-13T10:00:00Z', idle: { kind: 'interrupted' } },
+  } as unknown as SessionView
+  await renderWithMobileStore(<SessionConversation session={stopped} issue={undefined} />, {
+    sessions: [stopped],
+    api: { sessions: { transcriptRead: { query: async () => ({ items: [], hasMore: false }) } } },
+  })
+  await waitFor(() => expect(screen.getByTestId('tail').textContent).toBe('idle:interrupted'))
+  expect(screen.getByTestId('tail').getAttribute('data-since')).toBeNull()
+})
 
 const session = {
   sessionId: 'sess-1',
@@ -117,7 +442,8 @@ describe('offer accept is optimistic', () => {
     // No await on the mutation: this is the state the operator sees on the press.
     await waitFor(() => expect(screen.queryByTestId('session-action-card')).toBeNull())
     expect(screen.getByTestId('pending').textContent).toBe('merge it')
-    expect(screen.getByTestId('tail').textContent).toContain('working')
+    expect(screen.getByTestId('tail').textContent).toBe('idle:Sending')
+    expect(screen.getByTestId('tail').getAttribute('data-since')).toBeNull()
     await waitFor(() =>
       expect(sendText).toHaveBeenCalledWith(expect.objectContaining({ text: 'merge it' })),
     )
@@ -204,6 +530,54 @@ describe('empty transcript mood', () => {
 })
 
 describe('spawn prompt optimism', () => {
+  it.each([
+    'before',
+    'after',
+  ] as const)('adopts the first prompt record with its image when it arrives %s mounting without sending again', async (arrives) => {
+    const plainSession = { ...session, offer: undefined }
+    const record: MessageRecordWire = {
+      id: 'initial-message',
+      sessionId: asSessionId(plainSession.sessionId),
+      senderUserId: 'user:test',
+      body: 'Review the image',
+      createdAt: '2026-11-17T20:00:00Z',
+      status: 'stored',
+      initialPrompt: true,
+      attachments: [
+        { id: 'held-shot', filename: 'shot.png', mediaType: 'image/png', kind: 'image' },
+      ],
+    }
+    const sendText = vi.fn(async () => ({ ok: true }))
+    const resumeAndSend = vi.fn(async () => ({ ok: true }))
+    const app = await renderWithMobileStore(
+      <SessionConversation
+        session={plainSession}
+        issue={undefined}
+        initialPendingText="Review the image"
+      />,
+      {
+        sessions: [plainSession],
+        messageRecords: arrives === 'before' ? [record] : [],
+        api: {
+          sessions: {
+            transcriptRead: { query: async () => ({ items: [], hasMore: false }) },
+            sendText: { mutate: sendText },
+            resumeAndSend: { mutate: resumeAndSend },
+          },
+        },
+      },
+    )
+    if (arrives === 'after') {
+      expect(screen.getAllByTestId('pending')).toHaveLength(1)
+      act(() => app.replica.applySnapshot('messageRecords', [record]))
+    }
+    await waitFor(() => expect(screen.getByText('shot.png')).toBeTruthy())
+    expect(screen.getAllByTestId('pending')).toHaveLength(1)
+    expect(screen.getByTestId('pending').textContent).toContain('Review the image')
+    expect(sendText).not.toHaveBeenCalled()
+    expect(resumeAndSend).not.toHaveBeenCalled()
+  })
+
   it('keeps the first prompt through confirmation and retires it on transcript echo', async () => {
     let resolveRead: ((page: { items: unknown[]; hasMore: boolean }) => void) | undefined
     const transcriptRead = vi.fn(

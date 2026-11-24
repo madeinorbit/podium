@@ -20,6 +20,8 @@ import { REPLICA_KEY_PREFIX, type StorageApi } from './contract'
 /** The subset of @react-native-async-storage/async-storage the bridge needs. */
 export interface AsyncKeyValueStorage {
   getItem(key: string): Promise<string | null>
+  /** Native AsyncStorage can read the existing cache in one bridge call. */
+  multiGet?(keys: readonly string[]): Promise<readonly (readonly [string, string | null])[]>
   setItem(key: string, value: string): Promise<void>
   removeItem(key: string): Promise<void>
   getAllKeys(): Promise<readonly string[]>
@@ -65,12 +67,19 @@ export async function createAsyncStorageReplicaStorage(
     const keys = (await backing.getAllKeys()).filter((k) =>
       prefixes.some((p) => k === p || k.startsWith(p)),
     )
-    await Promise.all(
-      keys.map(async (k) => {
-        const v = await backing.getItem(k)
-        if (v !== null) cache.set(k, v)
-      }),
-    )
+    if (backing.multiGet && keys.length > 0) {
+      const values = await backing.multiGet(keys)
+      for (const [key, value] of values) {
+        if (value !== null) cache.set(key, value)
+      }
+    } else {
+      await Promise.all(
+        keys.map(async (k) => {
+          const v = await backing.getItem(k)
+          if (v !== null) cache.set(k, v)
+        }),
+      )
+    }
   } catch (error) {
     storageFailed = true
     storageFailure = error

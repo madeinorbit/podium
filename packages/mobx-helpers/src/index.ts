@@ -1,8 +1,26 @@
-export { allowImperativeRead, assertReactiveRead, currentDerivation, keyedComputed, type KeyedComputed, type KeyedComputedOptions } from './keyed-computed'
-export { DeadlineClock, deadlineClock, nextUp, now, nowForAge, clockStore, refreshClocks, setClockWakeSource, type ClockWakeSource } from './clock'
+export {
+  type AgeNextChange,
+  type ClockWakeSource,
+  clockStore,
+  DeadlineClock,
+  deadlineClock,
+  nextUp,
+  now,
+  nowForAge,
+  refreshClocks,
+  setClockWakeSource,
+} from './clock'
+export { clearCompanions, companion } from './companion'
 export { debugName, enableDebugNames } from './debug-name'
-export { configureDevelopmentChecks } from './development'
 export { createDemandAtoms, type DemandAtomOptions } from './demand'
-export { lazy, lazyKeptCount, type LazyOptions } from './lazy'
-export { companion, clearCompanions } from './companion'
-export { draft, DRAFT_SOURCE, type Draft, type DraftOptions, type DraftState } from './draft'
+export { configureDevelopmentChecks } from './development'
+export { DRAFT_SOURCE, type Draft, type DraftOptions, type DraftState, draft } from './draft'
+export {
+  allowImperativeRead,
+  assertReactiveRead,
+  currentDerivation,
+  type KeyedComputed,
+  type KeyedComputedOptions,
+  keyedComputed,
+} from './keyed-computed'
+export { type LazyOptions, lazy, lazyKeptCount } from './lazy'

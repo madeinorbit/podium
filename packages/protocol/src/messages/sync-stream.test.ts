@@ -78,6 +78,28 @@ describe('HTTP sync records', () => {
   })
 })
 
+describe('issue stubs across a server upgrade', () => {
+  // POD-2666: `type` joined the issue stub after servers were already running
+  // without it. A phone updated before its server must still read those stubs:
+  // client-graph treats a stub with no type as "shape still loading".
+  const stub = { id: 'issue-1', repoId: 'repo-1', seq: 1, stage: 'done', archived: false }
+  const stubs = (value: Record<string, unknown>) => JSON.stringify({
+    type: 'feedStubs', feedId: 'feed-1', epoch: 'epoch-1', fromSeq: 0, seq: 10, minAvailableSeq: 0,
+    changes: [{ seq: 9, entity: 'issueProjection', entityId: 'issue-1', op: 'upsert', part: 'stub', value }],
+  })
+  it('accepts a stub with its task type', () => {
+    expect(parseSyncRecord(stubs({ ...stub, type: 'task' })).kind).toBe('record')
+  })
+  it('accepts a stub from a server that predates the task type', () => {
+    expect(parseSyncRecord(stubs(stub)).kind).toBe('record')
+  })
+  it('still refuses a stub with an unknown task type', () => {
+    expect(parseSyncRecord(stubs({ ...stub, type: 'milestone' }))).toEqual({
+      kind: 'refused', reason: 'invalid-record',
+    })
+  })
+})
+
 describe('finite delta certificates', () => {
   it('accepts rows, watermarks, chained pages, and an already current cursor', () => {
     expect(validateSyncDeltaChain(chain)).toEqual([])

@@ -1,4 +1,5 @@
 import type { Posture, ReplicaEvent } from '@podium/sync/replica'
+import type { NativeConnectivity } from '../live-connection/connectivity'
 
 export const COLD_SYNC_STALL_MS = 30_000
 export type SyncPhase =
@@ -74,6 +75,20 @@ export class SyncProgressStore {
   }
   beginFirstSync(): void {
     this.publish({ firstSync: true, blocking: true })
+  }
+  /** The transport is dialing, before hello can start a heal or full download. */
+  noteReconnecting(): void {
+    if (this.snapshot.error === 'auth' || this.snapshot.error === 'format') return
+    this.publish({
+      phase: this.snapshot.blocking ? 'connecting' : 'reconnecting',
+      error: null,
+      failure: null,
+    })
+  }
+  /** A failed dial may leave an already-stale kernel with no posture event. */
+  noteDisconnected(): void {
+    if (this.snapshot.error === 'auth' || this.snapshot.error === 'format') return
+    this.publish({ phase: 'offline' })
   }
   beginAttempt(): void {
     this.walkSeq = null
@@ -181,7 +196,7 @@ export class SyncProgressStore {
       // disconnect() also emits posture events; fatal causes survive them.
       if (this.snapshot.error === 'auth' || this.snapshot.error === 'format') return
       if (event.posture === 'live') this.noteReady()
-      else if (event.posture === 'stale') this.publish({ phase: 'offline' })
+      else if (event.posture === 'stale') this.noteDisconnected()
       else if (event.posture === 'healing' || event.posture === 'bootstrapping') {
         this.publish({
           phase: this.snapshot.blocking ? 'connecting' : 'updating',
@@ -203,4 +218,14 @@ export class SyncProgressStore {
     this.snapshot = { ...this.snapshot, ...patch }
     for (const listener of this.listeners) listener()
   }
+}
+
+/** Runs before the visibility source dials, so hello latency cannot hide catch-up. */
+export function watchSyncResume(
+  store: SyncProgressStore,
+  connectivity: Pick<NativeConnectivity, 'visibility' | 'isOnline'>,
+): () => void {
+  return connectivity.visibility.subscribe(() => {
+    if (connectivity.visibility.isVisible() && connectivity.isOnline()) store.noteReconnecting()
+  })
 }

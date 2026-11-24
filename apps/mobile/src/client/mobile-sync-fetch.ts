@@ -3,6 +3,7 @@ import type { WorkspaceSelector } from '@podium/client-core/transport'
 import { MEMBER_FENCE_HEADER } from '@podium/protocol'
 import { fetch as expoFetch } from 'expo/fetch'
 import { Platform } from 'react-native'
+import { startupTiming } from '../lib/startup-timing'
 import { MobileAuthExpiredError } from './auth'
 import { bearerHeaders } from './trpc'
 
@@ -56,6 +57,7 @@ export function createMobileSyncFetch(
   return {
     async fetch(input, init) {
       const fetchImpl = Platform.OS === 'web' ? globalThis.fetch : expoFetch
+      startupTiming.mark('sync.http.start')
       const headers = bearerHeaders(bearer, init.headers, selector)
       if (member !== undefined) headers.set(MEMBER_FENCE_HEADER, member)
       const response = await fetchImpl(input, {
@@ -63,6 +65,7 @@ export function createMobileSyncFetch(
         credentials: Platform.OS === 'web' ? 'include' : 'omit',
         headers,
       })
+      startupTiming.mark('sync.http.headers')
       // Preserve status so the shared source maps the refusal to SyncAuthExpiredError.
       if (response.status === 401) onAuthExpired?.(new MobileAuthExpiredError())
       if (!response.ok && response.status !== 409) return response

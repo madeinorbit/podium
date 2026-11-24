@@ -1,10 +1,12 @@
 // Test adapters preserve the old behavior scenarios while the stores themselves
 // expose only direct observables. Each legacy transcript push enters a real log action.
-import { action, computed, observable, reaction } from 'mobx'
-import type { ConversationSendOptions, ConversationContext } from './contracts'
+
 import type { MessageRecordWire, SessionId, SessionOffer, TranscriptItem } from '@podium/model'
+import { action, computed, observable, reaction } from 'mobx'
+import type { ConversationContext, ConversationSendOptions } from './contracts'
 import type { ConversationBubble, ConversationPendingTurn } from './projection'
 import { Sends } from './sends'
+import { TranscriptGraph } from './transcript-graph'
 import { TranscriptLog } from './transcript-log'
 
 interface FixtureOptions extends ConversationSendOptions {
@@ -32,6 +34,7 @@ export function createSendsFixture(options: FixtureOptions) {
   const draft = observable.box(options.initialDraft ?? '')
   let active = false
   let sends: Sends | undefined
+  let graph: TranscriptGraph | undefined
   const transcript = new TranscriptLog({
     sessionId: options.sessionId,
     source: {
@@ -42,21 +45,30 @@ export function createSendsFixture(options: FixtureOptions) {
       subscribe: () => () => {},
     },
     onChange: (change) => {
+      if (graph) {
+        if (change.rebuild) graph.reset(transcript.items)
+        else graph.apply(change)
+      }
       if (active) sends?.reconcile(change)
     },
   })
   // The legacy port's first snapshot is held before start, as a stored page was.
   const seed = options.transcript.getSnapshot().items
   if (seed.length > 0) transcript.merge([...seed])
+  graph = new TranscriptGraph(transcript.items)
   // Standalone fixture record store; production supplies the application pool.
   const looked = observable.map<string, MessageRecordWire>(undefined, { deep: false })
   sends = new Sends({
     messageRecords: {
-      read: id => options.records?.getSnapshot().find(record => record.id === id) ?? looked.get(id),
-      ingest: action(records => { for (const record of records) looked.set(record.id, record) }),
+      read: (id) =>
+        options.records?.getSnapshot().find((record) => record.id === id) ?? looked.get(id),
+      ingest: action((records) => {
+        for (const record of records) looked.set(record.id, record)
+      }),
     },
     ...options,
     transcript,
+    compactionFor: (id) => graph?.compaction(id),
     readContext: () => context.get(),
     drafts: {
       get: () => draft.get(),
@@ -121,6 +133,7 @@ export function createSendsFixture(options: FixtureOptions) {
       active = false
       model.dispose()
       transcript.dispose()
+      graph?.dispose()
       offTranscript?.()
       retain()
       retainSnapshot()

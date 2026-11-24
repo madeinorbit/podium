@@ -40,8 +40,8 @@ export function AttachmentStrip({
           className={cn('attachment-chip', att.state === 'failed' && 'attachment-chip--failed')}
         >
           {att.state !== 'failed' &&
-            (att.previewUrl ? (
-              <img src={att.previewUrl} alt={att.name} className="size-5 rounded object-cover" />
+            (att.previewUri ? (
+              <img src={att.previewUri} alt={att.name} className="size-5 rounded object-cover" />
             ) : (
               <FileText size={14} className="text-text-dim" aria-hidden="true" />
             ))}

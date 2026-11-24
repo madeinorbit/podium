@@ -1,7 +1,7 @@
 import { beginSwitch } from '@podium/client-core/perf'
 import { useClientRuntime } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import { allTabIds, pickPaneSession, workspaceKeyFor } from '@podium/client-core/values'
+import { allTabIds, rememberedTab, taskOpenSeat, workspaceKeyFor } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/loading'
 import { omitGone } from '@podium/client-graph/lookup'
@@ -209,19 +209,21 @@ export function createPoolWorkActions(
       const issue = omitGone(pool.row('issue', issueId)) as SliceIssue | typeof LOADING | undefined
       return issue === undefined || issue === LOADING ? null : issue.coordinatorSessionId
     }
+    // The order is `taskOpenSeat`, shared with the phone (POD-2432); a saved
+    // layout is its first step, restored whole rather than as one tab.
     const target =
       paneSession ??
       (restoreLayout
         ? null
-        : pickPaneSession(
-            [...members.values()],
-            null,
-            [],
-            [coordinatorOf(id), coordinatorOf(rootId)],
-          ))
+        : taskOpenSeat({
+            members: [...members.values()],
+            remembered: null,
+            taskCoordinatorSessionId: coordinatorOf(id),
+            rootCoordinatorSessionId: coordinatorOf(rootId),
+          }))
     // A task click restores its whole layout. Opening a fallback session here
     // would replace its saved artifact selection or move focus between panes.
-    const remembered = layout?.panes[layout.focusedPaneId]?.activeTabId
+    const remembered = rememberedTab(layout)
     trace(target ?? (remembered ? asSessionId(remembered) : null), asIssueId(id))
     batch(() => {
       const worklist = worklistView(pool)

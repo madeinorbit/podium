@@ -1,8 +1,8 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { IssueHistoryView, issueActivity } from '@podium/client-graph/issue-activity'
-import { useEffect, useMemo } from 'react'
-import { useMobilePool } from '../client/mobile-pool'
+import { useLayoutEffect, useMemo } from 'react'
 import { useTrpc } from '../client/hooks'
+import { useMobilePool } from '../client/mobile-pool'
 import { loadIssueComments, loadIssueEventsPage, loadIssueMail } from './issue-detail'
 
 /** One opening of a history view over the issue's shared history (full page
@@ -26,6 +26,8 @@ export function useIssueActivity(issue: IssueViewModel, window: number) {
         : undefined,
     [pool, issue.id, trpc, window],
   )
-  useEffect(() => view?.open(), [view])
+  // Start the shared loading state before the first native frame can paint an
+  // empty feed. The view, rather than a phone-only flag, owns its readiness.
+  useLayoutEffect(() => view?.open(), [view])
   return view
 }

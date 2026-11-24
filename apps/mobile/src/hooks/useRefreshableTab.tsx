@@ -6,6 +6,7 @@ import {
   type ScrollViewProps,
 } from 'react-native'
 import { useConnected, useHub } from '../client/hooks'
+import { useWorkspacePull, useWorkspaceSyncPhase } from '../client/workspace-refresh'
 import { onTabReselect } from '../lib/tab-reselect'
 import { color } from '../theme/theme'
 
@@ -42,27 +43,54 @@ export type RefreshAccessibilityProps = Pick<
 export function useRefreshableList(onPull?: () => void) {
   const hub = useHub()
   const connected = useConnected()
-  const refreshingRef = useRef(false)
+  const syncPhase = useWorkspaceSyncPhase()
+  const pull = useWorkspacePull()
+  // Kept in a ref so the lifecycle callbacks below stay stable while the
+  // pull's status (and therefore the context value) changes.
+  const pullRef = useRef(pull)
+  pullRef.current = pull
+  const pending = useRef<{ promise: Promise<void>; resolve: () => void } | null>(null)
   const confirmationTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [confirmationElapsed, setConfirmationElapsed] = useState(false)
+
+  useEffect(() => {
+    if (confirmationElapsed && ['ready', 'offline', 'error'].includes(syncPhase)) {
+      if (!pending.current) return
+      pending.current.resolve()
+      pending.current = null
+      setRefreshing(false)
+      pullRef.current?.settle(syncPhase)
+    }
+  }, [confirmationElapsed, syncPhase])
 
   useEffect(
     () => () => {
       if (confirmationTimer.current) clearTimeout(confirmationTimer.current)
+      if (pending.current) pullRef.current?.cancel()
+      pending.current?.resolve()
+      pending.current = null
     },
     [],
   )
 
   const onRefresh = useCallback(() => {
-    if (refreshingRef.current) return
-    refreshingRef.current = true
+    if (pending.current) return pending.current.promise
+    let resolve = () => {}
+    const promise = new Promise<void>((finish) => {
+      resolve = finish
+    })
+    const completion = { promise, resolve }
+    pending.current = completion
+    setConfirmationElapsed(false)
     setRefreshing(true)
+    pullRef.current?.begin()
     if (!connected) hub.connect()
     onPull?.()
     confirmationTimer.current = setTimeout(() => {
-      refreshingRef.current = false
-      setRefreshing(false)
+      setConfirmationElapsed(true)
     }, MIN_REFRESH_CONFIRMATION_MS)
+    return completion.promise
   }, [connected, hub, onPull])
 
   const onAccessibilityAction = useCallback(

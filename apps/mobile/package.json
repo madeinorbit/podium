@@ -3,6 +3,11 @@
   "version": "0.0.0",
   "private": true,
   "license": "Apache-2.0",
+  "reanimated": {
+    "staticFeatureFlags": {
+      "IOS_SYNCHRONOUSLY_UPDATE_UI_PROPS": true
+    }
+  },
   "main": "expo-router/entry",
   "dependencies": {
     "@podium/mobx-helpers": "workspace:*",
@@ -33,6 +38,7 @@
     "expo-document-picker": "~57.0.3",
     "expo-file-system": "~57.0.7",
     "expo-font": "~57.0.4",
+    "expo-glass-effect": "~57.0.4",
     "expo-haptics": "~57.0.3",
     "expo-image-picker": "~57.0.20",
     "expo-linear-gradient": "~57.0.2",

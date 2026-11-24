@@ -10,7 +10,9 @@ import { asMachineId, asSessionId, type MachineId } from '@podium/model'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
+
 type Store = ReferenceState<import('@/app/trpc').Trpc>
+
 import { useAttachments } from './use-attachments'
 
 const mutate = vi.fn()
@@ -139,7 +141,7 @@ describe('useAttachments', () => {
     expect(chip?.state).toBe('ready')
     // No object URL for something the browser cannot show — the strip reads that
     // as "render a document glyph", and `ready()` reads it as the tag kind.
-    expect(chip?.previewUrl).toBe('')
+    expect(chip?.previewUri).toBe('')
     expect(result.current.ready().tags).toEqual([{ kind: 'file', label: 'spec.pdf' }])
   })
 

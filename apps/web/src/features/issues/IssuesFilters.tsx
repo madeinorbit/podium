@@ -1,4 +1,5 @@
 import type { IssuesAssignedTo } from '@podium/client-core/values'
+import { ISSUES_ORDERING_LABELS } from '@podium/client-core/values'
 import type { MemberRoster } from '@podium/client-graph/member-roster'
 import { observer } from '@podium/client-graph/react'
 import {
@@ -31,7 +32,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { PropertyMenu } from '@/lib/PropertyMenu'
 import { cn } from '@/lib/utils'
-import type { BoardFilter } from './issue-board-filter'
+import { BOARD_STATE_FILTERS, type BoardFilter } from './issue-board-filter'
 import { PriorityGlyph, StatusGlyph } from './issue-glyphs'
 import type { IssuesDisplay, IssuesLayout, IssuesOrdering } from './issues-display'
 import type { IssuesDisplayPatch } from './issues-view-model'
@@ -202,14 +203,6 @@ export function BulkBar({
   )
 }
 
-const STATUS_OPTIONS: NonNullable<BoardFilter['status']>[] = [
-  'open',
-  'closed',
-  'ready',
-  'blocked',
-  'deferred',
-]
-
 /**
  * THE TASKS FILTER (POD-6294; design §2.2, MU-09). Assigned to (on a shared
  * instance) and Show agent tasks are the member's own saved filters; the other
@@ -320,7 +313,7 @@ export const FilterMenu = observer(function FilterMenu({
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>State</DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
-            {STATUS_OPTIONS.map((status) => (
+            {BOARD_STATE_FILTERS.map((status) => (
               <DropdownMenuItem key={status} onClick={() => set({ status })}>
                 {status}
               </DropdownMenuItem>
@@ -423,11 +416,6 @@ export function ProjectMenu({
   )
 }
 
-const ORDERING_LABELS: Record<IssuesOrdering, string> = {
-  priority: 'Priority',
-  updated: 'Last updated',
-  created: 'Created',
-}
 const BADGE_LABELS: { key: keyof IssuesDisplay['badges']; label: string }[] = [
   { key: 'labels', label: 'Labels' },
   { key: 'type', label: 'Type' },
@@ -474,9 +462,9 @@ export function DisplayMenu({
           onValueChange={(value) => onChange({ ordering: value as IssuesOrdering })}
         >
           <DropdownMenuLabel>Ordering</DropdownMenuLabel>
-          {(Object.keys(ORDERING_LABELS) as IssuesOrdering[]).map((ordering) => (
+          {(Object.keys(ISSUES_ORDERING_LABELS) as IssuesOrdering[]).map((ordering) => (
             <DropdownMenuRadioItem key={ordering} value={ordering}>
-              {ORDERING_LABELS[ordering]}
+              {ISSUES_ORDERING_LABELS[ordering]}
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>

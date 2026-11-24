@@ -61,7 +61,12 @@ import { bucketOf } from '../../replica/disk-index'
 import type { InstanceOperation } from '../../replica/ports'
 import type { Cursor } from '../../replica/types'
 import { INDEX_TABLE, META_TABLE } from './schema'
-import { type DurabilityDegradation, type SqliteStoreView, SqliteSyncStore } from './store'
+import {
+  type DurabilityDegradation,
+  encodeMetaKey,
+  type SqliteStoreView,
+  SqliteSyncStore,
+} from './store'
 import { FaultySqlDatabase, freshDatabaseFile, readDurable, sqliteEngine } from './test-support'
 
 const PRINCIPAL = asUserId('ada')
@@ -278,7 +283,9 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
     try {
       const row = db
         .prepare(`SELECT value FROM ${META_TABLE} WHERE principal = ? AND key = ?`)
-        .get(PRINCIPAL, instanceMetaKey(SIDEBAR_KEY)) as { value: string } | undefined
+        .get(PRINCIPAL, encodeMetaKey(instanceMetaKey(SIDEBAR_KEY))) as
+        | { value: string }
+        | undefined
       marker = row ? (JSON.parse(row.value) as { completeAt: unknown }).completeAt : undefined
     } finally {
       db.close()

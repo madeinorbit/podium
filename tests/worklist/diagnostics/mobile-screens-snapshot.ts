@@ -11,6 +11,7 @@ import {
 import { omitGone } from '@podium/client-graph/lookup'
 import { MissionScreen, missionRootId } from '@podium/client-graph/mission-screen'
 import { attachMissionTestPreferences } from '@podium/client-graph/mission-screen.test.fixture'
+import { defaultSeat } from '@podium/client-graph/mission-seat'
 import {
   type MissionRowPresentation,
   requireLoaded,
@@ -30,7 +31,6 @@ import { sessionComparable } from './oracle'
 import type { SidebarSnapshot } from './sidebar-check'
 
 export interface MobileScreenInput {
-  selectSession(sessions: readonly SessionModel[]): SessionModel | undefined
   /** Tasks do not depend on mission selection; null skips a repeated check. */
   tasks: MobileTasksOptions | null
   selectedId: string | null
@@ -256,10 +256,9 @@ function snapshot(
   tasks: MobileTasksData,
   mission: PhoneMission,
   deck: PhoneDeck,
-  selectSession: MobileScreenInput['selectSession'],
   requested?: string,
 ): SidebarSnapshot {
-  const automatic = selectSession(mission.missionSessions)
+  const automatic = defaultSeat(mission.missionSessions, mission.root?.coordinatorSessionId)
   // Wire-shaped display helpers read these same loaded models at the UI boundary.
   const displaySessions = mission.missionSessions as unknown as readonly SessionView[]
   const current =
@@ -355,7 +354,7 @@ export function poolMobileScreensSnapshot(
   try {
     const opened = phoneMission(pool, input.selectedId, input.mode)
     if (tasks === LOADING || opened === LOADING) return LOADING
-    return snapshot(tasks, opened[0], opened[1], input.selectSession, input.requestedSessionId)
+    return snapshot(tasks, opened[0], opened[1], input.requestedSessionId)
   } catch (error) {
     if (error === LOADING) return LOADING
     throw error

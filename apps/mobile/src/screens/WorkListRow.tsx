@@ -16,9 +16,11 @@ import { memo, useCallback, useEffect, useId, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { useMobilePool } from '../client/mobile-pool'
 import { AssigneeName } from '../components/AssigneeName'
+import { DeliveryFailureMark } from '../components/DeliveryFailureMark'
 import { NotSavedMark } from '../components/NotSavedMark'
 import { PressableScale } from '../components/PressableScale'
 import { WorkingMark } from '../components/WorkingMark'
+import { useRowPress } from '../hooks/useRowPress'
 import { useAgeNow } from '../lib/clock-hooks'
 import { mobileRowStamp } from '../lib/work-sections'
 import { alpha } from '../theme/mix'
@@ -60,6 +62,7 @@ export const WorkRow = observer(function WorkRow({
   focusId,
 }: WorkListRowProps) {
   const ownFocusId = useId()
+  const press = useRowPress(onOpen, onLongPress)
   const navLoader = useDelayedFlag(navPending, NAV_LOADER_DELAY_MS)
   useEffect(() => {
     if (row.ready === 'ready') onRestore?.()
@@ -91,10 +94,11 @@ export const WorkRow = observer(function WorkRow({
       {...workRowMenuEvents(onLongPress)}
       accessibilityRole="button"
       accessibilityLabel={`${ref} ${row.title}`}
-      accessibilityValue={{ text: `${word}${unread ? ' · Unread' : ''}` }}
+      accessibilityValue={{
+        text: `${word}${unread ? ' · Unread' : ''}${row.deliveryAttention === 'failed' ? ' · Message not delivered' : row.deliveryAttention === 'unknown' ? ' · Message not confirmed' : ''}`,
+      }}
       accessibilityHint="Open task. Long press for actions."
-      onPress={onOpen}
-      onLongPress={onLongPress}
+      {...press}
       delayLongPress={450}
       scaleTo={1}
       style={({ pressed }) => [
@@ -114,6 +118,14 @@ export const WorkRow = observer(function WorkRow({
         >
           {row.title}
         </Text>
+        {row.deliveryAttention ? (
+          <DeliveryFailureMark
+            label={
+              row.deliveryAttention === 'failed' ? 'Message not delivered' : 'Message not confirmed'
+            }
+            size={16}
+          />
+        ) : null}
         {unread ? <View style={rowStyles.unreadDot} /> : null}
         {navLoader ? (
           <ActivityIndicator accessibilityLabel="Opening" size="small" color={color.textDim} />
@@ -291,7 +303,12 @@ const WorkStamp = observer(function WorkStamp({
       : row.issue.updatedAt
   const age = Date.parse(updated)
   const live = lane === 'open' && (timing.phase === 'working' || timing.phase === 'waiting')
-  const now = useAgeNow(live ? timing.sinceMs : age, live ? (timing.baseMs ?? 0) : 0)
+  const now = useAgeNow(
+    live ? timing.sinceMs : age,
+    live ? (timing.baseMs ?? 0) : 0,
+    true,
+    live && timing.phase === 'working' ? 3_600_000 : 0,
+  )
   const stamp = (live ? mobileRowStamp(timing, now) : relativeTime(updated, now))
     ?.replace(/ ago$/, '')
     .replace('just now', 'now')

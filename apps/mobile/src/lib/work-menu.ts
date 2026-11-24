@@ -8,6 +8,7 @@ export type WorkMenuLane = 'live' | 'snoozed' | 'closed'
 export interface WorkIssueMenuTarget {
   issue: IssueNavigationModel
   lane: WorkMenuLane
+  canTuck?: boolean
   canBringBack?: boolean
   /** Raw non-shell membership before resume collapse, including archived rows. */
   sessionCount: number
@@ -18,12 +19,15 @@ export type WorkMenuActionId =
   | 'read'
   | 'status'
   | 'placement'
+  | 'tuck'
   | 'bringBack'
   | 'undefer'
   | 'delete'
 
 export interface WorkMenuCapabilities {
   placement: boolean
+  canTuck?: boolean
+  canBringBack?: boolean
 }
 
 /**
@@ -50,6 +54,8 @@ export function workMenuActionIds(
   if (issue.deletedAt) return []
 
   const ids: WorkMenuActionId[] = ['rename', 'read', 'status']
+  if (capabilities.canTuck) ids.push('tuck')
+  if (capabilities.canBringBack) ids.push('bringBack')
   if (capabilities.placement) ids.push('placement')
   ids.push('delete')
   return ids

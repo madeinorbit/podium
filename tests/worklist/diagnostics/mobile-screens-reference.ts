@@ -1,4 +1,6 @@
 /** Stateless record oracle. No client-graph runtime reads participate in expected answers. */
+
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   buildFlightDeckRows,
   confirmedWorkingAgentCountsByIssue,
@@ -23,14 +25,13 @@ import {
   taskProgressMap,
   taskStateWord,
 } from '@podium/client-core/values'
+import { defaultSeat } from '@podium/client-graph/mission-seat'
 import { asIssueId, dedupeSessionsByResume, isFinished } from '@podium/model'
 import {
   coordinatedSeat,
   coordinatorLive,
   leafTasks,
-  sessionWord,
   sessionWorkingFact,
-  wordWantsAttention,
 } from '@podium/model/browser'
 import { expect } from 'vitest'
 import type { MobileScreenInput } from './mobile-screens-snapshot'
@@ -324,7 +325,7 @@ function boardRows(issues: Issue[], options: NonNullable<MobileScreenInput['task
     }
     return result
   }
-  const scope = filterBoardScope(issues, options.showAgentTasks)
+  const scope = filterBoardScope(issues, options.showAgentTasks ?? false)
   const includesDone =
     options.showDone ||
     options.filter.status === 'closed' ||
@@ -395,7 +396,7 @@ function boardRows(issues: Issue[], options: NonNullable<MobileScreenInput['task
       cover(id)
     }
   const ordered = (ids: string[]) =>
-    orderIssues(ids.map((id) => byId.get(id)!).filter(Boolean), options.ordering)
+    orderIssues(ids.map((id) => byId.get(id)!).filter(Boolean), options.ordering ?? 'priority')
   const sections = STAGES.map((stage) => {
     const own = roots.filter((id) => byId.get(id)?.stage === stage).sort()
     const proposals =
@@ -408,7 +409,10 @@ function boardRows(issues: Issue[], options: NonNullable<MobileScreenInput['task
     const rows: { issue: Issue; depth: number; childCount: number; expanded: boolean }[] = []
     const emit = (issue: Issue, depth: number, path: ReadonlySet<string>) => {
       if (path.has(issue.id)) return
-      const nested = orderIssues(children(issue.id, ordinary.has(issue.id)), options.ordering)
+      const nested = orderIssues(
+        children(issue.id, ordinary.has(issue.id)),
+        options.ordering ?? 'priority',
+      )
       const expanded = nested.length > 0 && options.expanded.includes(issue.id)
       rows.push({ issue, depth, childCount: nested.length, expanded })
       if (expanded) for (const child of nested) emit(child, depth + 1, new Set([...path, issue.id]))
@@ -450,21 +454,18 @@ export function expectMobileScreens(
       : []
     facts.crews.set(root?.id ?? '', crew)
   }
-  // The expected answer uses source records and the declared phone triage rule.
-  // Calling the production selector here passed raw rows to model-only getters
-  // and silently ranked every source session as closed.
-  const selectionRank = (session: (typeof crew)[number]) => {
-    if (session.archived || session.status === 'exited' || session.status === 'hibernated') return 3
-    const issue = session.issueId ? members.get(session.issueId) : undefined
-    if (
-      wordWantsAttention(sessionWord(session, { issueClosed: issue ? isFinished(issue) : false }))
-    )
-      return 0
-    return session.agentState?.phase === 'working' ? 1 : 2
-  }
-  const automatic = [...crew].sort(
-    (a, b) => selectionRank(a) - selectionRank(b) || b.lastActiveAt.localeCompare(a.lastActiveAt),
-  )[0]
+  // The phone opens a mission on the shared default seat (dev/tf 75d210056f):
+  // coordinator, lone member, then most recently active, over open sessions.
+  // The oracle hands the same rule its own source records, each answering
+  // `open` as the session model does (present, not archived, not exited).
+  const seat = defaultSeat(
+    crew.map((session) => ({
+      ...session,
+      open: !session.archived && session.status !== 'exited',
+    })) as unknown as SessionView[],
+    root?.coordinatorSessionId,
+  )
+  const automatic = crew.find((session) => session.sessionId === seat?.sessionId)
   const current =
     crew.find((session) => session.sessionId === input.requestedSessionId) ?? automatic
   const header = (current?.issueId ? members.get(current.issueId) : undefined) ?? root

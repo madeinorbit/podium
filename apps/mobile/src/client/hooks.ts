@@ -11,6 +11,7 @@ import {
 } from '@podium/client-core/react'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
+import { rememberedTab, workspaceKeyFor } from '@podium/client-core/values'
 import { omitGone } from '@podium/client-graph/lookup'
 import {
   MissionScreen,
@@ -33,6 +34,28 @@ export {
   useSessionContextSpawnPending as useSpawnPending,
   useSessionContextSpawnPrompt as useSpawnPrompt,
 } from './use-session-context'
+
+/**
+ * THE LAST SESSION SHOWN ON A TASK, on this phone (POD-2432). The desktop's own
+ * memory, not a copy: the device-local `podium.workspaces` layouts keyed by
+ * mission root, held by the UiStore. The phone never makes a workspace
+ * current, so it reads the mission's focused tab and records its seat without
+ * moving a pane.
+ */
+export function useTaskSeatMemory(): {
+  recall: (rootId: string) => string | null
+  remember: (rootId: string, sessionId: SessionId) => void
+} {
+  const { ui } = useClientRuntime<MobileTrpc>()
+  return useMemo(
+    () => ({
+      recall: (rootId) => rememberedTab(ui.workspaces[workspaceKeyFor({ missionRootId: rootId })]),
+      remember: (rootId, sessionId) =>
+        ui.rememberWorkspaceTab(workspaceKeyFor({ missionRootId: rootId }), sessionId),
+    }),
+    [ui],
+  )
+}
 
 /** The existing replica handle, acquired without a snapshot subscription. */
 export function useReplica(): import('@podium/client-core/replica').Replica {

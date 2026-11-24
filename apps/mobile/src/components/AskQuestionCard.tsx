@@ -1,15 +1,18 @@
 import {
   type AskAnswerChoice,
+  askQuestionOutcome,
+  codexAsyncQuestionReply,
   isChosenOption,
+  isCodexAsyncQuestion,
+  isPendingAskQuestion,
   isPreviewLayout,
   parseAskQuestions,
 } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
-import { useState } from 'react'
-import { StyleSheet, Text, TextInput, View } from 'react-native'
-import { useClock } from '../lib/clock-hooks'
-import { alpha } from '../theme/mix'
-import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { useEffect, useState } from 'react'
+import { ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native'
+import { color, font, leading, radius, sans, space } from '../theme/theme'
+import { decisionTile } from './decision-tile'
 import { Icon } from './Icon'
 import { Pencil } from './icons'
 import { PressableScale } from './PressableScale'
@@ -20,10 +23,12 @@ import { PressableScale } from './PressableScale'
  * Other entry, or skip. Who answered is never on the payload; the authority
  * stamps it.
  */
-export type AskQuestionAnswer = ({ skip: true } | { choices: AskAnswerChoice[] }) & {
-  interactionId?: string
-  question?: string
-}
+export type AskQuestionAnswer =
+  | (({ skip: true } | { choices: AskAnswerChoice[] }) & {
+      interactionId?: string
+      question?: string
+    })
+  | { reply: { itemId: string; question: string; text: string } }
 
 /**
  * The agent asking the human — options rendered as big tap targets. Live cards
@@ -42,7 +47,7 @@ export function AskQuestionCard({
   onAnswer,
   interactionId,
   presentation = 'card',
-  askedAt,
+  compact = false,
 }: {
   item: TranscriptItem
   live: boolean
@@ -50,8 +55,18 @@ export function AskQuestionCard({
   onAnswer?: (answer: AskQuestionAnswer) => Promise<void>
   presentation?: 'card' | 'band'
   askedAt?: string
+  compact?: boolean
 }) {
   const questions = parseAskQuestions(item.toolInputJson)
+  const codex = isCodexAsyncQuestion(item)
+  const outcome = askQuestionOutcome({ item })
+  const pending = live && isPendingAskQuestion({ item })
+  const resultDetail =
+    outcome === 'failed' || outcome === 'unknown'
+      ? item.toolResult?.trim() || 'No answer was recorded.'
+      : undefined
+  const { height: screenHeight, fontScale } = useWindowDimensions()
+  const largeText = fontScale > 1.3
   // `picks[qi]` is the set of chosen 0-based option indices; `custom[qi]` is the
   // typed answer. The two are mutually exclusive per question — the native menu
   // cannot hold an option and an Other answer at once.
@@ -59,9 +74,15 @@ export function AskQuestionCard({
   const [custom, setCustom] = useState<Record<number, string>>({})
   const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle')
   const [editing, setEditing] = useState<Record<number, boolean>>({})
+  const [expanded, setExpanded] = useState(false)
+  const [answerFocused, setAnswerFocused] = useState(false)
+  const [controlsHeight, setControlsHeight] = useState(0)
+  useEffect(() => {
+    if (!compact) setExpanded(false)
+  }, [compact])
   const band = presentation === 'band'
-  const asked = askedAt ?? item.ts
-  const locked = !live || state === 'sending' || state === 'sent'
+  const answerSent = state === 'sent' && !resultDetail
+  const locked = !pending || state === 'sending' || answerSent
 
   const typed = (source: Record<number, string>, qi: number) => source[qi]?.trim() ?? ''
 
@@ -105,10 +126,20 @@ export function AskQuestionCard({
     if (!choices) return
     setState('sending')
     try {
-      await onAnswer({
-        choices,
-        ...(interactionId ? { interactionId, question: item.toolInputJson } : {}),
-      })
+      await onAnswer(
+        codex
+          ? {
+              reply: {
+                itemId: item.id,
+                question: item.toolInputJson ?? '',
+                text: codexAsyncQuestionReply(item, choices),
+              },
+            }
+          : {
+              choices,
+              ...(interactionId ? { interactionId, question: item.toolInputJson } : {}),
+            },
+      )
       setState('sent')
     } catch {
       setState('failed')
@@ -116,7 +147,7 @@ export function AskQuestionCard({
   }
 
   const skip = async () => {
-    if (!onAnswer || locked) return
+    if (!onAnswer || locked || codex) return
     setState('sending')
     try {
       await onAnswer({
@@ -161,138 +192,229 @@ export function AskQuestionCard({
 
   const anyTyped = questions.some((_, qi) => typed(custom, qi) !== '')
   const commitsOnTap = questions.every((q) => !q.multiSelect) && !anyTyped
-  const needsConfirm = live && state !== 'sent' && !commitsOnTap
-  const showActions = live && state !== 'sent' && questions.length > 0
+  const needsConfirm = pending && !answerSent && !commitsOnTap
+  const showActions = pending && !answerSent && questions.length > 0
   const allAnswered =
     questions.length > 0 &&
     questions.every((_, qi) => (picks[qi]?.size ?? 0) > 0 || typed(custom, qi) !== '')
+  const editors = live && !answerSent ? questions.filter((_, qi) => !band || editing[qi]).length : 0
+  const actionsVisible = showActions && (!band || needsConfirm)
+  const controlsVisible = editors > 0 || actionsVisible
+  const optionsHeight = Math.max(
+    80,
+    Math.min(420, screenHeight * 0.4) -
+      space.md * 2 -
+      (controlsVisible ? controlsHeight + space.sm : 0),
+  )
+
+  if (resultDetail) {
+    return (
+      <View testID="ask-question-history" style={styles.history}>
+        <Text style={styles.meta}>Not answered</Text>
+        {questions.map((question) => (
+          <Text key={question.question} style={[styles.question, !largeText && styles.regularText]}>
+            {question.question}
+          </Text>
+        ))}
+        <Text style={outcome === 'failed' ? styles.metaError : styles.meta}>{resultDetail}</Text>
+      </View>
+    )
+  }
 
   if (questions.length === 0) {
     return (
-      <View style={[styles.card, band && styles.band]}>
-        <View style={[styles.headerRow, band && styles.bandHeader]}>
-          {band ? <View style={styles.askDot} /> : null}
-          <Text style={styles.badge}>{band ? 'CLAUDE IS ASKING' : 'QUESTION FOR YOU'}</Text>
-          {band ? <View style={styles.askRule} /> : null}
-          {band ? <AskedAge at={asked} /> : null}
-        </View>
-        <Text style={styles.question}>
+      <View testID="ask-question-tile" style={[styles.card, band && styles.band]}>
+        <Text style={[styles.question, !largeText && styles.regularText]}>
           {item.toolInput || 'AskUserQuestion (unparseable input)'}
         </Text>
       </View>
     )
   }
 
-  return (
-    <View style={[styles.card, band && styles.band]}>
-      <View style={[styles.headerRow, band && styles.bandHeader]}>
-        {band ? <View style={styles.askDot} /> : null}
-        <Text style={styles.badge}>{band ? 'CLAUDE IS ASKING' : 'QUESTION FOR YOU'}</Text>
-        {band ? <View style={styles.askRule} /> : null}
-        {state === 'sending' ? <Text style={styles.meta}>sending…</Text> : null}
-        {state === 'sent' ? <Text style={styles.meta}>answer sent</Text> : null}
-        {state === 'failed' ? <Text style={styles.metaError}>not delivered — retry</Text> : null}
-        {band && state === 'idle' ? <AskedAge at={asked} /> : null}
+  if (compact && !expanded && !answerFocused)
+    return (
+      <View
+        testID="ask-question-compact"
+        style={[styles.card, band && styles.band, styles.compact]}
+      >
+        <Text
+          style={[styles.question, !largeText && styles.regularText, styles.compactTitle]}
+          numberOfLines={1}
+        >
+          {resultDetail ?? questions[0]?.question}
+        </Text>
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel="Show question"
+          onPress={() => setExpanded(true)}
+          style={styles.compactButton}
+        >
+          <Text style={styles.compactLabel}>Show</Text>
+        </PressableScale>
       </View>
-      {questions.map((q, qi) => (
-        <View key={q.question} style={[styles.questionBlock, band && styles.questionBlockBand]}>
-          <Text style={[styles.question, band && styles.questionBand]}>{q.question}</Text>
-          <View style={[styles.options, band && styles.optionsBand]}>
-            {q.options.map((opt, oi) => {
-              const picked = picks[qi]?.has(oi) ?? false
-              const chosen = !live && isChosenOption(item.toolResult ?? '', opt.label)
-              const highlighted = picked || chosen || (state === 'sent' && picked)
-              return (
+    )
+
+  return (
+    <View testID="ask-question-tile" style={[styles.card, band && styles.band]}>
+      <ScrollView
+        testID="ask-question-scroll"
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustContentInsets={false}
+        contentInsetAdjustmentBehavior="never"
+        style={{ width: '100%', maxHeight: optionsHeight, flexShrink: 1, minHeight: 0 }}
+        contentContainerStyle={styles.scrollContent}
+      >
+        {resultDetail ? (
+          <Text style={styles.metaError} accessibilityLiveRegion="polite">
+            {resultDetail}
+          </Text>
+        ) : null}
+        {state !== 'idle' && !(state === 'sent' && resultDetail) ? (
+          <Text
+            style={state === 'failed' ? styles.metaError : styles.meta}
+            accessibilityLiveRegion="polite"
+          >
+            {state === 'sending'
+              ? 'Sending…'
+              : state === 'sent'
+                ? 'Answer sent'
+                : 'Not delivered. Try again.'}
+          </Text>
+        ) : null}
+        {questions.map((q, qi) => (
+          <View key={q.question} style={[styles.questionBlock, band && styles.questionBlockBand]}>
+            <Text
+              style={[
+                styles.question,
+                !largeText && styles.regularText,
+                band && styles.questionBand,
+              ]}
+            >
+              {q.question}
+            </Text>
+            <View
+              style={[styles.options, band && styles.optionsBand, largeText && styles.optionsLarge]}
+            >
+              {q.options.map((opt, oi) => {
+                const picked = picks[qi]?.has(oi) ?? false
+                const chosen = !pending && isChosenOption(item.toolResult ?? '', opt.label)
+                const highlighted = picked || chosen || (answerSent && picked)
+                return (
+                  <PressableScale
+                    key={opt.label}
+                    accessibilityRole="button"
+                    accessibilityLabel={opt.label}
+                    disabled={locked && !chosen}
+                    hitSlop={band ? 6 : undefined}
+                    onPress={() => onOption(qi, oi, q.multiSelect === true)}
+                    style={({ pressed }) => [
+                      styles.option,
+                      band && styles.optionBand,
+                      largeText && styles.optionLarge,
+                      highlighted && styles.optionPicked,
+                      pressed && !locked && styles.optionPressed,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.optionLabel,
+                        highlighted && styles.optionLabelPicked,
+                        !largeText && styles.regularText,
+                      ]}
+                    >
+                      {opt.label}
+                    </Text>
+                    {opt.description && !band ? (
+                      <Text style={styles.optionDesc} numberOfLines={3}>
+                        {opt.description}
+                      </Text>
+                    ) : null}
+                  </PressableScale>
+                )
+              })}
+              {band && live && !answerSent ? (
                 <PressableScale
-                  key={opt.label}
                   accessibilityRole="button"
-                  accessibilityLabel={opt.label}
-                  disabled={locked && !chosen}
-                  onPress={() => onOption(qi, oi, q.multiSelect === true)}
+                  accessibilityLabel="Write a different answer"
+                  hitSlop={6}
+                  disabled={locked}
+                  onPress={() => setEditing({ ...editing, [qi]: true })}
                   style={({ pressed }) => [
-                    styles.option,
-                    band && styles.optionBand,
-                    highlighted && styles.optionPicked,
-                    band && oi === 0 && styles.optionBandPrimary,
+                    styles.editAnswer,
                     pressed && !locked && styles.optionPressed,
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.optionLabel,
-                      highlighted && styles.optionLabelPicked,
-                      band && oi === 0 && styles.optionBandPrimaryText,
-                    ]}
-                  >
-                    {opt.label}
-                  </Text>
-                  {opt.description && !band ? (
-                    <Text style={styles.optionDesc} numberOfLines={3}>
-                      {opt.description}
-                    </Text>
-                  ) : null}
+                  <Icon as={Pencil} size={14} color={color.textDim} />
                 </PressableScale>
-              )
-            })}
-            {band && live && state !== 'sent' ? (
-              <PressableScale
-                accessibilityRole="button"
-                accessibilityLabel="Write a different answer"
-                disabled={locked}
-                onPress={() => setEditing({ ...editing, [qi]: true })}
-                style={({ pressed }) => [
-                  styles.editAnswer,
-                  pressed && !locked && styles.optionPressed,
-                ]}
-              >
-                <Icon as={Pencil} size={14} color={color.textDim} />
-              </PressableScale>
-            ) : null}
+              ) : null}
+            </View>
           </View>
-          {/* The free-text escape rides the native Other entry. Live only —
-              a read-only card is a record, not a control. */}
-          {live && state !== 'sent' && (!band || editing[qi]) ? (
-            <TextInput
-              testID={`ask-free-text-${qi}`}
-              accessibilityLabel="Type your own answer"
-              value={custom[qi] ?? ''}
-              onChangeText={(text) => onCustomChange(qi, text)}
-              onSubmitEditing={() => {
-                if (!locked && allAnswered) void submit(picks)
-              }}
-              placeholder="Or type your own answer…"
-              placeholderTextColor={color.textFaint}
-              editable={!locked}
-              returnKeyType="send"
-              style={[styles.input, locked && styles.inputLocked]}
-            />
-          ) : null}
-        </View>
-      ))}
-      {showActions && (!band || needsConfirm) ? (
-        <View style={styles.actions}>
-          {needsConfirm ? (
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel="Send answer"
-              disabled={locked || !allAnswered}
-              onPress={() => void submit(picks)}
-              style={[styles.confirm, (locked || !allAnswered) && styles.confirmDisabled]}
-            >
-              <Text style={styles.confirmText}>Send answer</Text>
-            </PressableScale>
-          ) : null}
-          {!band ? (
-            <PressableScale
-              testID="ask-skip"
-              accessibilityRole="button"
-              accessibilityLabel="Skip question"
-              disabled={locked}
-              onPress={() => void skip()}
-              style={[styles.skip, locked && styles.confirmDisabled]}
-            >
-              <Text style={styles.skipText}>Skip</Text>
-            </PressableScale>
+        ))}
+      </ScrollView>
+      {/* Keep editors outside the options scroller: its native content offset
+          must not displace the input's touch/accessibility frame. */}
+      {controlsVisible ? (
+        <View
+          testID="ask-question-controls"
+          style={styles.controls}
+          onLayout={(event) => setControlsHeight(event.nativeEvent.layout.height)}
+        >
+          {live && !answerSent
+            ? questions.map((q, qi) =>
+                !band || editing[qi] ? (
+                  <View key={q.question} style={styles.editor}>
+                    {questions.length > 1 ? <Text style={styles.meta}>{q.question}</Text> : null}
+                    <TextInput
+                      testID={`ask-free-text-${qi}`}
+                      accessibilityLabel="Type your own answer"
+                      autoFocus={band}
+                      value={custom[qi] ?? ''}
+                      onFocus={() => {
+                        setAnswerFocused(true)
+                        setExpanded(true)
+                      }}
+                      onBlur={() => setAnswerFocused(false)}
+                      onChangeText={(text) => onCustomChange(qi, text)}
+                      onSubmitEditing={() => {
+                        if (!locked && allAnswered) void submit(picks)
+                      }}
+                      placeholder="Or type your own answer…"
+                      placeholderTextColor={color.textFaint}
+                      editable={!locked}
+                      returnKeyType="send"
+                      style={[styles.input, locked && styles.inputLocked]}
+                    />
+                  </View>
+                ) : null,
+              )
+            : null}
+          {actionsVisible ? (
+            <View style={styles.actions}>
+              {needsConfirm ? (
+                <PressableScale
+                  accessibilityRole="button"
+                  accessibilityLabel="Send answer"
+                  disabled={locked || !allAnswered}
+                  onPress={() => void submit(picks)}
+                  style={[styles.confirm, (locked || !allAnswered) && styles.confirmDisabled]}
+                >
+                  <Text style={styles.confirmText}>Send answer</Text>
+                </PressableScale>
+              ) : null}
+              {!band && !codex ? (
+                <PressableScale
+                  testID="ask-skip"
+                  accessibilityRole="button"
+                  accessibilityLabel="Skip question"
+                  disabled={locked}
+                  onPress={() => void skip()}
+                  style={[styles.skip, locked && styles.confirmDisabled]}
+                >
+                  <Text style={styles.skipText}>Skip</Text>
+                </PressableScale>
+              ) : null}
+            </View>
           ) : null}
         </View>
       ) : null}
@@ -300,69 +422,30 @@ export function AskQuestionCard({
   )
 }
 
-function AskedAge({ at }: { at: string | undefined }) {
-  const start = at ? Date.parse(at) : Number.NaN
-  const now = useClock(20_000, Number.isFinite(start))
-  if (!Number.isFinite(start)) return null
-  const minutes = Math.max(0, Math.floor((now - start) / 60_000))
-  const age =
-    minutes < 1 ? 'now' : minutes < 60 ? `${minutes}m ago` : `${Math.floor(minutes / 60)}h ago`
-  return <Text style={styles.askedAge}>{`asked ${age}`}</Text>
-}
-
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: '#1c1817',
-    borderColor: color.needsYouBorder,
+  scrollContent: { gap: space.sm, width: '100%' },
+  controls: { gap: space.sm, flexShrink: 0 },
+  editor: { gap: space.sm, flexShrink: 0 },
+  compact: { flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingVertical: 0 },
+  compactTitle: { flex: 1, minWidth: 0 },
+  compactButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: space.sm },
+  compactLabel: { ...sans(600), color: color.accentTint, fontSize: font.small },
+  card: { ...decisionTile.card, ...decisionTile.signal },
+  history: {
+    ...decisionTile.card,
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.md,
-    padding: space.lg,
-    gap: space.md,
+    borderColor: color.border,
   },
   band: {
-    borderRadius: 0,
-    borderLeftWidth: 0,
-    borderRightWidth: 0,
-    backgroundColor: alpha(color.needsYou, 0.05),
-    paddingTop: 15,
-    paddingRight: 11,
-    paddingBottom: 15,
-    paddingLeft: 13,
-    gap: space.sm,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  bandHeader: {
-    justifyContent: 'flex-start',
-    gap: 6,
-  },
-  askDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: color.needsYou,
-  },
-  askRule: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: color.needsYouBorder,
-  },
-  badge: {
-    ...monoLabel(),
-    color: color.needsYouText,
+    marginHorizontal: space.lg,
+    marginVertical: space.sm,
+    flexShrink: 1,
+    minHeight: 0,
   },
   meta: {
     ...sans(400),
     color: color.textDim,
     fontSize: font.tiny,
-  },
-  askedAge: {
-    ...mono(400),
-    color: color.textMicro,
-    fontSize: 11,
   },
   metaError: {
     ...sans(400),
@@ -370,17 +453,21 @@ const styles = StyleSheet.create({
     fontSize: font.tiny,
   },
   questionBlock: {
+    flexShrink: 0,
+    minWidth: 0,
+    width: '100%',
     gap: space.sm + 2,
   },
   questionBlockBand: {
     gap: space.sm,
   },
   question: {
+    flexShrink: 0,
+    minWidth: 0,
+    maxWidth: '100%',
     ...sans(600),
     color: color.text,
-    fontSize: font.body,
-    lineHeight: leading(font.body, 'prose'),
-    letterSpacing: -0.1,
+    fontSize: 15,
   },
   questionBand: {
     fontSize: font.small,
@@ -390,45 +477,25 @@ const styles = StyleSheet.create({
   },
   optionsBand: {
     flexDirection: 'row',
-    flexWrap: 'nowrap',
+    flexWrap: 'wrap',
   },
+  optionsLarge: { flexDirection: 'column', alignItems: 'stretch' },
+  optionLarge: { flexShrink: 0, alignItems: 'flex-start' },
+  // Let the font supply its full ascender/descender at accessibility sizes.
+  regularText: { lineHeight: 20 },
   option: {
     backgroundColor: color.surfaceHigh,
     borderColor: color.border,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     paddingHorizontal: space.lg,
     paddingVertical: space.md + 1,
     gap: 3,
   },
-  optionBand: {
-    flex: 1,
-    height: 38,
-    paddingHorizontal: space.md,
-    paddingVertical: 0,
-    borderRadius: radius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  /**
-   * The suggested answer leads, but QUIETLY (2026-08-28 device feedback: the
-   * filled bisque chip read as a warning light over the composer). The band's
-   * header already spends the attention accent — dot, mono label, hairline —
-   * so the primary option earns its rank the way the app's accent language
-   * does everywhere else: a bisque keyline and tinted label over a soft wash,
-   * not a solid fill. Siblings keep the neutral border, so the ranking reads
-   * without either of them shouting.
-   */
-  optionBandPrimary: {
-    borderColor: color.accentBorder,
-    backgroundColor: color.accentSoft,
-  },
-  optionBandPrimaryText: {
-    color: color.accentTint,
-  },
+  optionBand: { ...decisionTile.button, borderWidth: 0, alignItems: 'center', flexShrink: 1 },
   editAnswer: {
-    width: 44,
-    height: 38,
+    width: 32,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: color.surfaceHigh,
@@ -444,9 +511,11 @@ const styles = StyleSheet.create({
     backgroundColor: color.accentSoft,
   },
   optionLabel: {
-    ...sans(600),
+    maxWidth: '100%',
+    minWidth: 0,
+    ...sans(500),
     color: color.text,
-    fontSize: font.small,
+    fontSize: 14,
   },
   optionLabelPicked: {
     color: color.accentTint,
@@ -458,9 +527,10 @@ const styles = StyleSheet.create({
     lineHeight: leading(font.small, 'prose'),
   },
   input: {
+    minHeight: 44,
     borderColor: color.border,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     paddingHorizontal: space.lg,
     paddingVertical: space.md,
     ...sans(400),
@@ -483,7 +553,7 @@ const styles = StyleSheet.create({
     backgroundColor: color.accentSoft,
     borderWidth: 1,
     borderColor: color.accentBorder,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     alignItems: 'center',
     paddingVertical: space.md,
   },
@@ -500,7 +570,7 @@ const styles = StyleSheet.create({
   skip: {
     borderColor: color.border,
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: radius.control,
     alignItems: 'center',
     paddingHorizontal: space.lg,
     paddingVertical: space.md,

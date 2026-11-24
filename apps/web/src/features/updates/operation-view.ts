@@ -816,6 +816,7 @@ function offerView(input: OperationViewInput): UpdatePanelView {
       subtitle: staleSubtitle(primary),
       version: offer.version,
       steps: [],
+      ...(offer.notes ? { notes: offer.notes } : {}),
       ...(primary ? { primary } : {}),
       awaitingElsewhere: [],
       indicator: 'attention',

@@ -65,6 +65,8 @@ export interface ReplicaSettings {
   /** Rejects if the bridge could not persist its writes. */
   flush?(): Promise<void>
   readonly storageEventApi?: Parameters<typeof createSideCache>[0]['storageEventApi']
+  /** Native cold-boot recovery; other browser owners can still be uploading. */
+  readonly recoverInterruptedDraftUploads?: boolean
 }
 
 export type ReplicaDegradation = { kind: 'store-not-adopted'; reason: string }

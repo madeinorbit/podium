@@ -1,4 +1,4 @@
-export type PickerSource = 'Photos' | 'Files'
+export type PickerSource = 'Photos' | 'Camera' | 'Files'
 
 export type PickerFailure = { cancelled: true } | { cancelled: false; message: string }
 

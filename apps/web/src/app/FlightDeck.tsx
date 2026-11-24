@@ -11,6 +11,7 @@ import {
   continuationPresenceLine as sharedContinuationPresenceLine,
 } from '@podium/client-core/values'
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
+import { defaultSeat } from '@podium/client-graph/mission-seat'
 import { settled } from '@podium/client-graph/mission-view'
 import type { SessionModel } from '@podium/client-graph/models'
 import type { MobxPool } from '@podium/client-graph/pool'
@@ -1306,14 +1307,9 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     )
     void markIssueRead(row.issue.id)
     if (row.issue.worktreePath) setSelectedWorktree(row.issue.worktreePath)
-    const active = row.sessions.filter((session) => (session as SessionModel).open)
-    // Contract order: coordinator → lone member → most recently active member →
-    // no-session state. The pane you happen to be looking at is NOT a
-    // preference — it made clicking one task open a different task's session.
-    const target =
-      active.find((session) => session.sessionId === row.issue.coordinatorSessionId) ??
-      (active.length === 1 ? active[0] : undefined) ??
-      [...active].sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))[0]
+    // Coordinator → lone member → most recently active → no session (shared
+    // with the phone's mission screen).
+    const target = defaultSeat(row.sessions, row.issue.coordinatorSessionId)
     // A sessionless task updates the inspector but leaves the current chat
     // intact. Task creation is never a navigation side effect.
     if (target) {

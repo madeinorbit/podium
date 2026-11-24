@@ -102,13 +102,15 @@ describe('offerArtifactRows', () => {
   })
   it('reserves the fourth slot for +N when the list overflows', () => {
     const paths = ['a.png', 'b.png', 'c.png', 'd.png', 'e.png']
-    const { rows, extra } = offerArtifactRows({
+    const { rows, extra, allRows } = offerArtifactRows({
       offer: offerFor(paths),
       issue: issue(paths.map((p) => art(p, '2026-08-20T00:00:00.000Z'))),
       httpOrigin: ORIGIN,
     })
     expect(rows.map((r) => r.label)).toEqual(['a.png', 'b.png', 'c.png'])
     expect(extra).toBe(2)
+    expect(allRows.map((row) => row.artifact.path)).toEqual(paths)
+    expect(rows[0]).toBe(allRows[0])
   })
 
   it('shows four artifacts when no overflow slot is needed', () => {
@@ -153,10 +155,10 @@ describe('offerArtifactRows', () => {
         issue: issue([art('real.png', '2026-08-20T00:00:00.000Z')]),
         httpOrigin: ORIGIN,
       }),
-    ).toEqual({ rows: [], extra: 0 })
+    ).toEqual({ rows: [], extra: 0, allRows: [] })
     expect(
       offerArtifactRows({ offer: offerFor(['shot.png']), issue: undefined, httpOrigin: ORIGIN }),
-    ).toEqual({ rows: [], extra: 0 })
+    ).toEqual({ rows: [], extra: 0, allRows: [] })
   })
 })
 

@@ -2,16 +2,20 @@ import { isImagePath, stagedAttachmentId } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
 import { machinePathBasename, resolveMachinePath } from '@podium/model'
 import { useEffect, useState } from 'react'
-import { Image, Linking, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Image, Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 import {
   authenticatedImageSource,
   fetchAuthenticatedAsset,
-  readAuthenticatedTextPreview} from '../client/authenticated-assets'
+  readAuthenticatedTextPreview,
+} from '../client/authenticated-assets'
 import { useChatItemAttachments, useChatUploadUrl } from '../client/chat-uploads'
 import { useServerProfile } from '../client/ServerProfileGate'
 import { sessionAssetUrl, type TranscriptAssetContext } from '../lib/transcript-assets'
+import { useDismissOnRootLeave } from '../navigation/use-dismiss-on-root-leave'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
+import { ActivityModal as Modal } from './ActivityModal'
 import { Icon } from './Icon'
+import { ImageLightbox } from './ImageLightbox'
 import { FileText, X } from './icons'
 import { PressableScale } from './PressableScale'
 
@@ -100,39 +104,21 @@ function SharedPath({
           onError={setFailed}
         />
       </PressableScale>
-      <Modal
+      <ImageLightbox
         visible={preview}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPreview(false)}
-      >
-        <View style={styles.lightbox}>
-          <PressableScale
-            accessibilityRole="button"
-            accessibilityLabel="Close image"
-            onPress={() => setPreview(false)}
-            hitSlop={12}
-            style={styles.lightboxClose}
-          >
-            <Icon as={X} size={22} color={color.text} />
-          </PressableScale>
-          <Image
-            source={authenticatedImageSource(url, bearer)}
-            accessibilityLabel={name}
-            resizeMode="contain"
-            style={styles.lightboxImage}
-            onError={() => {
-              setFailed()
-              setPreview(false)
-            }}
-          />
-        </View>
-      </Modal>
+        source={authenticatedImageSource(url, bearer)}
+        label={name}
+        onClose={() => setPreview(false)}
+        onError={() => {
+          setFailed()
+          setPreview(false)
+        }}
+      />
     </>
   )
 }
 
-function SharedFileViewer({
+export function SharedFileViewer({
   name,
   url,
   bearer,
@@ -145,6 +131,7 @@ function SharedFileViewer({
 }) {
   const [body, setBody] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  useDismissOnRootLeave(onClose)
 
   useEffect(() => {
     let alive = true
@@ -205,7 +192,10 @@ export function SharedFiles({
   const matched = useChatItemAttachments(context?.sessionId, item.id)
   const uploads = paths.length === 0 ? matched.filter((a) => a.kind === 'image' && a.id) : []
   const imageTags = allTags.filter((tag) => tag.kind === 'image')
-  const tags = [...imageTags.slice(uploads.length), ...allTags.filter((tag) => tag.kind !== 'image')]
+  const tags = [
+    ...imageTags.slice(uploads.length),
+    ...allTags.filter((tag) => tag.kind !== 'image'),
+  ]
   if (paths.length === 0 && uploads.length === 0 && tags.length === 0) return null
 
   return (
@@ -219,7 +209,12 @@ export function SharedFiles({
           <SharedPath key={path} path={path} context={context} />
         ))}
         {uploads.map((upload) => (
-          <SharedPath key={upload.id} path={upload.filename} context={context} uploadId={upload.id} />
+          <SharedPath
+            key={upload.id}
+            path={upload.filename}
+            context={context}
+            uploadId={upload.id}
+          />
         ))}
         {tags.map((tag, index) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: transcript tags have no identity and are immutable
@@ -262,13 +257,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   thumb: { width: 220, height: 140, backgroundColor: color.surface },
-  lightbox: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.92)',
-    padding: space.lg,
-  },
   lightboxClose: {
     position: 'absolute',
     top: 48,
@@ -281,7 +269,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.full,
     backgroundColor: color.surfaceHigh,
   },
-  lightboxImage: { width: '100%', height: '82%' },
   fileViewer: { flex: 1, backgroundColor: color.bg },
   fileViewerBar: {
     minHeight: 96,

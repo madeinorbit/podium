@@ -1,138 +1,28 @@
-import type { BoardFilter, IssuesAssignedTo, IssuesOrdering } from '@podium/client-core/values'
-import type { MemberRoster } from '@podium/client-graph/member-roster'
-import { ALL_ISSUE_STATUSES, ISSUE_STATUS_LABELS, type IssueStatus } from '@podium/model'
 import { useState } from 'react'
 import { StyleSheet, Switch, Text, View } from 'react-native'
-import { memberDisplayName } from '../client/member-roster'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
 import { NativePicker, type NativePickerOption } from './action-sheet-native'
 import { BottomSheet } from './BottomSheet'
 import { Icon } from './Icon'
 import { ChevronLeft, ChevronRight } from './icons'
 import { PressableScale } from './PressableScale'
+import {
+  DISPLAY_FACETS,
+  type Facet,
+  type FacetConfig,
+  FILTER_FACETS,
+  MORE_FACETS,
+  type TaskFiltersSheetProps,
+  useTaskFilterFacets,
+} from './task-filter-facets'
 
-const ANY = '__any__'
+export type { TaskFiltersSheetProps } from './task-filter-facets'
 
-type Facet = 'assignedTo' | 'priority' | 'status' | 'stage' | 'ordering'
-
-interface FacetConfig {
-  label: string
-  value: string
-  options: readonly NativePickerOption[]
-  apply: (value: string) => void
-}
-
-/**
- * THE TASK FILTERS SHEET. Assigned to (on a shared instance) and Agent tasks
- * are the member's own saved filters, the same ones the web's Filter menu
- * writes (POD-6294, POD-6297); the other facets belong to this screen. The
- * head counts what differs from Reset (your own tasks, agent tasks hidden) and
- * Reset puts all of it back.
- */
-export function TaskFiltersSheet({
-  visible,
-  filter,
-  ordering,
-  showAgentTasks,
-  assignedTo = 'me',
-  roster,
-  count,
-  onFilter,
-  onOrdering,
-  onShowAgentTasks,
-  onAssignedTo,
-  onReset,
-  onClose,
-}: {
-  visible: boolean
-  filter: BoardFilter
-  ordering: IssuesOrdering
-  showAgentTasks: boolean
-  assignedTo?: IssuesAssignedTo
-  roster?: Pick<MemberRoster, 'shared' | 'members' | 'currentMemberId' | 'nameOf'> | undefined
-  /** Filters that differ from Reset; defaults to the sheet's own facets. */
-  count?: number
-  onFilter: (filter: BoardFilter) => void
-  onOrdering: (ordering: IssuesOrdering) => void
-  onShowAgentTasks: (show: boolean) => void
-  onAssignedTo?: (assignedTo: IssuesAssignedTo) => void
-  onReset?: () => void
-  onClose: () => void
-}) {
-  const shared = roster?.shared === true && onAssignedTo !== undefined
-  const others = shared
-    ? (roster?.members ?? []).filter((member) => member.id !== roster?.currentMemberId)
-    : []
+export function TaskFiltersSheet(props: TaskFiltersSheetProps) {
+  const { visible, filter, showDone, showAgentTasks, onShowDone, onShowAgentTasks, onClose } = props
   const [step, setStep] = useState<Facet | null>(null)
-  const set = <K extends keyof BoardFilter>(key: K, value: BoardFilter[K] | undefined) => {
-    const next: BoardFilter = { ...filter }
-    if (value === undefined) delete next[key]
-    else Object.assign(next, { [key]: value })
-    onFilter(next)
-  }
-  const assignedToConfig: FacetConfig = {
-    label: 'Assigned to',
-    value: assignedTo,
-    options: [
-      { value: 'me', label: 'Me' },
-      { value: 'all', label: 'All users' },
-      ...others.map((member) => ({
-        value: member.id,
-        label: memberDisplayName(roster, member.id),
-      })),
-    ],
-    apply: (value) => onAssignedTo?.(value),
-  }
-  const facets: Record<Exclude<Facet, 'assignedTo'>, FacetConfig> = {
-    priority: {
-      label: 'Priority',
-      value: filter.priority == null ? ANY : String(filter.priority),
-      options: [
-        { value: ANY, label: 'Any priority' },
-        ...[0, 1, 2, 3, 4].map((value) => ({ value: String(value), label: `P${value}` })),
-      ],
-      apply: (value) => set('priority', value === ANY ? undefined : Number(value)),
-    },
-    status: {
-      label: 'State',
-      value: filter.status ?? ANY,
-      options: [
-        { value: ANY, label: 'Any state' },
-        { value: 'open', label: 'Open' },
-        { value: 'closed', label: 'Closed' },
-        { value: 'ready', label: 'Ready' },
-        { value: 'blocked', label: 'Blocked' },
-        { value: 'deferred', label: 'Deferred' },
-      ],
-      apply: (value) =>
-        set('status', value === ANY ? undefined : (value as NonNullable<BoardFilter['status']>)),
-    },
-    stage: {
-      label: 'Status',
-      value: filter.stage ?? ANY,
-      options: [
-        { value: ANY, label: 'Any status' },
-        ...ALL_ISSUE_STATUSES.map((value) => ({ value, label: ISSUE_STATUS_LABELS[value] })),
-      ],
-      apply: (value) => set('stage', value === ANY ? undefined : (value as IssueStatus)),
-    },
-    ordering: {
-      label: 'Order',
-      value: ordering,
-      options: [
-        { value: 'priority', label: 'Priority' },
-        { value: 'updated', label: 'Recently updated' },
-        { value: 'created', label: 'Recently created' },
-      ],
-      apply: (value) => onOrdering(value as IssuesOrdering),
-    },
-  }
-  const configs: Partial<Record<Facet, FacetConfig>> = shared
-    ? { assignedTo: assignedToConfig, ...facets }
-    : facets
+  const { configs, set, reset, activeCount } = useTaskFilterFacets(props)
   const current = step ? (configs[step] ?? null) : null
-  const activeCount = count ?? Object.keys(filter).filter((key) => key !== 'text').length
-
   const close = () => {
     setStep(null)
     onClose()
@@ -158,7 +48,7 @@ export function TaskFiltersSheet({
             </PressableScale>
           ) : null}
           <View style={styles.headCopy}>
-            <Text style={styles.title}>{current?.label ?? 'Task filters'}</Text>
+            <Text style={styles.title}>{current?.label ?? 'Filter and display'}</Text>
             {!current && activeCount > 0 ? (
               <Text style={styles.summary}>{activeCount} active</Text>
             ) : null}
@@ -166,13 +56,11 @@ export function TaskFiltersSheet({
           {!current && activeCount > 0 ? (
             <PressableScale
               accessibilityRole="button"
-              accessibilityLabel="Clear all task filters"
-              onPress={() =>
-                onReset ? onReset() : onFilter(filter.text ? { text: filter.text } : {})
-              }
+              accessibilityLabel="Reset task filters"
+              onPress={reset}
               style={styles.clear}
             >
-              <Text style={styles.clearText}>Clear all</Text>
+              <Text style={styles.clearText}>Reset</Text>
             </PressableScale>
           ) : null}
         </View>
@@ -188,50 +76,61 @@ export function TaskFiltersSheet({
           }}
         />
       ) : (
-        <View style={styles.group}>
-          {(Object.keys(configs) as Facet[]).map((facet, index) => {
-            const config = configs[facet]
-            if (!config) return null
-            return (
-              <NativePicker
-                key={facet}
-                label={config.label}
-                options={config.options}
-                selected={config.value}
-                onSelect={config.apply}
-                onOpenFallback={() => setStep(facet)}
-              >
-                {(onPress) => (
-                  <FilterRow
-                    label={config.label}
-                    value={optionLabel(config)}
-                    divider={index > 0}
-                    onPress={onPress}
-                  />
-                )}
-              </NativePicker>
-            )
-          })}
-          <ToggleRow
-            label="Archived"
-            value={filter.archived === true}
-            onChange={(value) => set('archived', value || undefined)}
-          />
-          <ToggleRow
-            label="Deleted"
-            value={filter.deleted === true}
-            onChange={(value) => set('deleted', value || undefined)}
-          />
-          <ToggleRow
-            label="Agent tasks"
-            hint="Show internal work at the top level"
-            value={showAgentTasks}
-            onChange={onShowAgentTasks}
-          />
+        <View style={styles.groups}>
+          <View style={styles.group}>
+            {FILTER_FACETS.filter((facet) => configs[facet]).map(renderFacet)}
+          </View>
+          <View style={styles.group}>
+            {DISPLAY_FACETS.map(renderFacet)}
+            <ToggleRow label="Show done" value={showDone} onChange={onShowDone} />
+            <ToggleRow
+              label="Show agent tasks"
+              hint="Internal work at the top level"
+              value={showAgentTasks}
+              onChange={onShowAgentTasks}
+            />
+          </View>
+          <View style={styles.group}>
+            {MORE_FACETS.map(renderFacet)}
+            <ToggleRow
+              label="Archived"
+              value={filter.archived === true}
+              onChange={(value) => set('archived', value || undefined)}
+            />
+            <ToggleRow
+              label="Deleted"
+              value={filter.deleted === true}
+              onChange={(value) => set('deleted', value || undefined)}
+            />
+          </View>
         </View>
       )}
     </BottomSheet>
   )
+
+  function renderFacet(facet: Facet, index: number) {
+    const config = configs[facet]
+    if (!config) return null
+    return (
+      <NativePicker
+        key={facet}
+        label={config.label}
+        options={config.options}
+        selected={config.value}
+        onSelect={config.apply}
+        onOpenFallback={() => setStep(facet)}
+      >
+        {(onPress) => (
+          <FilterRow
+            label={config.label}
+            value={optionLabel(config)}
+            divider={index > 0}
+            onPress={onPress}
+          />
+        )}
+      </NativePicker>
+    )
+  }
 }
 
 function optionLabel(config: FacetConfig): string {
@@ -347,6 +246,7 @@ const styles = StyleSheet.create({
   summary: { ...mono(400), color: color.textFaint, fontSize: font.micro },
   clear: { minHeight: 44, justifyContent: 'center', paddingHorizontal: space.sm },
   clearText: { ...sans(500), color: color.accentTint, fontSize: font.small },
+  groups: { gap: space.md },
   group: {
     overflow: 'hidden',
     borderRadius: radius.lg,

@@ -29,17 +29,18 @@
  *
  * Platform-neutral: no DOM, no storage.
  */
-import type { AgentKind, HostMetricsWire, MachineQuotaWire, MachineId } from '@podium/model'
+import type { AgentKind, HostMetricsWire, MachineId, MachineQuotaWire } from '@podium/model'
 import type { HarnessDescriptorWire } from '@podium/protocol'
+import { type HostLoadView, hostLoadView } from './compose/machines/facts'
 import {
   type AccountQuotaGroup,
   agentLabel,
   formatReset,
   groupQuotaByAccount,
   type QuotaTone,
+  quotaExhausted,
   splitQuotaWindows,
 } from './quota'
-import { type HostLoadView, hostLoadView } from './compose/machines/facts'
 
 /** One pool's runway: its own tightest gating window, reported as spend. */
 export interface QuotaRunway {
@@ -56,9 +57,6 @@ export interface QuotaRunway {
   windowMinutes: number
 }
 
-/** Above this a pool has nothing left to give — the same line `quotaVerdict` draws. */
-const SPENT_PERCENT = 90
-
 /** The host closest to its parking threshold. */
 export interface TightestLoad extends HostLoadView {
   hostname: string
@@ -67,7 +65,8 @@ export interface TightestLoad extends HostLoadView {
 
 export interface CapacityView {
   tone: QuotaTone
-  /** Three words at most — the answer, before any number. */
+  /** A few words — the answer, before any number. Never "Room to run" while a
+   *  pool is out: see `roomHeadline`. */
   headline: string
   /** Which reading the headline came from. */
   constraint: 'quota' | 'load' | 'unknown'
@@ -215,7 +214,7 @@ export function capacityView(args: {
   const groups = groupQuotaByAccount([...(args.machines ?? [])])
   const pools = quotaRunways(groups, args.served)
   const quota = pools[0] ?? null
-  const spentPools = pools.filter((p) => p.usedPercent > SPENT_PERCENT)
+  const spentPools = pools.filter((p) => quotaExhausted(p.usedPercent))
   const hosts = loadRunways(args.hosts, args.loadPerCore)
   const load = hosts[0] ?? null
   const busiest = hosts[hosts.length - 1] ?? null
@@ -247,7 +246,7 @@ export function capacityView(args: {
     }
   }
 
-  const caveat = capacityCaveat({ quota, spentPools, load, busiest, nowMs: args.nowMs })
+  const caveat = capacityCaveat({ quota, pools, spentPools, load, busiest, nowMs: args.nowMs })
 
   // WITH NOTHING NEAR A LIMIT there is no "tighter" of the two worth naming —
   // a host at 20% of its park line is not a constraint, it is a Tuesday. The
@@ -256,7 +255,7 @@ export function capacityView(args: {
   if (tone === 'ok' && quota) {
     return {
       tone,
-      headline: HEADLINES[tone],
+      headline: roomHeadline(spentPools, pools),
       constraint: 'quota',
       lead: 'Nothing you can start on is near a limit.',
       detail: quotaDetail(quota, pools.length, args.nowMs),
@@ -305,6 +304,27 @@ export function capacityView(args: {
 }
 
 /**
+ * THE OK HEADLINE NAMES WHAT IS OUT [POD-2385]. "Room to run" above a spent
+ * Codex read as "everything is fine" to someone deciding where to launch, and
+ * the caveat that said otherwise sat in smaller type below it. The answer still
+ * speaks for the roomiest pool — tone stays `ok`, the detail still names it —
+ * but the headline only claims unqualified room when no pool the fleet can
+ * launch on is out.
+ */
+function roomHeadline(spentPools: readonly QuotaRunway[], pools: readonly QuotaRunway[]): string {
+  const [only, ...rest] = spentPools
+  if (!only) return HEADLINES.ok
+  if (rest.length > 0) return `${spentPools.length} accounts out`
+  return `${poolLabel(only, pools)} is out`
+}
+
+function poolLabel(pool: QuotaRunway, pools: readonly QuotaRunway[]): string {
+  return pools.filter((p) => p.agent === pool.agent).length > 1
+    ? `One ${pool.agentName} account`
+    : pool.agentName
+}
+
+/**
  * The quota half of the sentence. With more than one pool the figure is not
  * "the" quota but the best of several, and saying so keeps the reader from
  * reading it as the whole fleet's state — the spent ones are in the caveat.
@@ -325,6 +345,7 @@ function quotaDetail(quota: QuotaRunway, poolCount: number, nowMs: number): stri
 function capacityCaveat(args: {
   quota: QuotaRunway | null
   spentPools: QuotaRunway[]
+  pools: QuotaRunway[]
   load: TightestLoad | null
   busiest: TightestLoad | null
   nowMs: number
@@ -332,16 +353,14 @@ function capacityCaveat(args: {
   const parts: string[] = []
   const { quota, spentPools, load, busiest } = args
   const [firstSpent, ...restSpent] = spentPools
-  if (quota && quota.usedPercent <= SPENT_PERCENT && firstSpent) {
+  if (quota && !quotaExhausted(quota.usedPercent) && firstSpent) {
     if (restSpent.length === 0) {
       // One pool out: say when it comes back, which is the only thing left to
       // decide about it.
       const back = formatReset(firstSpent.resetsAt, args.nowMs)
-      parts.push(`${firstSpent.agentName} is out${back ? ` — ${back}` : ''}.`)
+      parts.push(`${poolLabel(firstSpent, args.pools)} is out${back ? ` — ${back}` : ''}.`)
     } else {
-      const names = [firstSpent, ...restSpent].map((p) => p.agentName)
-      const last = names[names.length - 1]
-      parts.push(`${names.slice(0, -1).join(', ')} and ${last} are out.`)
+      parts.push(`${spentPools.length} accounts are out.`)
     }
   }
   if (load && busiest && load.meterPct < 100 && busiest.meterPct >= 100) {

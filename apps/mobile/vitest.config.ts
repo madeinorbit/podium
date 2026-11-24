@@ -168,8 +168,13 @@ export default defineConfig({
     // fix, instead of react-native-web's `useContext` of null. See that file.
     setupFiles: [
       ...sharedSetupFiles,
+      fileURLToPath(new URL('./test/navigation.ts', import.meta.url)),
       fileURLToPath(new URL('./test/one-react.ts', import.meta.url)),
     ],
+    // The real 4x WorkScreen corpus exceeds Node's default 2 GB heap during
+    // active search. Bound the mobile worker at 4 GB so the whole file runs;
+    // validation admission still controls worker concurrency.
+    execArgv: ['--max-old-space-size=4096'],
     environment: 'happy-dom',
     include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts', 'plugins/**/*.test.ts'],
     passWithNoTests: false,

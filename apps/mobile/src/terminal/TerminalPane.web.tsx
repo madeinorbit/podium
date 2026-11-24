@@ -10,12 +10,11 @@ import {
 import { useTerminalReferences } from '../client/use-terminal-references'
 import { Icon } from '../components/Icon'
 import { Mic } from '../components/icons'
-import { color, font, mono, sans, space } from '../theme/theme'
+import { color, font, mono } from '../theme/theme'
 import { LEGACY_MOBILE_KEYBOARD_THEME, MOBILE_APPEARANCE } from './terminal-appearance'
 import {
   type TerminalControlState,
   type TerminalControlView,
-  terminalControlCopy,
   terminalControlView,
 } from './terminal-control'
 import { terminalStatusLine } from './terminal-status'
@@ -145,7 +144,6 @@ export function TerminalPane({
     onControlStateRef.current?.({ ...controlView, ready, takeControl })
   }, [controlView, ready, takeControl])
 
-  const controlCopy = terminalControlCopy({ ...controlView, ready, takeControl })
   // Four waits, four sentences, at most one on screen at a time — the decision
   // (and each sentence's reason for existing) lives in ./terminal-status so the
   // native pane's DOM component speaks the identical words.
@@ -154,16 +152,6 @@ export function TerminalPane({
   return (
     <View style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
       {status !== null ? <Text style={statusStyle}>{status}</Text> : null}
-      {/* WHY THE FRAME IS TOO WIDE, AND WHO CAN CHANGE THAT (POD-724). A
-          spectator is looking at the DESK's grid, cropped to this screen —
-          without a word for it the operator reads a broken layout rather than a
-          deliberate one, and the header action reads as a mystery button. The
-          line appears with the attach and then only ever changes its TEXT: a
-          caption that came and went would resize this flex column, and the one
-          moment it would do so is the takeover that is already resizing the PTY. */}
-      {connected && !spawnPending && ready ? (
-        <Text style={captionStyle}>{controlCopy.caption}</Text>
-      ) : null}
       {/* `minHeight: 0` (the desktop AgentPanel's `min-h-0`) lets this flex child
           SHRINK to the viewport. The old `minHeight: 260` floor meant a short
           phone screen could not contain the pane and the agent frame ran off the
@@ -203,14 +191,4 @@ const statusStyle = {
   color: color.textDim,
   fontSize: font.small,
   padding: 12,
-} as const
-
-// Chrome, not terminal output: sans and the micro step, so it reads as the
-// app talking about the grid rather than as another line printed into it.
-const captionStyle = {
-  ...sans(400),
-  color: color.textFaint,
-  fontSize: font.micro,
-  paddingHorizontal: space.md,
-  paddingVertical: 6,
 } as const

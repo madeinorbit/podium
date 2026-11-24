@@ -6,6 +6,7 @@ import {
   publishDemoSlice,
 } from '@podium/client-core/demo'
 import { useSocketHub } from '@podium/client-core/react'
+import { startupTiming } from '../lib/startup-timing'
 
 /**
  * THE MOBILE COMPOSITION ROOT — bootstrap, and nothing else (POD-332).
@@ -116,6 +117,7 @@ import { makePlatformSocketLogin } from './native-websocket'
 import { createPlatformConnectivity } from './platform-connectivity'
 import { platformFeedChannel } from './platform-feed-channel'
 import { useOptionalServerProfile } from './ServerProfileGate'
+import { noScreenFocus } from './screen-read-focus'
 import {
   completePendingProfileCleanup,
   loadPendingProfileCleanups,
@@ -123,6 +125,7 @@ import {
 } from './server-profiles'
 import type { MobileShell, NoticeTone } from './shell'
 import { MobileShellSurface, useShellErrorChannel } from './shell-surface'
+import { watchWorkspaceResume } from './workspace-refresh'
 
 const log = createLogger('mobile:replica')
 const followLog = createLogger('mobile:server-follow')
@@ -264,6 +267,7 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
   const principal = deps.principal ?? MOBILE_REPLICA_PRINCIPAL
   const clientPrincipal =
     deps.clientPrincipal ?? parseReplicaNamespaceKey(principal)?.memberId ?? principal
+  startupTiming.mark('replica.assembly.start')
   const assembly = await openReplicaAssembly({
     ...deps,
     principal,
@@ -273,6 +277,7 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
       enumerateKeys: deps.enumerateKeys ?? (() => []),
       flush: deps.flushStorage,
       basePrefix: REPLICA_KEY_PREFIX,
+      recoverInterruptedDraftUploads: Platform.OS !== 'web',
     },
     onDegraded: (detail) => {
       const report = detail as { kind?: string; notice?: string }
@@ -284,6 +289,15 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     },
     onAuthExpired: deps.onAuthExpired,
   })
+  startupTiming.mark('replica.assembly.end')
+  const noteProgress = () => {
+    const snapshot = assembly.progress.getSnapshot()
+    startupTiming.mark(`sync.${snapshot.phase}`)
+    if (snapshot.rowsSeen > 0) startupTiming.mark('sync.first-rows')
+    if (!snapshot.blocking) startupTiming.mark('sync.usable')
+  }
+  noteProgress()
+  const stopTiming = assembly.progress.subscribe(noteProgress)
   let relay: ReturnType<typeof createFeedRelay> | undefined
   try {
     if (deps.broadcastChannelFactory)
@@ -293,6 +307,7 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
         createChannel: deps.broadcastChannelFactory,
       })
   } catch (error) {
+    stopTiming()
     await assembly.dispose()
     throw error
   }
@@ -301,6 +316,7 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     await assembly.erasePrincipalData()
   }
   const dispose = async () => {
+    stopTiming()
     relay?.dispose()
     await assembly.dispose()
   }
@@ -439,6 +455,7 @@ function DemoProvider({ children }: { children: ReactNode }) {
       principal={asClientPrincipal(DEMO_PRINCIPAL)}
       createReplicaFn={createReplicaFn}
       routerWindow={routerWindow}
+      screenFocus={noScreenFocus}
       attachRuntime={(runtime) => attachMobilePool(runtime, (cause) => reportError(cause.message))}
     >
       <DemoSlicePublisher replica={demoReplica} />
@@ -513,6 +530,7 @@ function demoTrpc(): MobileTrpc {
 /** The same connection observers as web, with the phone's platform plugs. */
 function MobileHubAttach({
   connectivity,
+  syncProgress,
   networkEnabled,
   onDisconnected,
   httpOrigin,
@@ -522,6 +540,7 @@ function MobileHubAttach({
   signIn,
 }: {
   connectivity: NativeConnectivity | undefined
+  syncProgress: MobileSyncProgressStore
   networkEnabled: boolean
   onDisconnected: () => void
   httpOrigin: string
@@ -554,6 +573,7 @@ function MobileHubAttach({
       },
       report: onVersionNotice,
     })
+    const stopResume = connectivity && watchWorkspaceResume(syncProgress.shared, connectivity)
     const stop = observeLiveConnection(hub, {
       connectivity,
       wakeSource: Platform.OS === 'web' ? browserWakeSource() : undefined,
@@ -565,9 +585,19 @@ function MobileHubAttach({
     })
     return () => {
       stop()
+      stopResume?.()
       version.dispose()
     }
-  }, [connectivity, hub, networkEnabled, onDisconnected, httpOrigin, bearer, onVersionNotice])
+  }, [
+    connectivity,
+    hub,
+    networkEnabled,
+    onDisconnected,
+    httpOrigin,
+    bearer,
+    onVersionNotice,
+    syncProgress,
+  ])
   return null
 }
 
@@ -797,6 +827,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
           })
     const stopBoot = startReplicaBoot<OpenedAssembly>({
       open: async () => {
+        startupTiming.mark('replica.boot.start')
         if (Platform.OS === 'web')
           await mobileBrowserAccounts(
             config.httpOrigin,
@@ -804,7 +835,9 @@ function LiveProvider({ children }: { children: ReactNode }) {
             config.workspaceSlug,
           ).drain()
         const [bridge, status, pendingCleanups] = await Promise.all([
-          createAsyncStorageReplicaStorage(AsyncStorage, [REPLICA_KEY_PREFIX]),
+          startupTiming.measure('replica.side-cache', () =>
+            createAsyncStorageReplicaStorage(AsyncStorage, [REPLICA_KEY_PREFIX]),
+          ),
           inheritedAuthStatus ??
             fetchAuthStatus(config.httpOrigin, bearer, config.workspaceId).catch(
               async (cause: unknown) => {
@@ -853,11 +886,13 @@ function LiveProvider({ children }: { children: ReactNode }) {
           // to async open/delete; keeping that experiment outside this
           // composition root also keeps each shipped bundle on one engine.
           openStore: () =>
-            openMobileEntityStore(MOBILE_REPLICA_DB, (cause) =>
-              setNotice({
-                message: `Offline changes may not survive a restart on this device (${cause}).`,
-                tone: 'warning',
-              }),
+            startupTiming.measure('replica.sqlite', () =>
+              openMobileEntityStore(MOBILE_REPLICA_DB, (cause) =>
+                setNotice({
+                  message: `Offline changes may not survive a restart on this device (${cause}).`,
+                  tone: 'warning',
+                }),
+              ),
             ),
           // The same client the store gets, so the queue sends through the
           // transport the rest of the app is authenticated on (POD-2073).
@@ -906,6 +941,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
       onCleanupError: (cause) => log.warn('replica cleanup failed', { cause }),
       onState: (state) => {
         if (state.status === 'ready') {
+          startupTiming.mark('replica.boot.end')
           replicaForCleanup = state.value.replica
           openedPrincipalRef.current = state.value.replica.principal
           setAssembly(state.value)
@@ -1049,6 +1085,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
       networkEnabled={assembly.networkEnabled}
       makeSocket={makeSocket}
       routerWindow={routerWindow}
+      screenFocus={noScreenFocus}
       // Visibility, connectivity and ping cadence, from the platform rather
       // than from browser globals a phone does not have (POD-2055 WP-C).
       // Empty on web, which keeps every DOM default.
@@ -1056,6 +1093,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
     >
       <MobileHubAttach
         connectivity={connectivity}
+        syncProgress={openedReplica.syncProgress}
         networkEnabled={networkEnabled}
         onDisconnected={verifyLiveCredential}
         httpOrigin={config.httpOrigin}
@@ -1067,6 +1105,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
       <MobileShellSurface value={shell}>
         <MobileSyncBoundary
           store={openedReplica.syncProgress}
+          visibility={connectivity?.visibility}
           onRetry={openedReplica.syncProgress.retry}
         >
           {children}

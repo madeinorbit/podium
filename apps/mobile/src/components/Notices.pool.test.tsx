@@ -2,10 +2,11 @@ import { Outbox, type OutboxEntry } from '@podium/client-core/outbox'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import { SyncProgressStore } from '@podium/client-core/replica-assembly'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { messageNotices, pendingInteractionCards } from '@podium/client-core/values'
-import { asMutationId, asSessionId, asUserId } from '@podium/model'
+import { asIssueId, asMutationId, asSessionId, asUserId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { cloneElement } from 'react'
 import { Alert } from 'react-native'
@@ -14,6 +15,7 @@ import { noticeFixture } from '../../../../tests/worklist/diagnostics/notice-fix
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
 import type { MobilePool } from '../client/mobile-pool'
+import { WorkspaceSyncContext } from '../client/workspace-refresh'
 
 const state = vi.hoisted(() => ({ host: undefined as MobilePool | undefined, push: vi.fn() }))
 vi.mock('../client/mobile-pool', async (importOriginal) => {
@@ -47,7 +49,6 @@ vi.mock('../client/ServerProfileGate', () => ({
 }))
 
 const { createMobilePool } = await import('../client/mobile-pool')
-const { MessageNoticeBanner } = await import('./MessageNoticeBanner')
 const { PendingInteractionBand } = await import('./PendingInteractionBand')
 const { WorkspaceContinuityNotice } = await import('./WorkspaceContinuityNotice')
 const { OutboxRecoveryPanel } = await import('./OutboxRecoveryPanel')
@@ -59,7 +60,10 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function mount() {
+async function mount({ boot = false, recovery = true } = {}) {
+  const progress = new SyncProgressStore()
+  progress.begin(boot ? 'stale' : 'live')
+  if (!boot) progress.noteDisconnected()
   state.host = createMobilePool(false)
   const fixture = createHeaderFixture(3, 3),
     data = noticeFixture(),
@@ -147,7 +151,7 @@ async function mount() {
     sync: { submit: { mutate: submit } },
   })
   let queued: OutboxEntry[] = [],
-    parked: OutboxEntry[] = data.deadLetters.map((row) => ({
+    parked: OutboxEntry[] = (recovery ? data.deadLetters : []).map((row) => ({
       ...row.entry,
       state: 'dead-letter',
       deadLetter: {
@@ -185,12 +189,11 @@ async function mount() {
 
     seen.push(state.host!.host.usePool())
     return (
-      <>
-        <MessageNoticeBanner />
+      <WorkspaceSyncContext value={progress}>
         <PendingInteractionBand sessionId={sessionId} />
         <WorkspaceContinuityNotice />
         <OutboxRecoveryPanel />
-      </>
+      </WorkspaceSyncContext>
     )
   }
   const tree = (
@@ -235,13 +238,6 @@ async function mount() {
   const view = render(tree)
   await waitFor(
     () => {
-      expect(view.getByTestId('message-notice-banner').textContent).toContain(
-        'Synthetic unknown words',
-      )
-      expect(view.getByTestId('workspace-continuity-notice').textContent).toContain(
-        '5 changes need review',
-      )
-      expect(view.getAllByTestId('outbox-recovery-card')).toHaveLength(5)
       expect(view.getByText('Synthetic plan')).toBeTruthy()
     },
     { timeout: 5000 },
@@ -256,12 +252,15 @@ async function mount() {
     answer,
     evict,
     seen,
+    progress,
     switchSession(next: string) {
       sessionId = asSessionId(next)
       view.rerender(cloneElement(tree, { children: <Surface /> }))
     },
     connect(next: boolean) {
       connected = next
+      if (next) progress.noteReady()
+      else progress.noteDisconnected()
       // This fixture disables the network feed, so publish its condition at
       // the same LiveStore boundary the feed owns in the running client.
       runtime.live.setConnection({ state: next ? 'online' : 'offline', since: Date.now() })
@@ -279,14 +278,54 @@ function expectPoolReadersOnly(runtime: ClientRuntime) {
   expect(pendingInteractionCards).not.toHaveBeenCalled()
 }
 
-it('preserves the accepted banners through pool attachment', async () => {
+it('preserves interaction and recovery notices without a floating message banner', async () => {
   const reactErrors = vi.spyOn(console, 'error')
   const enabled = await mount()
   expect(enabled.seen[0]).toBeNull()
   expect(enabled.seen.some((pool) => pool !== null)).toBe(true)
-  expect(enabled.view.getByTestId('message-notice-banner').textContent).toContain(
-    'Synthetic unknown words',
+  // D2/D3 preserve every ask and its accessible actions in decision tiles.
+  // Check that contract and the saved recovery words, rather than old HTML.
+  const tiles = enabled.view.getAllByTestId('pending-interaction')
+  expect(tiles).toHaveLength(12)
+  for (const title of [
+    'Input needed',
+    'Session blocked at startup',
+    'Session blocked',
+    'Sign-in needed',
+    'Plan awaiting approval',
+  ])
+    expect(enabled.view.getByText(title)).toBeTruthy()
+  expect(enabled.view.getAllByText('Question')).toHaveLength(5)
+  expect(enabled.view.getAllByText('Permission needed')).toHaveLength(2)
+  expect(
+    tiles
+      .flatMap((tile) =>
+        within(tile)
+          .queryAllByRole('button')
+          .map((button) => button.getAttribute('aria-label')),
+      )
+      .sort(),
+  ).toEqual(
+    [
+      'Decline',
+      'Resume the session',
+      'Resume from a summary',
+      'I signed in, retry',
+      'Stop waiting',
+      'Approve',
+      'Not yet',
+      'One',
+      'One',
+      'Two',
+      'Allow once',
+      'Always allow',
+      'Deny',
+    ].sort(),
   )
+  expect(enabled.view.getAllByTestId('outbox-recovery-card')).toHaveLength(5)
+  for (let index = 0; index < 5; index++)
+    expect(enabled.view.getByText(`Synthetic authored ${index}`)).toBeTruthy()
+  expect(enabled.view.queryByTestId('message-notice-banner')).toBeNull()
   expect(enabled.view.getAllByTestId('outbox-recovery-card')).toHaveLength(5)
   expect(enabled.view.getByText('Synthetic plan')).toBeTruthy()
   expect(enabled.errors).toEqual([])
@@ -294,7 +333,7 @@ it('preserves the accepted banners through pool attachment', async () => {
   expect(reactErrors.mock.calls).toEqual([])
 })
 
-it('reacts to message, session-label and ask updates without legacy work', async () => {
+it('reacts to ask updates without legacy work', async () => {
   const enabled = await mount()
   await act(async () => {
     enabled.fixture.patch('message', 'notice-message-2', { body: 'Updated synthetic message' })
@@ -303,9 +342,6 @@ it('reacts to message, session-label and ask updates without legacy work', async
     })
     enabled.fixture.activity(1)
   })
-  expect(enabled.view.getByTestId('message-notice-banner').textContent).toContain(
-    'Updated synthetic message',
-  )
   expect(enabled.view.getByText('Updated synthetic plan')).toBeTruthy()
   await act(async () =>
     enabled.fixture.patch('pendingInteraction', 'notice-ask-7', {
@@ -315,34 +351,14 @@ it('reacts to message, session-label and ask updates without legacy work', async
   expect(enabled.view.queryByText('Updated synthetic plan')).toBeNull()
   await act(async () => enabled.switchSession('synthetic-session-1'))
   expect(enabled.view.getByText('Updated synthetic plan')).toBeTruthy()
-  await act(async () => {
-    enabled.evict('message', 'notice-message-2')
-    enabled.fixture.patch('session', 'cold-notice-session', { title: 'Updated saved agent' })
-  })
-  expect(enabled.view.getByTestId('message-notice-banner').textContent).toContain(
-    'To Updated saved agent:',
-  )
   expectPoolReadersOnly(enabled.runtime)
   expect(enabled.errors).toEqual([])
 })
 
-it('keeps chat, settings, dismiss and typed-answer actions on the existing owner', async () => {
+it('keeps settings and typed-answer actions on the existing owner', async () => {
   const enabled = await mount()
-  fireEvent.click(enabled.view.getByRole('button', { name: 'Open the chat with a closed session' }))
-  expect(state.push).toHaveBeenCalledWith('/session/missing-session')
   fireEvent.click(enabled.view.getByTestId('workspace-continuity-notice'))
   expect(state.push).toHaveBeenCalledWith('/settings')
-
-  enabled.dismiss.mockRejectedValueOnce(new Error('Synthetic dismiss refusal'))
-  fireEvent.click(enabled.view.getByRole('button', { name: 'Dismiss this notice' }))
-  await waitFor(() => expect(enabled.view.getByText('Synthetic dismiss refusal')).toBeTruthy())
-  fireEvent.click(enabled.view.getByRole('button', { name: 'Dismiss this notice' }))
-  await waitFor(() =>
-    expect(enabled.view.getByTestId('message-notice-banner').textContent).toContain(
-      'To Saved agent:',
-    ),
-  )
-  expect(enabled.dismiss).toHaveBeenLastCalledWith({ id: 'notice-message-2' })
 
   enabled.answer.mockResolvedValueOnce({ ok: false, reason: 'Synthetic answer refusal' } as never)
   fireEvent.click(enabled.view.getByTestId('pending-interaction-action-approve'))
@@ -422,5 +438,63 @@ it('removes empty notices and retains the live offline status without snapshot s
   expect(enabled.view.getByTestId('workspace-continuity-notice').textContent).toBe(
     'Offline. Showing saved data for Synthetic server.Settings',
   )
+  expectPoolReadersOnly(enabled.runtime)
+})
+
+it('keeps the continuity banner quiet before the first hello, including a real queued write', async () => {
+  const enabled = await mount({ boot: true, recovery: false })
+  expect(enabled.progress.getSnapshot()).toMatchObject({ phase: 'reconnecting', attempt: 0 })
+  expect(enabled.view.queryByTestId('workspace-continuity-notice')).toBeNull()
+  await act(async () => {
+    await enabled.runtime.services.outbox.queue.enqueue('issueUpdate', {
+      id: asIssueId('offline-task'),
+      patch: { title: 'Keep my request' },
+    })
+  })
+  expect(enabled.runtime.services.outbox.queue.pending()).toHaveLength(1)
+  expect(enabled.runtime.live.outbox.pending).toBe(1)
+  expect(enabled.view.queryByTestId('workspace-continuity-notice')).toBeNull()
+  act(() => enabled.progress.beginAttempt())
+  expect(enabled.view.queryByTestId('workspace-continuity-notice')).toBeNull()
+  act(() => enabled.connect(true))
+  expect(enabled.view.queryByTestId('workspace-continuity-notice')).toBeNull()
+  expectPoolReadersOnly(enabled.runtime)
+})
+
+it.each([
+  'offline',
+  'error',
+] as const)('shows a real %s failure immediately without inventing a queued write', async (phase) => {
+  const enabled = await mount({ boot: true, recovery: false })
+  act(() => {
+    if (phase === 'offline') enabled.progress.noteDisconnected()
+    else enabled.progress.noteError('network', 'First connection failed')
+  })
+  expect(enabled.view.getByTestId('workspace-continuity-notice').textContent).toBe(
+    'Offline. Showing saved data for Synthetic server.Settings',
+  )
+  expect(enabled.runtime.services.outbox.queue.pending()).toHaveLength(0)
+  act(() => enabled.connect(true))
+  expect(enabled.view.queryByTestId('workspace-continuity-notice')).toBeNull()
+  expectPoolReadersOnly(enabled.runtime)
+})
+
+it('shows an actual queued write only while offline and hides it as soon as the socket connects', async () => {
+  const enabled = await mount({ boot: true, recovery: false })
+  await act(async () => {
+    await enabled.runtime.services.outbox.queue.enqueue('issueUpdate', {
+      id: asIssueId('offline-task'),
+      patch: { title: 'Keep my request' },
+    })
+    enabled.progress.noteDisconnected()
+  })
+  expect(enabled.runtime.services.outbox.queue.pending()).toHaveLength(1)
+  expect(enabled.view.getByTestId('workspace-continuity-notice').textContent).toContain(
+    '1 change is queued and will send when connected.',
+  )
+  act(() => enabled.connect(true))
+  // Pending HTTP receipts can outlive the handshake; they are not offline.
+  expect(enabled.runtime.services.outbox.queue.pending()).toHaveLength(1)
+  expect(enabled.view.queryByTestId('workspace-continuity-notice')).toBeNull()
   expectPoolReadersOnly(enabled.runtime)
 })
