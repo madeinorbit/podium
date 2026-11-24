@@ -27,6 +27,7 @@ import { basename, dirname, join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { fsyncPath } from '@podium/runtime/fsync'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { backupSeedBytes, backupSeedPath, hasBackupSeed, refreshFromSeed } from './backup-seed'
 
 const log = createLogger('server:migrations')
 
@@ -80,6 +81,11 @@ export interface BackupSpace {
   /** `needed` with the safety margin applied. */
   required: number
   available: number
+  /**
+   * Bytes already on disk that the backup takes over instead of adding: a published
+   * seed (`backup-seed.ts`) becomes the backup's main file in place.
+   */
+  reusable: number
 }
 
 /**
@@ -101,7 +107,13 @@ export function measureBackupSpace(
   for (const suffix of ['-wal', '-shm']) {
     if (existsSync(`${dbPath}${suffix}`)) needed += statSync(`${dbPath}${suffix}`).size
   }
-  return { dir, needed, required: Math.ceil(needed * PREFLIGHT_MARGIN), available: freeBytes(dir) }
+  return {
+    dir,
+    needed,
+    required: Math.ceil(needed * PREFLIGHT_MARGIN),
+    available: freeBytes(dir),
+    reusable: backupSeedBytes(dbPath),
+  }
 }
 
 /** The old server's answer before a restart: room for the boot backup, or why not. */
@@ -109,7 +121,7 @@ export type BackupPreflight = { ok: true } | { ok: false; detail: string }
 
 /** The refusal sentence when `space` cannot hold the backup, otherwise undefined. */
 export function backupSpaceShortfall(space: BackupSpace): string | undefined {
-  if (space.available >= space.required) return undefined
+  if (space.available + space.reusable >= space.required) return undefined
   return (
     `Not enough disk space for the pre-migration backup in ${space.dir}: ` +
     `need ~${space.required} bytes (database + sidecars + 10% margin), only ${space.available} bytes free. ` +
@@ -125,6 +137,11 @@ export function backupSpaceShortfall(space: BackupSpace): string | undefined {
  * `PRAGMA wal_checkpoint(TRUNCATE)` folded the WAL into the main file. The main
  * backup filename is published last, after every temporary copy has been
  * fsynced, so a mid-copy ENOSPC can never leave a truncated restorable file.
+ *
+ * A seed the old server wrote before the update (`backup-seed.ts`, POD-7576)
+ * becomes the main file's temporary copy and is brought level with the database
+ * by rewriting the pages that differ; the result is the same bytes a full copy
+ * would have written, published the same way.
  *
  * `freeBytes` and `prune` are injectable for focused failure tests.
  */
@@ -163,7 +180,13 @@ export function backupDatabase(
   try {
     for (const suffix of suffixes) {
       const temp = `${partialPath}${suffix}`
-      copyFileSync(`${dbPath}${suffix}`, temp)
+      if (suffix === '' && hasBackupSeed(dbPath)) {
+        renameSync(backupSeedPath(dbPath), temp)
+        const refreshed = refreshFromSeed(dbPath, temp)
+        log.info('pre-migration backup refreshed from its seed', { path: backupPath, ...refreshed })
+      } else {
+        copyFileSync(`${dbPath}${suffix}`, temp)
+      }
       fsyncPath(temp)
     }
 

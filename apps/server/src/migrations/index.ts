@@ -30,6 +30,7 @@ import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
 import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { backupDatabase, freeDiskBytes, measureBackupSpace } from './backup'
+import { discardBackupSeed } from './backup-seed'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import {
   folderMillis,
@@ -214,18 +215,25 @@ export function runDrizzleMigrations(
     )
   }
 
+  const filePath = opts.dbPath === ':memory:' ? undefined : opts.dbPath
   if (pending.length === 0) {
+    // A seed the old server wrote for a backup this boot does not take (the
+    // release carried no migration, or an earlier boot already applied them) is
+    // a database-sized file nothing will read (`backup-seed.ts`).
+    if (filePath !== undefined) discardBackupSeed(filePath)
     if (opts.skipSchemaRepair !== true) reportRepairs(db)
     return []
   }
 
   // Snapshot before schema work. A retry with only retirement deferred keeps
   // the original pre-upgrade snapshot instead of ageing it out of retention.
-  if (opts.dbPath !== undefined && opts.dbPath !== ':memory:' && hasAnyDataTable(db)) {
-    refuseWithoutFreeSpace(db, opts.dbPath, opts.freeBytes ?? freeDiskBytes, opts.update?.grantId)
+  if (filePath !== undefined && hasAnyDataTable(db)) {
+    refuseWithoutFreeSpace(db, filePath, opts.freeBytes ?? freeDiskBytes, opts.update?.grantId)
     const backupStarted = performance.now()
-    backupDatabase(db, opts.dbPath, `drizzle-${applied.size}`)
+    backupDatabase(db, filePath, `drizzle-${applied.size}`)
     bootStage('backup', backupStarted)
+  } else if (filePath !== undefined) {
+    discardBackupSeed(filePath)
   }
 
   const client = bunSqliteClient(db)
@@ -338,7 +346,7 @@ function refuseWithoutFreeSpace(
   // checks read one number; the backup itself still asks for its copy with a margin.
   const space = measureBackupSpace(dbPath, freeBytes)
   const required = Math.ceil(UPGRADE_SPACE_FACTOR * space.needed)
-  if (space.available >= required) return
+  if (space.available + space.reusable >= required) return
   log.warn('refusing the upgrade: not enough free disk space', { dbPath, ...space })
   const reason =
     `Podium cannot upgrade its database: there is not enough free disk space. The upgrade ` +
