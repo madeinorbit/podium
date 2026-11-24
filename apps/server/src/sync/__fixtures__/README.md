@@ -17,3 +17,12 @@ are included: only `meta['settings']` is needed. Tests replay the inputs in a fr
 and compare JSON bytes, trigger text, capture identities and tokens directly to the frozen
 outputs. They also retain the wrong-answer mutation check. The fixture has no automatic
 snapshot-update path.
+
+`kind-tokens.json` separately pins every current token, using the original generations
+and served effect kinds. Collection predicates became fingerprint inputs in `73a902e8a2`,
+so an unchanged-token comparison with the original oracle is no longer valid. Harness
+enums, credential schemas and the new record kinds have also changed since that capture.
+Regenerate this golden with
+`bun --conditions=@podium/source apps/server/scripts/update-kind-token-fixture.ts`, then
+review the schema, code-input and collection-rule changes behind the token diff. This
+does not rewrite the frozen record bytes or capture evidence.

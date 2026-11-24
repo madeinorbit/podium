@@ -389,7 +389,8 @@ export class SessionAuthz {
     )
     if (missing.length === 0) return
     const rows = await this.ports.store.sessions.getSessions(missing)
-    const owners = (memo.sessions ??= new Map())
+    memo.sessions ??= new Map()
+    const owners = memo.sessions
     for (const id of missing) owners.set(id, rows.get(id) ?? null)
   }
 

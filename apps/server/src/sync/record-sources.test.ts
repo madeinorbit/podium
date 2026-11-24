@@ -59,6 +59,7 @@ import { testStoreEngine } from '../test-support/pg-test-database'
 import { seedRows } from '../test-support/seed-rows'
 import { quietShipping } from '../test-support/statement-count'
 import type { WriteContexts } from '../write-contexts'
+import currentTokens from './__fixtures__/kind-tokens.json'
 import frozen from './__fixtures__/one-row-oracles.json'
 import { captureTriggerStatements, installChangeCapture } from './capture-triggers'
 import { readKindTokens } from './kind-tokens'
@@ -553,7 +554,7 @@ describe('record sources (POD-6920)', () => {
   // The frozen evidence was captured on SQLite (`__fixtures__/README.md`) and is
   // replayed with SQLite's deferred foreign keys: the group runs on SQLite. The
   // record bytes on Postgres are held by record-payloads.pg.test.ts (POD-7118).
-  describe.runIf(testStoreEngine() !== 'pg')('one-row generation (POD-7091)', () => {
+  describe('one-row generation (POD-7091)', { skip: testStoreEngine() === 'pg' }, () => {
     const after = serverRecordBuilders()
     const kinds = Object.keys(frozen.records) as (keyof typeof frozen.records &
       keyof typeof ROW_RECORDS)[]
@@ -565,8 +566,8 @@ describe('record sources (POD-6920)', () => {
      * WHAT CREDENTIAL MANAGEMENT CHANGED SINCE THE ORACLE (POD-6857), each named, so
      * everything else stays byte-equal to it. The instance record gained the daemon
      * link's trusted networks; the session rows gained their credential columns,
-     * which its capture trigger watches; and the wire schemas of these kinds gained
-     * fields, which moves their shape tokens.
+     * which its capture trigger watches. Shape tokens have their own current golden
+     * below: collection predicates became fingerprint inputs after this oracle.
      */
     const sinceTheOracle = (kind: string, recordBytes: string): string =>
       kind === 'instancePreferences'
@@ -576,21 +577,8 @@ describe('record sources (POD-6920)', () => {
       ' OR OLD."credential_id" IS NOT NEW."credential_id" OR OLD."effective_auth" IS NOT NEW."effective_auth" OR OLD."credential_mismatch" IS NOT NEW."credential_mismatch"'
     // The column the oracle watched and POD-7417 dropped with chat/CLI draft sync.
     const DRAFT_SYNC_ENGINE_WATCHED = ' OR OLD."draft_sync_engine" IS NOT NEW."draft_sync_engine"'
-    const SHAPES_CHANGED_SINCE_THE_ORACLE: Record<string, string> = {
-      effect: 'a schema its wire value nests gained credential management fields',
-      instancePreferences: "the daemon link's trusted networks",
-      machineAccess: 'a schema its wire value nests gained credential management fields',
-      session: 'the credential a session runs on, what it reported and the mismatch',
-      userPreferences: "a person's credential defaults per harness",
-      inboxNotice: 'declared after the oracle',
-      concertmasterEntry: 'declared after the oracle',
-    }
     /** The Concertmaster mark (POD-7211): a session column its capture trigger watches. */
     const CONCERTMASTER_COLUMN_WATCHED = ' OR OLD."concertmaster" IS NOT NEW."concertmaster"'
-    const withoutChangedShapes = (tokens: Record<string, string>) =>
-      Object.fromEntries(
-        Object.entries(tokens).filter(([kind]) => !(kind in SHAPES_CHANGED_SINCE_THE_ORACLE)),
-      )
     const bytes = (rows: readonly unknown[]) => JSON.stringify(rows)
     const byId = (streamed: string): string =>
       JSON.stringify(
@@ -769,16 +757,14 @@ describe('record sources (POD-6920)', () => {
         expect([...(await source.ids(changes, replay.reads))], kind).toEqual(expected.ids)
       }
     })
+  })
 
-    it('keeps all shape tokens unchanged', async () => {
-      const sync = { readKindGenerations: async () => frozen.generations } as Pick<
-        SyncRepository,
-        'readKindGenerations'
-      > as SyncRepository
-      expect(withoutChangedShapes(await readKindTokens(sync, frozen.effectKinds))).toEqual(
-        withoutChangedShapes(frozen.tokens),
-      )
-    })
+  it('pins every kind token for the current schemas, code inputs and collection rules', async () => {
+    const sync = { readKindGenerations: async () => frozen.generations } as Pick<
+      SyncRepository,
+      'readKindGenerations'
+    > as SyncRepository
+    expect(await readKindTokens(sync, frozen.effectKinds)).toEqual(currentTokens)
   })
 
   it('declares every kind the server builds, with at least one source', () => {

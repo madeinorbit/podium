@@ -383,7 +383,7 @@ describe('S1 session companion records', () => {
     expect(rows).toContainEqual(
       expect.objectContaining({
         id: f.store.hostMachine!.id,
-        name: 'Host',
+        name: 'Fixture machine',
         loggedOutHarnesses: ['codex'],
         custodian: f.A,
       }),
@@ -397,7 +397,7 @@ describe('S1 session companion records', () => {
     expect(await f.reg.changeLedger.authority.snapshot('machine')).toContainEqual(
       expect.objectContaining({
         id: f.store.hostMachine!.id,
-        name: 'Host',
+        name: 'Fixture machine',
         loggedOutHarnesses: [],
         custodian: f.A,
       }),

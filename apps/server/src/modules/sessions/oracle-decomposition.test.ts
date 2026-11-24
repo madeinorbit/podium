@@ -551,10 +551,7 @@ describe('oracle: spawn placement fails closed', () => {
   it(`${MUST_NOT_CHANGE}: denied and offline are distinct, neither spawns, and the same online machine succeeds when use is allowed`, async () => {
     const o = await makeOracle({
       machineId: asMachineId('online'),
-      offlineMachines: [
-        { id: asMachineId('online'), name: 'Online' },
-        { id: asMachineId('offline'), name: 'Offline' },
-      ],
+      offlineMachines: [{ id: asMachineId('offline'), name: 'Offline' }],
     })
     const sessions = async () =>
       (await o.reg.modules.sessions.listSessions(undefined, 'rpc')).length
@@ -568,7 +565,7 @@ describe('oracle: spawn placement fails closed', () => {
           use: () => 'denied',
         }),
       ),
-    ).toBe("you do not have access to run agents on machine 'Online'")
+    ).toBe("you do not have access to run agents on machine 'Fixture machine'")
     expect(await sessions()).toBe(0)
 
     expect(
