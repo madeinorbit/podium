@@ -368,3 +368,211 @@ describe('a to-many relation held through session.ofIssue', () => {
     expect(device.liveHolds(instance)).toBe(0)
   })
 })
+
+/**
+ * POD-7582 — the to-many relations that had nothing to hold. Each now holds
+ * a collection of its own (or, for the children of an issue, the tree the
+ * issue sits in): on an empty device it answers LOADING, asks for that
+ * instance, and then answers the member the policy never brought.
+ */
+describe('a to-many relation held through a collection of its own', () => {
+  interface HoldCase {
+    readonly from: EntityName
+    readonly source: string
+    /** The member the first download does not hold. */
+    readonly member: string
+    readonly world: (server: Server) => void
+    /** The instance the read asks for. */
+    readonly asks: string
+  }
+
+  /** A closed issue changed long ago, with `fields`: no policy collection holds it whole. */
+  const oldIssue = (server: Server, fields: Record<string, unknown>) =>
+    server.put(ISSUE, OLD_ISSUE, closedValue(OLD_ISSUE, { seq: 90, updatedAt: OLD, ...fields }))
+
+  /** A live session the first download holds, with `fields`. */
+  const liveSession = (server: Server, id: string) =>
+    server.put(
+      'session',
+      id,
+      session(id, { status: 'live', lastActiveAt: RECENT }) as Record<string, unknown>,
+    )
+
+  const CASES: Readonly<Record<string, HoldCase>> = {
+    // A sub-issue's children: its own subtree, not its top-level ancestor's tree.
+    'issue.children': {
+      from: 'issue',
+      source: 'mid',
+      member: OLD_ISSUE,
+      world: (server) => {
+        openIssue(server, 'top', {})
+        openIssue(server, 'mid', { parentId: 'top' })
+        oldIssue(server, { parentId: 'mid' })
+      },
+      asks: 'issueProjection.tree{"root":"mid"}',
+    },
+    'issue.treeChildren': {
+      from: 'issue',
+      source: 'top',
+      member: OLD_ISSUE,
+      world: (server) => {
+        openIssue(server, 'top', {})
+        oldIssue(server, { parentId: 'top' })
+      },
+      asks: 'issueProjection.tree{"root":"top"}',
+    },
+    'issue.bornSessions': {
+      from: 'issue',
+      source: 'i1',
+      member: OLD_SESSION,
+      world: (server) => {
+        openIssue(server, 'i1', {})
+        server.put(
+          'session',
+          OLD_SESSION,
+          session(OLD_SESSION, {
+            status: 'exited',
+            lastActiveAt: OLD,
+            refIssueId: 'i1',
+          }) as Record<string, unknown>,
+        )
+      },
+      asks: 'session.bornOf{"issueId":"i1"}',
+    },
+    'issue.supersededIssues': {
+      from: 'issue',
+      source: 'i1',
+      member: OLD_ISSUE,
+      world: (server) => {
+        openIssue(server, 'i1', {})
+        oldIssue(server, { supersededBy: 'i1' })
+      },
+      asks: 'issueProjection.supersededBy{"issueId":"i1"}',
+    },
+    'issue.duplicateIssues': {
+      from: 'issue',
+      source: 'i1',
+      member: OLD_ISSUE,
+      world: (server) => {
+        openIssue(server, 'i1', {})
+        oldIssue(server, { duplicateOf: 'i1' })
+      },
+      asks: 'issueProjection.duplicateOf{"issueId":"i1"}',
+    },
+    'issue.spinOffs': {
+      from: 'issue',
+      source: 'i1',
+      member: OLD_ISSUE,
+      world: (server) => {
+        openIssue(server, 'i1', {})
+        oldIssue(server, {})
+        putDep(server, OLD_ISSUE, 'i1', 'discovered-from')
+      },
+      asks: 'issueDep.toIssue{"issueId":"i1"}',
+    },
+    'issue.pageDependents': {
+      from: 'issue',
+      source: 'i1',
+      member: OLD_ISSUE,
+      world: (server) => {
+        openIssue(server, 'i1', {})
+        oldIssue(server, {})
+        putDep(server, OLD_ISSUE, 'i1', 'blocked-by')
+      },
+      asks: 'issueDep.toIssue{"issueId":"i1"}',
+    },
+    'session.startedIssues': {
+      from: 'session',
+      source: 's1',
+      member: OLD_ISSUE,
+      world: (server) => {
+        liveSession(server, 's1')
+        oldIssue(server, { startedBySession: 's1' })
+      },
+      asks: 'issueProjection.startedBy{"sessionId":"s1"}',
+    },
+    'session.missionStartedIssues': {
+      from: 'session',
+      source: 's1',
+      member: OLD_ISSUE,
+      world: (server) => {
+        liveSession(server, 's1')
+        oldIssue(server, { startedBySession: 's1' })
+      },
+      asks: 'issueProjection.startedBy{"sessionId":"s1"}',
+    },
+  }
+
+  /** The holding relations POD-7582 gave a collection: neither a body nor a session of an issue. */
+  const own = rows
+    .filter(
+      (row) =>
+        row.read.kind === 'holding' &&
+        row.read.collection !== 'session.ofIssue' &&
+        row.group !== 'body',
+    )
+    .map((row) => row.relation)
+
+  it('has a case for every such relation', () => {
+    expect(Object.keys(CASES).sort()).toEqual([...own].sort())
+  })
+
+  it.each(
+    own,
+  )('%s answers LOADING, asks for its instance, then answers the member', async (relation) => {
+    const test = CASES[relation]!
+    const device = await openEmptyDevice({ world: test.world })
+    devices.push(device)
+    const source = device.pool.model(test.from, test.source)
+    expect(source, 'the source is on the device').not.toBe(LOADING)
+    const row = rows.find((each) => each.relation === relation)!
+    expect(device.pool.tables[row.to].has(test.member), 'the member is not on the device').toBe(
+      false,
+    )
+    const name = relation.slice(relation.indexOf('.') + 1)
+    const answers: unknown[] = []
+    const opened = device.observe(
+      () => source as unknown as Record<string, unknown>,
+      (model) => answers.push(answerOf(model[name])),
+    )
+    await device.untilIdle()
+    expect(answers[0]).toBe('LOADING')
+    expect(answers.at(-1)).toEqual([test.member])
+    expect(device.requestedKeys()).toContain(test.asks)
+    opened.close()
+  })
+
+  it('reads the children of a sub-issue from an ancestor tree the device already holds', async () => {
+    const device = await openEmptyDevice({
+      world: (server) => {
+        openIssue(server, 'top', {})
+        openIssue(server, 'mid', { parentId: 'top' })
+        oldIssue(server, { parentId: 'mid' })
+      },
+    })
+    devices.push(device)
+    // A flight deck on the root holds its whole tree.
+    const deck = device.observe(
+      () => null,
+      () => device.pool.collections.treeHeld('top'),
+    )
+    await device.untilIdle()
+    const mid = device.pool.issueObject('mid')
+    const answers: unknown[] = []
+    const opened = device.observe(
+      () => mid,
+      (model) => answers.push(answerOf(model.children)),
+    )
+    await device.untilIdle()
+    expect(answers).toEqual([[OLD_ISSUE]])
+    expect(device.requestedKeys()).toEqual(['issueProjection.tree{"root":"top"}'])
+    // Once the deck closes, the child read still holds the root's tree.
+    deck.close()
+    await device.untilIdle()
+    const top = { collection: 'issueProjection.tree', args: { root: 'top' }, part: 'main' } as const
+    expect(device.liveHolds(top)).toBe(1)
+    opened.close()
+    await device.untilIdle()
+    expect(device.liveHolds(top)).toBe(0)
+  })
+})

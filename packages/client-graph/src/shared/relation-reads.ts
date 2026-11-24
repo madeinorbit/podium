@@ -14,9 +14,14 @@
  *   through the target's collection keyed by the relation's foreign key
  *   (`holding-relations.ts`): reading it holds that collection and answers
  *   `LOADING` until it is complete.
+ *   A child is held by a tree it sits in (`collections.subtreeHeld`), and an
+ *   incoming edge list by the edge record's collection keyed by its target
+ *   (POD-7582).
  * - `lookup`: a single relation (or an outgoing edge list) to a kind the pool
  *   looks up by id (`loadable`): an absent target answers `LOADING` and loads
  *   the one record (`models.ts`, `reference`).
+ * - `policy`: a relation nothing can hold that declares, with its reason,
+ *   that it reads what the policy holds (`readsPolicy` in the schema).
  * - `unprotected`: anything else. It reads only what happens to be in memory.
  *
  * {@link relationReadProblems} fails on every unprotected relation that is
@@ -40,6 +45,7 @@ export type RelationRead =
   | { readonly kind: 'present'; readonly why: string }
   | { readonly kind: 'holding'; readonly collection: string }
   | { readonly kind: 'lookup' }
+  | { readonly kind: 'policy'; readonly why: string }
   | { readonly kind: 'unprotected'; readonly fix: string }
 
 export interface RelationReadRow {
@@ -203,16 +209,20 @@ export function relationReads(
     const present = presentWhy(schema, from, spec, source, target, declared)
     if (present !== undefined) return { ...row, read: { kind: 'present', why: present } }
     const holding = holdingReadOf(schema, from, name, records)
-    if (holding !== undefined && 'instance' in holding)
+    if (holding !== undefined && 'collection' in holding)
       return { ...row, read: { kind: 'holding', collection: holding.collection } }
     const byId =
       spec.kind === 'belongsTo'
         ? spec.targetKey === schema[spec.to].key
         : spec.kind === 'edge' && spec.direction === 'out'
     if (byId && loadable && spec.lazy) return { ...row, read: { kind: 'lookup' } }
+    if (spec.kind === 'hasMany' && spec.readsPolicy !== undefined)
+      return { ...row, read: { kind: 'policy', why: spec.readsPolicy } }
     const back = schema[spec.to].relations[spec.inverse]
     const problem =
-      holding !== undefined && 'problem' in holding && back?.kind === 'belongsTo'
+      holding !== undefined &&
+      'problem' in holding &&
+      (back?.kind === 'belongsTo' || spec.kind === 'edge')
         ? holding.problem
         : undefined
     return { ...row, read: { kind: 'unprotected', fix: fixFor(schema, spec, target, problem) } }
@@ -225,31 +235,6 @@ export function relationReads(
  * added later fails the check until it holds or looks up what it reads.
  */
 export const IN_MEMORY_RELATIONS: Readonly<Record<string, string>> = {
-  // Sub-issues: only the tree (descendantsOf a root) holds them. The flight
-  // deck reads them behind `collections.treeHeld`; the sidebar and the board
-  // read what the policy holds. POD-7582 decides the hold, POD-7580 and
-  // POD-7581 the readers.
-  'issue.children':
-    'No collection is keyed by parentId; readers hold the tree (treeHeld) or read the policy. POD-7582.',
-  'issue.treeChildren':
-    'No collection is keyed by parentId; readers hold the tree (treeHeld) or read the policy. POD-7582.',
-  'issue.bornSessions':
-    'No collection is keyed by refIssueId; read only as a count for the mission bucket. POD-7582.',
-  'issue.supersededIssues': 'No collection is keyed by supersededBy; no screen reads it. POD-7582.',
-  'issue.duplicateIssues': 'No collection is keyed by duplicateOf; no screen reads it. POD-7582.',
-  'issue.spinOffs':
-    'Incoming discovered-from edges: no collection holds the issues whose deps name this one. POD-7582.',
-  'issue.pageDependents':
-    'Incoming dependency edges: no collection holds the issues whose deps name this one. POD-7582.',
-  'session.startedIssues':
-    'No collection is keyed by startedBySession; no screen reads it. POD-7582.',
-  'session.missionStartedIssues':
-    'No collection is keyed by startedBySession; the mission closure (mission.ts) reads it inside the deck. POD-7582.',
-  'worktree.sessions':
-    'Sessions placed under a checkout by their cwd: no collection holds them; the sidebar lanes read what the policy holds. POD-7582.',
-  'worktree.issues':
-    'No collection is keyed by worktreePath; the session pane reads what is in memory. POD-7582.',
-  'repo.issues': 'No collection is keyed by repoId; no screen reads it. POD-7582.',
   // Effects are a server window, downloaded whole at start, but it holds only
   // recent effects, so an old issue's list can look complete when it is not.
   'issue.effects':
@@ -272,6 +257,13 @@ export function relationReadProblems(
   const problems: string[] = []
   const rows = new Map(relationReads(schema, records).map((row) => [row.relation, row]))
   for (const row of rows.values()) {
+    const policy = row.spec.kind === 'hasMany' ? row.spec.readsPolicy : undefined
+    if (policy !== undefined && row.read.kind !== 'policy')
+      problems.push(
+        `${row.relation} declares that it reads what the policy holds but is ${row.read.kind}: remove its readsPolicy`,
+      )
+    if (policy !== undefined && policy.trim() === '')
+      problems.push(`${row.relation} declares that it reads what the policy holds without a reason`)
     if (row.read.kind !== 'unprotected' || row.relation in allowed) continue
     problems.push(
       `${row.relation} getter reads ${row.target ?? row.to} (group ${row.group ?? 'none'}) without holding or loading it. Fix: ${row.read.fix}.`,

@@ -243,6 +243,14 @@ export interface HasManySpec extends RelationCommon {
    * reading one member row to filter.
    */
   readonly subsets?: Readonly<Record<string, SubsetSpec>>
+  /**
+   * Why this relation reads only what the policy holds (POD-7582): no
+   * collection can hold what it reads, and its readers show the members the
+   * device's policy collections bring, by design. The build check
+   * (`relation-reads.ts`) classifies it `policy`; its members are what is in
+   * memory, never LOADING for want of a hold.
+   */
+  readonly readsPolicy?: string
 }
 
 /**
@@ -990,6 +998,8 @@ const DECLARED = defineSchema({
         lazy: true,
         slice: 'R3',
         why: 'The prefix relation’s inverse collection; may hold sessions of closed issues.',
+        readsPolicy:
+          "A session sits under the checkout that is the longest prefix of its cwd, which no collection rule can select. The lanes show only the sessions the policy holds (live, asking, recent, and the issueless ones of `session.noIssue`): the sidebar's visibility rule hides an older one (worklist/visible.ts).",
         subsets: {
           issueless: {
             fields: ['issueId'],
@@ -1003,6 +1013,8 @@ const DECLARED = defineSchema({
         inverse: 'worktree',
         lazy: true,
         why: 'Issues checked out here. Composing it with `sessions` is how an issue reaches its prefix-owned sessions.',
+        readsPolicy:
+          'An issue checked out at a path is open work, which the sidebar collection holds; a keyed collection would need an index the server does not have (idx_issues_worktree holds only issues that are not deleted).',
       }),
       repo: belongsTo({
         to: 'repo',
@@ -1049,7 +1061,10 @@ const DECLARED = defineSchema({
       path: { type: 'string', source: scan('GitRepositoryWire'), note: 'A checkout path. Never the source of the repo name (POD-6246).' },
     },
     relations: {
-      issues: hasMany({ to: 'issue', inverse: 'repo', lazy: true, why: 'Every issue in the repo; holds closed ones.' }),
+      issues: hasMany({
+        to: 'issue', inverse: 'repo', lazy: true, why: 'Every issue in the repo; holds closed ones.',
+        readsPolicy: "Every issue of a repo is its whole history, which no device holds: a reader reads a repo's issues a stage page at a time (`issueProjection.byStage`) or from the stubs.",
+      }),
       worktrees: hasMany({ to: 'worktree', inverse: 'repo', lazy: false, why: 'The repo’s lanes.' }),
     },
   },

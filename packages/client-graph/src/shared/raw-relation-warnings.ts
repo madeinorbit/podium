@@ -55,7 +55,8 @@ export class RawRelationWarnings {
   read(from: EntityName, id: string, relation: string): void {
     if (readingModelRelation() || !this.enabled()) return
     const row = this.relations.get(`${from}.${relation}`)
-    if (row === undefined || row.read.kind === 'present') return
+    // A relation that reads what the policy holds reads memory by design (POD-7582).
+    if (row === undefined || row.read.kind === 'present' || row.read.kind === 'policy') return
     const caller = currentDerivation()
     if (caller === undefined) return
     const reader = rawReaderName(getDebugName(caller))

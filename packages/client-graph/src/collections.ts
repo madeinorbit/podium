@@ -828,6 +828,50 @@ export class PoolCollections {
     })
   }
 
+  /**
+   * TRACKED (POD-7582): whether the device holds every issue under `id`
+   * WHOLE, as a child relation reads it (`issue.children`,
+   * `issue.treeChildren`): the tree of `id` or of one of its ancestors is
+   * complete, and the reader holds that tree while it reads it. When none
+   * is, it holds and asks for the tree of `id` itself, never of its
+   * top-level ancestor, so a leaf of a large epic downloads only its own
+   * subtree. A flight deck that holds its root's tree answers every child
+   * read under it from that one instance.
+   */
+  subtreeHeld(id: string): boolean {
+    return this.behind(() => {
+      const loader = this.loader()
+      if (loader === undefined) return this.fullDeviceFixture && !this.disposed
+      for (const at of this.chainOf(id)) {
+        const tree = treeOf(at, 'main')
+        if (!this.complete(tree)) continue
+        this.holdWhileRead(tree)
+        return true
+      }
+      const own = treeOf(id, 'main')
+      this.holdWhileRead(own)
+      loader.request([own], 'visible')
+      return false
+    })
+  }
+
+  /** TRACKED: `id` and each ancestor the device holds a stub of, nearest first. */
+  private chainOf(id: string): string[] {
+    const loader = this.loader()
+    if (loader === undefined) return [id]
+    this.stubs.reportObserved()
+    const chain = [id]
+    const seen = new Set(chain)
+    let at = id
+    for (;;) {
+      const parent = loader.stubOf(ISSUE, at)?.['parentId']
+      if (typeof parent !== 'string' || parent === '' || seen.has(parent)) return chain
+      seen.add(parent)
+      chain.push(parent)
+      at = parent
+    }
+  }
+
   /** TRACKED: what a reader reads of `spec`'s marker. */
   private observeMarker(spec: LoaderInstance): void {
     const key = readKey(spec)

@@ -69,11 +69,10 @@ import { action, compareShallow, compareStructural, observable, runInAction } fr
 import type { PoolCollections } from './collections'
 import type { Residence } from './pool'
 import type { SeatRelation } from './session-seats'
-import { holdingInstanceOf } from './shared/holding-relations'
+import { type HoldingCheck, holdingCheckFor } from './shared/holding-relations'
 import { modelRelationRead } from './shared/model-relation-read'
 import type { CollectionName, IsLazy, SingleName, SubsetName, TargetOf } from './shared/links'
 import type { RelationReader } from './shared/relation-reader'
-import type { LoaderInstance } from './shared/source'
 import { FEED_SPELLING } from './shared/repo-from-lane'
 import { awaitingMergeOf, type EntityName, type ModelSchema, SCHEMA } from './shared/schema'
 import { computingDeadlineOf } from './shared/session-facts'
@@ -139,8 +138,8 @@ export interface ModelHost {
   edit<K extends WritableKind>(entity: K, id: string, patch: EditPatch<K>): TxId
   /** The pool's relation reader: what the relation getters follow. */
   readonly relations: RelationReader
-  /** The device's collections: a holding relation's read holds its instance (POD-7545). */
-  readonly collections: Pick<PoolCollections, 'held'>
+  /** The device's collections: a holding relation's read holds its instance or its tree (POD-7545, POD-7582). */
+  readonly collections: Pick<PoolCollections, 'held' | 'subtreeHeld'>
   /** The addressed model: here, loading, or gone. */
   model<E extends EntityName>(entity: E, id: string): Lookup<ModelOf[E]>
   /** Where a row stands; an absent one answers `loading` and its load starts (first access). */
@@ -276,7 +275,7 @@ function installRelations(prototype: EntityModel, entity: EntityName): void {
     // One collection class per relation, with a getter per declared subset.
     // A relation whose target is on demand reads through the target's own
     // collection for this source, from the declarations (POD-7545).
-    const holding = holdingInstanceOf(SCHEMA, entity, name)
+    const holding = holdingCheckFor(SCHEMA, entity, name)
     class Members extends ModelCollection {}
     const members = modelRelationRead((host: ModelHost, owner: string) =>
       host.relations.many(entity, owner, name),
@@ -359,8 +358,8 @@ class ModelCollection implements LazyCollection<EntityModel> {
     /** The id of the row the collection belongs to (its subsets read under it). */
     readonly owner: string,
     private readonly memberIds: (host: ModelHost, owner: string) => Iterable<string>,
-    /** A holding relation's collection instance for an owner (POD-7545). */
-    private readonly holding?: (owner: string) => LoaderInstance,
+    /** Whether the device holds all a holding relation reads for an owner (POD-7545, POD-7582). */
+    private readonly holding?: HoldingCheck,
   ) {}
 
   @lazy({ equals: compareShallow })
@@ -384,7 +383,7 @@ class ModelCollection implements LazyCollection<EntityModel> {
 
   @lazy({ equals: compareShallow })
   get members(): readonly EntityModel[] | typeof LOADING {
-    if (this.holding !== undefined && !this.host.collections.held(this.holding(this.owner)))
+    if (this.holding !== undefined && !this.holding(this.host.collections, this.owner))
       return LOADING
     if (this.loading > 0) return LOADING
     return this.ready
