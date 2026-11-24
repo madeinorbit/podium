@@ -10,8 +10,8 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu'
-import { openSetupAgents, type SetupAgentsRequest } from '@/features/setup-agents/open-setup-agents'
-import { MENU_HINT, MENU_ITEM, MENU_RULE, MENU_SECTION_LABEL } from './menu-surface'
+import { MENU_HINT, MENU_ITEM, MENU_RULE, MENU_SECTION_LABEL } from '@/lib/menu-surface'
+import { openSetupAgents, type SetupAgentsRequest } from './open-setup-agents'
 
 type SetupMachine = { id: string; name: string }
 

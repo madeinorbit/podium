@@ -130,10 +130,10 @@ function HarnessMark({ kind, size = 32 }: { kind: BuiltinHarnessKind; size?: num
 
 function Caption({ children, count }: { children: ReactNode; count?: number | string }) {
   return (
-    <p className="m-0 flex items-center gap-2 px-4 pt-4 pb-2 font-mono text-[9.5px] leading-none font-semibold tracking-[0.14em] text-muted-foreground uppercase sm:px-[22px]">
+    <p className="shell-type-micro m-0 flex items-center gap-2 px-4 pt-4 pb-2 font-mono font-semibold tracking-[0.14em] text-muted-foreground uppercase sm:px-[22px]">
       <span>{children}</span>
       {count !== undefined && (
-        <span className="rounded-full bg-muted px-1.5 py-[3px] font-sans text-[10.5px] font-medium tracking-normal normal-case">
+        <span className="shell-type-micro rounded-full bg-muted px-1.5 py-[3px] font-sans font-medium tracking-normal normal-case">
           {count}
         </span>
       )}

@@ -2,9 +2,10 @@
 import type { Inventory, MachineFacts } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
+import { CapabilityAgentMenu } from '@/features/setup-agents/CapabilityAgentMenu'
 import { closeSetupAgents, setupAgentsRequest } from '@/features/setup-agents/open-setup-agents'
-import { agentFleetStatus, CapabilityAgentMenu } from './agent-capability'
-import { SetupAgentsMenuItem } from './setup-agents-menu-item'
+import { SetupAgentsMenuItem } from '@/features/setup-agents/setup-agents-menu-item'
+import { agentFleetStatus } from './agent-capability'
 
 const fixture = vi.hoisted(() => ({ machines: new Map<string, Pick<MachineFacts, 'inventory'>>() }))
 vi.mock('@/app/header-data', () => ({

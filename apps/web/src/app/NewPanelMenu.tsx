@@ -38,13 +38,13 @@ import {
   useOpenArtifactsTab,
 } from '@/features/files/artifacts-tab'
 import { FileTypeIcon } from '@/features/files/file-icon'
+import { SetupAgentsMenuItem } from '@/features/setup-agents/setup-agents-menu-item'
 import { agentLabel, agentMachineStatus, CapabilityAgentItem } from '@/lib/agent-capability'
 import { agentIconFor } from '@/lib/agent-tone'
 import { useResolvedDescriptors } from '@/lib/harness-descriptors'
 import type { issueAgentDescriptors } from '@/lib/issue-agents'
 import { MENU_HEADER, MENU_HEADER_REF, MENU_HINT, MENU_SECTION } from '@/lib/menu-surface'
 import { headlessRuntimeDrivers, runtimeDriverLabel } from '@/lib/runtime-driver-options'
-import { SetupAgentsMenuItem } from '@/lib/setup-agents-menu-item'
 import { useFeature } from '@/lib/use-feature'
 import {
   useCommandLaunchActions,

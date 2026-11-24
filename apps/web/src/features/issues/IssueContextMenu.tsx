@@ -27,6 +27,7 @@ import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
+import { SetupAgentsMenuItem } from '@/features/setup-agents/setup-agents-menu-item'
 import { useConfirm } from '@/lib/hooks/use-confirm'
 import { issueAgentIcon, issueDefaultAgentKind } from '@/lib/issue-agents'
 import {
@@ -50,7 +51,6 @@ import {
   issueHandoffBlockerText,
 } from '@/lib/session-context-menu'
 import { useSessionHandoff } from '@/lib/session-handoff'
-import { SetupAgentsMenuItem } from '@/lib/setup-agents-menu-item'
 import { useCursorMenu } from '@/lib/use-cursor-menu'
 import { useFeature } from '@/lib/use-feature'
 import { sessionDisplayName } from '@/lib/WorkerLabel'

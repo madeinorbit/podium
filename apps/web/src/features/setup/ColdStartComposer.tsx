@@ -58,13 +58,10 @@ import {
   useSettingsSetupSummary,
 } from '@/features/settings/readers'
 import { useSettingsClient } from '@/features/settings/stable-access'
+import { CapabilityAgentMenu } from '@/features/setup-agents/CapabilityAgentMenu'
 import { useTipMoment } from '@/features/tips'
 import { noteFirstSend } from '@/features/worklist/first-send-tip'
-import {
-  agentFleetStatus,
-  CapabilityAgentMenu,
-  candidateFromAvailability,
-} from '@/lib/agent-capability'
+import { agentFleetStatus, candidateFromAvailability } from '@/lib/agent-capability'
 import { HelpButton } from '@/lib/ControlHelp'
 import {
   ISSUE_AGENT_KINDS,

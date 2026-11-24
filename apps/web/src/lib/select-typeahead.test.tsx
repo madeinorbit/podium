@@ -2,7 +2,7 @@ import { cleanup, createEvent, fireEvent, render, screen } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CapabilityAgentMenu } from './agent-capability'
+import { CapabilityAgentMenu } from '@/features/setup-agents/CapabilityAgentMenu'
 import { PropertyMenu } from './PropertyMenu'
 
 afterEach(cleanup)
