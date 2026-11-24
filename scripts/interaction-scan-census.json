@@ -31268,13 +31268,13 @@
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
       "holder": "PulseScreen/useMemo:callback/fleet",
       "rule": "helper-consumer",
-      "tokens": "17b6d327f683a2d195096a62235246be46c83fe95c779c694696bf6fd55feff7",
+      "tokens": "202c1448bc4f9615c6b6710ae7598e83d30a81be800945ee6c3a3f759d9fb18f",
       "gate": [],
       "origin": [
         "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
         "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
       ],
-      "fingerprint": "5d3c436b2ddb5178af5262a69113df88086a32e65b716005b2d82121a0a1ff5f",
+      "fingerprint": "29ea15b5b42828c5da591b68cba2393cc7a7f10835bd7ef127c4698e9915da3c",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
