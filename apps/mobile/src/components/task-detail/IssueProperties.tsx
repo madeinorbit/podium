@@ -528,22 +528,30 @@ const PropertyRelationRow = observer(function PropertyRelationRow({
   onOpenIssue: (id: string) => void
 }) {
   const { accessorySize: size } = useDetailLayout()
+  const [rowWidth, setRowWidth] = useState(0)
   const edge = resolveEdge(entry.id)
   if (edge.render === 'hidden') return null
   const target = edge.render === 'issue' ? edge.resolution.value : undefined
+  // An explicit bound: on iOS 27 the pressable grew to its content despite flex,
+  // pushing the remove button off the card. The row's own width, less the
+  // 44pt remove target and the gap, is the most the reference may take.
+  const bound = rowWidth > 0 ? { maxWidth: Math.max(0, rowWidth - 44 - space.sm) } : null
   const title = target
     ? 'authoredTitle' in target
       ? (target as PageIssue).authoredTitle
       : target.title
     : undefined
   return (
-    <View style={[styles.kv, styles.kvSeparated]}>
+    <View
+      style={[styles.kv, styles.kvSeparated]}
+      onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}
+    >
       {target ? (
         <PressableScale
           accessibilityRole="button"
           accessibilityLabel={`${section}: open ${issueDisplayRef(target)} ${title}`}
           onPress={() => onOpenIssue(target.id)}
-          style={({ pressed }) => [styles.relOpen, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.relOpen, bound, pressed && styles.pressed]}
         >
           <Text style={styles.kvLabel}>{section}</Text>
           <StageGlyph stage={target.stage} size={size(12)} />
@@ -557,7 +565,7 @@ const PropertyRelationRow = observer(function PropertyRelationRow({
           </View>
         </PressableScale>
       ) : (
-        <View style={styles.relOpen}>
+        <View style={[styles.relOpen, bound]}>
           <Text style={styles.kvLabel}>{section}</Text>
           <View style={styles.relValueBox}>
             <Text
