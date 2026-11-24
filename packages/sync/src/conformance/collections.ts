@@ -224,6 +224,10 @@ const partOf = (cache: ReplicaCacheStore, entity: string, id: string) => {
 const marked = (cache: ReplicaCacheStore, spec: InstanceSpec): boolean =>
   cache.readInstances().has(instanceKey(spec))
 
+/** POD-7538 — the instance keeps its marker, flagged stale: behind the feed, still readable. */
+const markedStale = (cache: ReplicaCacheStore, spec: InstanceSpec): boolean =>
+  marked(cache, spec) && cache.readDiskIndex().instance(instanceKey(spec))?.stale === true
+
 /**
  * POD-7159 — what a record comes with is recorded on the record, not as a
  * marker: the holder's comes-with complete via, or, for a pointer (a parent,
@@ -554,6 +558,7 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
           expect(cache.read(SESSION, 'S2')).toBeDefined()
           replica.disconnect()
           server.put(ISSUE, 'A3', issue('A3', { stage: 'planning' }))
+          server.drop(ISSUE, 'A2')
           server.minAvailableSeq = server.head
           const before = loadsInstalled(events)
           const release = commits.hold()
@@ -561,8 +566,9 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
           await until(() => loadsInstalled(events) > before)
           expect(loadsInstalled(events)).toBeGreaterThan(before)
           expect(replica.posture).toBe('bootstrapping')
-          // The reload withdrew the tree's marker; its rows stay readable.
-          expect(marked(cache, tree('A1'))).toBe(false)
+          // POD-7538: the reload keeps the tree's marker, stale; its rows stay readable.
+          expect(markedStale(cache, tree('A1'))).toBe(true)
+          expect(markedStale(cache, ONE_S2)).toBe(true)
           return { ...booted, release }
         }
 
@@ -620,9 +626,19 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
             expect(cache.read(SESSION, 'S9')).toBeDefined()
             expect(cache.read(ISSUE, 'D1')).toBeDefined()
             expect(marked(cache, tree('A1'))).toBe(true)
-            // The reload no longer holds S2 and no fetch named it: swept.
-            expect(cache.readRow(SESSION, 'S2')).toBeUndefined()
+            expect(markedStale(cache, tree('A1'))).toBe(false)
+            // Nothing names A2 any more: swept. S2 stays for its one-record
+            // instance, stale, until a read reloads it (POD-7160, POD-7538).
+            expect(cache.readRow(ISSUE, 'A2')).toBeUndefined()
             expect(cache.read(ISSUE, 'A3')).toBeDefined()
+            expect(markedStale(cache, ONE_S2)).toBe(true)
+            expect(cache.read(SESSION, 'S2')).toBeDefined()
+            await replica.load([ONE_S2])
+            await replica.settled()
+            await ticks()
+            await replica.settled()
+            expect(markedStale(cache, ONE_S2)).toBe(false)
+            expect(cache.read(SESSION, 'S2')).toBeDefined()
             expectMarkersTrue(cache, server)
           } finally {
             release()
@@ -642,7 +658,10 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
           const second = await boot(instantiation, server, storage)
           expect(second.replica.posture).toBe('live')
           expect(second.cache.readLoadingSince()).toBeNull()
-          expect(second.cache.readRow(SESSION, 'S2')).toBeUndefined()
+          expect(second.cache.readRow(ISSUE, 'A2')).toBeUndefined()
+          // S2's one-record instance is still on the device, stale: kept for its reload.
+          expect(markedStale(second.cache, ONE_S2)).toBe(true)
+          expect(second.cache.readDiskIndex().record(keyOf(SESSION, 'S2'))?.level).toBe('main')
           expect(second.cache.read(ISSUE, 'A3')).toBeDefined()
           if (marked(second.cache, tree('A1'))) {
             expect(second.cache.read(ISSUE, 'D1')).toBeDefined()
@@ -689,7 +708,7 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         await replica.settled()
       })
 
-      it('a gap the feed cannot bridge drops the markers and reloads; the old rows stay readable meanwhile', async () => {
+      it('a gap the feed cannot bridge keeps the markers stale and reloads; the old rows stay readable meanwhile', async () => {
         const server = new CollectionServer()
         seedWorld(server)
         const booted = await boot(instantiation, server)
@@ -709,7 +728,9 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         replica.connect()
         await entered.promise
         await ticks()
-        expect(cache.readInstances().size).toBe(0)
+        // POD-7538: what the device showed stays complete, refreshing.
+        for (const spec of [LIVE, SIDEBAR, STUBS]) expect(markedStale(cache, spec)).toBe(true)
+        expect(replica.isComplete(SIDEBAR)).toBeDefined()
         expect(cache.read(ISSUE, 'A2')).toBeDefined()
         expect(cache.read(ISSUE, 'A1')).toBeDefined()
         gate.release()
@@ -720,12 +741,17 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         expect(cache.read(ISSUE, 'A2')).toBeUndefined()
         expect(cache.readRow(ISSUE, 'A2')).toBeUndefined()
         expect(cache.read(ISSUE, 'A3')).toBeDefined()
-        for (const spec of [LIVE, SIDEBAR, STUBS]) expect(marked(cache, spec)).toBe(true)
+        for (const spec of [LIVE, SIDEBAR, STUBS]) {
+          expect(marked(cache, spec)).toBe(true)
+          expect(markedStale(cache, spec)).toBe(false)
+        }
         expectMarkersTrue(cache, server)
       })
 
       for (const cause of ['rescope', 'resync-required'] as const) {
-        it(`a ${cause} walk withdraws every marker before it starts and marks its replacement`, async () => {
+        const before =
+          cause === 'rescope' ? 'withdraws every marker' : 'keeps every marker stale (POD-7538)'
+        it(`a ${cause} walk ${before} before it starts and marks its replacement`, async () => {
           const server = new CollectionServer()
           seedWorld(server)
           const { cache, replica } = await boot(instantiation, server)
@@ -742,13 +768,20 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
           else replica.requestRebootstrap()
           await entered.promise
           await ticks()
-          expect(cache.readInstances().size).toBe(0)
+          // The viewer's rights changed: nothing in memory vouches for what it
+          // showed. Any other gap leaves it complete, stale, until replaced.
+          if (cause === 'rescope') expect(cache.readInstances().size).toBe(0)
+          else
+            for (const spec of [LIVE, SIDEBAR, STUBS]) expect(markedStale(cache, spec)).toBe(true)
           expect(cache.read(ISSUE, 'A1')).toBeDefined()
           gate.release()
           await replica.settled()
           await ticks()
           await replica.settled()
-          for (const spec of [LIVE, SIDEBAR, STUBS]) expect(marked(cache, spec)).toBe(true)
+          for (const spec of [LIVE, SIDEBAR, STUBS]) {
+            expect(marked(cache, spec)).toBe(true)
+            expect(markedStale(cache, spec)).toBe(false)
+          }
           expectMarkersTrue(cache, server)
         })
       }
@@ -2778,8 +2811,8 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         replica.connect()
         await entered.promise
         await ticks()
-        // During the reload: the policy's markers withdrawn, the tree's kept, stale.
-        for (const spec of [LIVE, SIDEBAR, STUBS]) expect(marked(cache, spec)).toBe(false)
+        // During the reload: every marker kept, stale (POD-7538).
+        for (const spec of [LIVE, SIDEBAR, STUBS]) expect(markedStale(cache, spec)).toBe(true)
         expect(cache.readInstances().has(key)).toBe(true)
         expect(replica.instanceStale(tree('A1'))).toBe(true)
         server.gate = undefined
@@ -2831,6 +2864,111 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         expect(titleOf(cache, 'D3')).toBe('new D3')
         expectMarkersTrue(cache, server)
         expectIndexTrue(cache, server, 'after the stale reload')
+      })
+
+      it('a gap keeps a held instance in memory complete and stale through the load, then replaces it whole (POD-7538)', async () => {
+        const server = world()
+        const booted = await boot(instantiation, server)
+        const { cache, replica } = booted
+        const release = replica.hold(tree('A1'))
+        await replica.load([tree('A1')])
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        expect(cache.readDiskIndex().inMemory(instanceKey(tree('A1')))).toBe(true)
+        // Offline: D1 is renamed and D3, which only the tree holds, is deleted.
+        replica.disconnect()
+        server.put(
+          ISSUE,
+          'D1',
+          issue('D1', {
+            stage: 'done',
+            closedReason: 'completed',
+            parentId: 'A1',
+            title: 'new D1',
+          }),
+        )
+        server.drop(ISSUE, 'D3')
+        server.minAvailableSeq = server.head
+        const gate = barrier()
+        const entered = barrier()
+        server.gate = gate.promise
+        const original = server.bootstrap.bind(server)
+        server.bootstrap = (...args) => {
+          entered.release()
+          return original(...args)
+        }
+        replica.connect()
+        await entered.promise
+        await ticks()
+        // The replacement is held back: what the screen showed is still there, refreshing.
+        expect(replica.posture).toBe('bootstrapping')
+        expect(replica.isComplete(tree('A1'))).toBeDefined()
+        expect(replica.instanceStale(tree('A1'))).toBe(true)
+        for (const spec of [LIVE, SIDEBAR, STUBS]) {
+          expect(replica.isComplete(spec)).toBeDefined()
+          expect(markedStale(cache, spec)).toBe(true)
+        }
+        expect(titleOf(cache, 'D1')).toBe('Issue D1')
+        expect(cache.read(ISSUE, 'D3')).toBeDefined()
+        // Every reader on the way finds the tree complete: never loading again.
+        const lapses: string[] = []
+        const check = (): void => {
+          if (replica.isComplete(tree('A1')) === undefined) lapses.push(replica.posture)
+          if (replica.isComplete(SIDEBAR) === undefined) lapses.push(`sidebar ${replica.posture}`)
+        }
+        server.gate = undefined
+        gate.release()
+        for (
+          let i = 0;
+          i < 400 && (replica.posture !== 'live' || replica.instanceStale(tree('A1')));
+          i += 1
+        ) {
+          check()
+          await ticks(1)
+        }
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        check()
+        expect(lapses).toEqual([])
+        // Replaced in place once live, with no read asking for it.
+        expect(replica.posture).toBe('live')
+        expect(replica.instanceStale(tree('A1'))).toBe(false)
+        expect(replica.isComplete(tree('A1'))).toBeDefined()
+        expect(titleOf(cache, 'D1')).toBe('new D1')
+        expect(cache.read(ISSUE, 'D3')).toBeUndefined()
+        expectMarkersTrue(cache, server)
+        expectIndexTrue(cache, server, 'after the held reload')
+        release()
+      })
+
+      it('a rescope withdraws a held instance in memory: nothing vouches for what the viewer may no longer see', async () => {
+        const server = world()
+        const { cache, replica } = await boot(instantiation, server)
+        const release = replica.hold(tree('A1'))
+        await replica.load([tree('A1')])
+        await replica.settled()
+        const gate = barrier()
+        const entered = barrier()
+        server.gate = gate.promise
+        const original = server.bootstrap.bind(server)
+        server.bootstrap = (...args) => {
+          entered.release()
+          return original(...args)
+        }
+        await replica.receive({ kind: 'rescope', feedId: server.feedId, epoch: server.epoch })
+        await entered.promise
+        await ticks()
+        expect(replica.isComplete(tree('A1'))).toBeUndefined()
+        expect(marked(cache, tree('A1'))).toBe(false)
+        server.gate = undefined
+        gate.release()
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        expectMarkersTrue(cache, server)
+        release()
       })
 
       it('a gap removes a row of an instance only on disk that the reload confirms is gone, and the reload drops what left it', async () => {

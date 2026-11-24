@@ -1459,7 +1459,7 @@ export class Replica implements DeviceCollectionReads {
       // publication restore the old markers behind this recovery.
       try {
         if (cause !== 'resume' && this.store.readInstances().size > 0) {
-          this.store.applyAtomic({ operations: [], instances: this.gapMarkers() })
+          this.store.applyAtomic({ operations: [], instances: this.gapMarkers(cause) })
           this.emit({ type: 'markers' })
         }
       } catch (error) {
@@ -1473,30 +1473,42 @@ export class Replica implements DeviceCollectionReads {
   }
 
   /**
-   * POD-7160 — what a gap the feed cannot bridge does to the markers (design
-   * POD-7157 "Offline and gaps"): an instance in memory is reloaded at once,
-   * so its marker goes; one only on disk keeps its rows and its marker,
-   * marked stale, and a read reloads it. One that cannot be read from disk
-   * (no members known) goes too, unless it is being pruned (POD-7186): its
-   * marker is what holds the members it still has, so it stays, stale, and
-   * the next idle slice finishes it. Dropped here, its members would be held
-   * by nothing: loaded into memory at every start, and never pruned.
+   * POD-7160, POD-7538 — what a gap the feed cannot bridge does to the
+   * markers (design POD-7157 "Offline and gaps"). An instance whose members
+   * the device knows keeps its rows and its marker, marked stale: a screen
+   * that shows it keeps showing it, refreshing, and never falls back to
+   * loading. In memory and held by a view, it is reloaded once the load
+   * after the gap is in (`staleWanted`): the replacement installs whole, in
+   * one step, before the old rows leave (`sweepStale`). A policy instance is
+   * replaced by that load itself. Only on disk, a read reloads it.
+   *
+   * A rescope is the exception: the viewer's rights changed, so nothing in
+   * memory may go on vouching for what it showed. Its markers go, as do
+   * those of any instance whose members the device does not know. One that
+   * is being pruned (POD-7186) keeps its marker, stale: it is what holds the
+   * members it still has. Dropped here, its members would be held by
+   * nothing: loaded into memory at every start, and never pruned.
    */
-  private gapMarkers(): InstanceOperation[] {
+  private gapMarkers(cause: RebootstrapCause): InstanceOperation[] {
     const disk = this.store.readDiskIndex()
     const instances = this.store.readInstances()
     const ops: InstanceOperation[] = []
+    const keepInMemory = cause !== 'rescope'
     let dropped = 0
     for (const [key, marker] of instances) {
       const state = disk.instance(key)
       const beingPruned =
         marker.part === 'main' && state?.indexed === false && disk.membersOf(key).size > 0
-      const onDiskOnly =
-        !disk.inMemory(key) && (marker.part === 'stub' || state?.indexed === true || beingPruned)
-      if (!onDiskOnly) {
+      const known = marker.part === 'stub' || state?.indexed === true || beingPruned
+      const inMemory = disk.inMemory(key)
+      if (state === undefined || !known || (inMemory && !keepInMemory)) {
         ops.push({ kind: 'drop', key })
         dropped += 1
-      } else if (state?.stale !== true) ops.push({ kind: 'stale', key })
+        continue
+      }
+      if (state.stale !== true) ops.push({ kind: 'stale', key })
+      const held = this.holds.get(key)
+      if (inMemory && held !== undefined) this.staleWanted.set(key, held.spec)
     }
     return dropped === instances.size ? [{ kind: 'dropAll' }] : ops
   }
@@ -1728,11 +1740,14 @@ export class Replica implements DeviceCollectionReads {
     return this.missingPolicyInstances()
   }
 
+  /** A stale policy marker is missing too: a gap left it, and only a load replaces it (POD-7538). */
   private missingPolicyInstances(): InstanceSpec[] {
     const instances = this.store.readInstances()
-    return policyInstances(this.store.readPolicy()).filter(
-      (spec) => !instances.has(instanceKey(spec)),
-    )
+    const disk = this.store.readDiskIndex()
+    return policyInstances(this.store.readPolicy()).filter((spec) => {
+      const key = instanceKey(spec)
+      return !instances.has(key) || disk.instance(key)?.stale === true
+    })
   }
 
   /**
@@ -1811,12 +1826,12 @@ export class Replica implements DeviceCollectionReads {
   }
 
   /**
-   * POD-7160 — a row a load after a gap keeps although it did not confirm it:
-   * whole on disk only, held only by stale instances. Their reload replaces it.
+   * POD-7160, POD-7538 — a row a load after a gap keeps although it did not
+   * confirm it: whole, held only by stale instances, in memory (a screen
+   * shows it) or only on disk. Their reload replaces it.
    */
   private keptForStale(key: string): boolean {
-    const { entity, entityId } = splitRowKey(key)
-    return this.store.read(entity, entityId) === undefined && this.staleOnly(key)
+    return this.staleOnly(key)
   }
 
   /**
@@ -1972,7 +1987,8 @@ export class Replica implements DeviceCollectionReads {
     }
     const instances: InstanceOperation[] = []
     // A full load replaces every marker but those a gap left stale (POD-7160):
-    // their rows stay on disk, and a read reloads them.
+    // their rows stay, and a reload replaces them. The load marks the policy's
+    // own again; one the new policy no longer names has nothing to replace it.
     if (start) {
       this.keptWhole.clear()
       const states = this.store.readDiskIndex()
@@ -1980,13 +1996,23 @@ export class Replica implements DeviceCollectionReads {
         (key) => !replacesFeed && states.instance(key)?.stale === true,
       )
       if (stale.length === 0) instances.push({ kind: 'dropAll' })
-      else
+      else {
+        const before = this.store.readPolicy()
+        const after = chunk.policy ?? before
+        const named = new Set(policyInstances(after).map(instanceKey))
+        const leaving = new Set(
+          policyInstances(before)
+            .map(instanceKey)
+            .filter((key) => !named.has(key)),
+        )
         for (const [key, instance] of this.store.readInstances())
           if (
             states.instance(key)?.stale !== true ||
+            leaving.has(key) ||
             retired.has(COLLECTIONS.get(instance.collection)?.of ?? '')
           )
             instances.push({ kind: 'drop', key })
+      }
     }
     const markRows: HeldRows = {
       readRow: (entity, entityId) => {
