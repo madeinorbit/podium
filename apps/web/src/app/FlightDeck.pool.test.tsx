@@ -1,5 +1,7 @@
 import { TranscriptLog } from '@podium/client-core/conversation'
+import { SocketHub, type WebSocketLike } from '@podium/client-core/socket-transport'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { isGone, LOADING } from '@podium/client-graph'
 import { headerView } from '@podium/client-graph/header-views'
 import { omitGone } from '@podium/client-graph/lookup'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
@@ -24,6 +26,15 @@ import { Profiler, type ProfilerOnRenderCallback, useMemo, useSyncExternalStore 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DockIssueProvider } from '@/features/issues/dock-issue'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
+import { FeedSink } from '../../../../packages/client-core/src/replica/feed/sink'
+import { treeOf } from '../../../../packages/client-graph/src/collections'
+import { attachMissionTestPreferences } from '../../../../packages/client-graph/src/mission-screen.test.fixture'
+import {
+  closedValue,
+  ISSUE,
+  issueValue,
+  openDevice,
+} from '../../../../packages/client-graph/src/test-support/device.test.fixture'
 import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import { dedupeSessions } from '../../../../tests/worklist/diagnostics/reference-state'
 import { buildCorpus } from '../../../../tests/worklist/harness/src/fixture/corpus'
@@ -671,3 +682,138 @@ describe('mission sections read their own fields', () => {
     expect([...acceptanceReactions.keys()]).toEqual(['observerFullDeckBrief'])
   }, 120_000)
 })
+
+/**
+ * POD-7538 (found in POD-7531): a reconnect whose resume is refused makes the
+ * device load again. Until that load and the deck's own reload are in, the
+ * loaded deck stays on screen, refreshing: the same scroller at the same
+ * scroll position, its task rows, and what the operator opened. Never the
+ * loading skeleton.
+ */
+it('keeps a loaded deck on screen, refreshing, while a refused resume loads again', async () => {
+  const root = 'root'
+  const task = 'closed-child'
+  const finished = closedValue(task, { parentId: root, title: 'Finished fixture task' })
+  const device = await openDevice({
+    world(server) {
+      server.put(
+        ISSUE,
+        root,
+        issueValue(root, {
+          title: 'Fixture mission',
+          description: 'What the mission is for.',
+          acceptance: 'What done means.',
+        }),
+      )
+      server.put(
+        ISSUE,
+        'open-child',
+        issueValue('open-child', { parentId: root, title: 'Open fixture task' }),
+      )
+      server.put(ISSUE, task, finished)
+    },
+  })
+  pool.dispose()
+  pool = device.pool
+  state.pool = pool
+  state.navigation = createPoolNavigationProvider(pool)
+  state.selectedIssueId = root
+  attachMissionTestPreferences(pool)
+
+  let socket: WebSocketLike
+  const hub = new SocketHub({
+    url: 'ws://fixture.invalid',
+    makeSocket: () => {
+      socket = {
+        onopen: null,
+        onclose: null,
+        onmessage: null,
+        send: () => {},
+        close: () => socket.onclose?.({ code: 1006, wasClean: false }),
+      }
+      return socket
+    },
+    feed: new FeedSink({ replica: device.replica }),
+  })
+  const open = () => {
+    hub.connectNow()
+    socket.onopen?.({})
+  }
+  open()
+  const current = mount()
+  const pump = () =>
+    act(async () => {
+      await device.settle()
+      await vi.advanceTimersByTimeAsync(50)
+    })
+  const scroller = () => current.queryByTestId('flight-deck-scroller')
+  const rowsText = () => current.queryByTestId('flight-deck-rows')?.textContent ?? null
+  const refresh = () =>
+    scroller()?.querySelector('[data-screen-refresh]')?.getAttribute('data-screen-refresh')
+  const taskTitle = () => {
+    const row = pool.row('issue', task)
+    return row === LOADING || isGone(row) ? row : (row as { title?: string }).title
+  }
+  let release: (() => void) | undefined
+  try {
+    await pump()
+    await waitFor(() => expect(scroller()).not.toBeNull())
+    await pump()
+    // The operator opens the brief and scrolls the deck.
+    fireEvent.click(current.getByRole('button', { name: 'Read more' }))
+    const loaded = scroller() as HTMLElement
+    loaded.scrollTop = 120
+    const rows = rowsText()
+    expect(rows).toContain('Open fixture task')
+    expect(refresh()).toBe('here')
+    expect(taskTitle()).toBe('Finished fixture task')
+
+    // The link drops; while it is down the server moves past what it retains.
+    const server = device.server
+    await act(async () => {
+      socket.close()
+      server.put(ISSUE, task, { ...finished, title: 'Finished fixture task, renamed' })
+      server.minAvailableSeq = server.head
+      server.gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      open()
+    })
+    await pump()
+    // The resume is refused and the replacement held back: the device loads again.
+    expect(device.replica.posture).toBe('bootstrapping')
+    expect(server.bootstraps).toBe(2)
+    expect(current.queryByTestId('flight-settling')).toBeNull()
+    expect(scroller()).toBe(loaded)
+    expect(loaded.scrollTop).toBe(120)
+    expect(rowsText()).toBe(rows)
+    expect(current.getByRole('button', { name: 'Collapse' }).getAttribute('aria-expanded')).toBe(
+      'true',
+    )
+    expect(device.replica.isComplete(treeOf(root, 'main'))).toBeDefined()
+    expect(device.replica.instanceStale(treeOf(root, 'main'))).toBe(true)
+    expect(taskTitle()).toBe('Finished fixture task')
+    expect(refresh()).toBe('refreshing')
+
+    // The replacement arrives: the same deck, current again, never a skeleton between.
+    release?.()
+    server.gate = undefined
+    await pump()
+    await pump()
+    expect(device.replica.posture).toBe('live')
+    expect(device.replica.instanceStale(treeOf(root, 'main'))).toBe(false)
+    expect(taskTitle()).toBe('Finished fixture task, renamed')
+    expect(scroller()).toBe(loaded)
+    expect(loaded.scrollTop).toBe(120)
+    expect(current.getByRole('button', { name: 'Collapse' }).getAttribute('aria-expanded')).toBe(
+      'true',
+    )
+    expect(rowsText()).toContain('Open fixture task')
+    await waitFor(() => expect(refresh()).toBe('here'))
+  } finally {
+    release?.()
+    hub.dispose()
+    current.unmount()
+    device.dispose()
+  }
+}, 15_000)
