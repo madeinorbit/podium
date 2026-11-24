@@ -4,6 +4,7 @@ import { Server } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { MachinePresenceDot, MachinePresenceText } from '@/components/machine-presence'
 import { Button } from '@/components/ui/button'
 import { authRequest, memberRequest } from '@/features/setup/member-api'
 import { useClock } from '@/lib/clock-hooks'
@@ -204,7 +205,10 @@ export const MemberPerson = observer(function MemberPerson({
               leading={<Server size={18} />}
               title={machine.name}
               trailing={
-                <span className="settings-prose">{machine.online ? 'Online' : 'Offline'}</span>
+                <span className="settings-prose inline-flex items-center gap-1.5">
+                  <MachinePresenceDot machine={machine} />
+                  <MachinePresenceText machine={machine} />
+                </span>
               }
             />
           ))

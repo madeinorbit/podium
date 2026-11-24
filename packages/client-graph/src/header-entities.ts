@@ -1,13 +1,15 @@
 import type { PoolRows } from './pool'
-declare module './source-registry' { interface PoolSourceRows { repository: PoolRows['repository'] } }
-import type { MobxPool } from './pool'
-import type { PoolTables } from './tables'
+
+declare module './source-registry' {
+  interface PoolSourceRows {
+    repository: PoolRows['repository']
+  }
+}
+
 import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { compareStructural, computed, observable, observe, reaction, runInAction } from 'mobx'
 import { debugName } from './debug-name'
 import { createHeaderRepositoryRelations } from './header-repositories'
-import { createShippingIndex } from './header-shipping-index'
-import { RelationBuckets } from './relations'
 import {
   HEADER_RELATIONS,
   HEADER_SCHEMA,
@@ -16,12 +18,17 @@ import {
   type HeaderRows,
   type ShippingCounts,
 } from './header-schema'
+import { createShippingIndex } from './header-shipping-index'
+import type { MobxPool } from './pool'
 import { createKeyedAnswer } from './query-result'
+import { RelationBuckets } from './relations'
+import type { PoolTables } from './tables'
 
 const EMPTY_SHIPPING: ShippingCounts = { unfinishedCount: 0, decisionCount: 0 }
 /** What the offline list reads of a machine's live condition. */
 export interface MachineLiveCondition {
   readonly online: boolean
+  readonly onlineKnown?: boolean
   readonly lastSeenAt?: string
   readonly availability?: { readonly daemon: boolean }
 }
@@ -48,10 +55,12 @@ export function createHeaderEntities(
   const tables = Object.fromEntries(
     Object.keys(HEADER_SCHEMA).map((entity) => [
       entity,
-      (entity === 'machine' || entity === 'repository') && shared ? shared[entity] : observable.map<string, object>(undefined, {
-        deep: false,
-        name: debugName(() => `pool.${entity}`),
-      }),
+      (entity === 'machine' || entity === 'repository') && shared
+        ? shared[entity]
+        : observable.map<string, object>(undefined, {
+            deep: false,
+            name: debugName(() => `pool.${entity}`),
+          }),
     ]),
   ) as Record<HeaderEntity, ReturnType<typeof observable.map<string, object>>>
   const orders = observable.map<HeaderEntity, readonly string[]>(undefined, { deep: false })
@@ -72,16 +81,26 @@ export function createHeaderEntities(
    * set). Every member holds every machine record, so the fleet is not the
    * machine table. Kept per machine write, so fleet readers read no row.
    */
-  const fleet = observable.set<string>(undefined, { deep: false, name: debugName(() => 'header.fleet') })
+  const fleet = observable.set<string>(undefined, {
+    deep: false,
+    name: debugName(() => 'header.fleet'),
+  })
   const placeInFleet = (id: string, value: unknown) => {
-    if (value !== null && typeof value === 'object' && (value as { use?: unknown }).use !== undefined) fleet.add(id)
+    if (
+      value !== null &&
+      typeof value === 'object' &&
+      (value as { use?: unknown }).use !== undefined
+    )
+      fleet.add(id)
     else fleet.delete(id)
   }
   runInAction(() => {
     for (const [id, value] of tables.machine) placeInFleet(id, value)
   })
   const stopFleet = observe(tables.machine, (change) =>
-    runInAction(() => placeInFleet(change.name, change.type === 'delete' ? undefined : change.newValue)),
+    runInAction(() =>
+      placeInFleet(change.name, change.type === 'delete' ? undefined : change.newValue),
+    ),
   )
   const machineArrival = new Map<string, number>()
   let machineSequence = 0
@@ -163,7 +182,12 @@ export function createHeaderEntities(
       const address = `${entity}:${id}:${relation.name}`
       const target = next && (next as Record<string, unknown>)[relation.key]
       const current = typeof target === 'string' && target ? [target] : []
-      relations.move(address, id, current, target => `${relation.to}:${target}:${relation.inverse}`)
+      relations.move(
+        address,
+        id,
+        current,
+        (target) => `${relation.to}:${target}:${relation.inverse}`,
+      )
     }
   }
 
@@ -199,7 +223,8 @@ export function createHeaderEntities(
     firstId: (entity: HeaderEntity): string | undefined =>
       orders.get(entity)?.[0] ?? tables[entity].keys().next().value,
     get: (entity: HeaderEntity, id: string) => tables[entity].get(id),
-    one: (entity: string, id: string, relation: string) => relations.one(`${entity}:${id}:${relation}`),
+    one: (entity: string, id: string, relation: string) =>
+      relations.one(`${entity}:${id}:${relation}`),
     members: (entity: string, id: string, relation: string) =>
       relations.many(`${entity}:${id}:${relation}`),
     shippingCounts: (repoId: string | null) => (repoId && shipping.get(repoId)) || EMPTY_SHIPPING,
@@ -323,7 +348,9 @@ export function createHeaderEntities(
 }
 
 /** The screen registry owns creation and teardown of this view. */
-export function headerEntities(pool: MobxPool): ReturnType<typeof createHeaderEntities> & { dispose(): void } {
+export function headerEntities(
+  pool: MobxPool,
+): ReturnType<typeof createHeaderEntities> & { dispose(): void } {
   return pool.sources.view('header.entities', () => {
     const view = createHeaderEntities(pool.tables, (id) => {
       const reading = pool.live?.conditionOf(id)
@@ -333,11 +360,15 @@ export function headerEntities(pool: MobxPool): ReturnType<typeof createHeaderEn
       if (value === undefined) return undefined
       return {
         online: reading.known && value.online,
+        onlineKnown: reading.known,
         ...(value.lastSeenAt !== undefined ? { lastSeenAt: value.lastSeenAt } : {}),
         ...(value.availability !== undefined ? { availability: value.availability } : {}),
       }
     })
-    pool.sources.register(['repository'], { read: (_entity, id) => view.get('repository', id) as PoolRows['repository'] | undefined, dispose() {} })
+    pool.sources.register(['repository'], {
+      read: (_entity, id) => view.get('repository', id) as PoolRows['repository'] | undefined,
+      dispose() {},
+    })
     // A machine the server sees connected is never listed offline (POD-5798):
     // re-decide one machine whenever its LiveStore condition changes.
     let stopConditions: (() => void) | undefined

@@ -459,7 +459,18 @@ if (populated) {
     },
   ])
   headerEntities(pool).order('repository', ['scan-podium'])
-  for (const machine of machines) live.online(machine.id, machine.online)
+  for (const machine of machines)
+    live.condition(machine.id, {
+      online:
+        params.get('presence') === 'offline'
+          ? false
+          : params.has('presence')
+            ? true
+            : machine.online,
+      since: null,
+      lastSeenAt: new Date(Date.now() - 120_000).toISOString(),
+    })
+  if (params.get('presence') === 'reconnecting') live.lost(Date.now())
   updates.fleet.machines = machines.map((m) => ({
     ...m,
     version: m.appVersion,

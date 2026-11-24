@@ -7,8 +7,10 @@ import {
   type HostMetricsWire,
   type Inventory,
   type MachineAccessWire,
+  type MachinePresence,
   type MachineProjection,
   type MachineServiceReport,
+  machinePresence,
   serverMoveEligibilityOf,
 } from '@podium/model'
 import type { MachineConditionPayload } from '@podium/protocol'
@@ -65,6 +67,13 @@ export class MachineModel extends EntityModel {
   }
 
   // Live condition
+  @lazy get presence(): MachinePresence {
+    const reading = this.host.live?.conditionOf(this.id)
+    return machinePresence({
+      online: reading?.known === true && reading.value.online,
+      onlineKnown: reading?.known === true,
+    })
+  }
   /**
    * Online now, by the server's view of the daemon connection. True only while
    * that is KNOWN: before the first reading, or once the connection is lost,
@@ -72,12 +81,11 @@ export class MachineModel extends EntityModel {
    * {@link onlineKnown} says which case "false" is.
    */
   @lazy get online(): boolean {
-    const reading = this.host.live?.conditionOf(this.id)
-    return reading?.known === true && reading.value.online
+    return this.presence === 'Online'
   }
   /** Whether {@link online} is a current reading (false: unknown, shown as such). */
   @lazy get onlineKnown(): boolean {
-    return this.host.live?.conditionOf(this.id)?.known === true
+    return this.presence !== 'Reconnecting'
   }
   /**
    * When `online` last changed, as the server saw it. Null when the server has

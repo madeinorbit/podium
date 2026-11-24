@@ -21,7 +21,14 @@ vi.mock('@/features/issues/use-agent-fleet-options', () => ({
 vi.mock('@/app/automation-readers', () => ({
   useAutomationTargets: () => ({
     ids: ['podium'],
-    excluded: { unauthorized: 0, unreachable: 0, incapable: 0, disabled: 0, degraded: 0 },
+    excluded: {
+      unauthorized: 0,
+      unreachable: 0,
+      reconnecting: 0,
+      incapable: 0,
+      disabled: 0,
+      degraded: 0,
+    },
     pending: 0,
   }),
   useAutomationTarget: () => ({

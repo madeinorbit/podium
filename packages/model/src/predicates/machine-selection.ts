@@ -18,12 +18,13 @@
 import {
   type AgentProbeError,
   type MachineComponent,
+  type MachineServiceAssignment,
+  type MachineServiceReport,
   type MachineUseDecision,
   probeTimeoutDescription,
-  type MachineServiceReport,
-  type MachineServiceAssignment,
 } from '../entities/machine'
 import type { MachineId } from '../ids/brands'
+import { machinePresence } from './machine-presence'
 
 export interface RepoMachines {
   machines?: { machineId: MachineId; path: string }[]
@@ -37,6 +38,7 @@ export interface SelectableMachine {
   name?: string
   id: string
   online: boolean
+  onlineKnown?: boolean
   /** Compatibility list of desired components; never evidence of availability. */
   components?: readonly MachineComponent[]
   serviceAssignment?: MachineServiceAssignment
@@ -99,21 +101,33 @@ export function machineByRef<M extends NameableMachine>(machines: M[], ref: stri
   if (exact) return exact
   const live = machines.filter((machine) => !machine.revokedAt && !machine.supersededBy)
   const preferred = (matches: M[]) => matches.sort((a, b) => selectionRank(b) - selectionRank(a))[0]
-  return preferred(live.filter((machine) => machine.name === ref)) ??
-    preferred(live.filter((machine) => machine.hostname === ref)) ?? null
+  return (
+    preferred(live.filter((machine) => machine.name === ref)) ??
+    preferred(live.filter((machine) => machine.hostname === ref)) ??
+    null
+  )
 }
 
 /** Prefer observed online rows without asserting that equal names share identity. */
-function selectionRank(machine: Pick<NameableMachine, 'online' | 'serviceAssignment' | 'availability'>): number {
-  return (machine.online ? 4 : 0) +
-    (machine.serviceAssignment?.agentExecution === true && machine.availability?.daemon === true ? 2 : 0)
+function selectionRank(
+  machine: Pick<NameableMachine, 'online' | 'serviceAssignment' | 'availability'>,
+): number {
+  return (
+    (machine.online ? 4 : 0) +
+    (machine.serviceAssignment?.agentExecution === true && machine.availability?.daemon === true
+      ? 2
+      : 0)
+  )
 }
 
 /** Presentation only: retain distinct online identities, hide stale offline names. */
 export function preferredMachineChoices<M extends SelectableMachine>(machines: M[]): M[] {
   const live = machines.filter((machine) => !machine.revokedAt && !machine.supersededBy)
-  const onlineNames = new Set(live.filter((machine) => machine.online && machine.name).map((machine) => machine.name))
-  return live.filter((machine) => machine.online || !machine.name || !onlineNames.has(machine.name))
+  const onlineNames = new Set(
+    live.filter((machine) => machine.online && machine.name).map((machine) => machine.name),
+  )
+  return live
+    .filter((machine) => machine.online || !machine.name || !onlineNames.has(machine.name))
     .sort((a, b) => selectionRank(b) - selectionRank(a))
 }
 
@@ -222,6 +236,7 @@ export type AgentCapabilityRejection =
   | 'unauthorized'
   | 'no-daemon'
   | 'offline'
+  | 'reconnecting'
   | 'inventory-unavailable'
   | 'harness-probe-timed-out'
   | 'agents-disabled'
@@ -264,7 +279,9 @@ export function agentCapabilityRejection<M extends HandoffMachine>(
   if (machine.revokedAt || machine.supersededBy || machine.use === 'denied') return 'unauthorized'
   const structural = structuralRejection(machine)
   if (structural !== undefined) return structural
-  if (!machine.online || machine.availability?.daemon !== true) return 'offline'
+  if (machinePresence(machine) === 'Reconnecting') return 'reconnecting'
+  if (machinePresence(machine) === 'Offline' || machine.availability?.daemon !== true)
+    return 'offline'
   const execution = agentExecutionRejection(machine)
   if (execution !== undefined) return execution
   return harnessRejection(machine, agentKind)
@@ -296,8 +313,7 @@ export function structuralRejection<M extends SelectableMachine>(
   machine: M,
 ): 'no-daemon' | undefined {
   if (machine.revokedAt) return 'no-daemon'
-  return machine.serviceAssignment?.agentExecution === true
-    ? undefined : 'no-daemon'
+  return machine.serviceAssignment?.agentExecution === true ? undefined : 'no-daemon'
 }
 
 /**
@@ -362,7 +378,10 @@ export function resolveTargetMachine<S extends RecentSession, M extends Selectab
   machines: M[],
 ): string | undefined {
   const online = machinesForRepo(repo, machines)
-  const ready = online.filter((machine) => machine.serviceAssignment?.agentExecution === true && machine.availability?.daemon === true)
+  const ready = online.filter(
+    (machine) =>
+      machine.serviceAssignment?.agentExecution === true && machine.availability?.daemon === true,
+  )
   const eligible = ready.length ? ready : online
   if (eligible.length === 0) return undefined
   return lastUsedMachine(sessions, eligible) ?? eligible[0]?.id
@@ -422,8 +441,9 @@ export function agentLoginCondition<M extends HandoffMachine>(
  * not offline, so existing `online:true` fixtures keep meaning online.
  */
 export function isMachineOfflineForLiveTerminal(
-  machine: Pick<SelectableMachine, 'online' | 'availability'>,
+  machine: Pick<SelectableMachine, 'online' | 'onlineKnown' | 'availability'>,
 ): boolean {
-  if (machine.online === false) return true
+  if (machinePresence(machine) === 'Reconnecting') return false
+  if (machinePresence(machine) === 'Offline') return true
   return machine.availability?.daemon === false
 }

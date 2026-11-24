@@ -7,11 +7,12 @@
  * surfaces. Keep the dependency one-way so those deferred surfaces do not pull
  * their full source text into the eager graph.
  */
+import { machinePresence } from './machine-presence'
 import {
   type AgentCapabilityRejection,
   type AgentLoginCondition,
-  type HandoffMachine,
   agentExecutionRejection,
+  type HandoffMachine,
   harnessRejection,
   type SelectableMachine,
   structuralRejection,
@@ -108,7 +109,9 @@ export function machineRejection<M extends HandoffMachine>(
 ): MachineRejection | undefined {
   const structural = structuralEligibility(machine, requirement)
   if (structural !== undefined) return structural
-  if (!machine.online || machine.availability?.daemon !== true) return 'offline'
+  if (machinePresence(machine) === 'Reconnecting') return 'reconnecting'
+  if (machinePresence(machine) === 'Offline' || machine.availability?.daemon !== true)
+    return 'offline'
   const execution = agentExecutionRejection(machine)
   if (execution !== undefined) return execution
   switch (requirement.need) {
@@ -212,6 +215,12 @@ export function machineEmptyState<M extends HandoffMachine & { name?: string }>(
     case 'no-machines':
       return { title: `No machines are paired yet.`, ...remedy }
     case 'all-offline':
+      if (summary.offline.some((machine) => machinePresence(machine) === 'Reconnecting')) {
+        return {
+          title: 'Reconnecting to machines.',
+          detail: 'Waiting for current machine readings. Your selection is saved.',
+        }
+      }
       return {
         // NAMED, and deliberately so: these machines CAN do the job, so telling
         // the user which ones to wake is the entire remedy.
@@ -311,6 +320,8 @@ export function machineRejectionMessage(
       return `machine '${name}' runs no Podium daemon and cannot ${action}`
     case 'offline':
       return `machine '${name}' is offline — bring its daemon online, then retry`
+    case 'reconnecting':
+      return `reconnecting to machine '${name}' — wait for a current reading, then retry`
     // The two PROBE-STATE members the agent-runtime epic added (POD-3070 merge).
     // Both are "not yet known", not "no" — the sentence has to say that, because
     // the advice is to wait or retry rather than to install anything.

@@ -100,6 +100,8 @@ export function machineOptionLabel<M extends ChoosableMachine>(choice: MachineCh
       return name
     case 'offline':
       return `${name} (offline)`
+    case 'reconnecting':
+      return `${name} (reconnecting)`
     case 'agents-disabled':
       return `${name} (agents off)`
     case 'agents-unavailable':

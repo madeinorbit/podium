@@ -1,6 +1,7 @@
 import { daemonReadinessStatus } from '@podium/client-core/values'
 import type { MachineModel } from '@podium/client-graph'
 import { companion, lazy } from '@podium/mobx-helpers'
+import { machinePresence } from '@podium/model/browser'
 import { compareShallow } from 'mobx'
 
 export class MachinesSettings {
@@ -48,7 +49,9 @@ export class SettingsMachine {
   }
 
   @lazy get canFindRepositories(): boolean {
-    return this.canManage && this.machine.online && this.machine.use === 'granted'
+    return (
+      this.canManage && machinePresence(this.machine) === 'Online' && this.machine.use === 'granted'
+    )
   }
 
   /**
@@ -56,7 +59,7 @@ export class SettingsMachine {
    * not encrypted and leaving its computer, so credentials are not sent to it.
    */
   @lazy get unencrypted(): boolean {
-    return this.machine.online && this.machine.linkKind === 'plain'
+    return machinePresence(this.machine) === 'Online' && this.machine.linkKind === 'plain'
   }
 
   @lazy get runsServer(): boolean {
@@ -69,7 +72,7 @@ export class SettingsMachine {
    * uninstalled from here, since that would take the server with it.
    */
   @lazy get canUninstall(): boolean {
-    return this.canManage && this.machine.online && !this.runsServer
+    return this.canManage && machinePresence(this.machine) === 'Online' && !this.runsServer
   }
 
   @lazy get agentChangesOnRestart(): boolean {
@@ -89,7 +92,7 @@ export class SettingsMachine {
   }
 
   @lazy({ equals: compareShallow }) get degradedServices(): readonly string[] {
-    if (!this.machine.online) return []
+    if (!(machinePresence(this.machine) === 'Online')) return []
     const { serviceAssignment: assignment, services } = this.machine
     return [
       ...(assignment?.server === true &&
@@ -109,14 +112,15 @@ export class SettingsMachine {
 
   @lazy get status(): {
     label: string
-    tone: 'online' | 'offline' | 'degraded' | 'off'
+    tone: 'online' | 'reconnecting' | 'offline' | 'degraded' | 'off'
     detail?: string
   } {
     const { machine } = this
     if (machine.supersededBy) return { label: 'Replaced', tone: 'offline' }
     if (machine.revokedAt) return { label: 'Removed', tone: 'offline' }
-    if (machine.onlineKnown === false) return { label: 'Status unknown', tone: 'offline' }
-    if (!machine.online) return { label: 'Offline', tone: 'offline' }
+    const presence = machinePresence(machine)
+    if (presence === 'Reconnecting') return { label: presence, tone: 'reconnecting' }
+    if (presence === 'Offline') return { label: presence, tone: 'offline' }
     const readiness = daemonReadinessStatus(machine.daemonReadiness)
     if (readiness.pending) {
       return {

@@ -13,6 +13,7 @@ import {
   GLOBAL_TARGET,
   NEW_AUTOMATION_RIGHTS,
   scheduleValid,
+  targetExclusionNote,
   userAutomations,
 } from './automation-form'
 
@@ -190,10 +191,36 @@ describe('targets are bounded by machine USE', () => {
     expect(excluded).toEqual({
       unauthorized: 1,
       unreachable: 1,
+      reconnecting: 0,
       incapable: 0,
       disabled: 1,
       degraded: 1,
     })
+  })
+
+  it('keeps a saved target reconnecting while its browser reading is stale', () => {
+    const host = { ...machine('m-stale', { use: 'granted' }), onlineKnown: false }
+    const { choices, excluded } = automationTargetChoices(
+      [repo('/repos/stale', { machineId: host.id })],
+      [],
+      [
+        {
+          machine: host,
+          grants: { see: true, use: true, manage: true },
+          availability: 'unreachable',
+        },
+      ],
+      '/repos/stale',
+    )
+    expect(choices.find((choice) => choice.value === '/repos/stale')).toMatchObject({
+      label: 'stale — reconnecting',
+      availability: 'reconnecting',
+      opaque: true,
+    })
+    expect(excluded.reconnecting).toBe(1)
+    expect(excluded.unreachable).toBe(0)
+    expect(targetExclusionNote(excluded)).toContain('reconnecting')
+    expect(targetExclusionNote(excluded)).not.toContain('offline')
   })
 
   it('reads an unscoped machine list permissively, so single-user parity holds', () => {
@@ -216,6 +243,7 @@ describe('targets are bounded by machine USE', () => {
     expect(excluded).toEqual({
       unauthorized: 0,
       unreachable: 0,
+      reconnecting: 0,
       incapable: 0,
       disabled: 0,
       degraded: 0,

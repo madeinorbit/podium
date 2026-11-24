@@ -11,6 +11,7 @@ export type TargetAvailability =
   | 'available'
   | 'unauthorized'
   | 'unreachable'
+  | 'reconnecting'
   | 'incapable'
   | 'disabled'
   | 'degraded'
@@ -24,6 +25,7 @@ export type TargetExclusions = Record<Exclude<TargetAvailability, 'available'>, 
 export const EMPTY_EXCLUSIONS: TargetExclusions = {
   unauthorized: 0,
   unreachable: 0,
+  reconnecting: 0,
   incapable: 0,
   disabled: 0,
   degraded: 0,

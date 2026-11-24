@@ -3,6 +3,7 @@ import { useCommands } from '@podium/client-core/react'
 import { observer } from '@podium/client-graph/react'
 import { companion } from '@podium/mobx-helpers'
 import type { MachineFacts, UpdateChannel } from '@podium/model/browser'
+import { machinePresence } from '@podium/model/browser'
 import { action, observable, runInAction } from 'mobx'
 import type { JSX } from 'react'
 import { useEffect, useMemo } from 'react'
@@ -217,7 +218,7 @@ export function canApplyMachineUpdate(
   convergence: MachineConvergence | null,
 ): boolean {
   return (
-    machine.online === true &&
+    machinePresence(machine) === 'Online' &&
     machine.podiumManaged !== false &&
     !machine.revokedAt &&
     !machine.supersededBy &&
@@ -401,7 +402,7 @@ export const MachineUpdateControls = observer(function MachineUpdateControls({
         aria-busy={busy}
         aria-label={`Apply update to ${machine.name}`}
         title={
-          !machine.online
+          machinePresence(machine) !== 'Online'
             ? 'This machine must be online to apply its selected target.'
             : deliveryUnavailable
               ? deliveryUnavailableReason

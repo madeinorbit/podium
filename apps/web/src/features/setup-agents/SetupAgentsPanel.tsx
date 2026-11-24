@@ -1,3 +1,5 @@
+import { machinePresence } from '@podium/model/browser'
+import { MachinePresenceDot } from '@/components/machine-presence'
 /**
  * THE "SET UP AGENTS" PANEL on web (POD-6858): the list of harnesses on one
  * machine, one harness's page, and its sign-in choice. Every answer comes from
@@ -334,15 +336,7 @@ const MachineChip = observer(function MachineChip({
   onSwitchMachine?: (machineId: MachineId) => void
 }) {
   const others = (machines ?? []).filter((machine) => machine.id !== view.machine.id)
-  const dot = (
-    <span
-      aria-hidden="true"
-      className={cn(
-        'inline-block size-[7px] rounded-full',
-        view.machine.online ? 'bg-success' : 'bg-muted-foreground/50',
-      )}
-    />
-  )
+  const dot = <MachinePresenceDot machine={view.machine} className="size-[7px]" />
   const chip =
     'inline-flex h-11 max-w-[14rem] items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs text-foreground sm:h-[30px]'
   if (!onSwitchMachine || others.length === 0)
@@ -449,9 +443,11 @@ const ListPage = observer(function ListPage({
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-2">
         {!view.reachable && !view.checking && (
           <p className="m-0 mx-4 mt-3 rounded-md bg-warning/10 px-3 py-2 text-xs text-warning sm:mx-[22px]">
-            {view.machine.online
+            {machinePresence(view.machine) === 'Online'
               ? `You can’t change agents on ${view.machineName}.`
-              : `${view.machineName} is offline. Installs and sign-in wait until it is back.`}
+              : machinePresence(view.machine) === 'Reconnecting'
+                ? `Reconnecting to ${view.machineName}. Installs and sign-in wait for its current status.`
+                : `${view.machineName} is offline. Installs and sign-in wait until it is back.`}
           </p>
         )}
         {view.checking ? (

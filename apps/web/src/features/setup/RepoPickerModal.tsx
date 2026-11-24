@@ -6,6 +6,7 @@ import {
   type MachineFacts,
   type MachineId,
   machinePathSeparator,
+  machinePresence,
 } from '@podium/model/browser'
 import {
   Check,
@@ -26,6 +27,7 @@ import {
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
+import { MachinePresenceText } from '@/components/machine-presence'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -180,13 +182,14 @@ export function RepoPickerModal({
     ? machines.find((machine) => machine.id === selectedMachineId)
     : undefined
   /** A KNOWN, online machine is picked — every action here needs one. */
-  const machineReady = selectedMachine?.online === true
+  const machineReady =
+    selectedMachine !== undefined && machinePresence(selectedMachine) === 'Online'
   const machinePathLabel = `Repo path on ${selectedMachine?.name ?? selectedMachineId ?? 'machine'}`
   const headerPath = !selectedMachine
     ? 'No machine selected'
-    : selectedMachine.online
+    : machinePresence(selectedMachine) === 'Online'
       ? (listing?.path ?? 'Loading...')
-      : `${selectedMachine.name} is offline`
+      : `${selectedMachine.name} · ${machinePresence(selectedMachine)}`
 
   // Read through a ref so `load`'s identity tracks the MACHINE only: toggling
   // hidden re-lists the folder you are standing in instead of bouncing to home.
@@ -303,8 +306,8 @@ export function RepoPickerModal({
       setError('Choose an online machine')
       return
     }
-    if (!selectedMachine.online) {
-      setError(`${selectedMachine.name} is offline`)
+    if (machinePresence(selectedMachine) !== 'Online') {
+      setError(`${selectedMachine.name} · ${machinePresence(selectedMachine)}`)
       return
     }
     if (!isAbsoluteMachinePath(path)) {
@@ -726,9 +729,10 @@ export function RepoPickerModal({
                     }
                   />
                 )}
-                {selectedMachine && !selectedMachine.online && (
+                {selectedMachine && machinePresence(selectedMachine) !== 'Online' && (
                   <div className="p-3 text-xs text-muted-foreground/70">
-                    {selectedMachine.name} is offline — its folders can't be browsed right now.
+                    {selectedMachine.name} · <MachinePresenceText machine={selectedMachine} />. Its
+                    folders can't be browsed right now.
                   </div>
                 )}
                 {machineReady && loading && (

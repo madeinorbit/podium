@@ -43,7 +43,7 @@ test('replacement options exclude the old identity, retired machines and denied 
 
 test('presence, recovery and deliberate hosting-off remain distinct', () => {
   expect(new SettingsMachine(machine({ online: false })).status.label).toBe('Offline')
-  expect(new SettingsMachine(machine({ onlineKnown: false })).status.label).toBe('Status unknown')
+  expect(new SettingsMachine(machine({ onlineKnown: false })).status.label).toBe('Reconnecting')
   expect(
     new SettingsMachine(
       machine({
@@ -142,4 +142,18 @@ test('uninstall needs manage, an online machine, and a machine that does not run
   expect(new SettingsMachine(machine({ serviceAssignment: { server: true } })).canUninstall).toBe(
     false,
   )
+})
+
+test.each([
+  true,
+  false,
+])('stale machine status is neutral and cannot enable remote actions (last online: %s)', (online) => {
+  const view = new SettingsMachine(
+    machine({ online, onlineKnown: false, use: 'granted', linkKind: 'plain' }),
+  )
+  expect(view.status).toEqual({ label: 'Reconnecting', tone: 'reconnecting' })
+  expect(view.canFindRepositories).toBe(false)
+  expect(view.canUninstall).toBe(false)
+  expect(view.unencrypted).toBe(false)
+  expect(view.degradedServices).toEqual([])
 })

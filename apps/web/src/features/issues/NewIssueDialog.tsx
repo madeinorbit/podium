@@ -36,6 +36,7 @@ import {
   useCommandTargetMachines,
 } from '@/app/command-launch-data'
 import { useWorklistPool } from '@/app/store-worklist-pool'
+import { MachinePresenceDot } from '@/components/machine-presence'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -247,13 +248,7 @@ function MachineMenu({
               className={cn(machine.id === value && 'bg-hairline-soft text-text-strong')}
               onClick={() => onSelect(machine.id)}
             >
-              <span
-                className={cn(
-                  'mx-[4px] size-1.5 flex-none rounded-full',
-                  machine.online ? 'bg-success-solid' : 'ring-1 ring-text-faint ring-inset',
-                )}
-                aria-hidden="true"
-              />
+              <MachinePresenceDot machine={machine} className="mx-[4px]" />
               <span className="min-w-0 flex-1 truncate">{machine.name}</span>
               {hint && <span className={MENU_HINT}>{hint}</span>}
             </DropdownMenuItem>

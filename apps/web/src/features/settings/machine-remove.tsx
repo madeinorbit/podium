@@ -2,6 +2,7 @@ import { observer } from '@podium/client-graph/react'
 import { machineWrites } from '@podium/commands/fleet-synced'
 import type { UninstallEditOutcome } from '@podium/protocol'
 import { useMemo, useState } from 'react'
+import { MachinePresenceText } from '@/components/machine-presence'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -76,7 +77,7 @@ export const MachineRemove = observer(function MachineRemove({ view }: { view: S
                   {options.candidates.map((candidate) => (
                     <SelectItem key={candidate.id} value={candidate.id}>
                       {candidate.name} · {candidate.hostname} ·{' '}
-                      {candidate.online ? 'online' : 'offline'}
+                      <MachinePresenceText machine={candidate} />
                     </SelectItem>
                   ))}
                 </SelectContent>

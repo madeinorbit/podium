@@ -19,6 +19,7 @@ import { Circle, LayoutGrid, SquarePlus, SquareTerminal } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import type React from 'react'
 import { type JSX, useMemo, useState } from 'react'
+import { MachinePresenceDot } from '@/components/machine-presence'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -551,10 +552,7 @@ function MachineSubmenu({
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
-        <Circle
-          className={`${MACHINE_DOT} ${machine.online ? 'fill-success text-success' : 'text-text-faint'}`}
-          aria-hidden="true"
-        />
+        <MachinePresenceDot machine={machine} />
         <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
           {machine.name}
         </span>

@@ -384,7 +384,11 @@ export function repositoriesFromCheckouts(
  */
 export type MachineFacts = Readonly<Pick<MachineProjection, 'id' | 'name'>> &
   Readonly<Partial<Pick<MachineProjection, 'loggedOutHarnesses'>>> &
-  Readonly<Partial<Omit<import('./machine').MachineWire, 'id' | 'name' | 'online' | 'harnessVersions'>>> &
+  Readonly<
+    Partial<Omit<import('./machine').MachineWire, 'id' | 'name' | 'online' | 'harnessVersions'>>
+  > &
   Readonly<Partial<Pick<MachineAccessWire, 'harnessVersions'>>> & {
     readonly online: boolean
+    /** False while the client's live condition is stale or not yet read. */
+    readonly onlineKnown?: boolean
   }

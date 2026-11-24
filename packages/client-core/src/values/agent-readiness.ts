@@ -1,5 +1,5 @@
 import type { GitRepositoryWire, HarnessAgent, MachineFacts } from '@podium/model'
-import { agentCapabilityRejectionForSelection } from '@podium/model'
+import { agentCapabilityRejectionForSelection, machinePresence } from '@podium/model'
 
 export type ActivationAgentReadiness = {
   state:
@@ -8,6 +8,7 @@ export type ActivationAgentReadiness = {
     | 'logged-out'
     | 'missing'
     | 'offline'
+    | 'reconnecting'
     | 'unauthorized'
     | 'checking'
     | 'unavailable'
@@ -48,7 +49,8 @@ export function agentReadinessOnMachines(
   if (candidates.length === 0) return { state: 'unavailable' }
 
   for (const machine of candidates) {
-    if (!machine.online || machine.use === 'denied' || machine.inventory) continue
+    if (machinePresence(machine) !== 'Online' || machine.use === 'denied' || machine.inventory)
+      continue
     return { state: 'checking', machine }
   }
 
@@ -60,7 +62,13 @@ export function agentReadinessOnMachines(
       : { state: 'ready', machine, ...(login?.account ? { account: login.account } : {}) }
   }
 
-  const priority = ['logged-out', 'harness-missing', 'offline', 'unauthorized'] as const
+  const priority = [
+    'logged-out',
+    'harness-missing',
+    'reconnecting',
+    'offline',
+    'unauthorized',
+  ] as const
   for (const rejection of priority) {
     const machine = candidates.find(
       (candidate) => agentCapabilityRejectionForSelection(candidate, agent) === rejection,
@@ -101,7 +109,10 @@ export function agentCanLaunch(
 }
 
 /** What a launch surface says when it lets a signed-out harness start headed. */
-export function signInInTerminalCopy(readiness: ActivationAgentReadiness, agentLabel: string): string {
+export function signInInTerminalCopy(
+  readiness: ActivationAgentReadiness,
+  agentLabel: string,
+): string {
   const machine = readiness.machine?.name ?? 'this machine'
   return `${agentLabel} is not signed in on ${machine}. It opens in its terminal, where you can sign in.`
 }
@@ -161,6 +172,8 @@ export function activationReadinessCopy(
       return `${agentLabel} is not installed on ${machine}. Install it there, then return; Podium detects readiness automatically.`
     case 'offline':
       return `${machine} is offline. Bring its Podium daemon online, then return to this saved draft.`
+    case 'reconnecting':
+      return `Reconnecting to ${machine}. Your draft is saved while its current status is checked.`
     case 'unauthorized':
       return `You do not have access to run agents on ${machine}. Ask its owner for access or choose another project.`
     case 'checking':

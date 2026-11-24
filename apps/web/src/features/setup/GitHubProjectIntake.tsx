@@ -1,12 +1,13 @@
 import { GITHUB_PROJECT_INTAKE_DRAFT_KEY } from '@podium/client-core/ui-state'
 import type { MachineFacts } from '@podium/model'
 import { isAbsoluteMachinePath } from '@podium/model'
-import { joinMachinePath } from '@podium/model/browser'
+import { joinMachinePath, machinePresence } from '@podium/model/browser'
 import type { GitHubCliStatusWire, GitHubRepositoryWire } from '@podium/protocol'
 import { Check, Copy, Download, ExternalLink, GitFork, RefreshCw, Search } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
+import { MachinePresenceText } from '@/components/machine-presence'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useSettingsDraft } from '@/features/settings/readers'
@@ -48,7 +49,11 @@ export function GitHubProjectIntake({
   onClone: (repository: string, destination: string) => Promise<void>
 }): JSX.Element {
   const { trpc, uiState } = useSettingsClient()
-  const [draft, setDraft] = useSettingsDraft(GITHUB_PROJECT_INTAKE_DRAFT_KEY, readDraft, serializeDraft)
+  const [draft, setDraft] = useSettingsDraft(
+    GITHUB_PROJECT_INTAKE_DRAFT_KEY,
+    readDraft,
+    serializeDraft,
+  )
   const [status, setStatus] = useState<GitHubCliStatusWire | null>(null)
   const [repositories, setRepositories] = useState<GitHubRepositoryWire[]>([])
   const [checking, setChecking] = useState(false)
@@ -150,10 +155,10 @@ export function GitHubProjectIntake({
   if (!machine) {
     return <p className="p-4 text-xs text-muted-foreground">Choose a machine to use GitHub.</p>
   }
-  if (!machine.online) {
+  if (machinePresence(machine) !== 'Online') {
     return (
       <p className="p-4 text-xs text-muted-foreground">
-        {machine.name} is offline. Your GitHub selection is saved.
+        {machine.name} · <MachinePresenceText machine={machine} />. Your GitHub selection is saved.
       </p>
     )
   }

@@ -33,6 +33,7 @@ import {
   DEFAULT_HARNESS_AGENT,
   machinePathBasename,
   machinePathKey,
+  machinePresence,
   preferredMachineChoices,
 } from '@podium/model/browser'
 import { ChevronDown, Folder, LoaderCircle, Monitor, Paperclip } from 'lucide-react'
@@ -1175,9 +1176,9 @@ export function ColdStartComposer({
                   label: `${machine.name}${
                     !authorized.has(machine.id)
                       ? ' (no access)'
-                      : machine.online
+                      : machinePresence(machine) === 'Online'
                         ? ''
-                        : ' (offline)'
+                        : ` (${machinePresence(machine).toLowerCase()})`
                   }`,
                 }))}
                 selectedValue={selectedMachine?.id}

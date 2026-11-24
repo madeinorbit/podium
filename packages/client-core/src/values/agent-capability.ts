@@ -4,6 +4,7 @@ import {
   agentLoginCondition,
   agentProbeTimeoutDescription,
   harnessRejection,
+  machinePresence,
 } from '@podium/model'
 import type { MachineAvailability } from './compose/machines/authority'
 
@@ -44,6 +45,8 @@ export function agentCapabilityReason(
       return `${machineName} runs no Podium daemon, so it can’t run agents.`
     case 'offline':
       return `${machineName} is offline.`
+    case 'reconnecting':
+      return `Reconnecting to ${machineName}. Wait for its current status.`
     case 'inventory-unavailable':
       return `${machineName} hasn’t reported its agent inventory yet; retry shortly.`
     case 'harness-probe-timed-out':
@@ -71,6 +74,8 @@ export function agentCapabilityHint(
       return 'no daemon'
     case 'offline':
       return 'offline'
+    case 'reconnecting':
+      return 'reconnecting'
     case 'inventory-unavailable':
       return 'inventory pending'
     case 'harness-probe-timed-out':
@@ -188,15 +193,17 @@ export function candidateFromAvailability<M extends HandoffMachine & { name: str
       ? 'unauthorized'
       : availability === 'incapable'
         ? 'no-daemon'
-        : availability === 'disabled'
-          ? 'agents-disabled'
-          : availability === 'degraded'
-            ? 'agents-unavailable'
-            : availability === 'unreachable'
-              ? 'offline'
-              : machine.inventory === undefined
-                ? undefined
-                : harnessRejection(machine, agentKind)
+        : machinePresence(machine) === 'Reconnecting'
+          ? 'reconnecting'
+          : availability === 'disabled'
+            ? 'agents-disabled'
+            : availability === 'degraded'
+              ? 'agents-unavailable'
+              : availability === 'unreachable'
+                ? 'offline'
+                : machine.inventory === undefined
+                  ? undefined
+                  : harnessRejection(machine, agentKind)
   return {
     machineName: machine.name,
     ...(rejection ? { rejection } : {}),

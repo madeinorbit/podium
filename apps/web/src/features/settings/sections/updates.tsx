@@ -1,11 +1,13 @@
 import type { MachineModel } from '@podium/client-graph'
 import { observer } from '@podium/client-graph/react'
+import { machinePresence } from '@podium/model/browser'
 import type { Operation, ReleaseProposal } from '@podium/protocol'
 import { parseOperation, ReleaseProposal as ReleaseProposalSchema } from '@podium/protocol'
 import { History, Server } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { MachinePresenceText } from '@/components/machine-presence'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { type FailureReason, MachineFailureReason } from '@/features/updates/MachineFailureReason'
@@ -525,7 +527,12 @@ export const UpdatesSection = observer(function UpdatesSection(): JSX.Element {
                 <>
                   {formatDisplayedVersion(machine.version)}
                   {fleet?.targetVersion ? ` → ${formatDisplayedVersion(fleet.targetVersion)}` : ''}
-                  {!machine.online && ' · Offline'}
+                  {machinePresence(machine) !== 'Online' && (
+                    <>
+                      {' '}
+                      · <MachinePresenceText machine={machine} />
+                    </>
+                  )}
                 </>
               }
               monoSubtitle
@@ -824,7 +831,12 @@ const UpdateMachineRow = observer(function UpdateMachineRow({
               {formatDisplayedVersion(machine.appVersion ?? wave?.version ?? 'unreported')}
               {waiting && target ? ` → ${formatDisplayedVersion(target)}` : ''}
             </span>
-            {!machine.online && <span> · Offline</span>}
+            {machinePresence(machine) !== 'Online' && (
+              <span>
+                {' '}
+                · <MachinePresenceText machine={machine} />
+              </span>
+            )}
             {machine.installKind === 'source' && <span> · Source checkout</span>}
             {developing && machine.updateChannelOverride && (
               <span> · Pinned: {CHANNEL_LABELS[machine.updateChannelOverride]}</span>

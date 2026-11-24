@@ -29,13 +29,10 @@
  * may USE. Gating here is UX only — the Authority re-authorizes at apply (ADR 3
  * D8) — so nothing in this file decides anything; it only declines to OFFER.
  */
-import {
-  type MachineAvailability,
-  type MachineView,
-  repoUsageAt,
-} from '@podium/client-core/values'
+import { type MachineAvailability, type MachineView, repoUsageAt } from '@podium/client-core/values'
 import { machinePathBasename } from '@podium/model'
 import type { AutomationSessionMode, GitRepositoryWire, MachineFacts } from '@podium/model/browser'
+import { machinePresence } from '@podium/model/browser'
 import type { IssueAgentKind } from '@/lib/issue-agents'
 import type { Frequency } from './cron-format'
 import { cronFromFields, isValidCronExpression } from './cron-format'
@@ -372,7 +369,7 @@ export function scheduleValid(state: AutomationFormState, now = Date.now()): boo
 export interface AutomationTargetChoice {
   readonly value: string
   readonly label: string
-  readonly availability: MachineAvailability
+  readonly availability: MachineAvailability | 'reconnecting'
   /**
    * An OPAQUE REFERENCE (§3.1.2): the automation being edited already points
    * here, but this principal may not use it. It renders — a picker that silently
@@ -388,6 +385,7 @@ export interface AutomationTargetChoice {
 export interface AutomationTargetExclusions {
   readonly unauthorized: number
   readonly unreachable: number
+  readonly reconnecting: number
   /** POD-2700: repos on machines that run no Podium daemon. Counted apart from
    *  `unreachable` because "offline" invites a wait that can never end. */
   readonly incapable: number
@@ -398,6 +396,7 @@ export interface AutomationTargetExclusions {
 export const NO_TARGET_EXCLUSIONS: AutomationTargetExclusions = {
   unauthorized: 0,
   unreachable: 0,
+  reconnecting: 0,
   incapable: 0,
   disabled: 0,
   degraded: 0,
@@ -418,11 +417,21 @@ export function automationTargetChoices(
   views: readonly MachineView<MachineFacts>[],
   currentPath?: string | null,
 ): { choices: AutomationTargetChoice[]; excluded: AutomationTargetExclusions } {
-  const availabilityOf = new Map(views.map((v) => [v.machine.id, v.availability]))
+  const availabilityOf = new Map(
+    views.map((v) => [
+      v.machine.id,
+      v.availability !== 'unauthorized' &&
+      v.availability !== 'incapable' &&
+      machinePresence(v.machine) === 'Reconnecting'
+        ? ('reconnecting' as const)
+        : v.availability,
+    ]),
+  )
   const choices: AutomationTargetChoice[] = []
   const withheld: AutomationTargetChoice[] = []
   let unauthorized = 0
   let unreachable = 0
+  let reconnecting = 0
   let incapable = 0
   let disabled = 0
   let degraded = 0
@@ -443,6 +452,7 @@ export function automationTargetChoices(
     else if (availability === 'incapable') incapable += 1
     else if (availability === 'disabled') disabled += 1
     else if (availability === 'degraded') degraded += 1
+    else if (availability === 'reconnecting') reconnecting += 1
     else unreachable += 1
     withheld.push(choice)
   }
@@ -463,19 +473,24 @@ export function automationTargetChoices(
       label: `${machinePathBasename(currentPath)} — ${
         known?.availability === 'unreachable'
           ? 'machine offline'
-          : known?.availability === 'incapable'
-            ? 'machine runs no daemon'
-            : known?.availability === 'disabled'
-              ? 'agent hosting disabled'
-              : known?.availability === 'degraded'
-                ? 'agent hosting unavailable'
-                : 'not available to you'
+          : known?.availability === 'reconnecting'
+            ? 'reconnecting'
+            : known?.availability === 'incapable'
+              ? 'machine runs no daemon'
+              : known?.availability === 'disabled'
+                ? 'agent hosting disabled'
+                : known?.availability === 'degraded'
+                  ? 'agent hosting unavailable'
+                  : 'not available to you'
       }`,
       availability: known?.availability ?? 'unauthorized',
       opaque: true,
     })
   }
-  return { choices, excluded: { unauthorized, unreachable, incapable, disabled, degraded } }
+  return {
+    choices,
+    excluded: { unauthorized, unreachable, reconnecting, incapable, disabled, degraded },
+  }
 }
 
 function usageAt(
@@ -502,6 +517,10 @@ export function targetExclusionNote(excluded: AutomationTargetExclusions): strin
   if (excluded.unreachable > 0)
     parts.push(
       `${excluded.unreachable} ${plural(excluded.unreachable)} on machines that are offline`,
+    )
+  if (excluded.reconnecting > 0)
+    parts.push(
+      `${excluded.reconnecting} ${plural(excluded.reconnecting)} on machines that are reconnecting`,
     )
   if (excluded.disabled > 0)
     parts.push(

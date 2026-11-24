@@ -1,10 +1,9 @@
-import { relativeTime } from '@podium/client-core/focus'
 import { hostMemoryView } from '@podium/client-core/values'
 import { observer } from '@podium/client-graph/react'
 import { Server } from 'lucide-react'
 import { usePoolHostAggregate } from '@/app/header-data'
+import { MachineLastSeen, MachinePresenceDot } from '@/components/machine-presence'
 import { Badge } from '@/components/ui/badge'
-import { useClock } from '@/lib/clock-hooks'
 import { formatDisplayedVersion } from '@/lib/machine-version-skew'
 import { useMemberRoster } from '@/lib/member-roster'
 import { cn } from '@/lib/utils'
@@ -37,27 +36,25 @@ export const MachineCustodianName = observer(function MachineCustodianName({
 
 export const MachineStatus = observer(function MachineStatus({ view }: { view: SettingsMachine }) {
   const machine = view.machine
-  const lastSeen = !machine.online && !machine.revokedAt ? machine.lastSeenAt : undefined
-  const now = useClock(30_000, lastSeen !== undefined)
   return (
     <Badge
       variant={view.status.tone === 'degraded' ? 'warning' : 'outline'}
       className="max-w-full gap-1.5 whitespace-normal font-normal"
       title={view.status.detail}
     >
-      <span
-        aria-hidden="true"
-        className={cn(
-          'size-1.5 shrink-0 rounded-full',
-          view.status.tone === 'online'
-            ? 'bg-success'
-            : view.status.tone === 'degraded'
-              ? 'bg-warning'
-              : 'bg-muted-foreground/50',
-        )}
-      />
+      {view.status.tone === 'degraded' || view.status.tone === 'off' ? (
+        <span
+          aria-hidden="true"
+          className={cn(
+            'size-1.5 shrink-0 rounded-full',
+            view.status.tone === 'degraded' ? 'bg-warning' : 'bg-muted-foreground/50',
+          )}
+        />
+      ) : (
+        <MachinePresenceDot machine={machine} />
+      )}
       {view.status.label}
-      {lastSeen ? ` · Last seen ${relativeTime(lastSeen, now)}` : ''}
+      <MachineLastSeen machine={machine} />
     </Badge>
   )
 })

@@ -4,6 +4,7 @@ import {
   machinePathBasename,
   machinePathKey,
   machinePathsEqual,
+  machinePresence,
   structuralRejection,
 } from '@podium/model/browser'
 import { compareStructural } from 'mobx'
@@ -21,6 +22,7 @@ const STATES = [
   'available',
   'unauthorized',
   'unreachable',
+  'reconnecting',
   'incapable',
   'disabled',
   'degraded',
@@ -29,6 +31,7 @@ const REASONS = [
   '',
   'not available to you',
   'machine offline',
+  'reconnecting',
   'machine runs no daemon',
   'agent hosting disabled',
   'agent hosting unavailable',
@@ -105,7 +108,8 @@ export function createAutomationTargets(pool: MobxPool) {
       if (machine === LOADING) return LOADING
       if (!machine || (scoped() && machine.use !== 'granted')) return 'unauthorized'
       if (structuralRejection(machine) === 'no-daemon') return 'incapable'
-      if (!machine.online) return 'unreachable'
+      if (machinePresence(machine) === 'Reconnecting') return 'reconnecting'
+      if (machinePresence(machine) === 'Offline') return 'unreachable'
       const execution = agentExecutionRejection(machine)
       return execution === 'agents-disabled'
         ? 'disabled'
@@ -223,6 +227,7 @@ export function createAutomationTargets(pool: MobxPool) {
       const excluded: TargetExclusions = {
         unauthorized: 0,
         unreachable: 0,
+        reconnecting: 0,
         incapable: 0,
         disabled: 0,
         degraded: 0,

@@ -1,11 +1,12 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { panelLabel } from '@podium/client-core/values'
 import {
-  agentProbeTimeoutDescription,
   type AgentKind,
+  agentProbeTimeoutDescription,
   type HandoffBlocker,
   type HandoffRejection,
-  type MachineFacts} from '@podium/model/browser'
+  type MachineFacts,
+} from '@podium/model/browser'
 
 /**
  * The session-menu VOCABULARY — eligibility rules and blocker/rejection copy —
@@ -108,6 +109,8 @@ export function handoffRejectionText(
       return 'no daemon'
     case 'offline':
       return 'offline'
+    case 'reconnecting':
+      return 'reconnecting'
     case 'inventory-unavailable':
       return 'inventory pending'
     case 'harness-probe-timed-out':
