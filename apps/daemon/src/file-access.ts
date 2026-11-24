@@ -1,6 +1,15 @@
 import { constants } from 'node:fs'
-import { lstat, open, readdir, readFile, realpath, stat } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, join, relative } from 'node:path'
+import {
+  type FileHandle,
+  lstat,
+  open,
+  readdir,
+  readlink,
+  realpath,
+  stat,
+  unlink,
+} from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import type {
   FileAssetResultMessage,
   FileReadResultMessage,
@@ -13,10 +22,11 @@ type ReadResult = Omit<FileReadResultMessage, 'type' | 'requestId'>
 type WriteResult = Omit<FileWriteResultMessage, 'type' | 'requestId'>
 
 /** True when `child` is `parent` or nested under it (no `..` escape). Both args
- *  must already be realpath-resolved by the caller. */
+ *  must already be realpath-resolved by the caller. A name that merely starts
+ *  with two dots (`..foo`) is a child like any other. */
 export function isInside(child: string, parent: string): boolean {
   const rel = relative(parent, child)
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
 }
 
 function isBinary(buf: Buffer): boolean {
@@ -57,9 +67,63 @@ async function sandboxRoot(
   return isInside(real, realRepo) ? { ok: true, real } : { ok: false, error: 'outside repository' }
 }
 
-/** Refuses to follow a symlink at the final component when opening for write. 0 on
- *  Windows, which has no such flag; there the target was resolved just before. */
+/** Refuses to follow a symlink at the final component. 0 on Windows, which has no
+ *  such flag; there the target was resolved just before. */
 const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0
+/** A FIFO planted where a file was would otherwise block the open until a writer
+ *  came; non-blocking, the open returns and the fstat below refuses it. */
+const O_NONBLOCK = constants.O_NONBLOCK ?? 0
+
+/**
+ * WHERE AN OPEN FILE REALLY IS, on Linux (POD-7503).
+ *
+ * The checks above resolve a path and then open it, and a folder along that path
+ * can be swapped for a symlink in between. Linux names the opened file at
+ * `/proc/self/fd/N`, so the check is repeated on what was actually opened. `null`
+ * where the kernel offers no such name (other systems), `undefined` when Linux
+ * could not say, which callers refuse.
+ */
+async function openedPath(fh: FileHandle): Promise<string | null | undefined> {
+  if (process.platform !== 'linux') return null
+  try {
+    return await readlink(`/proc/self/fd/${fh.fd}`)
+  } catch {
+    return undefined
+  }
+}
+
+/** Open `real` for reading without following a final link, and refuse anything but
+ *  a regular file that, once open, still sits inside `sandbox` (unless `anywhere`). */
+async function openForRead(
+  real: string,
+  sandbox: string,
+  anywhere: boolean,
+): Promise<{ ok: true; fh: FileHandle; size: number; sig: string } | { ok: false; error: string }> {
+  let fh: FileHandle
+  try {
+    fh = await open(real, constants.O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+  } catch {
+    return { ok: false, error: 'read error' }
+  }
+  try {
+    const st = await fh.stat()
+    if (!st.isFile()) {
+      await fh.close()
+      return { ok: false, error: 'not a file' }
+    }
+    if (!anywhere) {
+      const at = await openedPath(fh)
+      if (at === undefined || (at !== null && !isInside(at, sandbox))) {
+        await fh.close()
+        return { ok: false, error: 'outside workspace' }
+      }
+    }
+    return { ok: true, fh, size: st.size, sig: sig(st) }
+  } catch {
+    await fh.close().catch(() => {})
+    return { ok: false, error: 'read error' }
+  }
+}
 
 export async function readFileSandboxed(opts: {
   cwd: string
@@ -81,15 +145,18 @@ export async function readFileSandboxed(opts: {
   }
   if (!isInside(real, sandbox.real) && !knownPath)
     return { ok: false, path, error: 'outside workspace' }
+  const opened = await openForRead(real, sandbox.real, knownPath)
+  if (!opened.ok) return { ok: false, path, error: opened.error }
+  const { fh } = opened
   try {
-    const st = await stat(real)
-    if (!st.isFile()) return { ok: false, path, error: 'not a file' }
-    if (st.size > MAX_FILE_BYTES) return { ok: false, path, tooLarge: true }
-    const buf = await readFile(real)
+    if (opened.size > MAX_FILE_BYTES) return { ok: false, path, tooLarge: true }
+    const buf = await fh.readFile()
     if (isBinary(buf)) return { ok: false, path, binary: true }
-    return { ok: true, path, content: buf.toString('utf8'), baseHash: sig(st) }
+    return { ok: true, path, content: buf.toString('utf8'), baseHash: opened.sig }
   } catch {
     return { ok: false, path, error: 'read error' }
+  } finally {
+    await fh.close().catch(() => {})
   }
 }
 
@@ -160,24 +227,20 @@ export async function readAssetSandboxed(opts: {
   }
   if (!isInside(real, sandbox.real) && !knownPath)
     return { ok: false, path, error: 'outside workspace' }
+  const opened = await openForRead(real, sandbox.real, knownPath)
+  if (!opened.ok) return { ok: false, path, error: opened.error }
+  const { fh, size } = opened
   try {
-    const st = await stat(real)
-    if (!st.isFile()) return { ok: false, path, error: 'not a file' }
     let buf: Buffer
     if (opts.length != null) {
       const offset = opts.offset ?? 0
-      const len = Math.min(opts.length, MAX_ASSET_BYTES, Math.max(0, st.size - offset))
+      const len = Math.min(opts.length, MAX_ASSET_BYTES, Math.max(0, size - offset))
       buf = Buffer.alloc(len)
-      const fh = await open(real, 'r')
-      try {
-        const { bytesRead } = await fh.read(buf, 0, len, offset)
-        buf = buf.subarray(0, bytesRead)
-      } finally {
-        await fh.close()
-      }
+      const { bytesRead } = await fh.read(buf, 0, len, offset)
+      buf = buf.subarray(0, bytesRead)
     } else {
-      if (st.size > MAX_ASSET_BYTES) return { ok: false, path, tooLarge: true, size: st.size }
-      buf = await readFile(real)
+      if (size > MAX_ASSET_BYTES) return { ok: false, path, tooLarge: true, size }
+      buf = await fh.readFile()
     }
     const ext = real.split('.').pop()?.toLowerCase() ?? ''
     // Unlisted extension: sniff rather than default to octet-stream. A .md, .ts or
@@ -191,10 +254,12 @@ export async function readAssetSandboxed(opts: {
       path,
       dataBase64: buf.toString('base64'),
       contentType,
-      size: st.size,
+      size,
     }
   } catch {
     return { ok: false, path, error: 'read error' }
+  } finally {
+    await fh.close().catch(() => {})
   }
 }
 
@@ -227,28 +292,40 @@ export async function writeFileSandboxed(opts: {
     }
   }
   if (!isInside(real, sandbox.real)) return { ok: false, error: 'outside workspace' }
-  if (baseHash) {
-    const current = await stat(real)
-      .then(sig)
-      .catch(() => null)
-    if (current && current !== baseHash) return { ok: false, conflict: true }
-  }
+  const existed = link !== null
+  let fh: FileHandle
   try {
-    // No-follow: a link planted at `real` after the check is refused, not written through.
-    const fh = await open(
-      real,
-      constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | O_NOFOLLOW,
-      0o666,
-    )
-    try {
-      await fh.writeFile(content, 'utf8')
-    } finally {
-      await fh.close()
-    }
-    const st = await stat(real)
-    return { ok: true, baseHash: sig(st) }
+    // No-follow: a link planted at `real` after the check is refused, not written
+    // through. No O_TRUNC: nothing is cut until the opened file has been judged.
+    // A file absent at the check is created exclusively, so the removal below
+    // can only ever remove a file this open made.
+    const create = existed ? constants.O_CREAT : constants.O_CREAT | constants.O_EXCL
+    fh = await open(real, constants.O_WRONLY | create | O_NOFOLLOW | O_NONBLOCK, 0o666)
   } catch {
     return { ok: false, error: 'write error' }
+  }
+  try {
+    const st = await fh.stat()
+    if (!st.isFile()) return { ok: false, error: 'not a file' }
+    // A hard link resolves to its own name, so realpath says nothing about it:
+    // `<repo>/x` hard-linked to `~/.bashrc` is the same file. One that has another
+    // name anywhere is refused rather than rewritten under all of them.
+    if (st.nlink > 1) return { ok: false, error: 'file has other hard links' }
+    const at = await openedPath(fh)
+    if (at === undefined || (at !== null && !isInside(at, sandbox.real))) {
+      // A folder along the path was swapped after the check; a file this open just
+      // created there is removed again (by the name the kernel gave it).
+      if (!existed && at) await unlink(at).catch(() => {})
+      return { ok: false, error: 'outside workspace' }
+    }
+    if (baseHash && existed && sig(st) !== baseHash) return { ok: false, conflict: true }
+    await fh.truncate(0)
+    await fh.writeFile(content, 'utf8')
+    return { ok: true, baseHash: sig(await fh.stat()) }
+  } catch {
+    return { ok: false, error: 'write error' }
+  } finally {
+    await fh.close().catch(() => {})
   }
 }
 

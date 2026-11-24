@@ -1,4 +1,6 @@
+import { execFileSync } from 'node:child_process'
 import {
+  link,
   mkdir,
   mkdtemp,
   readFile,
@@ -27,6 +29,12 @@ describe('isInside', () => {
     expect(isInside('/r', '/r')).toBe(true)
     expect(isInside('/r-evil/x', '/r')).toBe(false)
     expect(isInside('/other', '/r')).toBe(false)
+  })
+
+  it('a name starting with two dots is a child, a parent step is not (POD-7503)', () => {
+    expect(isInside('/r/..foo', '/r')).toBe(true)
+    expect(isInside('/r/..', '/r')).toBe(false)
+    expect(isInside('/', '/r')).toBe(false)
   })
 })
 
@@ -374,5 +382,63 @@ describe('writeFileSandboxed follows a link at the file only to inside the sandb
     const r = await writeFileSandboxed({ cwd, path: join(cwd, 'alias.md'), content: 'new' })
     expect(r.ok).toBe(true)
     expect(await readFile(join(cwd, 'real.md'), 'utf8')).toBe('new')
+  })
+})
+
+/**
+ * POD-7503: a hard link is its own name to realpath, and a check made before the
+ * open says nothing about what the open found. A write is judged on the opened
+ * file before anything is cut, and a read refuses anything but a regular file.
+ */
+describe.skipIf(process.platform === 'win32')('the opened file is judged, not the path', () => {
+  it('refuses to write a file hard-linked elsewhere, leaving both names intact', async () => {
+    const cwd = await repo()
+    const outside = await repo()
+    await writeFile(join(outside, 'bashrc'), 'orig')
+    await link(join(outside, 'bashrc'), join(cwd, 'rc'))
+    const r = await writeFileSandboxed({ cwd, path: join(cwd, 'rc'), content: 'pwned' })
+    expect(r).toMatchObject({ ok: false, error: 'file has other hard links' })
+    // Nothing was truncated before the refusal.
+    expect(await readFile(join(outside, 'bashrc'), 'utf8')).toBe('orig')
+  })
+
+  it('refuses a FIFO planted as the file without blocking on it', async () => {
+    const cwd = await repo()
+    const fifo = join(cwd, 'pipe')
+    execFileSync('mkfifo', [fifo])
+    expect(await readFileSandboxed({ cwd, path: fifo, knownPath: false })).toMatchObject({
+      ok: false,
+      error: 'not a file',
+    })
+    expect(await readAssetSandboxed({ cwd, path: fifo, knownPath: false })).toMatchObject({
+      ok: false,
+      error: 'not a file',
+    })
+    expect(await writeFileSandboxed({ cwd, path: fifo, content: 'x' })).toMatchObject({
+      ok: false,
+    })
+  })
+
+  it('still creates, overwrites and conflict-checks an ordinary file', async () => {
+    const cwd = await repo()
+    const path = join(cwd, 'a.md')
+    const created = await writeFileSandboxed({ cwd, path, content: 'one two' })
+    expect(created).toMatchObject({ ok: true })
+    const shorter = await writeFileSandboxed({
+      cwd,
+      path,
+      content: 'x',
+      ...(created.baseHash ? { baseHash: created.baseHash } : {}),
+    })
+    expect(shorter).toMatchObject({ ok: true })
+    expect(await readFile(path, 'utf8')).toBe('x')
+    expect(
+      await writeFileSandboxed({ cwd, path, content: 'y', baseHash: created.baseHash ?? '' }),
+    ).toMatchObject({ ok: false, conflict: true })
+    expect(await readFileSandboxed({ cwd, path, knownPath: false })).toMatchObject({
+      ok: true,
+      content: 'x',
+      baseHash: shorter.baseHash,
+    })
   })
 })
