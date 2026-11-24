@@ -21,7 +21,7 @@ import { createCommandWrites } from './writes'
 export type { AutomationsCommands } from './automations-types'
 export type { CommandDeps } from './context'
 export type { FilesCommands } from './files-types'
-export type { IssuesCommands } from './issues-types'
+export type { IssuesCommands, IssueUpdateOptions } from './issues-types'
 export type { MachinesCommands } from './machines-types'
 export type { PreferencesCommands } from './preferences-types'
 export type {

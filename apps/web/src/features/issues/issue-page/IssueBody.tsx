@@ -10,7 +10,7 @@ import { useIssuePageContext } from './issue-page-data'
 import { relativeTime } from '@podium/client-core/focus'
 import { ChevronRight, Pin } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { IssueWithBodies } from '@/app/store'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -19,44 +19,112 @@ import { cn } from '@/lib/utils'
 import type { IssuePageCommands } from '../issue-page-commands'
 import type { TextConflict } from '../issue-text-save'
 import { MACHINE_LABEL, SectionHeading, StatusChip } from './chrome'
+import type { TextEdit } from './use-text-edit'
 
-/** Inline-editable title. `editing` is owned by the page so Escape-to-board and
- *  the issue-switch reset stay in one place. */
+/**
+ * Another writer's text beat this edit (POD-6295, POD-7556): theirs is shown
+ * here, the reader's own stays in the editor below. Both buttons keep focus in
+ * the editor (mouse-down is cancelled), so leaving the editor does not save
+ * before the reader chose.
+ */
+function TextConflictNotice({
+  field,
+  conflict,
+  onSaveMine,
+  onKeepTheirs,
+}: {
+  field: 'title' | 'description'
+  conflict: TextConflict
+  onSaveMine: () => void
+  onKeepTheirs: () => void
+}): JSX.Element {
+  const keepFocus = (e: { preventDefault(): void }): void => e.preventDefault()
+  return (
+    <div
+      role="alert"
+      className="mb-2 flex flex-col gap-1.5 rounded-lg border border-attention/40 bg-attention/8 px-3 py-2 text-[12.5px]"
+      data-testid={`${field}-conflict`}
+    >
+      <span className="text-foreground">{conflict.message}</span>
+      <span className="text-text-dim">The {field} now reads:</span>
+      <p
+        className="whitespace-pre-wrap break-words text-muted-foreground"
+        data-testid={`${field}-conflict-theirs`}
+      >
+        {conflict.currentText || '(empty)'}
+      </p>
+      <span className="text-text-dim">Your text is in the editor below.</span>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          data-pressable
+          className="rounded-md border border-border px-2 py-0.5 text-foreground hover:bg-foreground/5"
+          data-testid={`${field}-conflict-save-mine`}
+          onMouseDown={keepFocus}
+          onClick={onSaveMine}
+        >
+          Save mine instead
+        </button>
+        <button
+          type="button"
+          data-pressable
+          className="rounded-md border border-border px-2 py-0.5 text-foreground hover:bg-foreground/5"
+          data-testid={`${field}-conflict-keep-theirs`}
+          onMouseDown={keepFocus}
+          onClick={onKeepTheirs}
+        >
+          Keep theirs
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/** Inline-editable title. Its edit state is the page's (`useTextEdit`), so
+ *  Escape-to-board and the issue-switch reset stay in one place. */
 export const IssueTitle = observer(function IssueTitle({
   issue,
   busy,
-  editing,
-  onEditingChange,
-  onCommit,
+  edit,
 }: {
   issue: IssueWithBodies
   busy: boolean
-  editing: boolean
-  onEditingChange: (editing: boolean) => void
-  onCommit: (value: string) => void
+  edit: TextEdit
 }): JSX.Element {
   const page = useIssuePageContext()
-  const title = page?.views.row(issue.id).title ?? issue.title
-  if (editing) {
+  const title = edit.pending ?? page?.views.row(issue.id).title ?? issue.title
+  const input = useRef<HTMLInputElement>(null)
+  if (edit.editing) {
     return (
-      <Input
-        key={`title-${issue.id}`}
-        defaultValue={title}
-        aria-label="Task title"
-        autoFocus
-        disabled={busy}
-        className="mb-2 h-auto font-semibold text-[22px] leading-[1.25] tracking-[-0.018em]"
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            onCommit(e.currentTarget.value)
-          } else if (e.key === 'Escape') {
-            e.preventDefault()
-            onEditingChange(false)
-          }
-        }}
-        onBlur={(e) => onCommit(e.currentTarget.value)}
-      />
+      <>
+        {edit.conflict && (
+          <TextConflictNotice
+            field="title"
+            conflict={edit.conflict}
+            onSaveMine={() => edit.commit(input.current?.value ?? edit.draft ?? '')}
+            onKeepTheirs={() => edit.setEditing(false)}
+          />
+        )}
+        <Input
+          key={`title-${issue.id}-${edit.conflict?.currentRevision ?? ''}`}
+          ref={input}
+          defaultValue={edit.draft ?? title}
+          aria-label="Task title"
+          autoFocus
+          disabled={busy}
+          className="mb-2 h-auto font-semibold text-[22px] leading-[1.25] tracking-[-0.018em]"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              edit.commit(e.currentTarget.value)
+            } else if (e.key === 'Escape') {
+              e.preventDefault()
+              edit.setEditing(false)
+            }
+          }}
+          onBlur={(e) => edit.commit(e.currentTarget.value)}
+        />
+      </>
     )
   }
   return (
@@ -64,7 +132,7 @@ export const IssueTitle = observer(function IssueTitle({
       data-pressable
       type="button"
       className="mb-2 block w-full break-words text-left font-semibold text-[22px] text-foreground leading-[1.25] tracking-[-0.018em] transition-colors hover:text-foreground/80"
-      onClick={() => onEditingChange(true)}
+      onClick={() => edit.setEditing(true)}
       title="Click to edit title"
     >
       {title}
@@ -76,51 +144,35 @@ export const IssueTitle = observer(function IssueTitle({
 export const IssueDescription = observer(function IssueDescription({
   issue,
   busy,
-  editing,
-  onEditingChange,
-  onCommit,
+  edit,
   mayEdit = true,
-  conflict,
-  draft,
   children,
 }: {
   issue: IssueWithBodies
   busy: boolean
-  editing: boolean
-  onEditingChange: (editing: boolean) => void
-  onCommit: (value: string) => void
+  edit: TextEdit
   /** The server's answer for this reader (`allowed.edit`, POD-6295). */
   mayEdit?: boolean
-  /** Another member changed the text under this reader's edit: what it holds
-   *  now. The editor reopens on the reader's own `draft`. */
-  conflict?: TextConflict | null
-  draft?: string
   /** The history line under the text. */
   children?: ReactNode
 }): JSX.Element {
+  const description = edit.pending ?? issue.description
+  const textarea = useRef<HTMLTextAreaElement>(null)
   return (
     <section className="group/section mb-9">
-      {conflict && (
-        <div
-          role="alert"
-          className="mb-2 flex flex-col gap-1.5 rounded-lg border border-attention/40 bg-attention/8 px-3 py-2 text-[12.5px]"
-          data-testid="description-conflict"
-        >
-          <span className="text-foreground">{conflict.message}</span>
-          <span className="text-text-dim">The description now reads:</span>
-          <p className="whitespace-pre-wrap break-words text-muted-foreground">
-            {conflict.currentText || '(empty)'}
-          </p>
-          <span className="text-text-dim">
-            Your text is in the editor below. Save it to replace theirs, or press Escape to keep
-            theirs.
-          </span>
-        </div>
+      {edit.editing && mayEdit && edit.conflict && (
+        <TextConflictNotice
+          field="description"
+          conflict={edit.conflict}
+          onSaveMine={() => edit.commit(textarea.current?.value ?? edit.draft ?? '')}
+          onKeepTheirs={() => edit.setEditing(false)}
+        />
       )}
-      {editing && mayEdit ? (
+      {edit.editing && mayEdit ? (
         <Textarea
-          key={`desc-${issue.id}-${conflict?.currentRevision ?? ''}`}
-          defaultValue={draft ?? issue.description}
+          key={`desc-${issue.id}-${edit.conflict?.currentRevision ?? ''}`}
+          ref={textarea}
+          defaultValue={edit.draft ?? description}
           aria-label="Task description"
           autoFocus
           disabled={busy}
@@ -128,13 +180,13 @@ export const IssueDescription = observer(function IssueDescription({
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
               e.preventDefault()
-              onCommit(e.currentTarget.value)
+              edit.commit(e.currentTarget.value)
             } else if (e.key === 'Escape') {
               e.preventDefault()
-              onEditingChange(false)
+              edit.setEditing(false)
             }
           }}
-          onBlur={(e) => onCommit(e.currentTarget.value)}
+          onBlur={(e) => edit.commit(e.currentTarget.value)}
         />
       ) : mayEdit ? (
         <button
@@ -142,18 +194,18 @@ export const IssueDescription = observer(function IssueDescription({
           type="button"
           className={cn(
             'block w-full whitespace-pre-wrap break-words text-left text-[14.5px] leading-[1.6]',
-            issue.description
+            description
               ? 'text-foreground/90 hover:text-foreground'
               : 'text-muted-foreground/70 italic hover:text-foreground',
           )}
-          onClick={() => onEditingChange(true)}
+          onClick={() => edit.setEditing(true)}
           title="Click to edit description"
         >
-          {issue.description || 'Add a description…'}
+          {description || 'Add a description…'}
         </button>
       ) : (
         <p className="whitespace-pre-wrap break-words text-[14.5px] text-foreground/90 leading-[1.6]">
-          {issue.description}
+          {description}
         </p>
       )}
       {children}

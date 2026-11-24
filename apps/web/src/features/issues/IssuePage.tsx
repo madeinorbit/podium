@@ -24,9 +24,9 @@ import { issueObserver as observer } from './issue-page/issue-observer'
 import { useDetailDesktop } from './issue-page/use-detail-viewport'
 import { useEvictionGuard } from './issue-page/use-eviction-guard'
 import { useIssueSharedDetail } from './issue-page/use-issue-shared-detail'
+import { useTextEdit } from './issue-page/use-text-edit'
 import { issuePageCommands, loadIssueTextRevisions } from './issue-page-commands'
 import { useIssuePageModel } from './issue-page-model'
-import type { TextBase, TextConflict } from './issue-text-save'
 /**
  * The full issue page — an in-view (not overlay) replacement for the detail
  * drawer. A header with breadcrumb + prev/next + overflow menu, a scrolling main
@@ -97,24 +97,15 @@ export const IssuePageBody = observer(function IssuePageBody({
   // with no deletion affordance of any kind. See ./issue-page/use-eviction-guard.ts.
   useEvictionGuard(issue, onBack)
 
-  const [editingTitle, setEditingTitle] = useState(false)
-  const [editingDesc, setEditingDesc] = useState(false)
-  // A shared task's description edit names the revision it was cut from, and a
-  // conflict keeps the reader's draft beside the current text (POD-6295).
+  // A title or description edit names the revision it was cut from, and a
+  // conflict keeps the reader's draft beside the current text (POD-6295,
+  // POD-7556), for every reader: one person on two devices is two writers.
+  const titleEdit = useTextEdit(issue, 'title', commands)
+  const descEdit = useTextEdit(issue, 'description', commands)
   const roster = useMemberRoster()
   const sharedDetail = useIssueSharedDetail(issue)
   const allowed = sharedDetail?.allowed
   const mayEdit = allowed?.edit ?? true
-  const [descBase, setDescBase] = useState<TextBase | null>(null)
-  const [descConflict, setDescConflict] = useState<{
-    conflict: TextConflict
-    draft: string
-  } | null>(null)
-  const editDescription = (editing: boolean): void => {
-    if (editing && !descConflict) setDescBase({ text: issue.description, revision: issue.revision })
-    if (!editing) setDescConflict(null)
-    setEditingDesc(editing)
-  }
   const [addingChild, setAddingChild] = useState(false)
   const [childTitle, setChildTitle] = useState('')
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
@@ -131,10 +122,6 @@ export const IssuePageBody = observer(function IssuePageBody({
   // an open editor never carries across to the next issue.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on issue switch
   useEffect(() => {
-    setEditingTitle(false)
-    setEditingDesc(false)
-    setDescBase(null)
-    setDescConflict(null)
     setAddingChild(false)
     setChildTitle('')
   }, [issue.id])
@@ -160,26 +147,6 @@ export const IssuePageBody = observer(function IssuePageBody({
     return () => window.removeEventListener('keydown', onKey)
   }, [onBack])
 
-  const commitTitle = (value: string): void => {
-    setEditingTitle(false)
-    commands.commitTitle(value)
-  }
-
-  const commitDescription = (value: string): void => {
-    setEditingDesc(false)
-    setDescConflict(null)
-    commands.commitDescription(
-      value,
-      roster?.shared && descBase ? descBase : undefined,
-      (conflict) => {
-        // Reopen on the reader's own text, now cut from the current revision:
-        // saving again is a deliberate replace.
-        setDescBase({ text: conflict.currentText, revision: conflict.currentRevision ?? undefined })
-        setDescConflict({ conflict, draft: value })
-        setEditingDesc(true)
-      },
-    )
-  }
   const restore = (revisionId: number, done: () => void): void =>
     commands.restoreTextRevision(revisionId, done)
 
@@ -220,13 +187,7 @@ export const IssuePageBody = observer(function IssuePageBody({
                 onNavigate={onNavigate}
               />
 
-              <IssueTitle
-                issue={issue}
-                busy={busy || !mayEdit}
-                editing={editingTitle}
-                onEditingChange={setEditingTitle}
-                onCommit={commitTitle}
-              />
+              <IssueTitle issue={issue} busy={busy || !mayEdit} edit={titleEdit} />
 
               <StatusStrip issue={issue} />
 
@@ -235,16 +196,7 @@ export const IssuePageBody = observer(function IssuePageBody({
                 row for it did — see the module note. */}
               <IssueNow issue={issue} onOpenSession={openSession} />
 
-              <IssueDescription
-                issue={issue}
-                busy={busy}
-                editing={editingDesc}
-                onEditingChange={editDescription}
-                onCommit={commitDescription}
-                mayEdit={mayEdit}
-                conflict={descConflict?.conflict ?? null}
-                {...(descConflict ? { draft: descConflict.draft } : {})}
-              >
+              <IssueDescription issue={issue} busy={busy} edit={descEdit} mayEdit={mayEdit}>
                 {roster?.shared && (
                   <IssueTextHistory
                     issueId={issue.id}

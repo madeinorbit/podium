@@ -54,12 +54,18 @@ export function createIssuesCommands<TApi extends PodiumClientApi>(
     // (POD-6405); stage, close, the parent link, the agent and the order keep
     // `issues.update`, whose rules they carry. Both ride the issue's partition,
     // in this order.
-    update: async (id, patch) => {
+    // A revision (POD-7556) holds the plain edit against the issue as it was
+    // when the edit was cut; the commands that keep `issues.update` carry none.
+    update: async (id, patch, options) => {
       const { plain, rest } = splitIssuePatch(patch as Record<string, unknown>)
       const writes: Promise<void>[] = []
       if (Object.keys(plain).length > 0) {
         writes.push(
-          editRecord({ kind: 'issueProjection', id }, plain as RecordPatch<'issueProjection'>),
+          editRecord(
+            { kind: 'issueProjection', id },
+            plain as RecordPatch<'issueProjection'>,
+            options?.expectedRevision,
+          ),
         )
       }
       if (Object.keys(rest).length > 0) {

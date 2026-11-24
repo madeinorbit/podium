@@ -63,18 +63,36 @@ export interface RequestCall {
 }
 
 /**
+ * A test's own answer to a request client call, as the server would give it:
+ * a value, or a thrown error (a refusal). `undefined` leaves the default.
+ */
+export type RequestAnswer = (path: string, input: unknown) => unknown
+
+/**
  * A request client that answers every query with an empty list and every
  * mutation with an empty object, and records each call. The screens under
  * test read their record data from the pool; what they fetch on the side
- * (comments, history) is not what these tests are about.
+ * (comments, history) is not what these tests are about. A test that is
+ * about one call answers it through `answers` (`mountOnEmptyDevice`'s
+ * `answer` option).
  */
-function recordingRequestClient(calls: RequestCall[]): unknown {
+function recordingRequestClient(
+  calls: RequestCall[],
+  answers: { current: RequestAnswer | undefined },
+): unknown {
   const at = (path: readonly string[]): unknown =>
     new Proxy(() => {}, {
       get: (_target, key) => (typeof key === 'string' ? at([...path, key]) : undefined),
       apply: (_target, _this, args: unknown[]) => {
         const verb = path.at(-1)
-        calls.push({ path: path.join('.'), input: args[0] })
+        const name = path.join('.')
+        calls.push({ path: name, input: args[0] })
+        try {
+          const answered = answers.current?.(name, args[0])
+          if (answered !== undefined) return Promise.resolve(answered)
+        } catch (error) {
+          return Promise.reject(error)
+        }
         return Promise.resolve(verb === 'query' ? [] : {})
       },
     })
@@ -88,11 +106,13 @@ function recordingRequestClient(calls: RequestCall[]): unknown {
  */
 function screenState() {
   const requests: RequestCall[] = []
+  const answers: { current: RequestAnswer | undefined } = { current: undefined }
   return {
     requests,
+    answers,
     /** Every URL the screen fetched outside the request client. */
     fetched: [] as string[],
-    trpc: recordingRequestClient(requests),
+    trpc: recordingRequestClient(requests, answers),
     httpOrigin: '',
     issues: [] as unknown[],
     sessions: [] as unknown[],
@@ -228,6 +248,8 @@ export interface EmptyDeviceScreenOptions extends DeviceOptions {
    * cannot load, which is the one-member answer (`useMemberRoster`).
    */
   readonly members?: MemberRosterAnswer
+  /** Answers request client calls as the server would (`RequestAnswer`). */
+  readonly answer?: RequestAnswer
 }
 
 /**
@@ -261,6 +283,7 @@ export async function mountOnEmptyDevice(
 ): Promise<MountedScreen> {
   if (current !== null) throw new Error('one empty device at a time')
   state = screenState()
+  state.answers.current = options.answer
   vi.stubGlobal('fetch', fakeNetwork(state.fetched, options.members))
   const device = await openEmptyDevice(options)
   current = device

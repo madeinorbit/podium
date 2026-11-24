@@ -2,6 +2,12 @@ import type { IssueUpdatePatch } from '@podium/commands'
 import type { SessionId } from '@podium/model'
 import type { PodiumClientApi } from '../api'
 
+/** How an issue edit is held against concurrent writers. */
+export interface IssueUpdateOptions {
+  /** The issue revision the edit was cut from. */
+  readonly expectedRevision?: number
+}
+
 export interface IssuesCommands<_TApi extends PodiumClientApi = PodiumClientApi> {
   /**
    * PATCH AN ISSUE — the generic curation write (POD-781). Optimistic +
@@ -12,8 +18,13 @@ export interface IssuesCommands<_TApi extends PodiumClientApi = PodiumClientApi>
    * One action for one command. `patch` is the contract's own patch type, so
    * every field `issues.update` accepts is reachable here without this signature
    * growing a case per field.
+   *
+   * `options.expectedRevision` is the issue revision the edit was cut from
+   * (POD-7556): the server refuses the edit as `conflict` when the issue has
+   * moved since, and the refused edit stays in the outbox for recovery, the
+   * author's text with it. Absent, the edit's fields replace what is there.
    */
-  update: (id: string, patch: IssueUpdatePatch) => Promise<void>
+  update: (id: string, patch: IssueUpdatePatch, options?: IssueUpdateOptions) => Promise<void>
   /**
    * DISMISS an issue — `issues.archive`, the sidebar's one-way archive.
    *

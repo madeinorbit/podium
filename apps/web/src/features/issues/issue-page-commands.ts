@@ -12,16 +12,23 @@
  * so the model hook has no raw call sites.
  */
 
-import { issueWrites } from '@podium/commands/issues-synced'
+import type { IssueWorkAction, StartIssueSession } from '@podium/client-core/spawn-agent'
 import type { ActivityComment, IssueEvent, RelationEntry } from '@podium/client-core/values'
 import type { IssueActivityPorts } from '@podium/client-graph/issue-activity'
-import type { IssueWorkAction, StartIssueSession } from '@podium/client-core/spawn-agent'
 import type { IssueUpdatePatch } from '@podium/commands'
+import { issueWrites } from '@podium/commands/issues-synced'
 import { type IssueId, parseIssueStatusValue, type StoredIssueDepType } from '@podium/model/browser'
 import type { IssueViewModel, IssueWithBodies } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import type { IssueAgentKind } from '@/lib/issue-agents'
-import { saveIssueText, type TextBase, TextConflict, type TextSaveApi } from './issue-text-save'
+import {
+  type IssueTextField,
+  saveIssueText,
+  type TextBase,
+  TextConflict,
+  type TextSaveApi,
+  type TextSaveOutcome,
+} from './issue-text-save'
 
 /** The page's mutation runner: busy-gates and surfaces thrown errors verbatim
  *  as an error toast (owned by `useIssuePageModel`). */
@@ -33,7 +40,11 @@ export interface IssuePageDeps {
   trpc: Trpc
   issue: IssueWithBodies
   run: RunMutation
-  updateIssue: (id: string, patch: IssueUpdatePatch) => Promise<unknown>
+  updateIssue: (
+    id: string,
+    patch: IssueUpdatePatch,
+    options?: { readonly expectedRevision?: number },
+  ) => Promise<unknown>
   /** My pin of it: a `pin` record (POD-6692). */
   setPinned: (kind: 'issue', id: string, pinned: boolean) => Promise<unknown>
   deleteIssue: (id: string) => Promise<unknown>
@@ -96,31 +107,36 @@ export function issuePageCommands({
     },
 
     // ---- title / description (inline editors) ----
-    commitTitle: (value: string): void => {
-      const title = value.trim()
-      if (!title || title === issue.title) return
-      update({ title })
-    },
-    /** Save the description. On a shared instance the editor passes the
-     *  `base` it opened on, and the edit names that revision (POD-6295): a
-     *  real conflict reaches `onConflict` with the current text, the draft
-     *  unsaved. Without a base (one member) the edit queues as before. */
-    commitDescription: (
+    /** Save the title or the description (POD-6295, POD-7556). The edit names
+     *  the revision of the `base` the editor opened on, for every reader, so
+     *  a newer text from another member or another device is never replaced
+     *  unseen. `done` hears how it ended: a real conflict carries the current
+     *  text with the draft unsaved, and any other failure hands the draft
+     *  back, so the editor can keep it. */
+    commitText: (
+      field: IssueTextField,
       value: string,
-      base?: TextBase,
-      onConflict?: (conflict: TextConflict) => void,
+      base: TextBase,
+      done: (outcome: TextSaveOutcome | TextConflict | { failed: string }) => void,
     ): void => {
-      if (value === issue.description) return
-      if (!base) {
-        update({ description: value })
+      const text = field === 'title' ? value.trim() : value
+      if ((field === 'title' && !text) || text === base.text || text === issue[field]) {
+        done('saved')
         return
       }
       void run(async () => {
         try {
-          await saveIssueText(trpc as unknown as TextSaveApi, id, 'description', value, base)
+          done(
+            await saveIssueText(trpc as unknown as TextSaveApi, id, field, text, base, {
+              now: () => ({ text: issue[field], revision: issue.revision }),
+              queue: (patch, expectedRevision) =>
+                updateIssue(id, patch, expectedRevision === undefined ? {} : { expectedRevision }),
+            }),
+          )
         } catch (err) {
-          if (err instanceof TextConflict && onConflict) onConflict(err)
-          else throw err
+          if (err instanceof TextConflict) return done(err)
+          done({ failed: text })
+          throw err
         }
       })
     },

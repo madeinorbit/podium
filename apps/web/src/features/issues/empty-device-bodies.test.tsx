@@ -20,7 +20,7 @@
  * test turns green once a requester exists.
  */
 import type { MemberRosterAnswer } from '@podium/client-graph/member-roster'
-import { act, fireEvent, screen, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { DockHeaderSlotProvider } from '@/app/DockHeaderSlot'
@@ -84,7 +84,12 @@ const mountPanel = () =>
     world,
   })
 
-const mountPage = (options: { members?: MemberRosterAnswer } = {}) =>
+const mountPage = (
+  options: {
+    members?: MemberRosterAnswer
+    answer?: (path: string, input: unknown) => unknown
+  } = {},
+) =>
   mountOnEmptyDevice(
     providers(
       <IssuePage
@@ -177,38 +182,178 @@ describe('the issue page', () => {
     expect(serverTextAfterSave(mounted), asked(mounted)).toContain(FULL_BODIES.description)
   })
 
-  // Test e's evidence, run on today's code: what the save sends, alone and
-  // on a shared instance. POD-7545 makes the editor refuse to open (or the
-  // save refuse) on an unloaded description, and replaces these two tests.
-  it('today, one member: the editor opens empty and the save replaces the server text', async () => {
+  // Test e's evidence: what the save sends, alone and on a shared instance.
+  // POD-7545 makes the editor refuse to open (or the save refuse) on an
+  // unloaded description, and replaces this test.
+  it('one member: the editor opens empty and the save replaces the server text', async () => {
     const mounted = await mountPage()
     const editor = await saveAddedLine(mounted)
     expect(editor.opened).toBe('')
-    expect(mounted.commands.updateIssue).toHaveBeenCalledTimes(1)
-    expect(mounted.commands.updateIssue).toHaveBeenCalledWith(ID, { description: ADDED })
     expect(serverTextAfterSave(mounted)).toBe(ADDED)
     // The server held the text all along, and the device never asked for it.
     expect(mounted.device.server.members(bodyOf('issueDescription', ID))).toHaveLength(1)
     expect(mounted.requestedKeys()).not.toContain(requestKey(bodyOf('issueDescription', ID)))
   })
+})
 
-  it('today, shared: the save names no revision, so nothing on the server refuses it', async () => {
-    const mounted = await mountPage({ members: SHARED })
-    const editor = await saveAddedLine(mounted)
-    expect(editor.opened).toBe('')
-    // A shared instance's edit is meant to name the revision it was cut from
-    // (POD-6295, `saveIssueText`), so a stale draft is refused. The server's
-    // issue record carries `revision`, but the device's issue row does not
-    // (the pool's issue schema has no such field), so the base revision is
-    // undefined and the edit goes out unchecked: a plain whole-text replace.
+/**
+ * POD-7556 — A TEXT SAVE NAMES ITS REVISION (test e, extended).
+ *
+ * The device's issue row carries the server's revision, and every title and
+ * description save names the revision its editor opened on, alone or shared.
+ * A server that moved on refuses it; the editor keeps the reader's text,
+ * shows the other writer's, and saving again is a deliberate overwrite.
+ */
+describe('the issue page: a text save names the revision it was cut from', () => {
+  /** The server's issue: its text, its revision, and its refusal of a stale save. */
+  function serverIssue() {
+    const issue = { revision: 1, title: TITLE, description: FULL_BODIES.description as string }
+    const answer = (path: string, input: unknown): unknown => {
+      if (path === 'issues.get.query') return { id: ID, ...issue }
+      if (path !== 'issues.update.mutate') return undefined
+      const { patch, expectedRevision } = input as {
+        patch: { title?: string; description?: string }
+        expectedRevision?: number
+      }
+      if (expectedRevision !== undefined && expectedRevision !== issue.revision)
+        throw Object.assign(new Error('stale'), { data: { code: 'CONFLICT', httpStatus: 409 } })
+      Object.assign(issue, patch, { revision: issue.revision + 1 })
+      return { ...issue }
+    }
+    return { issue, answer }
+  }
+
+  /** The page with the description on the device, as a reader who opened it has it. */
+  async function openPage(
+    answer: (path: string, input: unknown) => unknown,
+    members?: MemberRosterAnswer,
+  ) {
+    const mounted = await mountPage({ answer, ...(members ? { members } : {}) })
+    await mounted.hold(bodyOf('issueDescription', ID))
+    return mounted
+  }
+
+  const saves = (mounted: { requests: readonly { path: string; input: unknown }[] }) =>
+    mounted.requests
+      .filter((call) => call.path === 'issues.update.mutate')
+      .map((call) => call.input)
+
+  it('the device holds the server revision on its issue row', async () => {
+    const mounted = await openPage(serverIssue().answer)
     expect(mounted.device.server.members(ONE)[0]?.value.revision).toBe(1)
-    expect((mounted.pool.row('issue', ID) as { revision?: number }).revision).toBeUndefined()
-    const saves = mounted.requests.filter((call) => call.path === 'issues.update.mutate')
-    expect(saves).toEqual([
-      { path: 'issues.update.mutate', input: { id: ID, patch: { description: ADDED } } },
+    expect((mounted.pool.row('issue', ID) as { revision?: number }).revision).toBe(1)
+  })
+
+  it.each([
+    ['one member', undefined],
+    ['shared', SHARED],
+  ] as const)('%s: a description save names the revision', async (_name, members) => {
+    const server = serverIssue()
+    const mounted = await openPage(server.answer, members)
+    const editor = await saveAddedLine(mounted)
+    expect(editor.opened).toBe(FULL_BODIES.description)
+    await waitFor(() => expect(saves(mounted)).toHaveLength(1))
+    expect(saves(mounted)).toEqual([
+      {
+        id: ID,
+        patch: { description: `${FULL_BODIES.description}\n${ADDED}` },
+        expectedRevision: 1,
+      },
     ])
+    expect(server.issue.description).toBe(`${FULL_BODIES.description}\n${ADDED}`)
     expect(mounted.commands.updateIssue).not.toHaveBeenCalled()
-    expect(serverTextAfterSave(mounted)).toBe(ADDED)
+  })
+
+  it('a title save names the revision', async () => {
+    const server = serverIssue()
+    const mounted = await openPage(server.answer)
+    fireEvent.click(screen.getByTitle('Click to edit title'))
+    const input = screen.getByLabelText('Task title') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'A sharper title' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(server.issue.title).toBe('A sharper title'))
+    expect(saves(mounted)).toEqual([
+      { id: ID, patch: { title: 'A sharper title' }, expectedRevision: 1 },
+    ])
+  })
+
+  it('another writer’s newer description is refused, not replaced: the editor keeps mine and shows theirs', async () => {
+    const server = serverIssue()
+    const mounted = await openPage(server.answer)
+    // Someone else's edit the device has not received yet.
+    Object.assign(server.issue, { description: 'Their rewrite.', revision: 2 })
+    await saveAddedLine(mounted)
+    const mine = `${FULL_BODIES.description}\n${ADDED}`
+    const notice = await screen.findByTestId('description-conflict')
+    expect(server.issue.description).toBe('Their rewrite.')
+    expect(screen.getByTestId('description-conflict-theirs').textContent).toBe('Their rewrite.')
+    expect(notice.textContent).toContain('revision 2')
+    expect((screen.getByLabelText('Task description') as HTMLTextAreaElement).value).toBe(mine)
+    // Saving mine now is a deliberate overwrite of the revision I was shown.
+    fireEvent.click(screen.getByTestId('description-conflict-save-mine'))
+    await waitFor(() => expect(server.issue.description).toBe(mine))
+    expect(saves(mounted).at(-1)).toEqual({
+      id: ID,
+      patch: { description: mine },
+      expectedRevision: 2,
+    })
+    expect(server.issue.description).toBe(mine)
+    expect(screen.queryByTestId('description-conflict')).toBeNull()
+  })
+
+  it('keeping theirs drops my draft and saves nothing', async () => {
+    const server = serverIssue()
+    const mounted = await openPage(server.answer)
+    Object.assign(server.issue, { description: 'Their rewrite.', revision: 2 })
+    await saveAddedLine(mounted)
+    fireEvent.click(await screen.findByTestId('description-conflict-keep-theirs'))
+    await mounted.untilIdle()
+    expect(saves(mounted)).toHaveLength(1)
+    expect(server.issue.description).toBe('Their rewrite.')
+    expect(screen.queryByLabelText('Task description')).toBeNull()
+  })
+
+  it('a revision only another field moved: the save lands on top', async () => {
+    const server = serverIssue()
+    const mounted = await openPage(server.answer)
+    // A label or stage change: the revision moved, the text did not.
+    server.issue.revision = 2
+    await saveAddedLine(mounted)
+    await waitFor(() => expect(saves(mounted)).toHaveLength(2))
+    expect(
+      saves(mounted).map((save) => (save as { expectedRevision?: number }).expectedRevision),
+    ).toEqual([1, 2])
+    expect(server.issue.description).toBe(`${FULL_BODIES.description}\n${ADDED}`)
+    expect(screen.queryByTestId('description-conflict')).toBeNull()
+  })
+
+  it('a title another writer changed is refused, not replaced', async () => {
+    const server = serverIssue()
+    const mounted = await openPage(server.answer)
+    Object.assign(server.issue, { title: 'Their title', revision: 2 })
+    fireEvent.click(screen.getByTitle('Click to edit title'))
+    const input = screen.getByLabelText('Task title') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'My title' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    const theirs = await screen.findByTestId('title-conflict-theirs')
+    expect(server.issue.title).toBe('Their title')
+    expect(theirs.textContent).toBe('Their title')
+    expect((screen.getByLabelText('Task title') as HTMLInputElement).value).toBe('My title')
+  })
+
+  it('with no server answer, the save is queued, still naming the revision', async () => {
+    const mounted = await openPage((path) => {
+      if (path === 'issues.update.mutate') throw new TypeError('Failed to fetch')
+      return undefined
+    })
+    await saveAddedLine(mounted)
+    await waitFor(() => expect(mounted.commands.updateIssue).toHaveBeenCalled())
+    expect(mounted.commands.updateIssue).toHaveBeenCalledWith(
+      ID,
+      { description: `${FULL_BODIES.description}\n${ADDED}` },
+      { expectedRevision: 1 },
+    )
+    expect(screen.queryByTestId('description-conflict')).toBeNull()
   })
 })
 

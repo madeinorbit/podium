@@ -18,7 +18,11 @@ export function createCommandWrites<TApi extends PodiumClientApi>(rt: CommandDep
   const editRecord = <K extends RecordKind>(
     ref: RecordRef<K>,
     patch: RecordPatch<K>,
-  ): Promise<void> => records.edit(ref, patch)
+    expectedRevision?: number,
+  ): Promise<void> =>
+    expectedRevision === undefined
+      ? records.edit(ref, patch)
+      : records.edit(ref, patch, expectedRevision)
   const mySessionState = (sessionId: SessionId): RecordRef<'sessionUserState'> => ({
     kind: 'sessionUserState',
     id: sessionUserStateRowId(rt.userId, sessionId),
