@@ -32,6 +32,7 @@ import {
   parseMachineAccessRowId,
   type UserId,
   type UserRole,
+  type WorkspaceId,
 } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
 import type { EntityChangeSpec, LedgerWriter } from '@podium/sync'
@@ -64,6 +65,8 @@ export interface RecordMember {
 }
 
 export interface MachineRecordsDeps {
+  /** The workspace these machines and members belong to (POD-7483). */
+  readonly workspaceId: WorkspaceId
   /** The machines' record facts (all when `ids` is omitted). */
   facts(ids?: readonly MachineId[]): Promise<MachineRecordFacts[]>
   /** The machine grant edges of these machines, in one read. */
@@ -82,7 +85,9 @@ export interface MachineRecordsDeps {
     /** Each member's lost checkouts on these machines (`checkout_lost`). */
     lost(
       ids: readonly MachineId[],
-    ): Promise<ReadonlyMap<MachineId, ReadonlyMap<string, readonly { path: string; root: boolean }[]>>>
+    ): Promise<
+      ReadonlyMap<MachineId, ReadonlyMap<string, readonly { path: string; root: boolean }[]>>
+    >
     /** The live checkouts of these machines, each marked root or not. */
     paths(
       ids: readonly MachineId[],
@@ -174,13 +179,14 @@ export function grantEntriesOf(
  *  `edges` are the machine's stored grant edges; the custodian and admins read
  *  them as its grants list. */
 export function accessRowFor(
+  workspaceId: WorkspaceId,
   member: RecordMember,
   fact: MachineRecordFacts,
   ownership: MachineOwnershipIndex,
   readers?: CheckoutReaders,
   edges?: readonly RecordGrantEdge[],
 ): MachineAccessWire | undefined {
-  const principal = userCommandPrincipal(member.id, member.role)
+  const principal = userCommandPrincipal(workspaceId, member.id, member.role)
   const id = fact.machine.id
   if (!canSeeMachine(principal, id, ownership)) return undefined
   const verbs = machineVerbsFor(principal, id, ownership)
@@ -231,7 +237,14 @@ export async function machineRecordSpecs(
     specs.push({ entity: 'machine', id, op: 'upsert', value: fact.machine })
     const readers = checkoutReaders(grants.get(id) ?? [], admins)
     for (const member of members) {
-      const row = accessRowFor(member, fact, ownership, readers, grants.get(id) ?? [])
+      const row = accessRowFor(
+        deps.workspaceId,
+        member,
+        fact,
+        ownership,
+        readers,
+        grants.get(id) ?? [],
+      )
       const accessId = machineAccessRowId(member.id, id)
       specs.push(
         row === undefined
@@ -281,7 +294,8 @@ async function recordReach(
 ): Promise<void> {
   const moved = appended.flatMap((change) => {
     if (change.entity !== 'machineAccess') return []
-    const next: CheckoutReach = change.op === 'upsert' ? (change.value?.checkoutReach ?? 'none') : 'none'
+    const next: CheckoutReach =
+      change.op === 'upsert' ? (change.value?.checkoutReach ?? 'none') : 'none'
     return [{ ...parseMachineAccessRowId(change.id), next }]
   })
   if (moved.length === 0) return
@@ -292,7 +306,9 @@ async function recordReach(
   // A shrink records exactly the live checkouts the old reach covered and the
   // new one does not. The machine's paths are read only when one shrank.
   const shrank = moved.filter(
-    (row) => (before(row) === 'all' && row.next !== 'all') || (before(row) !== 'none' && row.next === 'none'),
+    (row) =>
+      (before(row) === 'all' && row.next !== 'all') ||
+      (before(row) !== 'none' && row.next === 'none'),
   )
   const paths =
     shrank.length === 0

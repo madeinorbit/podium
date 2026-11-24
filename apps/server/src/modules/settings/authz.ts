@@ -165,7 +165,7 @@ export function settingsAuthzFailure(name: string, deps: SettingsAuthzDeps): TRP
  */
 export async function settingsAuthzDeps(ctx: Context): Promise<SettingsAuthzDeps> {
   const sessions = mods(ctx).sessions
-  const principal = await resolvePrincipalAsync(ctx.capability, {
+  const principal = await resolvePrincipalAsync(ctx.registry.workspaceId, ctx.capability, {
     parentSessionOf: async (sessionId) =>
       // POD-1646: the narrow read. Authorization runs on essentially every
       // request, so the full reader-scoped pass this used to build was pure
@@ -214,8 +214,14 @@ export function settingsCommandsPermitted(deps: SettingsAuthzDeps): Record<strin
   // check the adapters perform. Field/target checks still run when applied.
   for (const edit of PREFERENCE_EDITS) {
     out[edit.name] =
-      coarselyPermitted(contractFrontDoor(edit), deps.principal, 'trpc') &&
-      settingsRoleSatisfiesFloor(deps.role, edit.policy.roleFloor)
+      // A rendering hint over a principal made in this request's workspace;
+      // the edit's own front door checks the workspace again when it applies.
+      coarselyPermitted(
+        contractFrontDoor(edit),
+        deps.principal,
+        'trpc',
+        deps.principal.workspaceId,
+      ) && settingsRoleSatisfiesFloor(deps.role, edit.policy.roleFloor)
   }
   return out
 }

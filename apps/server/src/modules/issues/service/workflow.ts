@@ -786,15 +786,16 @@ export class IssueGitWorkflowModule {
         (dep) => dep.type === 'discovered-from',
       )?.toId
       if (originId) {
-        void this.releaseWorktreeIfIdle(originId, systemPrincipal('start')).catch(
-          (err: unknown) => {
-            log.warn('could not release vacated origin worktree', {
-              err,
-              originId,
-              issueId: row.id,
-            })
-          },
-        )
+        void this.releaseWorktreeIfIdle(
+          originId,
+          systemPrincipal(this.store.deps.store.workspaceId, 'start'),
+        ).catch((err: unknown) => {
+          log.warn('could not release vacated origin worktree', {
+            err,
+            originId,
+            issueId: row.id,
+          })
+        })
       }
       return {
         ...wire,
@@ -1680,7 +1681,7 @@ export class IssueGitWorkflowModule {
           row.id,
           'system:resume',
           fallbackNotice,
-          systemPrincipal('resume'),
+          systemPrincipal(this.store.deps.store.workspaceId, 'resume'),
         )
       } catch (error) {
         log.warn('could not record the resume branch change in an issue comment', {

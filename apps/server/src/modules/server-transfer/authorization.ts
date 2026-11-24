@@ -1,12 +1,14 @@
-import { asMachineId, type UserId, type UserRole } from '@podium/model'
-import { checkMachineVerb, ownershipSnapshotFromMachines } from '../../machine-access'
+import { asMachineId, type UserId, type UserRole, type WorkspaceId } from '@podium/model'
 import { userCommandPrincipal } from '../../command-principal'
-import { decodeOperationActor } from '../operations/actor'
+import { checkMachineVerb, ownershipSnapshotFromMachines } from '../../machine-access'
 import type { MachinesService } from '../machines/service'
-import { TRANSFER_FAILURE_CODES, type ServerTransferAuthorization } from './types'
+import { decodeOperationActor } from '../operations/actor'
 import { ServerTransferError } from './service'
+import { type ServerTransferAuthorization, TRANSFER_FAILURE_CODES } from './types'
 
 export interface ServerMoveAuthorizationDeps {
+  /** The workspace the move was authorized in. */
+  workspaceId: WorkspaceId
   authorizedBy: string
   targetMachineId: string
   machines: MachinesService
@@ -31,7 +33,7 @@ export function serverMoveAuthorization(
       if (role !== 'admin') {
         return denied('the recorded administrator is unavailable')
       }
-      const principal = userCommandPrincipal(actor.userId, role)
+      const principal = userCommandPrincipal(deps.workspaceId, actor.userId, role)
       const refusal = checkMachineVerb(
         principal,
         asMachineId(deps.targetMachineId),

@@ -28,7 +28,10 @@ export function directSessionPort(
   const commandCtx = async (userId: UserId): Promise<SessionCommandCtx | undefined> => {
     const role = await store.users.roleOf(userId)
     if (!role) return undefined
-    return await sessionCommandCtx(modules, userCommandPrincipal(userId, role).capability)
+    return await sessionCommandCtx(
+      modules,
+      userCommandPrincipal(modules.workspaceId, userId, role).capability,
+    )
   }
 
   /** Does the command plane let this user command this session? A refusal and
@@ -62,7 +65,10 @@ export function directSessionPort(
     })
   }
 
-  const describe = async (userId: UserId, sessionId: SessionId): Promise<AttachableSession | undefined> => {
+  const describe = async (
+    userId: UserId,
+    sessionId: SessionId,
+  ): Promise<AttachableSession | undefined> => {
     const ctx = await commandCtx(userId)
     if (!ctx || !(await commandable(ctx, sessionId))) return undefined
     const facts = await modules.sessions.readSessionFactsById(sessionId)
@@ -120,7 +126,10 @@ export function directSessionPort(
       const ctx = await commandCtx(userId)
       if (!ctx) return { ok: false, reason: 'your account is not active' }
       const outcome = await dispatchSessionCommand(ctx, 'interrupt', { sessionId })
-      return { ok: outcome.ok, ...('reason' in outcome && outcome.reason ? { reason: outcome.reason } : {}) }
+      return {
+        ok: outcome.ok,
+        ...('reason' in outcome && outcome.reason ? { reason: outcome.reason } : {}),
+      }
     },
 
     wake: async (userId, sessionId) => {

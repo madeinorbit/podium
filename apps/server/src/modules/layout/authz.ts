@@ -10,13 +10,13 @@
 
 import { LAYOUT_CONTRACTS, type LayoutContractName } from '@podium/commands'
 import type { UserId, UserRole } from '@podium/model'
+import { spawnedByParentSessionId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import {
   type CommandPrincipal,
   onBehalfOfUser,
   resolvePrincipalAsync,
 } from '../../command-principal'
-import { spawnedByParentSessionId } from '@podium/model'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
 
@@ -57,7 +57,7 @@ export function layoutAuthzFailure(name: string, deps: LayoutAuthzDeps): TRPCErr
 /** Resolve principal + live role from a tRPC context (never from payload). */
 export async function layoutAuthzDeps(ctx: Context): Promise<LayoutAuthzDeps> {
   const sessions = mods(ctx).sessions
-  const principal = await resolvePrincipalAsync(ctx.capability, {
+  const principal = await resolvePrincipalAsync(ctx.registry.workspaceId, ctx.capability, {
     parentSessionOf: async (sessionId) =>
       // POD-1646: the narrow read. Authorization runs on essentially every
       // request, so the full reader-scoped pass this used to build was pure

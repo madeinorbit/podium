@@ -4,7 +4,7 @@ import {
   defineCommands,
   type LockCommandName,
 } from '@podium/commands'
-import { isPersonCapability } from '@podium/model'
+import { isPersonCapability, type WorkspaceId } from '@podium/model'
 import { lockNameProblem } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
@@ -70,6 +70,8 @@ function def<K extends LockCommandKind, In extends z.ZodTypeAny, Out>(
 }
 
 export interface LockCommandDeps {
+  /** The workspace of the lock store (POD-7483). */
+  workspaceId: WorkspaceId
   locks: LockService
   /** Issue seq lookup for holder labels (`issue:#<seq>`). */
   issues: IssueService
@@ -271,6 +273,7 @@ export class LockCommandDispatcher {
       name: `lock.${proc}`,
       def,
       principal,
+      workspaceId: this.deps.workspaceId,
       transport,
       input: rawInput,
       run: async (input) => await this.run(caller, proc, def, input),
@@ -292,7 +295,9 @@ export class LockCommandDispatcher {
     /** Who is asking, for the front door; an in-process caller's capability
      *  read as a principal when absent. */
     principal: () => Promise<CommandPrincipal> = async () =>
-      resolvePrincipal(caller.capability, { parentSessionOf: () => undefined }),
+      resolvePrincipal(this.deps.workspaceId, caller.capability, {
+        parentSessionOf: () => undefined,
+      }),
   ): Promise<unknown> {
     if (!Object.hasOwn(lockRegistry.defs, proc)) return NO_SUCH_PROCEDURE
     const def = (lockRegistry.defs as Record<string, AnyLockCommandDef>)[proc] as AnyLockCommandDef

@@ -4,7 +4,7 @@ import { resolvePrincipalAsync } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
 
 export async function sessionPrincipal(modules: RegistryModules, capability: Capability) {
-  return await resolvePrincipalAsync(capability, {
+  return await resolvePrincipalAsync(modules.workspaceId, capability, {
     // The ONE reader of the `session:<id>` tag, in `@podium/model` alongside
     // the one writer (POD-1133). It brands what it extracts, so `parentSessionOf`
     // hands back a `SessionId` with no cast here.

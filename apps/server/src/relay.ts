@@ -19,6 +19,7 @@ import type {
   SessionMeta,
   UpdateChannel,
   UserId,
+  WorkspaceId,
 } from '@podium/model'
 import {
   actorAgent,
@@ -511,6 +512,9 @@ interface NewEffectInUnit {
 }
 
 export interface RegistryModules {
+  /** The workspace these modules serve: their store's. A principal made from
+   *  them names it (POD-7483). */
+  readonly workspaceId: WorkspaceId
   /** The superagent's own session writes (`superagent.tools`, POD-6601). */
   superagentToolsWriter: Pick<LedgerWriter, 'commit'>
   /** The superagent's turn runner, after a send commits (`superagent.turns`, POD-6606). */
@@ -689,6 +693,11 @@ function noticeInfo(
  */
 export class SessionRegistry {
   private mobileVersions?: MobileClientVersions
+  /** The workspace this registry serves: its store's. Every principal made
+   *  for a call into this registry names it (POD-7483). */
+  get workspaceId(): WorkspaceId {
+    return this.store.workspaceId
+  }
   /** Topics on the stream plane (ADR 7 Amendment 2), over the gateway's one registry. */
   topics!: TopicRouting
   /** Each connected daemon's link and its kind (credential management §8). */
@@ -945,7 +954,10 @@ export class SessionRegistry {
       isFeatureEnabled(id, await this.store.settings.getSettings())
     // Delegation is resolved from durable session ownership on every apply. This
     // lookup is available before feature construction and never snapshots rights.
-    const principalForCapability = capabilityPrincipalResolver(this.store.sessions)
+    const principalForCapability = capabilityPrincipalResolver(
+      this.store.workspaceId,
+      this.store.sessions,
+    )
     const workflowCallerForCapability = async (
       capability: import('@podium/model').Capability,
       overrideScope?: boolean,
@@ -1115,6 +1127,7 @@ export class SessionRegistry {
     this.machineRecordsDeps = (): MachineRecordsDeps & {
       reach: NonNullable<MachineRecordsDeps['reach']>
     } => ({
+      workspaceId: this.store.workspaceId,
       facts: async (ids) => await machines.recordFacts(ids),
       // The grant edges themselves, in one read through the operation's loader.
       grants: async (ids) => await this.store.grants.loadForResources('machine', ids),
@@ -1585,6 +1598,7 @@ export class SessionRegistry {
             'role' in principal &&
             checkMachineUse(
               userCommandPrincipal(
+                this.store.workspaceId,
                 asUserId(principal.user),
                 principal.role as import('@podium/model').UserRole,
               ),
@@ -1984,7 +1998,11 @@ export class SessionRegistry {
     const mail = principalMailPolicy({
       principalForCapability,
       principalForMessage: async (message) => {
-        if (message.fromKind === 'system') return systemPrincipal(message.fromName ?? 'message')
+        // A system row is re-checked by the delivery job itself: its principal
+        // names that job, never the label the row carries (POD-7483 review F8).
+        if (message.fromKind === 'system') {
+          return systemPrincipal(this.store.workspaceId, 'message-delivery')
+        }
         if (message.fromSession) {
           try {
             return await principalForCapability(await capabilityForLiveSession(message.fromSession))
@@ -1995,7 +2013,7 @@ export class SessionRegistry {
         if (!message.attribution?.onBehalfOf) return undefined
         const userId = asUserId(message.attribution?.onBehalfOf)
         const role = await this.store.users.roleOf(userId)
-        return role ? userCommandPrincipal(userId, role) : undefined
+        return role ? userCommandPrincipal(this.store.workspaceId, userId, role) : undefined
       },
       ceilingFor: (principal) => mailCeiling(principal),
       policyFor: async (principal) => {
@@ -2294,7 +2312,11 @@ export class SessionRegistry {
       // `codex-machine.ts` so login starts and Codex server-AI use cannot
       // drift into two answers about who may use which machine.
       authorizerFor: async (ownerUserId) =>
-        await codexAuthorizerFor({ users: this.store.users, machines }, ownerUserId, 'start login'),
+        await codexAuthorizerFor(
+          { workspaceId: this.store.workspaceId, users: this.store.users, machines },
+          ownerUserId,
+          'start login',
+        ),
       cwdForMachine: async (machineId) =>
         (await this.store.repos.listRepoPaths(machineId))[0] ?? '/',
       custodianOf: async (machineId) => await this.store.machines.custodian(machineId),
@@ -2986,6 +3008,7 @@ export class SessionRegistry {
     checkoutWrites.install(issues.reports.store)
     issueUploads.install(issues.crud)
     const issueSessionLifecycle = new IssueSessionLifecycle({
+      workspaceId: this.store.workspaceId,
       issues,
       sessions: sessionsSvc,
       ledger: issueArbitration.ledger,
@@ -3261,7 +3284,11 @@ export class SessionRegistry {
         if (!writer || writer.disabledAt) return false
         const ownership = await ownershipSnapshotFromMachines(machines)
         if (
-          checkMachineUse(userCommandPrincipal(lifecycle.byUser, writer.role), machineId, ownership)
+          checkMachineUse(
+            userCommandPrincipal(this.store.workspaceId, lifecycle.byUser, writer.role),
+            machineId,
+            ownership,
+          )
         ) {
           return false
         }
@@ -3469,6 +3496,7 @@ export class SessionRegistry {
       },
     })
     const lockCommands = new LockCommandDispatcher({
+      workspaceId: this.store.workspaceId,
       locks,
       issues,
       sessionWorkspace,
@@ -3745,7 +3773,9 @@ export class SessionRegistry {
           } else {
             const userId = asUserId(workflowPrincipal.onBehalfOf)
             const role = await this.store.users.roleOf(userId)
-            principal = role ? userCommandPrincipal(userId, role) : undefined
+            principal = role
+              ? userCommandPrincipal(this.store.workspaceId, userId, role)
+              : undefined
           }
           const ownership = await ownershipSnapshotFromMachines(machines)
           return {
@@ -3833,6 +3863,7 @@ export class SessionRegistry {
     const workflowModules = new LifecyclePort<RegistryModules>('registry workflow entries')
     const messageGate = new MessageGate(
       {
+        workspaceId: this.store.workspaceId,
         messages: messagesSvc,
         issues,
         sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
@@ -4015,7 +4046,7 @@ export class SessionRegistry {
         new Set(sessionsSvc.runningSessionFacts().map((s) => s.sessionId)),
       principalForOwner: async (ownerUserId) => {
         const role = await this.store.users.roleOf(ownerUserId)
-        return role ? userCommandPrincipal(ownerUserId, role) : undefined
+        return role ? userCommandPrincipal(this.store.workspaceId, ownerUserId, role) : undefined
       },
       mayUseDefaultMachine: async (principal) => {
         const ownership = await ownershipSnapshotFromMachines(machines)
@@ -4067,11 +4098,11 @@ export class SessionRegistry {
       personPrincipal: async (userId) => {
         const user = await this.store.users.get(userId)
         if (!user || user.disabledAt) return undefined
-        return userCommandPrincipal(asUserId(user.id), user.role)
+        return userCommandPrincipal(this.store.workspaceId, asUserId(user.id), user.role)
       },
       activeAdmins: async () =>
         [...(await this.store.users.activeAdminIds())].map((id) =>
-          userCommandPrincipal(asUserId(id), 'admin'),
+          userCommandPrincipal(this.store.workspaceId, asUserId(id), 'admin'),
         ),
       sessionIssueId: async (sessionId) => {
         const s = await sessionsSvc.sessionById(sessionId)
@@ -4147,6 +4178,7 @@ export class SessionRegistry {
           }
           const fresh = op.target.kind === 'fresh' ? op.target : null
           const principal = await resolvePrincipalAsync(
+            this.store.workspaceId,
             await sessionsSvc.capabilityForSession(sessionId),
             {
               parentSessionOf: async (candidate) =>
@@ -4224,6 +4256,7 @@ export class SessionRegistry {
       return service
     }
     const issueCommands = new IssueCommandDispatcher({
+      workspaceId: this.store.workspaceId,
       // An effect record's run writes as the issue service's own work, after its
       // record committed (POD-6603); no served command runs without its own.
       effectRunWriter: writes.system('issues.server'),
@@ -4475,7 +4508,7 @@ export class SessionRegistry {
         takeBranchCustody: async (issue) => {
           const stopped = await issueSessionLifecycle.stopIssue({
             issueId: issue.id,
-            principal: systemPrincipal('shipping-custody'),
+            principal: systemPrincipal(this.store.workspaceId, 'shipping-custody'),
           })
           const live = await issues.reports.get(issue.id)
           const freed = live?.worktreePath == null
@@ -4540,7 +4573,10 @@ export class SessionRegistry {
           // overrideScope can acknowledge a write outside the agent subtree; it
           // never widens the human owner's current account rights.
           await checkIssueAccess(
-            { capability: userCommandPrincipal(humanId, liveRole).capability },
+            {
+              capability: userCommandPrincipal(this.store.workspaceId, humanId, liveRole)
+                .capability,
+            },
             issueAccess,
             `shipping.${action}.owner`,
             action === 'read-receipt' ? 'read' : 'write',
@@ -4554,7 +4590,7 @@ export class SessionRegistry {
           if (!userId) throw new Error('shipping order has no human authorization owner')
           const role = await this.store.users.roleOf(userId)
           if (!role) throw new Error(`shipping requester ${userId} is no longer active`)
-          const humanPrincipal = userCommandPrincipal(userId, role)
+          const humanPrincipal = userCommandPrincipal(this.store.workspaceId, userId, role)
           let principal: CommandPrincipal
           if (attribution.actor.kind === 'agent') {
             const sessionId = asSessionId(attribution.actor.id)
@@ -4567,7 +4603,7 @@ export class SessionRegistry {
           } else if (attribution.actor.kind === 'user') {
             if (attribution.actor.id !== userId)
               throw new Error('shipping requester attribution no longer matches its user')
-            principal = userCommandPrincipal(userId, role)
+            principal = userCommandPrincipal(this.store.workspaceId, userId, role)
           } else {
             throw new Error(`shipping requester actor ${attribution.actor.kind} cannot own effects`)
           }
@@ -4824,6 +4860,7 @@ export class SessionRegistry {
       return (await writer.commit({ write: insert })).result
     }
     const syncWrite = new SyncWriteEntry({
+      workspaceId: this.store.workspaceId,
       registry: new SyncWriteRegistry(),
       mutations,
       legacyFallback: (id, human) =>
@@ -5181,6 +5218,7 @@ export class SessionRegistry {
       })
     })
     this.modules = {
+      workspaceId: this.store.workspaceId,
       superagentToolsWriter: this.writes.system('superagent.tools'),
       superagentTurnsWriter: this.writes.system('superagent.turns'),
       superagentBridgeWriter: this.writes.system('superagent.bridge'),
@@ -5196,7 +5234,7 @@ export class SessionRegistry {
           await createEffectInUnit(writes.system('effects.system'), {
             ...effect,
             createdBy: null,
-            actor: attributionOf(systemPrincipal(effect.job)).actor,
+            actor: attributionOf(systemPrincipal(this.store.workspaceId, effect.job)).actor,
           }),
         createInUnit: async (writer, effect) => await createEffectInUnit(writer, effect),
       },
@@ -5420,6 +5458,7 @@ export class SessionRegistry {
       // against the TARGET session's issue exactly like an issue write
       // (RELAY_ALLOWED lists the exposed procedures).
       dispatch: makeAgentRelayDispatch({
+        workspaceId: this.store.workspaceId,
         approvals,
         featureStates: async () => getFeatureStates(await this.store.settings.getSettings()),
         featureEnabled,
@@ -5466,7 +5505,7 @@ export class SessionRegistry {
     // dead -- an unawaited rejection cannot be caught by the try that started it.
     this.steward = new StewardService({
       writer: this.writes.system('steward'),
-      principal: systemPrincipal('steward'),
+      principal: systemPrincipal(this.store.workspaceId, 'steward'),
       store: this.store.events,
       facts: this.store.notificationFacts,
       messages: this.store.messages,
@@ -5617,7 +5656,10 @@ export class SessionRegistry {
         perf.record('phase', 'eventLogPrune.maxSlice', metrics.maxUninterruptedSliceMs, DEPLOYMENT)
       },
     })
-    this.issueAutoArchive = new IssueAutoArchive(issues.attention)
+    this.issueAutoArchive = new IssueAutoArchive(
+      issues.attention,
+      systemPrincipal(this.store.workspaceId, 'expiry'),
+    )
     // STARTED, unlike the two retired timers around it: the watch refreshes only
     // the ephemeral in-memory git-state cache, so there is no durable write for
     // the janitor's fence to protect — see IssueGitWatch.
@@ -5657,7 +5699,7 @@ export class SessionRegistry {
                   (await this.store.sessions.getSession(sessionId))?.ownerUserId,
                 machines: this.modules.machines,
               },
-              userCommandPrincipal(user, role),
+              userCommandPrincipal(this.store.workspaceId, user, role),
             ),
             userId: user,
           })

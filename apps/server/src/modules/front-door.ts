@@ -6,7 +6,8 @@
  * (`sync-write/entry.ts`) for writes to synced data, or the plain path
  * (`plain-command/entry.ts`) for the few commands with no synced effect.
  *
- *   1. the principal, from the transport (the adapter passes it in);
+ *   1. the principal, from the transport (the adapter passes it in), which must
+ *      act in the workspace of the store the command runs over (POD-7483);
  *   2. the COARSE permission check — may this principal use this command at all,
  *      over this transport (exposure, role floor, the action's role)? It reads
  *      only the contract and the principal, never the input, so it runs BEFORE
@@ -25,9 +26,10 @@ import {
   isExposedOn,
   type RoleFloor,
 } from '@podium/commands'
-import { authorize } from '@podium/model'
+import { authorize, type WorkspaceId } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
-import type { CommandPrincipal } from '../command-principal'
+import { actsInOrReport, type CommandPrincipal } from '../command-principal'
 
 /** The transports with an adapter onto a front door. Each literal is spelled the
  *  same in both declaration formats' transport vocabularies. */
@@ -56,7 +58,13 @@ export const defFrontDoor = (def: CommandDef): FrontDoorCommand => ({
 })
 
 /**
- * Step 2: may this principal use this command at all, over this transport?
+ * Steps 1 and 2: does this principal act in `workspace`, the workspace of the
+ * store the command runs over, and may it use this command at all, over this
+ * transport?
+ *
+ * A principal of another workspace is refused before anything else is read: it
+ * is nobody here, whatever its role there. A mismatch is a routing defect; it is
+ * logged as one ({@link actsInOrReport}) and answered like any other refusal.
  *
  * A system principal is unreachable from every transport (ADR 3 Amendment D21):
  * server-originated work calls its service directly, not through a front door.
@@ -65,7 +73,9 @@ export function coarselyPermitted(
   command: FrontDoorCommand,
   principal: CommandPrincipal,
   transport: FrontDoorTransport,
+  workspace: WorkspaceId,
 ): boolean {
+  if (!actsInOrReport(principal, workspace, `front-door:${transport}`)) return false
   if (principal.kind === 'system') return false
   if (!command.exposedOn(transport)) return false
   const capability = principal.capability
@@ -73,6 +83,16 @@ export function coarselyPermitted(
   // With no target, `authorize` answers the role question alone: may this role
   // perform this action at all.
   return authorize(capability, command.action) !== 'forbidden'
+}
+
+/**
+ * The answer to a principal of another workspace where a refusal is thrown
+ * rather than returned (the tRPC context, the issue dispatcher): the same
+ * FORBIDDEN a non-member gets, naming neither workspace. The defect itself is
+ * logged by {@link actsInOrReport}.
+ */
+export function foreignPrincipalRefusal(): TRPCError {
+  return new TRPCError({ code: 'FORBIDDEN', message: 'not_workspace_member' })
 }
 
 export type ParsedCommandInput =

@@ -16,10 +16,11 @@ import type {
   UnsetMarker,
 } from '@trpc/server/unstable-core-do-not-import'
 import type { CloudRuntimeProvider } from './cloud-runtime'
-import type { CommandPrincipal } from './command-principal'
+import { actsInOrReport, type CommandPrincipal } from './command-principal'
 import type { Capability } from './issue-authz'
 import type { ConnectPublisher } from './modules/connect/publisher'
 import { credentialRefusalIn, refusalInPlaceOfFault } from './modules/credentials/refusal-error'
+import { foreignPrincipalRefusal } from './modules/front-door'
 import type { IssueCaller } from './modules/issues/command-ctx'
 import { IssueRevisionConflict } from './modules/issues/conflict'
 import { DEPLOYMENT, perf } from './modules/perf/registry'
@@ -153,6 +154,20 @@ export interface Context {
    *  Not a bare digest: absent and unstamped share one `undefined` and need
    *  opposite verdicts — see `servedWebIdentity`. */
   servedMobileWeb?: () => MobileWebIdentity
+}
+
+/**
+ * The principal a request context carries, checked against the workspace of the
+ * registry it reached (POD-7483). Another workspace's principal is refused as a
+ * non-member (FORBIDDEN, naming neither workspace) and the defect is logged;
+ * the context is never built, so no procedure runs.
+ */
+export function contextPrincipal(
+  principal: CommandPrincipal,
+  workspaceId: WorkspaceId,
+): CommandPrincipal {
+  if (!actsInOrReport(principal, workspaceId, 'trpc-context')) throw foreignPrincipalRefusal()
+  return principal
 }
 
 /** The typed module seam router procs reach services through (ctx.modules when

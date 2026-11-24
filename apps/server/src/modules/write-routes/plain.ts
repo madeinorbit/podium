@@ -59,6 +59,7 @@ export function plainRoute<In = unknown, Out = unknown>(
       try {
         reply = await registry.run(name, {
           principal: call.ctx.principal,
+          workspaceId: call.ctx.registry.workspaceId,
           transport: 'trpc',
           input: call.input,
           caller: issueCaller(call.ctx),

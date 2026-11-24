@@ -6,10 +6,9 @@ import { spanOpen } from '../../store/executor/executor'
  * Dispose: none.
  */
 
-
 import { createLogger, describeError } from '@podium/logger'
-import type { MachineId, SessionId, UserId } from '@podium/model'
-import { asSessionId, asUserId } from '@podium/model'
+import type { MachineId, SessionId, UserId, WorkspaceId } from '@podium/model'
+import { asSessionId, asUserId, spawnedByParentSessionId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import {
   type CommandPrincipal,
@@ -20,19 +19,18 @@ import {
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import { type Capability, mayReachPrivate } from '../../issue-authz'
 import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine-access'
-import { spawnedByParentSessionId } from '@podium/model'
 import type { SessionStore } from '../../store'
-import type { SessionRecords } from './records'
-import type { SessionLifecycleDeps } from './session-lifecycle-types'
-import type { SessionAccessDeps } from './session-access'
 import { SUPERAGENT_AGENT_IDENTITY } from '../messages/types'
 import { type InboxPrincipalReference, inboxPrincipalFromCommand } from './inbox'
+import type { SessionRecords } from './records'
+import type { Session } from './session'
+import type { SessionAccessDeps } from './session-access'
 import {
   ambiguousSessionPrefixMessage,
   assertMayCommandSession,
   resolveSessionTarget,
 } from './session-access'
-import type { Session } from './session'
+import type { SessionLifecycleDeps } from './session-lifecycle-types'
 import type { SessionOwnerFacts, SessionOwnerMemo } from './session-state/service'
 
 const log = createLogger('server:session-authz')
@@ -42,6 +40,8 @@ const registryMissLog = new LogRate()
 
 /** Derive database signatures from the store so async changes reach every read. */
 export interface SessionAuthzStorePort {
+  /** The store's workspace: every principal this gate makes names it (POD-7483). */
+  readonly workspaceId: WorkspaceId
   readonly users: Pick<
     SessionStore['users'],
     'get' | 'roleOf' | 'earliestAdmin' | 'queuedBeforeAuthorityChange'
@@ -100,7 +100,7 @@ export class SessionAuthz {
       }
       const role = await this.ports.store.users.roleOf(user)
       if (!role) return refused
-      principal = userCommandPrincipal(user, role)
+      principal = userCommandPrincipal(this.ports.store.workspaceId, user, role)
     } else {
       const actorSessionId = asSessionId(input.principal.principalRef)
       if (
@@ -144,11 +144,16 @@ export class SessionAuthz {
        */
       let delegated: CommandPrincipal
       try {
-        delegated = await resolvePrincipalAsync(await this.capabilityForSession(actorSessionId), {
-          parentSessionOf: async (sessionId) =>
-            spawnedByParentSessionId((await this.ports.sessionById(sessionId))?.spawnedBy),
-          onBehalfOfFor: async (sessionId) => (await this.sessionOwner(sessionId))?.owner ?? undefined,
-        })
+        delegated = await resolvePrincipalAsync(
+          this.ports.store.workspaceId,
+          await this.capabilityForSession(actorSessionId),
+          {
+            parentSessionOf: async (sessionId) =>
+              spawnedByParentSessionId((await this.ports.sessionById(sessionId))?.spawnedBy),
+            onBehalfOfFor: async (sessionId) =>
+              (await this.sessionOwner(sessionId))?.owner ?? undefined,
+          },
+        )
       } catch {
         return refused
       }
@@ -184,8 +189,7 @@ export class SessionAuthz {
         principal,
         target.machineId,
         await ownershipSnapshotFromMachines(this.ports.machines),
-      ) !==
-      'granted'
+      ) !== 'granted'
     ) {
       return refused
     }
@@ -240,7 +244,6 @@ export class SessionAuthz {
     return { ok: true }
   }
 
-
   /**
    * Machine `use` for a browser principal against the session's host
    * (POD-1081 §4). Independent of session grants — share is not a back door.
@@ -250,10 +253,13 @@ export class SessionAuthz {
     sessionId: SessionId,
   ): Promise<'granted' | 'denied' | 'absent'> {
     const session =
-      this.ports.sessions.get(sessionId) ??
-      (await this.ports.store.sessions.loadSession(sessionId))
+      this.ports.sessions.get(sessionId) ?? (await this.ports.store.sessions.loadSession(sessionId))
     if (!session) return 'absent'
-    const command = userCommandPrincipal(asUserId(principal.user), principal.role)
+    const command = userCommandPrincipal(
+      this.ports.store.workspaceId,
+      asUserId(principal.user),
+      principal.role,
+    )
     const ownership = await ownershipSnapshotFromMachines(this.ports.machines)
     // machineUseDecision collapses absent+denied to 'denied' when the principal
     // cannot see the machine; attach maps both to terminalOutcome unauthorized.
@@ -282,16 +288,17 @@ export class SessionAuthz {
     // The durable placement and the authority below come from ONE row. A live
     // object or transport binding can still name the old machine after a handoff;
     // checking it separately and then resolving ownership would split the snapshot.
-    const relaySession = senderMachineId === undefined
-      ? undefined
-      : await this.ports.store.sessions.loadSession(sessionId)
+    const relaySession =
+      senderMachineId === undefined
+        ? undefined
+        : await this.ports.store.sessions.loadSession(sessionId)
     if (
       senderMachineId !== undefined &&
       (!relaySession || relaySession.deletedAt || relaySession.machineId !== senderMachineId)
     ) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'not authorized' })
     }
-    const s = relaySession ?? await this.ports.records.ownershipOf(sessionId, 'capability')
+    const s = relaySession ?? (await this.ports.records.ownershipOf(sessionId, 'capability'))
     if (!s) return { role: 'worker', scope: { kind: 'none' } }
     // A DELEGATION ACTS ONLY WHILE ITS HUMAN CAN (POD-6293; design §2.3, §4.5).
     // A disabled or removed owner's agents keep running (POD-4152 lets them
@@ -303,7 +310,7 @@ export class SessionAuthz {
     // Explicit attachment wins over cwd containment (issue-as-workspace): an
     // attached / draft-bound session is scoped to ITS issue even when its cwd
     // sits in another issue's worktree (or none).
-    const issueId = s.issueId ?? await this.ports.deps.issueAccess.issueForCwd(s.cwd)
+    const issueId = s.issueId ?? (await this.ports.deps.issueAccess.issueForCwd(s.cwd))
     return issueId
       ? {
           role: 'worker',
@@ -350,16 +357,21 @@ export class SessionAuthz {
     let human: UserId | null
     try {
       human = onBehalfOfUser(
-        await resolvePrincipalAsync(capability, {
+        await resolvePrincipalAsync(this.ports.store.workspaceId, capability, {
           parentSessionOf: async (id) =>
-            spawnedByParentSessionId((await this.ports.records.ownershipOf(id, 'capability'))?.spawnedBy),
+            spawnedByParentSessionId(
+              (await this.ports.records.ownershipOf(id, 'capability'))?.spawnedBy,
+            ),
           onBehalfOfFor: async (id) => (await this.sessionOwner(id))?.owner,
         }),
       )
     } catch {
       return false
     }
-    return mayReachPrivate(human, { id: sessionId, owner: (await this.sessionOwner(sessionId))?.owner })
+    return mayReachPrivate(human, {
+      id: sessionId,
+      owner: (await this.sessionOwner(sessionId))?.owner,
+    })
   }
 
   /**
@@ -372,7 +384,9 @@ export class SessionAuthz {
   async primeOwnerMemo(memo: SessionOwnerMemo, sessionIds: readonly SessionId[]): Promise<void> {
     // A memo prepared before an in-span write is not an authority fact.
     if (spanOpen()) memo.sessions?.clear()
-    const missing = sessionIds.filter((id) => this.ports.sessions.get(id) === undefined && !memo.sessions?.has(id))
+    const missing = sessionIds.filter(
+      (id) => this.ports.sessions.get(id) === undefined && !memo.sessions?.has(id),
+    )
     if (missing.length === 0) return
     const rows = await this.ports.store.sessions.getSessions(missing)
     const owners = (memo.sessions ??= new Map())
@@ -380,7 +394,10 @@ export class SessionAuthz {
   }
 
   /** A session's owner and issue: in memory, else the pass's memo, else its row. */
-  private async ownershipOf(sessionId: SessionId, memo?: SessionOwnerMemo): Promise<SessionOwnerFacts | undefined> {
+  private async ownershipOf(
+    sessionId: SessionId,
+    memo?: SessionOwnerMemo,
+  ): Promise<SessionOwnerFacts | undefined> {
     const resident = this.ports.sessions.get(sessionId)
     if (resident) return resident
     const memoised = memo?.sessions?.get(sessionId)
@@ -392,7 +409,8 @@ export class SessionAuthz {
    *  a parked session for the write this check admits reuses the row. */
   private async storedOwnershipRecord(sessionId: SessionId) {
     const fields = registryMissLog.take()
-    if (fields) log.debug('session ownership registry miss; reading durable row', { sessionId, ...fields })
+    if (fields)
+      log.debug('session ownership registry miss; reading durable row', { sessionId, ...fields })
     return this.ports.store.sessions.loadSession(sessionId)
   }
 
@@ -408,10 +426,13 @@ export class SessionAuthz {
    */
   async inboxPrincipalForCapability(capability: Capability): Promise<InboxPrincipalReference> {
     return inboxPrincipalFromCommand(
-      await resolvePrincipalAsync(capability, {
+      await resolvePrincipalAsync(this.ports.store.workspaceId, capability, {
         parentSessionOf: async (sessionId) =>
-          spawnedByParentSessionId((await this.ports.records.ownershipOf(sessionId, 'inboxPrincipal'))?.spawnedBy),
-        onBehalfOfFor: async (sessionId) => (await this.sessionOwner(sessionId))?.owner ?? undefined,
+          spawnedByParentSessionId(
+            (await this.ports.records.ownershipOf(sessionId, 'inboxPrincipal'))?.spawnedBy,
+          ),
+        onBehalfOfFor: async (sessionId) =>
+          (await this.sessionOwner(sessionId))?.owner ?? undefined,
       }),
     )
   }

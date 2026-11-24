@@ -14,20 +14,29 @@
  * `command-principal.ts`), never by how many sessions exist.
  */
 
-import { asSessionId, type Capability, spawnedByParentSessionId } from '@podium/model'
+import {
+  asSessionId,
+  type Capability,
+  spawnedByParentSessionId,
+  type WorkspaceId,
+} from '@podium/model'
 import { type CommandPrincipal, resolvePrincipalAsync } from './command-principal'
-import type { SessionsRepository } from './store/sessions'
 import { withReadScope } from './store/executor/read-scope'
+import type { SessionsRepository } from './store/sessions'
 
 export function capabilityPrincipalResolver(
+  /** The workspace whose session rows these are. */
+  workspaceId: WorkspaceId,
   sessions: Pick<SessionsRepository, 'loadSession'>,
 ): (capability: Capability) => Promise<CommandPrincipal> {
   return async (capability) =>
     await withReadScope(
       async () =>
-        await resolvePrincipalAsync(capability, {
+        await resolvePrincipalAsync(workspaceId, capability, {
           parentSessionOf: async (candidate) =>
-            spawnedByParentSessionId((await sessions.loadSession(asSessionId(candidate)))?.spawnedBy),
+            spawnedByParentSessionId(
+              (await sessions.loadSession(asSessionId(candidate)))?.spawnedBy,
+            ),
           onBehalfOfFor: async (candidate) =>
             (await sessions.loadSession(asSessionId(candidate)))?.ownerUserId,
         }),

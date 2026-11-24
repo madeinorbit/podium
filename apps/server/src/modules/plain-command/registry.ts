@@ -21,6 +21,7 @@
  */
 
 import type { AnyCommandContract, CommandDef } from '@podium/commands'
+import type { WorkspaceId } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
 import type { Context } from '../../trpc'
@@ -98,6 +99,8 @@ export interface PlainCommand {
 /** One call of a registered plain command, as a transport hands it over. */
 export interface PlainCall {
   readonly principal: CommandPrincipal
+  /** The workspace of the registry the call reached (POD-7483). */
+  readonly workspaceId: WorkspaceId
   readonly transport: 'trpc' | 'cli' | 'mcp' | 'relay'
   readonly input: unknown
   readonly caller: IssueCaller
@@ -138,6 +141,7 @@ export class PlainCommandRegistry {
       })
     const common = {
       principal: call.principal,
+      workspaceId: call.workspaceId,
       transport: call.transport,
       input: call.input,
       targetPermitted: registration.targetPermitted,

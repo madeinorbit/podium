@@ -87,6 +87,7 @@ export function registerServerMoveEffect(deps: {
             engine: deps.engine,
             input: { ...input, publicUrl, port },
             authorization: serverMoveAuthorization({
+              workspaceId: modules.workspaceId,
               authorizedBy,
               targetMachineId: input.targetMachineId,
               machines: modules.machines,

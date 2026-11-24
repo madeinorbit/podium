@@ -35,7 +35,9 @@ export async function writerPrincipalNow(
   const user = await users.get(record.createdBy)
   if (!user || user.disabledAt) return undefined
   const agent = writingAgentOf(record)
-  if (agent === undefined) return userCommandPrincipal(asUserId(user.id), user.role)
+  if (agent === undefined) {
+    return userCommandPrincipal(modules.workspaceId, asUserId(user.id), user.role)
+  }
   return await agentCommandPrincipal(modules, agent)
 }
 
@@ -46,9 +48,13 @@ export async function agentCommandPrincipal(
 ): Promise<CommandPrincipal | undefined> {
   const sessions = modules.sessions
   if (!(await sessions.sessionRowExists(agent))) return undefined
-  const principal = await resolvePrincipalAsync(await sessions.capabilityForSession(agent), {
-    parentSessionOf: async (sessionId) =>
-      spawnedByParentSessionId((await sessions.sessionById(sessionId))?.spawnedBy),
-  })
+  const principal = await resolvePrincipalAsync(
+    modules.workspaceId,
+    await sessions.capabilityForSession(agent),
+    {
+      parentSessionOf: async (sessionId) =>
+        spawnedByParentSessionId((await sessions.sessionById(sessionId))?.spawnedBy),
+    },
+  )
   return principal.kind === 'system' ? undefined : principal
 }

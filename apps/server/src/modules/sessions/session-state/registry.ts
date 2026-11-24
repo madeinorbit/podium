@@ -55,7 +55,7 @@ import {
 } from '@podium/model'
 
 import type { MutationLedgerPort } from '@podium/sync'
-import type { CommandPrincipal } from '../../../command-principal'
+import { actsInOrReport, type CommandPrincipal } from '../../../command-principal'
 import type { SessionLifecycle } from '../lifecycle'
 import type { SessionWriter } from '../session-lifecycle-types'
 import type { SessionStatePrincipal, SessionStateService } from './service'
@@ -94,6 +94,7 @@ export function sessionStatePrincipalFor(
   if (principal.kind === 'system') throw new Error('system principal has no per-user session state')
   const userId = principal.kind === 'user' ? principal.user : principal.onBehalfOf
   return {
+    workspaceId: principal.workspaceId,
     userId,
     capability: principal.capability,
     ...(principal.kind === 'agent' ? { actorSessionId: principal.agentSessionId } : {}),
@@ -369,6 +370,12 @@ export class SessionStateRegistry {
     // Own-prototype lookup only: `REGISTRATIONS['toString']` must not resolve.
     if (!contract || !Object.hasOwn(REGISTRATIONS, name) || !registration) {
       return { outcome: 'not-exposed' }
+    }
+
+    // 0. THE WORKSPACE (POD-7483): a caller of another workspace is nobody here,
+    //    refused like any denial and logged as the routing defect it is.
+    if (!actsInOrReport(principal, this.deps.state.workspaceId, `session-state:${transport}`)) {
+      return { outcome: 'denied' }
     }
 
     // 1. EXPOSURE, before anything reads the input.

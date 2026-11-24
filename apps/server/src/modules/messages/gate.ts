@@ -34,7 +34,11 @@ import type {
   TranscriptItemRef,
   UserId,
 } from '@podium/model'
-import { type MessageDeliveryStatus, spawnedByParentSessionId } from '@podium/model'
+import {
+  type MessageDeliveryStatus,
+  spawnedByParentSessionId,
+  type WorkspaceId,
+} from '@podium/model'
 import type { MutationLedgerPort } from '@podium/sync'
 import { type CommandPrincipal, resolvePrincipalAsync } from '../../command-principal'
 import type { Capability } from '../../issue-authz'
@@ -63,6 +67,8 @@ import {
 } from './sync-write'
 
 export interface MessageGateDeps {
+  /** The workspace of the message store (POD-7483). */
+  workspaceId: WorkspaceId
   messages: MessageDeliveryService
   issues: IssueService
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
@@ -74,7 +80,11 @@ export interface MessageGateDeps {
   machineOnline?(machineId: MachineId): boolean
   /** A person's own chat message records, by id, as the feed scopes them
    *  (`readMessageRecords`, POD-4811) — `mail.records`. */
-  messageRecords(userId: UserId, ids: readonly string[], transcriptSessionId?: SessionId): Promise<MessageRecordWire[]>
+  messageRecords(
+    userId: UserId,
+    ids: readonly string[],
+    transcriptSessionId?: SessionId,
+  ): Promise<MessageRecordWire[]>
   /** A session's own owner (its row's `owner_user_id`) — lets a person read
    *  mail sent by or delivered to a session they own (POD-2143, POD-2146,
    *  POD-6284). Absent (tests) = no session end admits anyone. */
@@ -492,7 +502,7 @@ export class MessageGate {
       // not gets. Using it here keeps `resolvePrincipal` — the synchronous
       // delegation resolver — untouched, which is the boundary the ruling on
       // rule 51 case 2 protects.
-      (await resolvePrincipalAsync(capability, {
+      (await resolvePrincipalAsync(this.deps.workspaceId, capability, {
         parentSessionOf: async (sessionId) =>
           spawnedByParentSessionId((await this.deps.sessionById(sessionId))?.spawnedBy),
       }))

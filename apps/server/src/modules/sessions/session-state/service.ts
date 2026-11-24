@@ -42,9 +42,11 @@ import {
   type SessionUserOverlay,
   type UserId,
   type WorkState,
+  type WorkspaceId,
 } from '@podium/model'
 import type { DraftEditMessage, LiveServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { actsInOrReport } from '../../../command-principal'
 import type { ClientConn } from '../../../gateway/client-registry'
 import { mayReachPrivate } from '../../../issue-authz'
 import type { SessionStore, SnoozeMap } from '../../../store'
@@ -56,6 +58,8 @@ import type { WriteScope } from '@podium/sync'
 import type { SessionWriter } from '../session-lifecycle-types'
 
 export interface SessionStatePrincipal {
+  /** The workspace the caller acts in: its command principal's (POD-7483). */
+  readonly workspaceId: WorkspaceId
   /** The human row owner. For an agent this is its on-behalf-of human. */
   readonly userId: UserId
   readonly capability: Capability
@@ -110,7 +114,7 @@ export interface SessionOwnerFacts {
 }
 
 export interface SessionStatePorts {
-  readonly store: Pick<SessionStore, 'sessions'>
+  readonly store: Pick<SessionStore, 'sessions' | 'workspaceId'>
   readonly now: () => number
   readonly getSession: (sessionId: SessionId) => SessionStateRecord | undefined
   readonly sessionIds: () => Iterable<SessionId>
@@ -235,6 +239,11 @@ export class SessionStateService {
   private readonly lastHeldAt = new Map<SessionId, number>()
 
   constructor(private readonly ports: SessionStatePorts) {}
+
+  /** The workspace of the store this state lives in. */
+  get workspaceId(): WorkspaceId {
+    return this.ports.store.workspaceId
+  }
 
   /**
    * Forget what this process holds about drafts. Nothing is loaded: a draft
@@ -800,6 +809,9 @@ export class SessionStateService {
     principal: SessionStatePrincipal,
     send: (message: LiveServerMessage) => void,
   ): Promise<void> {
+    // Only to a caller of this workspace (POD-7483): another workspace's client
+    // is shown nothing.
+    if (!actsInOrReport(principal, this.workspaceId, 'session-state:replay')) return
     // Every stored draft (a row exists only while its text is not empty), with
     // the documents this process holds taking precedence (POD-6160). The stored
     // ones are not cached: a draft is held once its session uses it.

@@ -23,7 +23,7 @@
  * signature), so the table contributes no runtime edge back to this module.
  */
 
-import type { IssueId, MutationId, SessionId, SessionMeta } from '@podium/model'
+import type { IssueId, MutationId, SessionId, SessionMeta, WorkspaceId } from '@podium/model'
 import { asSessionId, asUserId, isPersonCapability } from '@podium/model'
 import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
@@ -86,6 +86,9 @@ export type MailHandOn = Pick<
 >
 
 export interface IssueCommandDeps {
+  /** The workspace of the issue store these commands run over: a caller's
+   *  principal must act in it (POD-7483). */
+  workspaceId: WorkspaceId
   /**
    * The writer of a handler run whose caller brings none. The served dispatcher
    * has none: every issue write is a sync command, which brings its own, or an

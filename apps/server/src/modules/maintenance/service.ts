@@ -298,7 +298,11 @@ export class MaintenanceService {
       runKey: command.runKey,
     }
     const appliedAt = new Date(nowMs).toISOString()
-    await this.appendExpiredEvent(current, appliedAt, systemPrincipal('expiry'))
+    await this.appendExpiredEvent(
+      current,
+      appliedAt,
+      systemPrincipal(this.store.workspaceId, 'expiry'),
+    )
     await this.store.maintenance.recordCommand(applied, command.fencingToken, appliedAt)
     return applied
   }
@@ -476,7 +480,7 @@ export class MaintenanceService {
     const result = await this.issues.attention.tryAutoArchiveObserved(
       observed,
       nowMs,
-      systemPrincipal('expiry'),
+      systemPrincipal(this.store.workspaceId, 'expiry'),
     )
     if (result === 'not-due') return this.stale(command, 'not-due')
     if (result === 'precondition') return this.stale(command, 'precondition')
@@ -554,7 +558,7 @@ export class MaintenanceService {
     const result = await this.issues.gitWorkflow.tryWorktreeGcObserved(
       observed,
       nowMs,
-      systemPrincipal('expiry'),
+      systemPrincipal(this.store.workspaceId, 'expiry'),
     )
     if (result.outcome === 'not-due') return this.stale(command, 'not-due')
     if (result.outcome === 'precondition') return this.stale(command, 'precondition')

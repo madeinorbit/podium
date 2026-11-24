@@ -33,7 +33,7 @@
  */
 
 import { createLogger, describeError } from '@podium/logger'
-import type { Capability, MutationId, UserId } from '@podium/model'
+import type { Capability, MutationId, UserId, WorkspaceId } from '@podium/model'
 import { authorize } from '@podium/model'
 import type {
   SyncSubmitInput,
@@ -104,6 +104,9 @@ export interface DetailedSubmit {
 }
 
 export interface SyncWriteEntryDeps {
+  /** The workspace of the store this entry writes: a principal of any other is
+   *  refused at the front door (POD-7483). */
+  readonly workspaceId: WorkspaceId
   readonly registry: SyncWriteRegistry
   /** THE process's one dedup ledger (`relay.ts`); a second instance would be a
    *  second in-flight map over one table. */
@@ -200,7 +203,9 @@ export class SyncWriteEntry {
     // 2. Contract lookup and the coarse check, before the input is looked at.
     const command = this.deps.registry.lookup(envelope.command)
     if (command === undefined) return answer(rejected({ kind: 'invalid', details: ['command'] }))
-    if (!coarselyPermitted(command, principal, transport)) return answer(rejected(UNAUTHORIZED))
+    if (!coarselyPermitted(command, principal, transport, this.deps.workspaceId)) {
+      return answer(rejected(UNAUTHORIZED))
+    }
     if (envelope.version !== command.version)
       return answer(rejected({ kind: 'invalid', details: ['version'] }))
 

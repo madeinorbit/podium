@@ -1,4 +1,4 @@
-import type { HarnessAgent, Inventory, MachineId, UserId } from '@podium/model'
+import type { HarnessAgent, Inventory, MachineId, UserId, WorkspaceId } from '@podium/model'
 import { userCommandPrincipal } from './command-principal'
 import { LlmConfigError } from './llm-error'
 import {
@@ -121,6 +121,8 @@ export function pickCodexMachine(
 }
 
 interface CodexAuthorizerDeps {
+  /** The workspace whose members and machines these are. */
+  workspaceId: WorkspaceId
   users: Pick<UsersRepository, 'get'>
   machines: AsyncMachineRowSource
 }
@@ -144,7 +146,7 @@ export async function codexAuthorizerFor(
   // Spending a native login for the server AI stays an admin's.
   if (!user || (action === 'use' && user.role !== 'admin'))
     return () => 'native provider login requires an admin account'
-  const principal = userCommandPrincipal(ownerUserId, user.role)
+  const principal = userCommandPrincipal(deps.workspaceId, ownerUserId, user.role)
   const ownership = await ownershipSnapshotFromMachines(deps.machines)
   return (machineId) => {
     const access = checkMachineUse(principal, machineId, ownership)

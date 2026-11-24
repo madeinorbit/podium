@@ -1,23 +1,27 @@
-import { readIssue, readIssues } from '../issues/issue-reader'
 import {
   asUserId,
+  type IssueId,
+  type RepoId,
   type SessionId,
   type SessionMeta,
   type SessionUserOverlay,
   type UserId,
-  type IssueId,
-  type RepoId,
 } from '@podium/model'
 import { userCommandPrincipal } from '../../command-principal'
 import { harnessCapabilitiesFor } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
 import type { IssueRow } from '../../store/types'
+import { readIssue, readIssues } from '../issues/issue-reader'
 import { DEPLOYMENT, perf } from '../perf/registry'
-import type { Session, SessionDurableFields } from './session'
 import { isResident, type SessionRecordReads, type SessionSubject } from './records'
+import type { Session, SessionDurableFields } from './session'
 import { projectSessionMeta, type SessionIdentity, type SessionRecord } from './session-record'
 import { sessionStatePrincipalFor } from './session-state/registry'
-import type { SessionOwnerFacts, SessionStatePrincipal, SessionStateService } from './session-state/service'
+import type {
+  SessionOwnerFacts,
+  SessionStatePrincipal,
+  SessionStateService,
+} from './session-state/service'
 
 /** Immutable inputs for one projection. No live service is reachable by wireSession. */
 export interface ProjectionPass {
@@ -96,9 +100,16 @@ export class SessionView {
         if (next === undefined) break
         after = next
       }
-      return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || (a.sessionId < b.sessionId ? -1 : 1))
+      return out.sort(
+        (a, b) => a.createdAt.localeCompare(b.createdAt) || (a.sessionId < b.sessionId ? -1 : 1),
+      )
     } finally {
-      perf.record('phase', `sessionView.listInPages.${caller}`, performance.now() - startedAt, DEPLOYMENT)
+      perf.record(
+        'phase',
+        `sessionView.listInPages.${caller}`,
+        performance.now() - startedAt,
+        DEPLOYMENT,
+      )
     }
   }
 
@@ -146,7 +157,10 @@ export class SessionView {
    * through `canReadSession` for the same principal, so a caller sees `undefined`
    * in exactly the cases the post-filter left it empty.
    */
-  async byId(sessionId: SessionId, forPrincipal?: SessionStatePrincipal): Promise<SessionMeta | undefined> {
+  async byId(
+    sessionId: SessionId,
+    forPrincipal?: SessionStatePrincipal,
+  ): Promise<SessionMeta | undefined> {
     const startedAt = performance.now()
     try {
       const session = (await this.ports.records.resolve([sessionId], 'byId')).get(sessionId)
@@ -164,7 +178,10 @@ export class SessionView {
    * `list().filter(...)` would return them. Visibility and projection still
    * use the shared path; duplicate and absent ids add no work.
    */
-  async byIds(sessionIds: Iterable<SessionId>, forPrincipal?: SessionStatePrincipal): Promise<SessionMeta[]> {
+  async byIds(
+    sessionIds: Iterable<SessionId>,
+    forPrincipal?: SessionStatePrincipal,
+  ): Promise<SessionMeta[]> {
     const startedAt = performance.now()
     try {
       const wanted = new Set(sessionIds)
@@ -186,14 +203,20 @@ export class SessionView {
    * `undefined` optional chaining produced), so this returns what the wired
    * lookup returned, under the same visibility check.
    */
-  async spawnedByOf(sessionId: SessionId, forPrincipal?: SessionStatePrincipal): Promise<string | undefined> {
+  async spawnedByOf(
+    sessionId: SessionId,
+    forPrincipal?: SessionStatePrincipal,
+  ): Promise<string | undefined> {
     const startedAt = performance.now()
     try {
       const session = (await this.ports.records.resolve([sessionId], 'spawnedByOf')).get(sessionId)
       if (!session) return undefined
       if (forPrincipal) {
         if (!(await this.ports.state.canReadSession(forPrincipal, sessionId, {}))) return undefined
-      } else if (!(await this.defaultPrincipal()) || !(await this.ports.state.resolvableSessions([sessionId])).has(sessionId)) {
+      } else if (
+        !(await this.defaultPrincipal()) ||
+        !(await this.ports.state.resolvableSessions([sessionId])).has(sessionId)
+      ) {
         return undefined
       }
       return session.spawnedBy
@@ -205,7 +228,10 @@ export class SessionView {
   /** The reader-scoped projection over a candidate set — the body `list()`,
    *  `listForIssue()` and `byId()` share so the visibility rule and the memo
    *  lifetime have exactly one definition. */
-  private async project(candidates: SessionSubject[], forPrincipal?: SessionStatePrincipal): Promise<SessionMeta[]> {
+  private async project(
+    candidates: SessionSubject[],
+    forPrincipal?: SessionStatePrincipal,
+  ): Promise<SessionMeta[]> {
     // NO PRINCIPAL IS AN IN-PROCESS READ (POD-6283): authorization lookups,
     // delegation walks, lifecycle work. It used to be filtered as the earliest
     // admin, whose scope `all` saw every session with an owner; sessions are
@@ -215,13 +241,15 @@ export class SessionView {
     // request paths is POD-6285's.
     if (!forPrincipal && !(await this.defaultPrincipal())) return []
     const pass = await this.buildProjectionPass(candidates)
-    const ids = candidates.map(session => session.sessionId)
+    const ids = candidates.map((session) => session.sessionId)
     const visible = forPrincipal
       ? await this.ports.state.visibleSessions(forPrincipal, ids, pass)
       : await this.ports.state.resolvableSessions(ids, pass)
-    const readable = candidates.filter(session => visible.has(session.sessionId))
+    const readable = candidates.filter((session) => visible.has(session.sessionId))
     if (readable.length === 0) return []
-    return readable.map(session => (isResident(session) ? this.wire(session, pass) : wireRecord(session, pass)))
+    return readable.map((session) =>
+      isResident(session) ? this.wire(session, pass) : wireRecord(session, pass),
+    )
   }
 
   /**
@@ -241,7 +269,9 @@ export class SessionView {
   async principalForTrustedUser(userId: UserId): Promise<SessionStatePrincipal> {
     const role = await this.ports.store.users.roleOf(userId)
     if (!role) throw new Error(`refused: no active account for session-state user ${userId}`)
-    return sessionStatePrincipalFor(userCommandPrincipal(userId, role))
+    return sessionStatePrincipalFor(
+      userCommandPrincipal(this.ports.store.workspaceId, userId, role),
+    )
   }
 
   /** The instance's earliest admin, or none on an instance with no member. A
@@ -249,7 +279,9 @@ export class SessionView {
   async defaultPrincipal(): Promise<SessionStatePrincipal | undefined> {
     const member = await this.ports.store.users.earliestAdmin()
     return member
-      ? sessionStatePrincipalFor(userCommandPrincipal(asUserId(member.id), member.role))
+      ? sessionStatePrincipalFor(
+          userCommandPrincipal(this.ports.store.workspaceId, asUserId(member.id), member.role),
+        )
       : undefined
   }
 
@@ -270,7 +302,9 @@ export class SessionView {
    * existing issue, or `ReposRepository.prefixedPlaces`, POD-6222): a new way
    * to get a ref here has to be added there too.
    */
-  async prepareRefAllocation(session: SessionDurableFields): Promise<(() => Promise<void>) | undefined> {
+  async prepareRefAllocation(
+    session: SessionDurableFields,
+  ): Promise<(() => Promise<void>) | undefined> {
     if (session.refIssueId || session.refDraft != null) return
     const birthIssueId = session.issueId ?? null
     if (birthIssueId) {
@@ -283,12 +317,11 @@ export class SessionView {
       }
     }
     const repoId = await this.ports.store.repos.resolveRepoIdForPath(session.cwd, session.machineId)
-    if (await this.ports.store.repos.prefixForRepoId(repoId) === null) return
+    if ((await this.ports.store.repos.prefixForRepoId(repoId)) === null) return
     return async () => {
       session.refDraft = await this.ports.store.repos.nextDraftSeq(repoId)
     }
   }
-
 }
 
 /** What a projection pass reads: issues, the repo registry and the message queue. */
@@ -375,10 +408,12 @@ function wireProjected(
   return {
     ...meta,
     ...(queuedMessageCount > 0 ? { queuedMessageCount } : {}),
-    ...(harnessCapabilities ? {
-      harnessHandoff: harnessCapabilities.handoff,
-      harnessPromptModeHints: harnessCapabilities.promptModeHints,
-    } : {}),
+    ...(harnessCapabilities
+      ? {
+          harnessHandoff: harnessCapabilities.handoff,
+          harnessPromptModeHints: harnessCapabilities.promptModeHints,
+        }
+      : {}),
     ...(d.refIssueId ? { refIssueId: d.refIssueId } : {}),
     ...(d.refLetter ? { refLetter: d.refLetter } : {}),
     ...(d.refDraft != null ? { refDraft: d.refDraft } : {}),

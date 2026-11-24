@@ -182,7 +182,7 @@ async function answerReach(
   if (thread.ownerUserId !== principal.onBehalfOf) return principal
   const owner = await deps.users.get(thread.ownerUserId)
   if (!owner || owner.disabledAt) return principal
-  return userCommandPrincipal(asUserId(owner.id), owner.role)
+  return userCommandPrincipal(principal.workspaceId, asUserId(owner.id), owner.role)
 }
 
 /** A session this principal may type at, by its full id (the plane's gate). */

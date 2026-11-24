@@ -5,7 +5,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { MachineId, SessionId } from '@podium/model'
+import type { MachineId, SessionId, WorkspaceId } from '@podium/model'
 import type {
   LiveServerMessage,
   MachinePrincipal,
@@ -28,6 +28,8 @@ import type { SessionTerminalProof } from './terminal-proof'
 const log = createLogger('server:sessions')
 
 export interface SessionClientPlanePorts {
+  /** The workspace of these sessions and machines (POD-7483). */
+  workspaceId: WorkspaceId
   browserOpen: any
   clientControl: import('./client-control').SessionClientControl
   clients: any
@@ -74,7 +76,7 @@ export class SessionClientPlane {
 
     const recoveryMachineAccess =
       machineUseDecision(
-        systemPrincipal('session-rebind'),
+        systemPrincipal(this.ports.workspaceId, 'session-rebind'),
         machineId,
         await ownershipSnapshotFromMachines(this.ports.machines),
       ) === 'granted'

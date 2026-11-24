@@ -501,7 +501,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // The same allowed/denied answer the headed reattach probe computes.
     reattachMachineAccess: async (machineId) =>
       machineUseDecision(
-        systemPrincipal('session-rebind'),
+        systemPrincipal(store.workspaceId, 'session-rebind'),
         machineId,
         await ownershipSnapshotFromMachines(machines),
       ) === 'granted'
@@ -873,18 +873,18 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       bag.repository.mutateSessionView(sessionId, change, issueRelevant),
     broadcastSessions: () => bag.broadcastSessions(),
     pushPriorities: () => bag.pushPriorities(),
-    setDraft: async (principal, clientId, sessionId, text) => {
-      await bag
-        .sessionStateEnvelope()
-        .execute(
-          'sessions.setDraft',
-          { sessionId, edit: { kind: 'replace', text } },
-          sessionStatePrincipalFor(
-            userCommandPrincipal(asUserId(principal.user), principal.role),
-            clientId,
-          ),
-          'ws',
-        )
+    setDraft: async (principal, client, sessionId, text) => {
+      await bag.sessionStateEnvelope().execute(
+        'sessions.setDraft',
+        { sessionId, edit: { kind: 'replace', text } },
+        // The connection's workspace, not this registry's (POD-7483): the
+        // envelope refuses a client admitted by another workspace's gateway.
+        sessionStatePrincipalFor(
+          userCommandPrincipal(client.workspaceId, asUserId(principal.user), principal.role),
+          client.id,
+        ),
+        'ws',
+      )
     },
     editDraft: (message, clientId) => bag.state.handleDraftEdit(message, clientId),
     sessionOwner: (sessionId) => ownership.sessionOwner(sessionId),
@@ -1459,6 +1459,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   })
 
   const sessionClientPlane = new SessionClientPlane({
+    workspaceId: store.workspaceId,
     browserOpen: bag.browserOpen,
     clientControl: bag.clientControl,
     clients: bag.clients,

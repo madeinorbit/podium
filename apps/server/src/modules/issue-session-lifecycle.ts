@@ -1,5 +1,11 @@
 import { createLogger } from '@podium/logger'
-import { type IssueId, type IssueProjection, isIssueClosed, type UserId } from '@podium/model'
+import {
+  type IssueId,
+  type IssueProjection,
+  isIssueClosed,
+  type UserId,
+  type WorkspaceId,
+} from '@podium/model'
 import type { LedgerWriter } from '@podium/sync'
 import { systemPrincipal } from '../command-principal'
 import { afterCommit } from '../store/executor/executor'
@@ -42,6 +48,8 @@ export class IssueSessionLifecycle {
 
   constructor(
     private readonly deps: {
+      /** The workspace these issues and sessions belong to (POD-7483). */
+      workspaceId: WorkspaceId
       issues: IssueService
       sessions: SessionLifecycle
       ledger: Pick<LedgerWriter, 'commit'>
@@ -204,7 +212,10 @@ export class IssueSessionLifecycle {
         // re-sent. Rare, and POD-4132 covers it by corroborated identity rather
         // than by blind re-killing.
         reapParked: input.reason === 'close',
-        principal: systemPrincipal(input.reason === 'close' ? 'issue-close' : 'closed-issue-sweep'),
+        principal: systemPrincipal(
+          this.deps.workspaceId,
+          input.reason === 'close' ? 'issue-close' : 'closed-issue-sweep',
+        ),
       })
       // A worktree the final pass could not free is refused too: the issue
       // stays a candidate, and asking again changes nothing until it does.

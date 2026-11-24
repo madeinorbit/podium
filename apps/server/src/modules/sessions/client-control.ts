@@ -8,12 +8,13 @@ import { userCommandPrincipal } from '../../command-principal'
 import type { BrowserOpenGateway } from '../../gateway/browser-open'
 import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
-import { mayReachPrivate } from '../../issue-authz'
 import { feedPrincipalOf } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
+import { mayReachPrivate } from '../../issue-authz'
 import { perfPrincipal } from '../perf/principal'
 import { perf } from '../perf/registry'
 import type { SessionInbox } from './inbox'
+import type { SessionResidency } from './residency'
 import type { Session } from './session'
 import {
   contextFromOwnership,
@@ -22,7 +23,6 @@ import {
   mayWatch,
   type SessionControlContext,
 } from './session-control-policy'
-import type { SessionResidency } from './residency'
 import { sessionStatePrincipalFor } from './session-state/registry'
 import type { SessionStateService } from './session-state/service'
 
@@ -43,7 +43,14 @@ export interface SessionClientControlPorts {
   mutate(sessionId: SessionId, change: (session: Session) => void, issueRelevant?: boolean): void
   broadcastSessions(): void
   pushPriorities(): void
-  setDraft(principal: ClientPrincipal, clientId: string, sessionId: SessionId, text: string): Promise<void>
+  /** `client` is the sending connection: its id and the workspace whose gateway
+   *  admitted it, which the draft's principal names (POD-7483). */
+  setDraft(
+    principal: ClientPrincipal,
+    client: Pick<ClientConn, 'id' | 'workspaceId'>,
+    sessionId: SessionId,
+    text: string,
+  ): Promise<void>
   editDraft(message: DraftEditMessage, clientId: string): Promise<void>
   /**
    * Session owner (from store). Undefined ⇒ session does not exist
@@ -83,20 +90,28 @@ export interface SessionClientControlPorts {
 /** Client control-plane adapter; transport framing remains in gateway/client-mux. */
 /** Frames that open a view of, or edit, one session: it is held resident while
  *  they are handled (POD-6160 D2f). */
-const HOLDING_FRAMES: ReadonlySet<string> = new Set(['attach', 'transcriptSubscribe', 'setSessionDraft', 'draftEdit'])
+const HOLDING_FRAMES: ReadonlySet<string> = new Set([
+  'attach',
+  'transcriptSubscribe',
+  'setSessionDraft',
+  'draftEdit',
+])
 /** Frames that close a view: the session may leave memory after them. */
 const RELEASING_FRAMES: ReadonlySet<string> = new Set(['detach', 'transcriptUnsubscribe'])
 
 export class SessionClientControl {
   constructor(private readonly ports: SessionClientControlPorts) {}
 
-  async onAttached(
-    principal: ClientPrincipal,
-    client: ClientConn,
-  ): Promise<void> {
+  async onAttached(principal: ClientPrincipal, client: ClientConn): Promise<void> {
     await this.ports.state.replayDrafts(
       sessionStatePrincipalFor(
-        userCommandPrincipal(asUserId(client.principal.user), client.principal.role),
+        // The connection's own workspace, set by the gateway that admitted it
+        // (POD-7483): the replay is checked against the store's.
+        userCommandPrincipal(
+          client.workspaceId,
+          asUserId(client.principal.user),
+          client.principal.role,
+        ),
         client.id,
       ),
       client.send,
@@ -136,8 +151,13 @@ export class SessionClientControl {
     client: ClientConn,
     message: SessionsClientFrame,
   ): Promise<void> {
-    const leased = HOLDING_FRAMES.has(message.type) ? (message as { sessionId?: SessionId }).sessionId : undefined
-    const held = leased && this.ports.residency ? await this.ports.residency.acquire(leased, `client.${message.type}`) : undefined
+    const leased = HOLDING_FRAMES.has(message.type)
+      ? (message as { sessionId?: SessionId }).sessionId
+      : undefined
+    const held =
+      leased && this.ports.residency
+        ? await this.ports.residency.acquire(leased, `client.${message.type}`)
+        : undefined
     if (held && (message.type === 'attach' || message.type === 'transcriptSubscribe')) {
       await this.ports.ensureTranscript?.(held)
     }
@@ -359,7 +379,7 @@ export class SessionClientControl {
         break
       }
       case 'setSessionDraft':
-        await this.ports.setDraft(principal, id, message.sessionId, message.text)
+        await this.ports.setDraft(principal, client, message.sessionId, message.text)
         break
       case 'draftEdit':
         await this.ports.editDraft(message, id)
@@ -401,7 +421,9 @@ export class SessionClientControl {
   /** Read rights on a session's content: its owner, nobody else (POD-6283). */
   private async mayRead(principal: ClientPrincipal, sessionId: SessionId): Promise<boolean> {
     const owner = await this.ports.sessionOwner(sessionId)
-    return owner !== undefined && mayReachPrivate(principal.user, { id: sessionId, owner: owner.owner })
+    return (
+      owner !== undefined && mayReachPrivate(principal.user, { id: sessionId, owner: owner.owner })
+    )
   }
 
   /** Drive rights for requestControl — the owner only (POD-6283) + machine use. */

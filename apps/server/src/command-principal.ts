@@ -54,9 +54,11 @@
  * cached decision.
  */
 
-import { type Principal } from '@podium/protocol'
-import type { Capability, SessionId, UserRole } from '@podium/model'
+import { createLogger } from '@podium/logger'
+import type { Capability, SessionId, UserRole, WorkspaceId } from '@podium/model'
 import { firstAdminMemberId, type UserId } from '@podium/model'
+
+const log = createLogger('server:principal')
 
 /**
  * THE INSTANCE'S FIRST ADMIN — re-exported from `@podium/model`, which is its
@@ -84,8 +86,22 @@ import { firstAdminMemberId, type UserId } from '@podium/model'
  */
 export { firstAdminMemberId }
 
+/**
+ * EVERY PRINCIPAL NAMES ITS WORKSPACE (POD-7483, design 4.2).
+ *
+ * One server process serves many workspaces, so "who is asking" is never
+ * enough on its own: a member of workspace A is nobody in workspace B. The
+ * workspace is stamped where the principal is made, from the workspace the edge
+ * bound the request to or the store a job runs over, and never read from
+ * payload. Every command compares it with the workspace of the store it runs
+ * over ({@link actsIn}) and refuses a principal from another one.
+ */
+interface WorkspaceBound {
+  readonly workspaceId: WorkspaceId
+}
+
 /** A person acting directly (tRPC cookie, local CLI, in-process MCP). */
-export interface UserCommandPrincipal {
+export interface UserCommandPrincipal extends WorkspaceBound {
   readonly kind: 'user'
   readonly user: UserId
   readonly capability: Capability
@@ -100,7 +116,7 @@ export interface UserCommandPrincipal {
  * exists so the intersection of D16.2 is evaluated over the WHOLE chain rather
  * than over the leaf alone.
  */
-export interface AgentCommandPrincipal {
+export interface AgentCommandPrincipal extends WorkspaceBound {
   readonly kind: 'agent'
   readonly agentSessionId: SessionId
   readonly onBehalfOf: UserId
@@ -112,8 +128,12 @@ export interface AgentCommandPrincipal {
  * An in-process job (steward, expiry, boot reconcile). ADR 3 Amendment 1 D21: it
  * may read across owners, but it has NO human and must never be assigned one,
  * and it is unreachable from every transport.
+ *
+ * It reads across owners WITHIN ONE WORKSPACE: a job runs over one workspace's
+ * store and its principal names that workspace, so a job can never act in a
+ * workspace it was not started for.
  */
-export interface SystemCommandPrincipal {
+export interface SystemCommandPrincipal extends WorkspaceBound {
   readonly kind: 'system'
   readonly job: string
 }
@@ -121,9 +141,14 @@ export interface SystemCommandPrincipal {
 export type CommandPrincipal = UserCommandPrincipal | AgentCommandPrincipal | SystemCommandPrincipal
 
 /** Mint the live human principal from the authenticated account row. */
-export function userCommandPrincipal(user: UserId, role: UserRole): UserCommandPrincipal {
+export function userCommandPrincipal(
+  workspaceId: WorkspaceId,
+  user: UserId,
+  role: UserRole,
+): UserCommandPrincipal {
   return {
     kind: 'user',
+    workspaceId,
     user,
     capability: {
       role: role === 'admin' ? 'admin' : 'worker',
@@ -207,6 +232,7 @@ export interface AsyncDelegationIndex {
 
 /** Resolve a principal where the live delegation index reads durable async state. */
 export async function resolvePrincipalAsync(
+  workspaceId: WorkspaceId,
   capability: Capability,
   delegations: AsyncDelegationIndex,
 ): Promise<CommandPrincipal> {
@@ -216,7 +242,7 @@ export async function resolvePrincipalAsync(
     if (user === undefined || capability.actorUser !== user) {
       throw new Error('human capability has no authenticated user attribution')
     }
-    return { kind: 'user', user, capability }
+    return { kind: 'user', workspaceId, user, capability }
   }
   const chain: SessionId[] = []
   let cursor = await delegations.parentSessionOf(actorSessionId)
@@ -230,10 +256,18 @@ export async function resolvePrincipalAsync(
   if (onBehalfOf === undefined) {
     throw new Error(`agent capability has no delegation owner: ${actorSessionId}`)
   }
-  return { kind: 'agent', agentSessionId: actorSessionId, onBehalfOf, capability, chain }
+  return {
+    kind: 'agent',
+    workspaceId,
+    agentSessionId: actorSessionId,
+    onBehalfOf,
+    capability,
+    chain,
+  }
 }
 
 export function resolvePrincipal(
+  workspaceId: WorkspaceId,
   capability: Capability,
   delegations: DelegationIndex,
 ): CommandPrincipal {
@@ -243,7 +277,7 @@ export function resolvePrincipal(
     if (user === undefined || capability.actorUser !== user) {
       throw new Error('human capability has no authenticated user attribution')
     }
-    return { kind: 'user', user, capability }
+    return { kind: 'user', workspaceId, user, capability }
   }
   const chain: SessionId[] = []
   let cursor: SessionId | undefined = delegations.parentSessionOf(actorSessionId)
@@ -259,10 +293,53 @@ export function resolvePrincipal(
   if (onBehalfOf === undefined) {
     throw new Error(`agent capability has no delegation owner: ${actorSessionId}`)
   }
-  return { kind: 'agent', agentSessionId: actorSessionId, onBehalfOf, capability, chain }
+  return {
+    kind: 'agent',
+    workspaceId,
+    agentSessionId: actorSessionId,
+    onBehalfOf,
+    capability,
+    chain,
+  }
 }
 
-/** A system principal. Constructed in-process only — it has no transport row. */
-export function systemPrincipal(job: string): SystemCommandPrincipal {
-  return { kind: 'system', job }
+/**
+ * A system principal for a job over `workspaceId`'s store. Constructed
+ * in-process only — it has no transport row.
+ */
+export function systemPrincipal(workspaceId: WorkspaceId, job: string): SystemCommandPrincipal {
+  return { kind: 'system', workspaceId, job }
+}
+
+/** Does `principal` act in `workspaceId`? The one comparison every command makes. */
+export function actsIn(
+  principal: { readonly workspaceId: WorkspaceId },
+  workspaceId: WorkspaceId,
+): boolean {
+  return principal.workspaceId === workspaceId
+}
+
+/**
+ * {@link actsIn}, reporting a mismatch as the defect it is. The edge binds a
+ * request to one workspace and every principal is made there, so a principal
+ * of another workspace reaching this store is a routing defect. It is logged
+ * with the two workspace ids and nothing about the person, and the caller
+ * refuses the command the way it refuses any caller who is not a member here
+ * (a 403-class answer, never an internal error naming the other workspace).
+ *
+ * `where` names the check for the log: `front-door:trpc`, `trpc-context`,
+ * `issue-dispatch`, `session-state`, `edge-member`.
+ */
+export function actsInOrReport(
+  principal: { readonly workspaceId: WorkspaceId },
+  workspaceId: WorkspaceId,
+  where: string,
+): boolean {
+  if (actsIn(principal, workspaceId)) return true
+  log.warn('a principal of another workspace reached this store', {
+    where,
+    principalWorkspace: principal.workspaceId,
+    storeWorkspace: workspaceId,
+  })
+  return false
 }

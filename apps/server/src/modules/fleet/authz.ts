@@ -42,18 +42,22 @@
 
 import { FLEET_CONTRACTS, type FleetContractName } from '@podium/commands'
 import {
-  isAdminGrade,
   asMachineId,
-  spawnedByParentSessionId,
+  isAdminGrade,
   type MachineId,
+  spawnedByParentSessionId,
   type UserRole,
 } from '@podium/model'
 import type { MachineVerb } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
-import { type CommandPrincipal, onBehalfOfUser, resolvePrincipalAsync } from '../../command-principal'
 import {
-  checkMachineVerb,
+  type CommandPrincipal,
+  onBehalfOfUser,
+  resolvePrincipalAsync,
+} from '../../command-principal'
+import {
   canManageMachineCustody,
+  checkMachineVerb,
   isMachineOwner,
   type MachineOwnershipIndex,
   machineAccessMessage,
@@ -168,7 +172,10 @@ export function roleSatisfiesFloor(role: UserRole | undefined, floor: 'admin' | 
  * for it here, because "the steward is an admin" is exactly the service account
  * ADR 9 D8 S5 rejects.
  */
-async function accountRoleOf(principal: CommandPrincipal, ctx: Context): Promise<UserRole | undefined> {
+async function accountRoleOf(
+  principal: CommandPrincipal,
+  ctx: Context,
+): Promise<UserRole | undefined> {
   const user = onBehalfOfUser(principal)
   if (user === null) return undefined
   return await ctx.registry.sessionStore.users.roleOf(user)
@@ -218,24 +225,42 @@ export async function fleetAuthzFailure(
     const { replaceMachineId: target, clientRegistration } =
       (input as { replaceMachineId?: string; clientRegistration?: unknown } | undefined) ?? {}
     if (clientRegistration !== undefined && deps.role !== 'admin') {
-      return new TRPCError({ code: 'FORBIDDEN', message: 'machines.pairingCode client registration requires an admin account' })
+      return new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'machines.pairingCode client registration requires an admin account',
+      })
     }
     if (!target && deps.principal.kind !== 'user') {
-      return new TRPCError({ code: 'FORBIDDEN', message: 'new enrollment requires a signed-in member' })
+      return new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'new enrollment requires a signed-in member',
+      })
     }
-    if (target && deps.role !== 'admin' && !isMachineOwner(deps.principal, asMachineId(target), deps.ownership)) {
-      return new TRPCError({ code: 'FORBIDDEN', message: 'machines.pairingCode requires an admin account or the replacement machine grantee' })
+    if (
+      target &&
+      deps.role !== 'admin' &&
+      !isMachineOwner(deps.principal, asMachineId(target), deps.ownership)
+    ) {
+      return new TRPCError({
+        code: 'FORBIDDEN',
+        message:
+          'machines.pairingCode requires an admin account or the replacement machine grantee',
+      })
     }
   }
 
   if (name === 'machines.pairingCode' && deps.principal.kind === 'agent') {
     const target = (input as { replaceMachineId?: string } | undefined)?.replaceMachineId
-    if (target) for (const link of [deps.principal.agentSessionId, ...deps.principal.chain]) {
-      const allowed = deps.ownership.delegatedMachines?.(link)
-      if (allowed !== undefined && !allowed.has(target)) {
-        return new TRPCError({ code: 'FORBIDDEN', message: 'replacement machine is outside the agent delegation' })
+    if (target)
+      for (const link of [deps.principal.agentSessionId, ...deps.principal.chain]) {
+        const allowed = deps.ownership.delegatedMachines?.(link)
+        if (allowed !== undefined && !allowed.has(target)) {
+          return new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'replacement machine is outside the agent delegation',
+          })
+        }
       }
-    }
   }
 
   // 1 — the floor. A system principal is in-process only and has no account.
@@ -379,7 +404,7 @@ export async function machineRefusal(
  */
 export async function fleetAuthzDeps(ctx: Context): Promise<FleetAuthzDeps> {
   const sessions = mods(ctx).sessions
-  const principal = await resolvePrincipalAsync(ctx.capability, {
+  const principal = await resolvePrincipalAsync(ctx.registry.workspaceId, ctx.capability, {
     parentSessionOf: async (sessionId) =>
       // POD-1646: the narrow read. Authorization runs on essentially every
       // request, so the full reader-scoped pass this used to build was pure
@@ -405,7 +430,8 @@ export async function fleetAuthzDepsFor(
     role,
     defaultMachine: async () => await machines.defaultMachine(),
     allMachineIds: async () => (await machines.ownershipRows()).map((row) => row.id),
-    machineName: async (machineId) => (await machines.ownershipRows()).find((r) => r.id === machineId)?.name,
+    machineName: async (machineId) =>
+      (await machines.ownershipRows()).find((r) => r.id === machineId)?.name,
     effectiveOwner: async (machineId) => await machines.effectiveOwner(machineId),
   }
 }

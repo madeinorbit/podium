@@ -143,7 +143,9 @@ export async function buildSuperagentTools(
         (await store.sessions.getSession(sessionId))?.ownerUserId,
       machines: modules.machines,
     },
-    ownerUserId && ownerRole ? userCommandPrincipal(ownerUserId, ownerRole) : undefined,
+    ownerUserId && ownerRole
+      ? userCommandPrincipal(modules.workspaceId, ownerUserId, ownerRole)
+      : undefined,
   )
   /** The status as a harness agent is shown it: `reconnecting` over a running
    *  session whose machine this server has no daemon link to (ADR 12 D1). */

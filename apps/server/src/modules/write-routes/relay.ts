@@ -19,6 +19,7 @@
  * writes; `relay-census.test.ts` fails on a relay proc it does not list.
  */
 
+import type { WorkspaceId } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
 import type { IssueCaller } from '../issues/command-ctx'
@@ -35,6 +36,8 @@ export interface RelayWriteCall {
   /** The relay caller, as issue authorization reads it. */
   readonly caller: IssueCaller
   readonly modules: RegistryModules
+  /** The workspace of the registry the relay call reached (POD-7483). */
+  readonly workspaceId: WorkspaceId
   /** Who is asking, resolved when the call is a write. */
   readonly principal: () => Promise<CommandPrincipal>
 }
@@ -49,6 +52,7 @@ export async function relayPlainWrite(
   if (command === undefined || !command.door.exposedOn('relay')) return NOT_A_RELAY_WRITE
   const reply = await registry.run(name, {
     principal: await call.principal(),
+    workspaceId: call.workspaceId,
     transport: 'relay',
     input: call.input,
     caller: call.caller,

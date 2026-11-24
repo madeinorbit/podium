@@ -29,6 +29,7 @@
  */
 
 import type { AnyCommandContract, CommandDef } from '@podium/commands'
+import type { WorkspaceId } from '@podium/model'
 import type { z } from 'zod'
 import type { CommandPrincipal } from '../../command-principal'
 import { withPlainCommand } from '../../plain-command-scope'
@@ -54,6 +55,9 @@ export type PlainCommandReply<Out> =
 export interface PlainCommandCall<Out> {
   readonly contract: AnyCommandContract
   readonly principal: CommandPrincipal
+  /** The workspace of the store the command runs over; a principal of any other
+   *  is refused at the front door (POD-7483). */
+  readonly workspaceId: WorkspaceId
   readonly transport: FrontDoorTransport
   /** The input as the transport received it, unparsed. */
   readonly input: unknown
@@ -108,7 +112,7 @@ async function runThroughFrontDoor<Out>(
   schema: z.ZodTypeAny,
   call: Omit<PlainCommandCall<Out>, 'contract'>,
 ): Promise<PlainCommandReply<Awaited<Out>>> {
-  if (!coarselyPermitted(door, call.principal, call.transport)) {
+  if (!coarselyPermitted(door, call.principal, call.transport, call.workspaceId)) {
     return { outcome: 'rejected', refusal: { kind: 'unauthorized' } }
   }
   const parsed = parseCommandInput(schema, call.input)

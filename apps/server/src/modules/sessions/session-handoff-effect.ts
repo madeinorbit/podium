@@ -122,13 +122,17 @@ export function registerSessionHandoffEffect(deps: SessionHandoffEffectDeps): vo
     if (!user || user.disabledAt) return undefined
     const agent = agentOf(record)
     if (agent === undefined) {
-      const principal = userCommandPrincipal(asUserId(user.id), user.role)
+      const principal = userCommandPrincipal(
+        deps.modules().workspaceId,
+        asUserId(user.id),
+        user.role,
+      )
       return { capability: principal.capability, principal }
     }
     const sessions = deps.modules().sessions
     if (!(await sessions.sessionRowExists(agent))) return undefined
     const capability = await sessions.capabilityForSession(agent)
-    const principal = await resolvePrincipalAsync(capability, {
+    const principal = await resolvePrincipalAsync(deps.modules().workspaceId, capability, {
       parentSessionOf: async (sessionId) =>
         spawnedByParentSessionId((await sessions.sessionById(sessionId))?.spawnedBy),
     })

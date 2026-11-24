@@ -27,11 +27,13 @@ import { SyncSubmitRefusedError } from '@podium/protocol'
 import type { MutationLedgerPort, ReceiptCompaction } from '@podium/sync'
 import { z } from 'zod'
 import {
+  actsInOrReport,
   type CommandPrincipal,
   onBehalfOfUser,
   resolvePrincipalAsync,
 } from '../../command-principal'
 import type { Capability } from '../../issue-authz'
+import { foreignPrincipalRefusal } from '../front-door'
 import type { SyncWriteEntry } from '../sync-write/entry'
 import { ARTIFACT_TRANSPORT, type ArtifactCall } from './artifact-effect-record'
 import {
@@ -122,6 +124,9 @@ export class IssueCommandDispatcher {
     def: D,
     input: z.infer<D['input']>,
   ): Promise<Awaited<ReturnType<D['handler']>>> {
+    // The same check as `dispatch`: the tRPC and effect-run callers bring their
+    // principal, which must act in this store's workspace (POD-7483).
+    this.refuseForeignPrincipal(caller)
     // A command that acts on machines runs as an effect record (POD-6414): on
     // every transport its old answer comes from the record once it settles, and
     // it never runs here (POD-6603). Only the record's own executor, through
@@ -217,11 +222,17 @@ export class IssueCommandDispatcher {
       ? caller
       : {
           ...caller,
-          principal: await resolvePrincipalAsync(caller.capability, {
+          principal: await resolvePrincipalAsync(this.deps.workspaceId, caller.capability, {
             parentSessionOf: async (sessionId) =>
               spawnedByParentSessionId((await this.deps.sessionById(sessionId))?.spawnedBy),
           }),
         }
+    // A caller's own principal must act in this store's workspace (POD-7483).
+    // Until capabilities carry their workspace (POD-7558), a principal resolved
+    // just above names this registry's workspace by construction, so the check
+    // can fail only for a principal the caller brought: the sync write family's.
+    // Relayed and MCP callers bring none today.
+    this.refuseForeignPrincipal(effectiveCaller)
     const def = (issueRegistry.defs as Record<string, AnyIssueCommandDef>)[
       proc
     ] as AnyIssueCommandDef
@@ -241,6 +252,14 @@ export class IssueCommandDispatcher {
       }
       return await this.run(effectiveCaller, proc, def, input)
     })
+  }
+
+  /** Refuse a caller whose principal is another workspace's, as a non-member. */
+  private refuseForeignPrincipal(caller: IssueCaller): void {
+    const principal = caller.principal
+    if (principal && !actsInOrReport(principal, this.deps.workspaceId, 'issue-dispatch')) {
+      throw foreignPrincipalRefusal()
+    }
   }
 
   /**

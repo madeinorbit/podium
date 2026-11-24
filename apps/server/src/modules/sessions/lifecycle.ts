@@ -1016,7 +1016,7 @@ export class SessionLifecycle {
   /** HOW A CALLER'S `use` RIGHTS ON A MACHINE ARE RESOLVED — the seam, deliberately */
   machineUseGate: (caller: HandoffCaller) => Promise<AssertMachineUse> = async (caller) =>
     machineUseGateFor({
-      principal: await resolvePrincipalAsync(caller.capability, {
+      principal: await resolvePrincipalAsync(this.store.workspaceId, caller.capability, {
         // POD-381's delegation index, read from live rows: an agent's chain is
         // walked from `spawnedBy`, so it roots at exactly one human and a sub-agent
         // cannot carry a delegator its parent lacks (D16.2).

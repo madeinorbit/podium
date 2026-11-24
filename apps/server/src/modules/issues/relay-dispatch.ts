@@ -41,6 +41,7 @@ import {
   type SessionId,
   type SessionMeta,
   spawnedByParentSessionId,
+  type WorkspaceId,
 } from '@podium/model'
 import { SyncSubmitInput, sessionTitleRule } from '@podium/protocol'
 import { resolvePrincipalAsync } from '../../command-principal'
@@ -80,6 +81,8 @@ import type { IssueService } from './service'
  * root finishes filling it), not because anything here is a deferred dependency.
  */
 export interface AgentRelayDispatchDeps {
+  /** The workspace of the registry this relay serves (POD-7483). */
+  readonly workspaceId: WorkspaceId
   readonly approvals: ApprovalService
   readonly featureStates: () =>
     | ReturnType<typeof getFeatureStates>
@@ -168,6 +171,7 @@ export function makeAgentRelayDispatch(
   deps: AgentRelayDispatchDeps,
 ): AgentRelayGateDeps['dispatch'] {
   const {
+    workspaceId,
     approvals,
     featureStates,
     featureEnabled,
@@ -186,7 +190,7 @@ export function makeAgentRelayDispatch(
   return async (capability, overrideScope, router, proc, input) => {
     // The relay caller as a principal, resolved when an arm needs one.
     const relayPrincipal = async () =>
-      await resolvePrincipalAsync(capability, {
+      await resolvePrincipalAsync(workspaceId, capability, {
         parentSessionOf: async (sessionId) =>
           spawnedByParentSessionId((await sessionsSvc.sessionById(sessionId))?.spawnedBy),
       })
@@ -198,6 +202,7 @@ export function makeAgentRelayDispatch(
       input,
       caller: { capability, ...(overrideScope ? { overrideScope } : {}) },
       modules: modules(),
+      workspaceId,
       principal: relayPrincipal,
     }
     // The sync write entry point's relay adapter (ADR 12 D2, POD-6413). The gate

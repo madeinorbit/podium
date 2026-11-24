@@ -37,6 +37,7 @@
 import { asWorkspaceId, type WorkspaceId } from '@podium/model'
 import type { Context, MiddlewareHandler } from 'hono'
 import { getPath } from 'hono/utils/url'
+import { actsInOrReport } from './command-principal'
 import {
   type MemberOfRequest,
   type MemberResolution,
@@ -673,8 +674,14 @@ export function boundMemberOfRequest(
     const workspace = bindings.get(request) ?? fallback
     if (!workspace) return { kind: 'unauthenticated' }
     const resolution = await workspace.memberOfRequest(request)
-    // A member is a member OF the workspace it was resolved in.
-    return resolution.kind === 'member' ? { ...resolution, workspaceId: workspace.id } : resolution
+    if (resolution.kind !== 'member') return resolution
+    // A member is a member OF the workspace it was resolved in, and its
+    // principal says so (POD-7483). A resolver that stamps another workspace is
+    // a configuration defect: logged, and the caller is nobody here.
+    if (!actsInOrReport(resolution.principal, workspace.id, 'edge-member')) {
+      return { kind: 'not-a-member', accountId: resolution.accountId }
+    }
+    return { ...resolution, workspaceId: workspace.id }
   }
   // The connection facts are the server's, the same in every workspace.
   return Object.assign(memberOfRequest, {

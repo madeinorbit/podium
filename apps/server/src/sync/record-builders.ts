@@ -217,6 +217,7 @@ async function storedAccessRows(
   const edges = await store.grants.loadForResources('machine', machineIds)
   const facts = await storedMachineRecordFacts(store, machineIds, { grants: edges, records })
   const specs = await machineRecordSpecs({
+    workspaceId: store.sync.workspaceId,
     facts: async () => facts,
     grants: async () => edges,
     members: async () =>

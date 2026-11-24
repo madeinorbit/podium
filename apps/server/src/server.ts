@@ -225,7 +225,7 @@ import { syncFeedPrincipal } from './sync/route-support'
 import { registerSyncRoutes } from './sync/routes'
 import type { SyncWorkerClient } from './sync-worker/worker-client'
 import { wireTelemetry } from './telemetry'
-import { logProcedureFailure } from './trpc'
+import { contextPrincipal, logProcedureFailure } from './trpc'
 import { TunnelHealthStore } from './tunnel-health'
 import { updateParticipantSkip, updateParticipantSkipNote } from './update-participant-skip'
 import { reportParkedUpstreamMutations } from './upstream-retirement'
@@ -1487,6 +1487,7 @@ export async function startServer(
             confirmation: 'TRANSFER SERVER' as const,
           },
           authorization: serverMoveAuthorization({
+            workspaceId: store.workspaceId,
             authorizedBy,
             targetMachineId,
             machines: registry.modules.machines,
@@ -1882,6 +1883,7 @@ export async function startServer(
    * `x-podium-peer-address` is the peer the native server reported.
    */
   const loadedMemberOfRequest = createMemberOfRequest({
+    workspaceId: store.workspaceId,
     identity: identity.workspace,
     users: store.users,
     trustedProxyHops,
@@ -2191,7 +2193,11 @@ export async function startServer(
         const principal =
           (await principalOfRequest(hono.req.raw)) ??
           (bootstrapAccount
-            ? userCommandPrincipal(asUserId(bootstrapAccount.id), bootstrapAccount.role)
+            ? userCommandPrincipal(
+                store.workspaceId,
+                asUserId(bootstrapAccount.id),
+                bootstrapAccount.role,
+              )
             : undefined)
         if (principal === undefined) throw new Error('authenticated account is unavailable')
         // The workspace the edge bound this request to; the registry is its.
@@ -2201,6 +2207,9 @@ export async function startServer(
             `request bound to ${boundWorkspace} reached the registry of ${store.workspaceId}`,
           )
         }
+        // The principal is a member OF that workspace (POD-7483): every command
+        // behind this context runs over its store.
+        contextPrincipal(principal, store.workspaceId)
         return {
           registry,
           repos,
@@ -2559,7 +2568,7 @@ export async function startServer(
       const account = ownerUserId ? await store.users.get(ownerUserId) : undefined
       if (!ownerUserId || !account) throw new Error('MCP thread owner is unavailable')
       return registry.issueCommands.asIssueTrpc(
-        userCommandPrincipal(ownerUserId, account.role).capability,
+        userCommandPrincipal(store.workspaceId, ownerUserId, account.role).capability,
       )
     })
     // Bridge the issue tools into the superagent's API tool loop (issue #64):

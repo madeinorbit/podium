@@ -28,7 +28,11 @@ export const CREDENTIALS_PLAIN_FAMILY = definePlainFamily({
         const viewer = asUserId(state.caller.userId)
         const role = resolveRole(await state.modules.settings.getSettingsFor(viewer), 'background')
         const authorize = await codexAuthorizerFor(
-          { users: state.users, machines: state.modules.machines },
+          {
+            workspaceId: state.modules.workspaceId,
+            users: state.users,
+            machines: state.modules.machines,
+          },
           viewer,
         )
         return assembleCodexServerAiMarker({

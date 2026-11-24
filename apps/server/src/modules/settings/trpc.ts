@@ -5,6 +5,7 @@ export { type SettingsCommandService, settingsCommandWith } from './command-runn
 export { isPlainSettingsCommand, SETTINGS_PLAIN_REGISTRATIONS } from './plain-family'
 
 import { familyState } from '../derived-family'
+
 /**
  * THE DERIVED SETTINGS SURFACE (POD-420) — `settings.setSecret`,
  * `settings.clearSecret`, the presence read and the Telegram ceremony, produced
@@ -43,6 +44,7 @@ import { familyState } from '../derived-family'
  * empty object FAILS it.
  */
 
+import type { WorkspaceId } from '@podium/model'
 import { TRPCError, type TRPCMutationProcedure, type TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import type { CommandPrincipal } from '../../command-principal'
@@ -184,6 +186,8 @@ export function settingsFrontDoorRefusal(
 export async function plainSettingsCommandWith(
   name: SettingsCommandName,
   principal: CommandPrincipal,
+  /** The workspace of the registry the call reached (POD-7483). */
+  workspaceId: WorkspaceId,
   resolve: () => Promise<{ deps: SettingsAuthzDeps; service: SettingsCommandService }>,
   rawInput: unknown,
 ): Promise<unknown> {
@@ -191,6 +195,7 @@ export async function plainSettingsCommandWith(
   const reply = await runPlainCommand({
     contract,
     principal,
+    workspaceId,
     transport: 'trpc',
     input: rawInput,
     run: async (input) => {
@@ -250,7 +255,13 @@ function buildProcedure(name: SettingsCommandName): unknown {
       .input(unparsed)
       .query(
         async ({ ctx, input }): Promise<unknown> =>
-          await plainSettingsCommandWith(name, ctx.principal, settingsDepsOf(ctx), input),
+          await plainSettingsCommandWith(
+            name,
+            ctx.principal,
+            ctx.registry.workspaceId,
+            settingsDepsOf(ctx),
+            input,
+          ),
       )
   }
   return t.procedure

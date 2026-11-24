@@ -10,7 +10,7 @@ import type {
 import { asIssueId, asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { PodiumSettings } from '@podium/runtime'
 import type { LedgerWriter } from '@podium/sync'
-import { type SystemCommandPrincipal, systemPrincipal } from './command-principal'
+import type { SystemCommandPrincipal } from './command-principal'
 import { preferIssueCoordinator, sessionsForIssue } from './issue-util'
 import { derivedMessageId } from './message-ids'
 import type { IssueService } from './modules/issues/service'
@@ -370,7 +370,9 @@ export function subscriptionEventKinds(e: StewardEvent): string[] {
  *  mutations run in-process as author 'steward' today, and a capability-gated
  *  caller can replace the same surface later without touching the registry. */
 export interface StewardDeps {
-  principal?: SystemCommandPrincipal
+  /** The steward's own principal, bound to the workspace it watches (POD-7483):
+   *  there is no workspace-less default. */
+  principal: SystemCommandPrincipal
   store: Pick<
     SessionStore['events'],
     | 'listEventsSince'
@@ -503,7 +505,7 @@ export class StewardService {
 
   constructor(private readonly deps: StewardDeps) {
     this.arbiter = new NotificationArbiter(deps.facts, () => this.now())
-    this.principal = deps.principal ?? systemPrincipal('steward')
+    this.principal = deps.principal
   }
 
   private now(): string {

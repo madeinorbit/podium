@@ -413,12 +413,12 @@ export function lifecycleEditsFor(
  * behaviour-preserving; it is the seam POD-1079 fills, not a new policy.
  */
 export async function visibleMachinesFor(
-  modules: Pick<RegistryModules, 'machines'>,
+  modules: Pick<RegistryModules, 'machines' | 'workspaceId'>,
   capability: Capability,
 ): Promise<Awaited<ReturnType<RegistryModules['machines']['listMachines']>>> {
   return await machinesForPrincipal(
     modules,
-    resolvePrincipal(capability, { parentSessionOf: () => undefined }),
+    resolvePrincipal(modules.workspaceId, capability, { parentSessionOf: () => undefined }),
   )
 }
 
@@ -498,7 +498,7 @@ export interface FleetRepoRow {
  * drift with nobody watching.
  */
 export async function fleetViewFor(
-  modules: Pick<RegistryModules, 'machines'>,
+  modules: Pick<RegistryModules, 'machines' | 'workspaceId'>,
   capability: Capability,
   allRepos: FleetRepoRow[],
 ): Promise<{

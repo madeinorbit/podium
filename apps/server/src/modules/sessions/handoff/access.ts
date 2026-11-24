@@ -40,12 +40,12 @@
  * "may this caller use it".
  */
 
-import type { Capability, SessionId, MachineId } from '@podium/model'
-import { type CommandPrincipal, resolvePrincipal } from '../../../command-principal'
+import type { MachineId } from '@podium/model'
+import type { CommandPrincipal } from '../../../command-principal'
 import {
   checkMachineUse,
-  machineAccessMessage,
   type MachineOwnershipIndex,
+  machineAccessMessage,
 } from '../../../machine-access'
 import type { AssertMachineUse } from './ports'
 import { HandoffRefusalError, refusalForMachineAccess } from './refusal'
@@ -77,19 +77,3 @@ export const machineUseGateFor = (deps: {
     )
   }
 }
-
-/**
- * The same gate from a transport capability — the shape the composition root
- * uses. `delegations` is POD-381's index: it walks `spawnedBy` from live rows, so
- * an agent's chain roots at exactly one human and a sub-agent cannot carry a
- * delegator its parent lacks (D16.2). Nothing is read from payload.
- */
-export const machineUseGateForCapability = (deps: {
-  capability: Capability
-  parentSessionOf: (sessionId: SessionId) => SessionId | undefined
-  ownership: MachineOwnershipIndex
-}): AssertMachineUse =>
-  machineUseGateFor({
-    principal: resolvePrincipal(deps.capability, { parentSessionOf: deps.parentSessionOf }),
-    ownership: deps.ownership,
-  })

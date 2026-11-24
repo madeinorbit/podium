@@ -1,5 +1,5 @@
 import { createLogger } from '@podium/logger'
-import { type SystemCommandPrincipal, systemPrincipal } from '../../command-principal'
+import type { SystemCommandPrincipal } from '../../command-principal'
 import type { IssueService } from './service'
 
 const log = createLogger('server:issues')
@@ -22,7 +22,11 @@ export class IssueAutoArchive {
   /** True while a pass is running — see {@link IssueAutoArchive.sweep}. */
   private sweeping = false
 
-  constructor(private readonly attention: Pick<IssueService['attention'], 'sweepAutoArchive'>) {}
+  constructor(
+    private readonly attention: Pick<IssueService['attention'], 'sweepAutoArchive'>,
+    /** The job's principal: `expiry`, bound to the workspace it sweeps. */
+    private readonly principal: SystemCommandPrincipal,
+  ) {}
 
   start(): void {
     this.bootTimer = setTimeout(async () => {
@@ -50,7 +54,7 @@ export class IssueAutoArchive {
     if (this.sweeping) return
     this.sweeping = true
     try {
-      const archived = await this.attention.sweepAutoArchive(undefined, systemPrincipal('expiry'))
+      const archived = await this.attention.sweepAutoArchive(undefined, this.principal)
       if (archived.length > 0) {
         log.info('auto-archived read+done issues', { archived: archived.length })
       }

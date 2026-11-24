@@ -231,12 +231,18 @@ export function registerSessionLaunchEffect(deps: SessionLaunchEffectDeps): {
   const mayUse = async (
     record: EffectRow,
     machineId: MachineId,
-    role: Parameters<typeof userCommandPrincipal>[1],
+    role: Parameters<typeof userCommandPrincipal>[2],
   ) => {
     const machines = deps.modules().machines
     const ownership = await ownershipSnapshotFromMachines(machines)
     if (record.createdBy === null) return false
-    if (checkMachineUse(userCommandPrincipal(record.createdBy, role), machineId, ownership))
+    if (
+      checkMachineUse(
+        userCommandPrincipal(deps.modules().workspaceId, record.createdBy, role),
+        machineId,
+        ownership,
+      )
+    )
       return false
     const agent = agentOf(record)
     const delegated = agent ? ownership.delegatedMachines?.(agent) : undefined
@@ -264,7 +270,11 @@ export function registerSessionLaunchEffect(deps: SessionLaunchEffectDeps): {
         return launchFailed(error)
       }
     }
-    const capability = userCommandPrincipal(asUserId(writer.id), writer.role).capability
+    const capability = userCommandPrincipal(
+      deps.modules().workspaceId,
+      asUserId(writer.id),
+      writer.role,
+    ).capability
     // The start is the server acting for the record's writer, after its
     // commit: its issue writes (the draft, its files) are `sessions.lifecycle`.
     const ctx = await sessionCommandCtx(

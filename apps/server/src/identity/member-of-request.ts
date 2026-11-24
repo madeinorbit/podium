@@ -150,6 +150,9 @@ export interface MemberOfRequest {
 }
 
 export function createMemberOfRequest(deps: {
+  /** The workspace `identity` and `users` belong to: its member's principal
+   *  names it (POD-7483). */
+  workspaceId: WorkspaceId
   identity: WorkspaceIdentity
   /** The member row, undefined for a missing or disabled member. */
   users: { get(id: UserId): Promise<{ role: UserRole } | undefined> }
@@ -224,7 +227,7 @@ export function createMemberOfRequest(deps: {
       memberId,
       // The row's role: it is what every gate behind this reads.
       role: row.role,
-      principal: userCommandPrincipal(memberId, row.role),
+      principal: userCommandPrincipal(deps.workspaceId, memberId, row.role),
       accountId: resolution.accountId,
       deviceSignIn: resolution.deviceSignIn,
       renewDue: resolution.renewDue,

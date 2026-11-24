@@ -121,7 +121,7 @@ export function registerIssueStartEffect(deps: IssueStartEffectDeps): void {
     if (record.createdBy === null) return undefined
     const user = await deps.users.get(record.createdBy)
     if (!user || user.disabledAt) return undefined
-    const principal = userCommandPrincipal(asUserId(user.id), user.role)
+    const principal = userCommandPrincipal(deps.modules().workspaceId, asUserId(user.id), user.role)
     return { capability: principal.capability, principal }
   }
 

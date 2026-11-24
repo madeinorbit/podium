@@ -463,7 +463,7 @@ export class SessionTeardown {
       if (stillUsing.length === 0) {
         const freed = await issues.freeWorktreeKeepBranch(
           issueId,
-          input.principal ?? systemPrincipal('stop'),
+          input.principal ?? systemPrincipal(this.ports.store.workspaceId, 'stop'),
           {
             force: input.force === true,
           },
@@ -635,7 +635,7 @@ export class SessionTeardown {
       input.ownedBy === undefined ? all : await ownedSessions(this.ports.store, all, input.ownedBy)
     const stopped: string[] = []
     let deferredKill = false
-    const principal = input.principal ?? systemPrincipal('stop')
+    const principal = input.principal ?? systemPrincipal(this.ports.store.workspaceId, 'stop')
     // Non-self members first (immediate kill). Self last so sibling stops + free
     // finish before the caller's deferred kill is armed after the relay reply.
     const ordered = [

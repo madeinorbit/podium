@@ -863,7 +863,10 @@ export class IssueAttentionModule {
     const issueId = row.id
     afterCommit(async () => {
       void this.gitWorkflow()
-        .releaseWorktreeIfIdle(issueId, systemPrincipal('archive'))
+        .releaseWorktreeIfIdle(
+          issueId,
+          systemPrincipal(this.store.deps.store.workspaceId, 'archive'),
+        )
         .catch((err: unknown) => {
           log.warn('archive could not free the worktree', { err, issueId })
         })
