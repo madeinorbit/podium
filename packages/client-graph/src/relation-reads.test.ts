@@ -22,6 +22,7 @@ import {
   type EmptyDevice,
   openEmptyDevice,
   putIssueWithBodies,
+  requestKey,
 } from './test-support/empty-device.test.fixture'
 
 const devices: EmptyDevice[] = []
@@ -238,6 +239,74 @@ describe('a single relation to a record the device does not hold', () => {
     expect(answers[0]).toBe('LOADING')
     expect(answers.at(-1)).toEqual(expected)
   })
+
+  it('a dangling reference answers LOADING then null, with exactly one request', async () => {
+    const device = await openEmptyDevice({
+      world: (server) => openIssue(server, 'i1', { startedBySession: 'missing' }),
+    })
+    devices.push(device)
+    const issue = device.pool.issueObject('i1')
+    const answers: unknown[] = []
+    const opened = device.observe(
+      () => issue,
+      (model) => answers.push(answerOf(model.startedBy)),
+    )
+    expect(answers[0]).toBe('LOADING')
+    await device.untilIdle()
+    expect(answers.at(-1)).toBeNull()
+    for (let i = 0; i < 30; i++) expect(issue.startedBy).toBeNull()
+    await device.untilIdle()
+    expect(device.requestedKeys()).toEqual(['session.one{"id":"missing"}'])
+    opened.close()
+  })
+})
+
+it.each([
+  'holding',
+  'lookup',
+] as const)('a burst of 30 %s reads makes one collection load', async (read) => {
+  const ids = Array.from({ length: 30 }, (_, i) => `c${i}`)
+  const device = await openEmptyDevice({
+    world: (server) => {
+      ids.forEach((id, i) => {
+        server.put(
+          ISSUE,
+          id,
+          closedValue(id, { seq: i + 1, updatedAt: RECENT, startedBySession: `s${i}` }),
+        )
+        server.put(
+          'session',
+          `s${i}`,
+          session(`s${i}`, {
+            status: 'exited',
+            lastActiveAt: OLD,
+            issueId: id,
+          }) as Record<string, unknown>,
+        )
+      })
+    },
+  })
+  devices.push(device)
+  const before = device.recorder.loads.length
+  const opened = device.observe(
+    () => null,
+    () =>
+      ids.map((id) => {
+        const issue = device.pool.issueObject(id)
+        return answerOf(read === 'holding' ? issue.sessions : issue.startedBy)
+      }),
+  )
+  await device.untilIdle()
+  const loads = device.recorder.loads.slice(before).filter((load) => load.route === 'collections')
+  expect(loads).toHaveLength(1)
+  expect(loads[0]!.instances.map(requestKey).sort()).toEqual(
+    ids
+      .map((id, i) =>
+        read === 'holding' ? `session.ofIssue{"issueId":"${id}"}` : `session.one{"id":"s${i}"}`,
+      )
+      .sort(),
+  )
+  opened.close()
 })
 
 describe('a to-many relation held through session.ofIssue', () => {
@@ -288,6 +357,14 @@ describe('a to-many relation held through session.ofIssue', () => {
     expect(
       device.holds({ collection: 'session.ofIssue', args: { issueId: 'c1' }, part: 'main' }),
     ).toBe(true)
+    const instance = {
+      collection: 'session.ofIssue',
+      args: { issueId: 'c1' },
+      part: 'main',
+    } as const
+    expect(device.liveHolds(instance)).toBe(1)
     opened.close()
+    await device.untilIdle()
+    expect(device.liveHolds(instance)).toBe(0)
   })
 })

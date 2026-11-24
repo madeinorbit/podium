@@ -4,7 +4,7 @@
  * The web screens that do not ask are in `apps/web/src/features/issues/
  * empty-device-bodies.test.tsx`.
  */
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, type MockInstance, vi } from 'vitest'
 import { LOADING } from './loading'
 import { MissionScreen } from './mission-screen'
 import { attachMissionTestPreferences } from './mission-screen.test.fixture'
@@ -20,8 +20,17 @@ import {
 
 const ROOT = 'i1'
 const devices: EmptyDevice[] = []
+let warn: MockInstance<typeof console.warn>
+beforeEach(() => {
+  warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+})
 afterEach(() => {
   for (const device of devices.splice(0)) device.dispose()
+  const misuse = warn.mock.calls.filter(([message]) =>
+    String(message).includes('Body read misuse:'),
+  )
+  warn.mockRestore()
+  expect(misuse, 'the flight deck must not read bodies for a list').toEqual([])
 })
 async function emptyDevice() {
   const device = await openEmptyDevice({ world: (server) => putIssueWithBodies(server, ROOT) })

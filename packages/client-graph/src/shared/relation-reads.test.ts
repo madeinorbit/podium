@@ -28,9 +28,10 @@ describe('the declarations', () => {
     expect(relationReadProblems()).toEqual([])
   })
 
-  it('give every listed exception a reason', () => {
+  it('give every listed exception a reason and follow-up issue', () => {
     for (const [relation, why] of Object.entries(IN_MEMORY_RELATIONS)) {
       expect(why.trim(), relation).not.toBe('')
+      expect(why, relation).toMatch(/\bPOD-\d+\b/)
       expect(readOf(relation)?.kind, relation).toBe('unprotected')
     }
   })
@@ -83,7 +84,7 @@ describe('a wrong declaration', () => {
     })
     const problems = relationReadProblems(SCHEMA, records)
     expect(problems).toContain(
-      'issue.sessions reads session (group byRule) without holding or loading it. Fix: session (group byRule) needs one collection keyed by issueId, has 0.',
+      'issue.sessions getter reads session (group byRule) without holding or loading it. Fix: session (group byRule) needs one collection keyed by issueId, has 0.',
     )
   })
 
@@ -93,15 +94,15 @@ describe('a wrong declaration', () => {
     const { loadable: _loadable, ...session } = SCHEMA.session
     const schema = { ...SCHEMA, session } as ModelSchema
     expect(relationReadProblems(schema)).toContain(
-      "issue.startedBy reads session (group byRule) without holding or loading it. Fix: look it up by id: make session loadable (a lookup that loads) or bring it in the source's comesWith.",
+      "issue.startedBy getter reads session (group byRule) without holding or loading it. Fix: look it up by id: make session loadable (a lookup that loads) or bring it in the source's comesWith.",
     )
   })
 
   it('fails on an exception that is protected, undeclared or without a reason', () => {
     const problems = relationReadProblems(SCHEMA, RECORDS, {
       ...IN_MEMORY_RELATIONS,
-      'issue.sessions': 'Held through session.ofIssue.',
-      'issue.nothing': 'Not a relation.',
+      'issue.sessions': 'Held through session.ofIssue. POD-7547.',
+      'issue.nothing': 'Not a relation. POD-7547.',
       'issue.children': ' ',
     })
     expect(problems).toEqual([
@@ -111,11 +112,20 @@ describe('a wrong declaration', () => {
     ])
   })
 
+  it('rejects a reason that has no follow-up POD issue', () => {
+    expect(
+      relationReadProblems(SCHEMA, RECORDS, {
+        ...IN_MEMORY_RELATIONS,
+        'issue.children': 'Read only what happens to be in memory.',
+      }),
+    ).toEqual(['issue.children is listed as reading memory without a POD issue for its follow-up'])
+  })
+
   it('fails on every unprotected relation once nothing is listed', () => {
     const problems = relationReadProblems(SCHEMA, RECORDS, {})
     expect(problems).toHaveLength(Object.keys(IN_MEMORY_RELATIONS).length)
     expect(problems).toContain(
-      'issue.children reads issueProjection (group byRule) without holding or loading it. Fix: issueProjection (group byRule) needs one collection keyed by parentId, has 0.',
+      'issue.children getter reads issueProjection (group byRule) without holding or loading it. Fix: issueProjection (group byRule) needs one collection keyed by parentId, has 0.',
     )
   })
 })

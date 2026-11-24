@@ -21,7 +21,7 @@ import { LOADING } from '@podium/client-graph/loading'
 import type { MemberRosterAnswer } from '@podium/client-graph/member-roster'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { ReactElement } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest'
 import { DockHeaderSlotProvider } from '@/app/DockHeaderSlot'
 import { OperatorFocusProvider } from '@/app/operator-focus'
 import type { IssueViewModel, IssueWithBodies } from '@/app/store'
@@ -66,6 +66,18 @@ const ID = 'i1'
 const ONE = { collection: 'issueProjection.one', args: { id: ID }, part: 'main' } as const
 const REF = 'POD-1'
 const TITLE = 'The task the server holds'
+
+let warn: MockInstance<typeof console.warn>
+beforeEach(() => {
+  warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+})
+afterEach(() => {
+  const misuse = warn.mock.calls.filter(([message]) =>
+    String(message).includes('Body read misuse:'),
+  )
+  warn.mockRestore()
+  expect(misuse, 'the page, panel and miniview must not read bodies for a list').toEqual([])
+})
 
 /** The server: one repo, and the issue with all six bodies. */
 function world(server: CollectionServer): void {

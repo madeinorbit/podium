@@ -181,6 +181,17 @@ export async function openEmptyDevice(options: DeviceOptions = {}) {
     policy: { steps: realStartSteps(), ...options.policy },
   })
   const firstDownload = device.recorder.loads.length
+  const liveHolds = new Map<string, number>()
+  const show = device.loader.show.bind(device.loader)
+  device.loader.show = (instance) => {
+    const key = requestKey(instance)
+    liveHolds.set(key, (liveHolds.get(key) ?? 0) + 1)
+    const release = show(instance)
+    return () => {
+      liveHolds.set(key, (liveHolds.get(key) ?? 0) - 1)
+      release()
+    }
+  }
   /** Every collection fetch after the first download, offline attempts included. */
   const loads = (): readonly RecordedLoad[] =>
     device.recorder.loads.slice(firstDownload).filter((load) => load.route === 'collections')
@@ -202,6 +213,10 @@ export async function openEmptyDevice(options: DeviceOptions = {}) {
     /** Whether the device holds the instance complete (it was asked for and answered). */
     holds(instance: InstanceRequest): boolean {
       return device.loader.isComplete(instance) !== undefined
+    },
+    /** Live view holds, distinct from the completion marker retained after close. */
+    liveHolds(instance: InstanceRequest): number {
+      return liveHolds.get(requestKey(instance)) ?? 0
     },
     /**
      * Run the device until nothing is due: the loader's batch window, each

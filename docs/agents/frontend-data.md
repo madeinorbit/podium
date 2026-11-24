@@ -70,6 +70,26 @@ A **view** is a feature the user sees: the worklist, mission, issue detail, laun
     - Polling runs only while its view is visible; a server push replaces it wherever possible.
     - Request answers never poll: the owning view model declares its topic signal or related pool change, or a focus/visibility fallback when no trigger exists. It unsubscribes and drops the answer on close. Source sampling belongs to a demand-bound topic producer (ADR 7 Amendment 2).
 
+## Fields backed by on-demand records
+
+Holding follows reading for model relations too: **the read is the request**. A field
+backed by a separate on-demand record returns its value or `LOADING`, never an empty
+value in place of data that has not arrived. The observed read holds its collection
+and uses the loader's batch window; closing the view releases the hold. A previously
+complete answer stays readable while refreshing, and an offline first read shows
+"not available offline" through `pool.collections.reading`.
+
+Read the model field or relation getter and handle `LOADING` explicitly. Editors
+must not open from an unloaded value, and commands must refuse to save over it.
+Lists must not read body fields per row: that requests a separate body instance for
+every issue. Development builds warn when one view holds more than 20 body instances,
+and warn about raw graph or link reads that bypass holding relation getters.
+
+Test these reads with the [empty-device harness](#testing-a-screen-on-an-empty-device),
+including content assertions after loading; full-device fixtures cannot prove the
+request happened. The phone follows in its own phase, after the new phone design
+(POD-7554 / POD-7555).
+
 ## How to
 
 - **Look up one record:** `pool.model(entity, id)` and `pool.row(entity, id)` return `Lookup<T>`: the model/row, `LOADING`, or `Gone`. Import `LOADING` and `isGone` from `@podium/client-graph` and handle each answer:

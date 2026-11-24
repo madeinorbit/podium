@@ -1,9 +1,9 @@
 /**
- * POD-7547 — NO RELATION READS AN ON-DEMAND RECORD WITHOUT HOLDING AND
+ * POD-7547 — NO RELATION GETTER READS AN ON-DEMAND RECORD WITHOUT HOLDING AND
  * LOADING IT (design POD-7409 "Reading on-demand records through a model",
  * step 2: a build check replaces the lint).
  *
- * Every relation of the client schema is classified from the declarations
+ * Every model relation getter of the client schema is classified from the declarations
  * alone (the schema here, the record declarations in `@podium/model`):
  *
  * - `present`: the target is on the device whenever the source is. Its kind
@@ -22,7 +22,8 @@
  * {@link relationReadProblems} fails on every unprotected relation that is
  * not in {@link IN_MEMORY_RELATIONS}, each entry of which says why it may
  * still read memory and which issue removes it. `scripts/check-relation-reads.ts`
- * runs it in the lean gate (`bun run test`).
+ * runs it in the lean gate (`bun run test`). Raw graph and link reads bypass
+ * these getters; development diagnostics warn when those reads do not hold.
  */
 import { type Collection, RECORDS, type RecordDeclaration } from '@podium/model'
 import { HOLDING_GROUPS, holdingReadOf, keyedFieldOf, recordOfEntity } from './holding-relations'
@@ -260,8 +261,8 @@ export const IN_MEMORY_RELATIONS: Readonly<Record<string, string>> = {
 /**
  * Everything wrong with the relation reads: an unprotected relation that is
  * not listed, a listed one that is protected or gone, a listing without a
- * reason. Empty when every relation holds, looks up or finds present what it
- * reads.
+ * reason and a follow-up issue. Empty when every relation getter holds,
+ * looks up or finds present what it reads (or has a documented exception).
  */
 export function relationReadProblems(
   schema: ModelSchema = SCHEMA,
@@ -273,7 +274,7 @@ export function relationReadProblems(
   for (const row of rows.values()) {
     if (row.read.kind !== 'unprotected' || row.relation in allowed) continue
     problems.push(
-      `${row.relation} reads ${row.target ?? row.to} (group ${row.group ?? 'none'}) without holding or loading it. Fix: ${row.read.fix}.`,
+      `${row.relation} getter reads ${row.target ?? row.to} (group ${row.group ?? 'none'}) without holding or loading it. Fix: ${row.read.fix}.`,
     )
   }
   for (const [relation, why] of Object.entries(allowed)) {
@@ -285,6 +286,8 @@ export function relationReadProblems(
         `${relation} is listed as reading memory but is ${row.read.kind}: remove it from the list`,
       )
     if (why.trim() === '') problems.push(`${relation} is listed as reading memory without a reason`)
+    else if (!/\bPOD-\d+\b/.test(why))
+      problems.push(`${relation} is listed as reading memory without a POD issue for its follow-up`)
   }
   return problems
 }

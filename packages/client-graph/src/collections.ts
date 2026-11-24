@@ -25,10 +25,11 @@
  * collection definition.
  */
 
-import { createDemandAtoms } from '@podium/mobx-helpers'
+import { createDemandAtoms, observingViews } from '@podium/mobx-helpers'
+import { RECORDS } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
 import { SideMap, SideSet, sideStateUpkeep, signalledRead } from '@podium/sync/side-state'
-import { action, createAtom, type IAtom, runInAction } from 'mobx'
+import { action, createAtom, type IAtom, runInAction, spy } from 'mobx'
 import { LOADING } from './loading'
 import { type Gone, NOT_VISIBLE } from './lookup'
 import type { CollectionLoaderPort, LoaderInstance } from './shared/source'
@@ -192,6 +193,76 @@ const readKey = (spec: LoaderInstance): string =>
     Object.entries(spec.args ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
   ])
 
+/** A view reading bodies for a list is probably fetching one body per row. */
+export const BODY_INSTANCE_WARNING_THRESHOLD = 20
+
+/** Only constructed in development; no counters, scans or microtasks in production. */
+class BodyReadWarnings {
+  private queued = false
+  private active = false
+  private readonly warned = new WeakSet<object>()
+  // side-state: declaration: collection-to-kind metadata for development diagnostics only
+  private readonly kinds = new Map(
+    RECORDS.filter((record) => record.group === 'body').flatMap((record) =>
+      Object.values(record.collections).map((collection) => [collection.id, record.kind] as const),
+    ),
+  )
+
+  private readonly stop: () => void
+
+  constructor(private readonly held: () => Iterable<{ spec: LoaderInstance; atom: IAtom }>) {
+    // A second view can read already-cached computed fields without visiting
+    // holdWhileRead again. Recheck after reaction tracking binds that reader.
+    this.stop = spy((event) => {
+      if (this.active && event.type === 'reaction') this.check()
+    })
+  }
+
+  read(spec: LoaderInstance): void {
+    if (!this.kinds.has(spec.collection)) return
+    this.active = true
+    this.check()
+  }
+
+  dispose(): void {
+    this.stop()
+  }
+
+  private check(): void {
+    if (this.queued) return
+    this.queued = true
+    // MobX binds a computed's observers after its getter returns. Count the
+    // final live graph, so reruns and released holds cannot inflate it.
+    queueMicrotask(() => {
+      this.queued = false
+      this.active = false
+      const views = new Map<object, { name: string; count: number; kinds: Set<string> }>()
+      for (const { spec, atom } of this.held()) {
+        const kind = this.kinds.get(spec.collection)
+        if (kind === undefined) continue
+        this.active = true
+        for (const { view, name } of observingViews(atom)) {
+          if (this.warned.has(view)) continue
+          let seen = views.get(view)
+          if (seen === undefined) {
+            seen = { name, count: 0, kinds: new Set() }
+            views.set(view, seen)
+          }
+          seen.count += 1
+          seen.kinds.add(kind)
+        }
+      }
+      for (const [view, seen] of views) {
+        if (seen.count <= BODY_INSTANCE_WARNING_THRESHOLD) continue
+        this.warned.add(view)
+        console.warn(
+          `[pool] Body read misuse: ${seen.name} holds ${seen.count} body instances (${[...seen.kinds].join(', ')}); limit ${BODY_INSTANCE_WARNING_THRESHOLD}. Lists must not read body fields per row.`,
+        )
+      }
+    })
+  }
+}
+
 export class PoolCollections {
   /** A reader with no loader yet must hear when a device store is attached. */
   private readonly attachment = createAtom('pool.collections.attachment')
@@ -248,6 +319,27 @@ export class PoolCollections {
     },
     onUnobserved: (key) => this.releaseRead(key),
   })
+
+  private readonly bodyReadWarnings =
+    process.env.NODE_ENV !== 'production'
+      ? new BodyReadWarnings(() => this.observedInstances())
+      : undefined
+
+  /** Development diagnostics only: the live views retaining this instance. */
+  observedBy(spec: LoaderInstance, view: object): boolean {
+    if (process.env.NODE_ENV !== 'production') {
+      const atom = this.readDemand.get(readKey(spec))
+      return atom !== undefined && observingViews(atom).some((entry) => entry.view === view)
+    }
+    return false
+  }
+
+  private *observedInstances(): Iterable<{ spec: LoaderInstance; atom: IAtom }> {
+    for (const [key, atom] of this.readDemand) {
+      const read = this.reads.get(key)
+      if (read !== undefined) yield { spec: read.spec, atom }
+    }
+  }
 
   /** POD-7165: the instances whose markers views read, by key, each told only when it moved. */
   private readonly markerSpecs = new SideMap<string, LoaderInstance>('collections.markerSpecs')
@@ -822,6 +914,7 @@ export class PoolCollections {
         this.reads.delete(key)
         return undefined
       }
+      if (process.env.NODE_ENV !== 'production') this.bodyReadWarnings?.read(spec)
       return key
     })
   }
@@ -879,6 +972,7 @@ export class PoolCollections {
   }
 
   dispose(): void {
+    if (process.env.NODE_ENV !== 'production') this.bodyReadWarnings?.dispose()
     this.disposed = true
     for (const key of [...this.reads.keys()]) this.releaseRead(key)
     this.readDemand.clear()

@@ -143,7 +143,7 @@ import type {
   SliceSession,
   SliceWorktree,
 } from './shared/slice-types'
-import type { CollectionLoaderPort, RowSourceEvent } from './shared/source'
+import type { CollectionLoaderPort, LoaderInstance, RowSourceEvent } from './shared/source'
 import {
   createObservableTables,
   ENTITIES,
@@ -573,6 +573,12 @@ export class MobxPool {
     }
     this.graph = new PoolRelations({
       index: () => this.deviceIndex().relations,
+      ...(process.env.NODE_ENV !== 'production'
+        ? {
+            heldBy: (instance: LoaderInstance, view: object) =>
+              this.collections.observedBy(instance, view),
+          }
+        : {}),
       // A target is present when it is in memory (tracked).
       present: (entity, id) => tables[entity].has(id),
       ...(schema === undefined ? {} : { schema }),

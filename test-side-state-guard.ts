@@ -19,12 +19,21 @@ if (!testPath.includes('/apps/server/') && !testPath.includes('/apps/daemon/')) 
   const { installSideStateGuard, takeSideStateViolations } = await import(
     './packages/client-graph/src/side-state-guard'
   )
+  const { takeRawRelationViolations } = await import(
+    './packages/client-graph/src/shared/raw-relation-warnings'
+  )
   installSideStateGuard(process.env.PODIUM_SIDE_STATE_GUARD === 'record' ? 'warn' : 'throw')
   beforeEach(() => {
     takeSideStateViolations()
+    takeRawRelationViolations()
   })
   afterEach(() => {
+    const rawReads = takeRawRelationViolations()
     const violations = takeSideStateViolations()
+    if (rawReads.length > 0)
+      throw new Error(
+        `Raw on-demand relation reads without an approved reader (POD-7549):\n${rawReads.map((entry) => `  ${entry.reader} -> ${entry.relation}`).join('\n')}`,
+      )
     if (violations.length === 0) return
     throw new Error(
       `side state read inside a MobX derivation (POD-7454):\n${violations

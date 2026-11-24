@@ -39,11 +39,19 @@ import { SideMap } from '@podium/sync/side-state'
 import { compareShallow, observable } from 'mobx'
 import { debugName } from './debug-name'
 import { relationRef } from './shared/links'
+import { RawRelationWarnings } from './shared/raw-relation-warnings'
 import type { RelationDelta, RelationQueries } from './shared/relation-index'
 import type { RelationReader } from './shared/relation-reader'
 import { type EntityName, type ModelSchema, SCHEMA } from './shared/schema'
+import type { LoaderInstance } from './shared/source'
 
-export { ancestorPaths, isLinkSpec, type LinkSpec, linkInputs, prefixCandidates } from './shared/relation-index'
+export {
+  ancestorPaths,
+  isLinkSpec,
+  type LinkSpec,
+  linkInputs,
+  prefixCandidates,
+} from './shared/relation-index'
 // The declared link helpers live with the index; kept importable from here.
 export { relationRef }
 
@@ -66,6 +74,8 @@ export interface PoolRelationsOptions {
   /** TRACKED: whether `entity:id` is present for `one()` (in memory, or known cold). */
   readonly present: (entity: EntityName, id: string) => boolean
   readonly schema?: ModelSchema
+  /** Development diagnostics: whether this view holds a relation's collection. */
+  readonly heldBy?: (instance: LoaderInstance, view: object) => boolean
   /**
    * POD-4678 — a bucket's net member move (inside the publication's action):
    * the collection (`issue.sessions`), the target, the member and whether it
@@ -97,7 +107,13 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   readonly schema: ModelSchema
   private readonly index: () => RelationQueries
   private readonly present: (entity: EntityName, id: string) => boolean
-  private readonly onBucket: (collection: string, target: string, member: string, added: boolean) => void
+  private readonly onBucket: (
+    collection: string,
+    target: string,
+    member: string,
+    added: boolean,
+  ) => void
+  private readonly rawReadWarnings: RawRelationWarnings | undefined
   /** List holders and atoms belong to the same demand-scoped slot index. */
   // side-state: signal: list holders beside their demand atoms; a holder is dropped with its atom
   private readonly lists = new Map<string, RelationList>()
@@ -118,10 +134,15 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     this.index = options.index
     this.present = options.present
     this.onBucket = options.onBucket ?? (() => {})
+    this.rawReadWarnings =
+      process.env.NODE_ENV !== 'production'
+        ? new RawRelationWarnings(this.schema, options.heldBy ?? (() => false))
+        : undefined
     for (const from of Object.keys(this.schema) as EntityName[]) {
       for (const [name, spec] of Object.entries(this.schema[from].relations)) {
         const key = `${from}.${name}`
-        if (spec.kind === 'hasMany' || (spec.kind === 'edge' && spec.direction === 'in')) this.collections.add(key)
+        if (spec.kind === 'hasMany' || (spec.kind === 'edge' && spec.direction === 'in'))
+          this.collections.add(key)
         else if (spec.kind === 'edge' && spec.many === true) this.multiples.add(key)
         else this.singles.add(key)
       }
@@ -131,6 +152,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   // ------------------------------------------------------------------ reader
 
   one(from: EntityName, id: string, relation: string): string | null {
+    if (process.env.NODE_ENV !== 'production') this.rawReadWarnings?.read(from, id, relation)
     const key = `${from}.${relation}`
     if (!this.singles.has(key)) {
       this.spec(from, relation)
@@ -158,17 +180,20 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   }
 
   many(from: EntityName, id: string, relation: string): readonly string[] {
+    if (process.env.NODE_ENV !== 'production') this.rawReadWarnings?.read(from, id, relation)
     const slot = this.slot(from, id, relation)
     return this.list(slot.key, slot.read)
   }
 
   size(from: EntityName, id: string, relation: string): number {
+    if (process.env.NODE_ENV !== 'production') this.rawReadWarnings?.read(from, id, relation)
     const slot = this.slot(from, id, relation)
     this.observe(slot.key)
     return slot.read().size
   }
 
   subset(from: EntityName, id: string, relation: string, subset: string): readonly string[] {
+    if (process.env.NODE_ENV !== 'production') this.rawReadWarnings?.read(from, id, relation)
     id = machinePathKey(id)
     const key = `${from}.${relation}`
     if (!this.collections.has(key)) {
@@ -181,6 +206,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
 
   /** A declared subset count borrows its maintained bucket, without a walk. */
   subsetSize(from: EntityName, id: string, relation: string, subset: string): number {
+    if (process.env.NODE_ENV !== 'production') this.rawReadWarnings?.read(from, id, relation)
     id = machinePathKey(id)
     this.observe(`s:${from}.${relation}.${subset}:${id}`)
     return this.index().subset(from, id, relation, subset).size
@@ -257,10 +283,15 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
 
   // ------------------------------------------------------------------ slots
 
-  private slot(from: EntityName, id: string, relation: string): { key: string; read: () => ReadonlySet<string> } {
+  private slot(
+    from: EntityName,
+    id: string,
+    relation: string,
+  ): { key: string; read: () => ReadonlySet<string> } {
     id = machinePathKey(id)
     const key = `${from}.${relation}`
-    if (this.multiples.has(key)) return { key: `f:${key}:${id}`, read: () => this.index().targets(from, id, relation) }
+    if (this.multiples.has(key))
+      return { key: `f:${key}:${id}`, read: () => this.index().targets(from, id, relation) }
     if (!this.collections.has(key)) {
       this.spec(from, relation)
       throw new Error(`[pool] ${from}.${relation} is single-valued; read it with one()`)
@@ -321,18 +352,29 @@ export class RelationBuckets {
       : new SideMap('relationBuckets.forwards')
   }
 
-  move(address: string, member: string, targets: readonly string[], bucket: (target: string) => string): void {
+  move(
+    address: string,
+    member: string,
+    targets: readonly string[],
+    bucket: (target: string) => string,
+  ): void {
     const previous = this.forwards.get(address) ?? EMPTY_RELATION_IDS
-    if (previous.length === targets.length && previous.every((target, index) => target === targets[index])) return
+    if (
+      previous.length === targets.length &&
+      previous.every((target, index) => target === targets[index])
+    )
+      return
     for (const target of previous) {
       if (targets.includes(target)) continue
-      const key = bucket(target), rest = this.many(key).filter(id => id !== member)
+      const key = bucket(target),
+        rest = this.many(key).filter((id) => id !== member)
       if (rest.length) this.buckets.set(key, rest)
       else this.buckets.delete(key)
     }
     for (const target of targets) {
       if (previous.includes(target)) continue
-      const key = bucket(target), next = [...this.many(key), member]
+      const key = bucket(target),
+        next = [...this.many(key), member]
       if (this.options.sorted) next.sort()
       this.buckets.set(key, next)
     }
@@ -340,7 +382,14 @@ export class RelationBuckets {
     else this.forwards.delete(address)
   }
 
-  one(address: string): string | undefined { return this.forwards.get(address)?.[0] }
-  many(key: string): readonly string[] { return this.buckets.get(key) ?? EMPTY_RELATION_IDS }
-  clear(): void { this.forwards.clear(); this.buckets.clear() }
+  one(address: string): string | undefined {
+    return this.forwards.get(address)?.[0]
+  }
+  many(key: string): readonly string[] {
+    return this.buckets.get(key) ?? EMPTY_RELATION_IDS
+  }
+  clear(): void {
+    this.forwards.clear()
+    this.buckets.clear()
+  }
 }

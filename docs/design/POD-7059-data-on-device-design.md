@@ -121,6 +121,8 @@ quoted in `apps/server/src/sync/record-builders.ts`).
 | Body | Brief and description | When the issue is opened |
 | Live | Values that change every second: busy, last input, context use, terminal size, machine load | While something watches them; never stored |
 
+"Holding follows reading" now covers model relations too; see [Fields backed by on-demand records](../agents/frontend-data.md#fields-backed-by-on-demand-records).
+
 Per record the device holds exactly one row. It is a stub or it has more parts. Loading the main
 part fills the row; trimming removes parts again and never needs a fetch.
 

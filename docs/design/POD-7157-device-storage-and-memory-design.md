@@ -170,6 +170,8 @@ replica's in-memory rows, and the stub table. It has three kinds of residents.
 
 **Indexes** cover memory rows only, as today (POD-5212's pinned rules stay).
 
+"Holding follows reading" now covers model relations too; see [Fields backed by on-demand records](../agents/frontend-data.md#fields-backed-by-on-demand-records).
+
 ## The loader: two sources
 
 A read of an instance that is not in memory asks the loader, which answers in this order:
