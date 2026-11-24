@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   isAbsoluteMachinePath,
+  isMachinePathForOs,
   isMachinePathWithinRoot,
   isValidMachinePath,
   joinMachinePath,
@@ -126,7 +127,6 @@ it('infers Windows only from an explicit root and keeps POSIX backslashes litera
   expect(machinePathSeparator('C:relative')).toBe('/')
 })
 
-
 describe('machine path identity', () => {
   it.each([
     ['C:\\src\\Podium\\', 'c:/src/podium'],
@@ -143,9 +143,14 @@ describe('machine path identity', () => {
   })
 })
 
-
 describe('machine paths: review namespace and segment guards', () => {
-  it.each(['.. ', '...', '.. .', 'name.', 'name '])('rejects ambiguous Windows segment %s before normalization', segment => {
+  it.each([
+    '.. ',
+    '...',
+    '.. .',
+    'name.',
+    'name ',
+  ])('rejects ambiguous Windows segment %s before normalization', (segment) => {
     const root = String.raw`C:\repo`
     const path = root + '\\' + segment
     expect(isValidMachinePath(path)).toBe(false)
@@ -160,7 +165,11 @@ describe('machine paths: review namespace and segment guards', () => {
     expect(isValidMachinePath('/repo/' + segment)).toBe(true)
     expect(normalizeMachinePath('/repo/' + segment)).toBe('/repo/' + segment)
   })
-  it.each(['C:/shot.png', String.raw`\a\b.png`, String.raw`\\a\b.png`])('interprets %s within a POSIX root as a relative name', path => {
+  it.each([
+    'C:/shot.png',
+    String.raw`\a\b.png`,
+    String.raw`\\a\b.png`,
+  ])('interprets %s within a POSIX root as a relative name', (path) => {
     expect(isAbsoluteMachinePath(path, '/wt')).toBe(false)
     expect(resolveMachinePath('/wt', path)).toBe('/wt/' + path)
     expect(machinePathRelativeToRoot('/wt', path)).toBe(path)
@@ -180,7 +189,6 @@ it.each([
 ])('machine paths: ancestor roots for %s', (path, ancestors) => {
   expect(machinePathAncestors(path)).toEqual(ancestors)
 })
-
 
 describe('machine paths: conservative Windows case comparisons', () => {
   it('slices original segments even when Unicode lowercase would change their length', () => {
@@ -323,5 +331,65 @@ describe('machine path containment refuses dot segments', () => {
           isMachinePathWithinRoot(String.raw`C:\repo`, path),
       ).toBe(false)
     }
+  })
+})
+
+// POD-7501 F3: Win32 may read `..::$INDEX_ALLOCATION` as the parent folder.
+describe('machine path containment refuses dot segments with an NTFS stream suffix', () => {
+  it.each([
+    [String.raw`C:\repo`, String.raw`C:\repo\..::$INDEX_ALLOCATION\secret`],
+    [String.raw`C:\repo`, String.raw`C:\repo\.::$DATA`],
+    [String.raw`C:\repo`, 'c:/repo/..:$I30:$INDEX_ALLOCATION/x'],
+    [String.raw`\\nas\share\repo`, String.raw`\\nas\share\repo\..::$INDEX_ALLOCATION\x`],
+  ])('under %s refuses %s', (root, path) => {
+    expect(machinePathHasDotSegment(path, root)).toBe(true)
+    expect(isMachinePathWithinRoot(root, path)).toBe(false)
+    expect(machinePathRelativeToRoot(root, path)).toBeNull()
+    expect(machinePathAncestors(path)).toEqual([])
+  })
+
+  it('refuses a stream-suffixed dot root and relative token', () => {
+    const root = String.raw`C:\repo\..::$INDEX_ALLOCATION`
+    expect(isMachinePathWithinRoot(root, String.raw`${root}\x`)).toBe(false)
+    expect(
+      machinePathRelativeToRoot(String.raw`C:\repo`, String.raw`..::$INDEX_ALLOCATION\x`),
+    ).toBeNull()
+    expect(machinePathRelativeToRoot(String.raw`C:\repo`, String.raw`.::$DATA\x`)).toBeNull()
+  })
+
+  it('still admits a stream on an ordinary name, and POSIX names with colons', () => {
+    expect(isMachinePathWithinRoot(String.raw`C:\repo`, String.raw`C:\repo\a.txt::$DATA`)).toBe(
+      true,
+    )
+    expect(isMachinePathWithinRoot(String.raw`C:\repo`, String.raw`C:\repo\...::x`)).toBe(true)
+    expect(machinePathHasDotSegment('/repo/..:x/.:y')).toBe(false)
+    expect(isMachinePathWithinRoot('/repo', '/repo/..:x')).toBe(true)
+  })
+})
+
+// POD-7501 F4: `''` plus `/` is a prefix of every absolute POSIX path.
+describe('machine path containment refuses an empty root', () => {
+  it.each(['/etc', '/', 'relative', ''])('`` does not contain %s', (path) => {
+    expect(isMachinePathWithinRoot('', path)).toBe(false)
+    expect(machinePathRelativeToRoot('', path)).toBeNull()
+  })
+})
+
+// POD-7501 F2: registration refuses a path spelled for another OS.
+describe('isMachinePathForOs', () => {
+  it.each([
+    ['/home/a/repo', 'linux', true],
+    ['/Users/a/repo', 'darwin', true],
+    [String.raw`C:\Users\a\repo`, 'linux', false],
+    [String.raw`\\nas\share\repo`, 'darwin', false],
+    ['relative/repo', 'linux', false],
+    [String.raw`C:\Users\a\repo`, 'win32', true],
+    ['c:/Users/a/repo', 'win32', true],
+    [String.raw`\\nas\share\repo`, 'win32', true],
+    ['/c/Users/a/repo', 'win32', false],
+    ['//nas/share/repo', 'win32', false],
+    [String.raw`repo\x`, 'win32', false],
+  ] as const)('%s on %s is %s', (path, os, expected) => {
+    expect(isMachinePathForOs(path, os)).toBe(expected)
   })
 })

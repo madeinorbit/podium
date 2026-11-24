@@ -23,17 +23,42 @@ export function machinePathSegments(path: string, root: string = path): string[]
 /** Windows aliases with trailing dots/spaces are refused before any normalization or authorization.
  *  Ordinary dot/parent segments remain valid; POSIX names keep their literal spelling. */
 export function isValidMachinePath(path: string, root: string = path): boolean {
-  return machinePathSeparator(root) === '/' || machinePathSegments(path, root).every(
-    part => part === '.' || part === '..' || !/[ .]$/.test(part),
+  return (
+    machinePathSeparator(root) === '/' ||
+    machinePathSegments(path, root).every(
+      (part) => part === '.' || part === '..' || !/[ .]$/.test(part),
+    )
   )
 }
 
-/** A `.` or `..` segment, in the root's syntax. Containment answers only for paths spelled
- *  without them: a literal POSIX prefix test counts `/repo/../etc` as inside `/repo`, and a
- *  lexically resolved `..` can name another folder than the filesystem does across a symlink.
+/** The dot segment `part` spells, if any. Under Windows syntax the name is what precedes
+ *  an NTFS stream suffix: `..::$INDEX_ALLOCATION` and `.::$DATA` count as `..` and `.`,
+ *  since stream-suffix spellings have been used to slip parent steps past path filters.
+ *  A POSIX name keeps its literal spelling; `..:x` is an ordinary file there. */
+function dotSegment(part: string, windows: boolean): '.' | '..' | undefined {
+  const name = windows ? part.split(':', 1)[0] : part
+  return name === '.' || name === '..' ? name : undefined
+}
+
+/** A `.` or `..` segment, in the root's syntax (with a stream suffix on Windows, see
+ *  dotSegment). Containment answers only for paths spelled without them: a literal POSIX
+ *  prefix test counts `/repo/../etc` as inside `/repo`, and a lexically resolved `..` can
+ *  name another folder than the filesystem does across a symlink.
  *  A caller holding a relative token resolves it first (resolveMachinePath). */
 export function machinePathHasDotSegment(path: string, root: string = path): boolean {
-  return machinePathSegments(path, root).some(part => part === '.' || part === '..')
+  const windows = machinePathSeparator(root) === '\\'
+  return machinePathSegments(path, root).some((part) => dotSegment(part, windows) !== undefined)
+}
+
+/** Whether `path` is spelled in the syntax of a machine whose Node platform is `os`: a
+ *  drive or UNC root on Windows, a `/` root on Linux and macOS. Every helper here infers
+ *  the syntax from the spelling, so a POSIX-spelled root on a Windows machine would keep
+ *  backslashes literal while the machine treats them as separators. Registration refuses
+ *  such a path. */
+export function isMachinePathForOs(path: string, os: 'linux' | 'darwin' | 'win32'): boolean {
+  return os === 'win32'
+    ? isAbsoluteMachinePath(path) && machinePathSeparator(path) === '\\'
+    : path.startsWith('/')
 }
 
 function pathParts(path: string, separator: '/' | '\\'): { root: string; parts: string[] } {
@@ -102,12 +127,16 @@ export function machinePathDirname(path: string, root: string = path): string {
 }
 
 /** Relative path when contained; null when outside (including a different drive/share).
- *  Refuses a root with a dot segment, an absolute path with one, and any `..`: only a
- *  relative token may carry `.` (`./shot.png`), which cannot climb out. */
+ *  Refuses an empty root, a root with a dot segment, an absolute path with one, and any
+ *  `..`: only a relative token may carry `.` (`./shot.png`), which cannot climb out. */
 export function machinePathRelativeToRoot(root: string, path: string): string | null {
+  if (root === '') return null
   if (!isValidMachinePath(root) || !isValidMachinePath(path, root)) return null
   if (machinePathHasDotSegment(root)) return null
-  if (machinePathSegments(path, root).includes('..')) return null
+  // Only a plain `.` may stay (`./shot.png`); `..`, and `.` with a stream suffix, may not.
+  const windows = machinePathSeparator(root) === '\\'
+  if (machinePathSegments(path, root).some((part) => part !== '.' && dotSegment(part, windows)))
+    return null
   if (isAbsoluteMachinePath(path, root) && machinePathHasDotSegment(path, root)) return null
   const base = normalizeMachinePath(root)
   // A relative root and cwd are already in the same namespace (repo + repo/sub).
@@ -120,7 +149,10 @@ export function machinePathRelativeToRoot(root: string, path: string): string | 
     const to = pathParts(target, separator)
     const fromParts = from.parts.filter(Boolean)
     const toParts = to.parts.filter(Boolean)
-    if (foldMachinePathCase(from.root) !== foldMachinePathCase(to.root) || fromParts.length > toParts.length)
+    if (
+      foldMachinePathCase(from.root) !== foldMachinePathCase(to.root) ||
+      fromParts.length > toParts.length
+    )
       return null
     for (let i = 0; i < fromParts.length; i++) {
       if (foldMachinePathCase(fromParts[i]!) !== foldMachinePathCase(toParts[i]!)) return null
@@ -133,8 +165,10 @@ export function machinePathRelativeToRoot(root: string, path: string): string | 
 }
 
 /** Whether the folder `path` is `root` or lies under it. Refuses a dot segment in either
- *  (machinePathHasDotSegment), on POSIX, Windows and UNC alike. */
+ *  (machinePathHasDotSegment), on POSIX, Windows and UNC alike, and an empty root, which as
+ *  a literal prefix would contain every absolute POSIX path. */
 export function isMachinePathWithinRoot(root: string, path: string): boolean {
+  if (root === '') return false
   if (!isValidMachinePath(root) || !isValidMachinePath(path, root)) return false
   if (machinePathHasDotSegment(root) || machinePathHasDotSegment(path, root)) return false
   // Keep POSIX cwd membership literal (including relative roots and trailing slashes).
@@ -167,12 +201,14 @@ export function machinePathHasSuffix(path: string, suffix: string): boolean {
 
 /** ASCII folding cannot expand a segment or alias Unicode characters to ASCII. */
 function foldMachinePathCase(path: string): string {
-  return path.replace(/[A-Z]/g, char => char.toLowerCase())
+  return path.replace(/[A-Z]/g, (char) => char.toLowerCase())
 }
 
 /** Stable comparison/key spelling. POSIX identity stays literal; Windows folds separators and case. */
 export function machinePathKey(path: string): string {
-  return machinePathSeparator(path) === '\\' ? foldMachinePathCase(normalizeMachinePath(path)) : path
+  return machinePathSeparator(path) === '\\'
+    ? foldMachinePathCase(normalizeMachinePath(path))
+    : path
 }
 
 export function machinePathsEqual(a: string, b: string): boolean {
