@@ -35,9 +35,10 @@ export function issueInput(
   // The git kind's identity is an issue id; its updatedAt is a probe timestamp.
   // Neither is the issue's durable identity or activity timestamp.
   const git = gitState && (({ id: _id, ...observation }) => observation)(gitState)
-  // Server concurrency bookkeeping has no client reader. Keep it in replica
-  // truth for command settlement, outside the observable issue record.
-  const { revision: _revision, repoPath: _repoPath, prefix: _prefix, displayRef: _displayRef, ...own } = projection
+  // `revision` stays on the row (POD-7556): a title or description edit names
+  // the revision it was cut from, so another writer's newer text is refused
+  // instead of replaced. It moves only when the stored issue changes.
+  const { repoPath: _repoPath, prefix: _prefix, displayRef: _displayRef, ...own } = projection
   memo.value = {
     ...own,
     readAt: userState?.readAt ?? null,

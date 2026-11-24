@@ -451,7 +451,7 @@ it.each([1, 4])('records heartbeat owner-history work and watched fields at %sx'
 })
 
 
-it.each([false, true])('runs zero issue derivations for revision-only and identical publications (git: %s)', withGit => {
+it.each([false, true])('publishes a revision-only change to its readers only, and nothing for identical publications (git: %s)', withGit => {
   const f = fixture()
   const projection = { id: 'one', seq: 1, title: 'Issue', stage: 'in_progress', audience: 'human', repoId: 'repo',
     createdAt: '2026-01-01', updatedAt: '2026-10-01', revision: 1,
@@ -473,22 +473,25 @@ it.each([false, true])('runs zero issue derivations for revision-only and identi
   try {
     expect(runs).toEqual({ row: 1, title: 1, stage: 1 })
     f.source.stats.reset()
-    for (const revision of [2, 3, 3]) {
+    // The revision is on the row (POD-7556): a title or description edit
+    // names it. A revision-only change reaches the row and its revision, and
+    // no other field's readers. Count evaluations, even when a computed's
+    // equal answer hides the unnecessary work from its observer.
+    expect(original).toHaveProperty('revision', 1)
+    for (const [revision, published, rowRuns] of [[2, 1, 2], [3, 1, 3], [3, 0, 3]] as const) {
       f.put('issueProjections', 'one', JSON.parse(JSON.stringify({ ...projection, revision })))
       f.address({ kind: 'issueProjections', id: 'one' })
       const event = f.source.flush()
-      // Count evaluations, even when a computed's equal answer hides the
-      // unnecessary work from its observer.
-      expect(runs).toEqual({ row: 1, title: 1, stage: 1 })
-      expect(event).toBeNull()
-      expect(handle.pool.row('issue', 'one')).toBe(original)
+      expect(runs).toEqual({ row: rowRuns, title: 1, stage: 1 })
+      expect(event?.rows ?? []).toHaveLength(published)
+      expect(handle.pool.row('issue', 'one')).toHaveProperty('revision', revision)
+      expect(issue.storedField('revision')).toBe(revision)
     }
-    expect(original).not.toHaveProperty('revision')
-    expect(f.source.stats).toMatchObject({ events: 0, enumerations: 0, rowsVisited: 3 })
+    expect(f.source.stats).toMatchObject({ events: 2, rowsVisited: 3 })
     f.put('issueProjections', 'one', { ...projection, revision: 4, title: 'Changed', stage: 'review' })
     f.address({ kind: 'issueProjections', id: 'one' })
     expect(f.source.flush()?.rows).toHaveLength(1)
-    expect(runs).toEqual({ row: 2, title: 2, stage: 2 })
+    expect(runs).toEqual({ row: 4, title: 2, stage: 2 })
     expect(issue.title).toBe('Changed')
     expect(issue.stage).toBe('review')
     expect(f.source.truth('issueProjections', 'one')).toHaveProperty('revision', 4)
@@ -496,7 +499,7 @@ it.each([false, true])('runs zero issue derivations for revision-only and identi
       description: { value: 'Changed context', revision: 2 } })
     f.address({ kind: 'issueProjections', id: 'one' })
     expect(f.source.flush()?.rows).toHaveLength(1)
-    expect(runs).toEqual({ row: 3, title: 2, stage: 2 })
+    expect(runs).toEqual({ row: 5, title: 2, stage: 2 })
     expect(handle.pool.row('issue', 'one')).toHaveProperty('description.value', 'Changed context')
   } finally { stop(); handle.dispose(); f.source.dispose() }
 })
@@ -530,7 +533,7 @@ it.each([
   } finally { f.source.dispose() }
 })
 
-it('keeps masked remote changes quiet, then publishes rollback and marker changes', () => {
+it('keeps masked remote fields quiet, publishes the revision and then rollback and marker changes', () => {
   const overlays = new Map<string, readonly PendingOverlay[]>()
   const f = fixture({ pending: { byRow: kind => kind === 'issueProjections' ? overlays : new Map() } })
   const row = { id: 'one', title: 'server', revision: 1 }
@@ -540,19 +543,21 @@ it('keeps masked remote changes quiet, then publishes rollback and marker change
     overlays.set('one', [{ op: 'patch', key: 'title', entity: 'issueProjections', id: 'one',
       patch: { title: 'painted' } }])
     const painted = f.source.repaint([{ kind: 'issue', id: 'one' }])!.rows[0]!.value
+    expect(painted).toMatchObject({ title: 'painted', revision: 1 })
+    // The remote title stays under the paint; its revision is on the row
+    // (POD-7556), so the next text save names the revision the server holds.
     f.put('issueProjections', 'one', { ...row, title: 'remote', revision: 2 })
     f.address({ kind: 'issueProjections', id: 'one' })
-    expect(f.source.flush()).toBeNull()
-    expect(f.source.source.row!('issue', 'one')).toBe(painted)
+    expect(f.source.flush()!.rows[0]).toMatchObject({ value: { title: 'painted', revision: 2 } })
     overlays.clear()
     expect(f.source.repaint([{ kind: 'issue', id: 'one' }])!.rows[0]).toMatchObject({ value: { title: 'remote' } })
-    // Echo retirement with equal visible fields is quiet too.
+    // An echo retirement moves only the revision, and publishes it once.
     overlays.set('one', [{ op: 'patch', key: 'title', entity: 'issueProjections', id: 'one',
       patch: { title: 'echoed' } }])
     f.source.repaint([{ kind: 'issue', id: 'one' }])
     f.put('issueProjections', 'one', { ...row, title: 'echoed', revision: 3 })
     overlays.clear()
-    expect(f.source.repaint([{ kind: 'issue', id: 'one' }])).toBeNull()
+    expect(f.source.repaint([{ kind: 'issue', id: 'one' }])!.rows[0]).toMatchObject({ value: { title: 'echoed', revision: 3 } })
     f.address({ kind: 'issueProjections', id: 'one' })
     expect(f.source.flush()).toBeNull()
     const userKey = issueUserStateRowId(asUserId('operator'), asIssueId('one'))
