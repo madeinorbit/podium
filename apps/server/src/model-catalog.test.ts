@@ -1,7 +1,12 @@
 import { asMachineId } from '@podium/model'
 import { MODEL_CATALOG_MAX_AGE_MS } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
-import { MODEL_CATALOG_VERSION, ModelCatalog, type ModelProbe } from './model-catalog'
+import {
+  FAILED_PROBE_RETRY_MS,
+  MODEL_CATALOG_VERSION,
+  ModelCatalog,
+  type ModelProbe,
+} from './model-catalog'
 
 describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
   const M = 'machine-a'
@@ -286,5 +291,60 @@ describe('ModelCatalog (stale-while-revalidate, machine-keyed)', () => {
       fetchedAt: 42,
       version: MODEL_CATALOG_VERSION,
     })
+  })
+
+  /**
+   * POD-7515: `{}` is what a timed-out, unreachable or failing daemon answers.
+   * It used to be stamped fresh and saved, so the picker showed "no models" as
+   * current for a whole TTL and the client did not ask again.
+   */
+  it('treats a probe that names no harness as failed: nothing stamped or saved', async () => {
+    const save = vi.fn()
+    const cat = new ModelCatalog(async () => ({}), { now: () => 42, save })
+
+    await cat.refresh(asMachineId(M))
+
+    expect(cat.get(asMachineId(M)).fetchedAt).toBe(0)
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('keeps the last good snapshot, still stale, when a refresh answers {}', async () => {
+    let t = 1
+    const grok = [{ value: 'g', label: 'g' }]
+    const probe = vi.fn<ModelProbe>().mockResolvedValueOnce({ grok }).mockResolvedValue({})
+    const cat = new ModelCatalog(probe, { now: () => t, ttlMs: 10 })
+
+    await cat.refresh(asMachineId(M))
+    t = 100
+    await cat.refresh(asMachineId(M))
+
+    expect(cat.get(asMachineId(M))).toMatchObject({ byAgent: { grok }, fetchedAt: 1 })
+  })
+
+  it('backs off background probes after a failure, and a success clears it', async () => {
+    let t = 1000
+    let answer: Record<string, { value: string; label: string }[]> = {}
+    const probe = vi.fn<ModelProbe>(async () => answer)
+    const cat = new ModelCatalog(probe, { now: () => t })
+
+    await cat.refresh(asMachineId(M)) // fails
+    cat.get(asMachineId(M))
+    cat.get(asMachineId(M))
+    expect(probe).toHaveBeenCalledTimes(1) // stale, but inside the backoff
+
+    t += FAILED_PROBE_RETRY_MS
+    answer = { grok: [] }
+    cat.get(asMachineId(M)) // past the backoff: probes again
+    await cat.refresh(asMachineId(M)) // joins that in-flight probe
+    expect(probe).toHaveBeenCalledTimes(2)
+    expect(cat.get(asMachineId(M)).fetchedAt).toBe(t)
+  })
+
+  it('an explicit refresh is not held off by the backoff', async () => {
+    const probe = vi.fn<ModelProbe>(async () => ({}))
+    const cat = new ModelCatalog(probe, { now: () => 1 })
+    await cat.refresh(asMachineId(M))
+    await cat.refresh(asMachineId(M))
+    expect(probe).toHaveBeenCalledTimes(2)
   })
 })

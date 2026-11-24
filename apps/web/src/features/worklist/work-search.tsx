@@ -77,10 +77,8 @@ export function useWorkFilterState(): Omit<WorkFilter, 'total' | 'hits'> {
 
 /** The field itself. `flex-none`, above the scroller: filtering the list must
  *  never move the control you are filtering it with.
- *
- *  IT IS A LINE, NOT A FIELD (POD-1469). `trailing` puts `Add repository` on the
- *  same row: the field takes the slack (`min-w-0 flex-1`) and the button never
- *  does, so squeezing the column narrows the thing that degrades gracefully. */
+ *  Optional trailing status stays inside the well so the filter shares the
+ *  column's full control width, even while the status mark is invisible. */
 export function WorkSearchField({
   filter,
   trailing,
@@ -131,6 +129,7 @@ export function WorkSearchField({
             <X size={10} aria-hidden="true" />
           </button>
         )}
+        {trailing}
         {/* The chord hint and the result count are ONE slot, because they are the
             same fact at two moments: what the field can do, then what it did. */}
         <span
@@ -140,7 +139,6 @@ export function WorkSearchField({
           {filtering ? `${hits}/${total}` : modChord('F')}
         </span>
       </div>
-      {trailing}
     </div>
   )
 }

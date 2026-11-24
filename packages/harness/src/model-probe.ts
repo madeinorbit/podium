@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { copyFile, lstat, mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { tmpdir, userInfo } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
@@ -9,6 +9,8 @@ import {
   parseAntigravityModels,
 } from './adapters/antigravity/model-probe.js'
 import { claudeCodeDescriptor } from './adapters/claude-code/descriptor.js'
+import { ClaudeKeychainCredentialStore } from './adapters/claude-code/keychain-credential-store.js'
+import type { SecurityRunner } from './adapters/claude-code/keychain-security.js'
 import {
   codexModelProbeArgv,
   codexModelProbeContainment,
@@ -58,7 +60,8 @@ const log = createLogger('harness:model-probe')
  * installation's verified executable, with the environment the session child
  * gets for that account (account HOME, instance selectors, foreign
  * credentials stripped) — never the daemon's own HOME. The Claude call uses
- * fetch with the token from the account's credential folder.
+ * fetch with the account's token: its macOS Keychain item, else its
+ * credential folder.
  *
  * A listing in the PERSON'S OWN folders writes nothing there (POD-7390,
  * POD-7392): a harness measured to write its state while listing (Grok,
@@ -396,21 +399,85 @@ async function present(path: string): Promise<boolean> {
 
 // ---- claude: no `models` CLI command, but the Anthropic Models API lists them ----
 
-/** The OAuth access token the `claude` CLI already stores (subscription login; same
- *  token, no separate API key). Refreshed by Claude Code itself on use. Read
- *  from the ACCOUNT's credential folder (`roots.credentials`, which honours
- *  `CLAUDE_CONFIG_DIR` in the account env exactly as the credential layout
- *  does). The macOS Keychain copy is not read here. */
-async function readClaudeOAuthToken(account: HarnessAccountScope): Promise<string | null> {
+/** The access token inside a Claude credential blob (the file's JSON, which
+ *  is also what the macOS Keychain item holds). */
+function claudeAccessToken(raw: string): string | null {
   try {
-    const dir = account.roots.credentials ?? account.roots.state
-    const raw = await readFile(join(dir, '.credentials.json'), 'utf8')
     const token = (JSON.parse(raw) as { claudeAiOauth?: { accessToken?: unknown } })?.claudeAiOauth
       ?.accessToken
     return typeof token === 'string' && token.length > 0 ? token : null
   } catch {
     return null
   }
+}
+
+async function readClaudeCredentialFile(account: HarnessAccountScope): Promise<string | null> {
+  try {
+    const dir = account.roots.credentials ?? account.roots.state
+    return claudeAccessToken(await readFile(join(dir, '.credentials.json'), 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+function osUsername(): string | undefined {
+  try {
+    return userInfo().username
+  } catch {
+    return undefined
+  }
+}
+
+/** The account's Claude login from the macOS Keychain, through the same store
+ *  the credential inventory uses: it names the item Claude Code itself writes
+ *  for this account (`Claude Code-credentials`, or its `-<hash>` form under
+ *  `CLAUDE_CONFIG_DIR`, as in a Podium home). Read only; nothing is written. */
+async function readClaudeKeychainToken(
+  account: HarnessAccountScope,
+  runner: SecurityRunner | undefined,
+): Promise<string | null> {
+  try {
+    // The item's account name when the env carries no USER, as the
+    // credential inventory names it.
+    const username = osUsername()
+    const store = new ClaudeKeychainCredentialStore({
+      home: account.home,
+      env: account.env,
+      ...(username ? { osUsername: username } : {}),
+      ...(runner ? { runner } : {}),
+    })
+    const read = await store.read()
+    if (read.state !== 'present') return null
+    try {
+      return claudeAccessToken(read.contents.toString('utf8'))
+    } finally {
+      read.contents.fill(0)
+    }
+  } catch {
+    return null
+  }
+}
+
+/** The OAuth access token the `claude` CLI already stores (subscription login; same
+ *  token, no separate API key). Refreshed by Claude Code itself on use. Read
+ *  for the ACCOUNT (POD-6534): its credential folder (`roots.credentials`,
+ *  which honours `CLAUDE_CONFIG_DIR` in the account env exactly as the
+ *  credential layout does), and on macOS first its Keychain item.
+ *
+ *  ON macOS THE LOGIN IS IN THE KEYCHAIN (POD-7515). Claude Code writes no
+ *  `.credentials.json` there unless the Keychain is unusable, so a file-only
+ *  read found no token on every Mac signed in to a subscription, and that
+ *  machine's picker offered Auto alone. The Keychain item is the one Claude
+ *  Code reads first, so it wins over a file left behind. */
+async function readClaudeOAuthToken(
+  account: HarnessAccountScope,
+  keychain: { platform: NodeJS.Platform; runner?: SecurityRunner },
+): Promise<string | null> {
+  if (keychain.platform === 'darwin') {
+    const token = await readClaudeKeychainToken(account, keychain.runner)
+    if (token) return token
+  }
+  return await readClaudeCredentialFile(account)
 }
 
 /** Minimal fetch shape (so tests can inject without the full DOM fetch type). */
@@ -432,6 +499,12 @@ export interface ClaudeProbeOptions {
   /** The Claude account whose OAuth login is read (POD-6534). Absent with no
    *  `token`: no credential, no call — never the process home. */
   account?: HarnessAccountScope
+  /** The OS whose credential store holds `account`'s login; `darwin` reads
+   *  the Keychain first. Defaults to this process's platform. */
+  platform?: NodeJS.Platform
+  /** Runs `/usr/bin/security` for the Keychain read. Test seam; production
+   *  uses the store's own runner. */
+  securityRunner?: SecurityRunner
 }
 
 /**
@@ -449,7 +522,10 @@ export async function probeClaudeModels(opts: ClaudeProbeOptions = {}): Promise<
     : opts.token !== undefined
       ? opts.token
       : opts.account
-        ? await readClaudeOAuthToken(opts.account)
+        ? await readClaudeOAuthToken(opts.account, {
+            platform: opts.platform ?? process.platform,
+            ...(opts.securityRunner ? { runner: opts.securityRunner } : {}),
+          })
         : null
   const auth: Record<string, string> | null = apiKey
     ? { 'x-api-key': apiKey }

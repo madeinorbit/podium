@@ -11,6 +11,8 @@ import { platform, tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { addSink, createRingBufferSink } from '@podium/logger'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { claudeKeychainService } from './adapters/claude-code/keychain-coordinate'
+import type { SecurityResult, SecurityRunner } from './adapters/claude-code/keychain-security'
 import { type HarnessContext, harnessAccount, withHarnessHome } from './harness-context'
 import {
   type FetchLike,
@@ -279,6 +281,151 @@ describe('probeClaudeModels (Anthropic /v1/models — subscription OAuth OR API 
       }),
     )
     expect(JSON.stringify(logs.snapshot())).not.toContain('oat-secret')
+  })
+})
+
+/** A `/usr/bin/security` stand-in: records each argv and answers `find-generic-password`
+ *  from `items` (service → stored JSON), with the captured macOS not-found result
+ *  (exit 44) for a missing item. */
+function fakeKeychain(items: Record<string, string>) {
+  const calls: string[][] = []
+  const runner: SecurityRunner = {
+    run: async (args): Promise<SecurityResult> => {
+      calls.push([...args])
+      const service = args[args.indexOf('-s') + 1] ?? ''
+      const stored = items[service]
+      return stored === undefined
+        ? {
+            stdout: Buffer.alloc(0),
+            stderr:
+              'security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain.',
+            exitCode: 44,
+            timedOut: false,
+          }
+        : { stdout: Buffer.from(`${stored}\n`), stderr: '', exitCode: 0, timedOut: false }
+    },
+  }
+  return { runner, calls }
+}
+
+const claudeLogin = (token: string) => JSON.stringify({ claudeAiOauth: { accessToken: token } })
+
+/**
+ * POD-7515: on macOS Claude Code keeps its login in the Keychain and writes no
+ * `.credentials.json`, so a file-only read gave every subscribed Mac an empty
+ * Claude list and the picker offered Auto alone.
+ */
+describe('probeClaudeModels reads the account login from the macOS Keychain', () => {
+  const MODELS = [{ id: 'claude-sonnet-5', display_name: 'Claude Sonnet 5' }]
+  let home: string
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'claude-keychain-probe-'))
+  })
+  afterEach(() => rmSync(home, { recursive: true, force: true }))
+
+  const writeCredentialFile = (dir: string, token: string) => {
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, '.credentials.json'), claudeLogin(token))
+  }
+
+  it('on darwin sends the token from the Keychain item for the account', async () => {
+    const account = harnessAccount('claude-code', home, { HOME: home, USER: 'person' })
+    const keychain = fakeKeychain({ 'Claude Code-credentials': claudeLogin('oat-keychain') })
+    const { fetchImpl, calls } = capturingClaudeFetch(200, MODELS)
+
+    const models = await probeClaudeModels({
+      account,
+      platform: 'darwin',
+      securityRunner: keychain.runner,
+      fetchImpl,
+    })
+
+    expect(models.map((m) => m.value)).toEqual(['claude-sonnet-5'])
+    expect(calls[0]?.authorization).toBe('Bearer oat-keychain')
+    expect(keychain.calls[0]).toEqual([
+      'find-generic-password',
+      '-a',
+      'person',
+      '-s',
+      'Claude Code-credentials',
+      '-w',
+    ])
+  })
+
+  it('on darwin reads the scoped item a CLAUDE_CONFIG_DIR home is signed in under', async () => {
+    const configDir = join(home, 'podium-home', '.claude')
+    const account = harnessAccount('claude-code', home, {
+      HOME: home,
+      USER: 'person',
+      CLAUDE_CONFIG_DIR: configDir,
+    })
+    const scoped = claudeKeychainService({ CLAUDE_CONFIG_DIR: configDir }).service
+    expect(scoped).toMatch(/^Claude Code-credentials-[0-9a-f]{8}$/)
+    const keychain = fakeKeychain({
+      [scoped]: claudeLogin('oat-podium-home'),
+      'Claude Code-credentials': claudeLogin('oat-personal'),
+    })
+    const { fetchImpl, calls } = capturingClaudeFetch(200, MODELS)
+
+    await probeClaudeModels({
+      account,
+      platform: 'darwin',
+      securityRunner: keychain.runner,
+      fetchImpl,
+    })
+
+    expect(calls[0]?.authorization).toBe('Bearer oat-podium-home')
+    expect(keychain.calls.map((argv) => argv[argv.indexOf('-s') + 1])).toEqual([scoped])
+  })
+
+  it('on darwin prefers the Keychain over a credential file left behind', async () => {
+    writeCredentialFile(join(home, '.claude'), 'oat-stale-file')
+    const account = harnessAccount('claude-code', home, { HOME: home, USER: 'person' })
+    const keychain = fakeKeychain({ 'Claude Code-credentials': claudeLogin('oat-keychain') })
+    const { fetchImpl, calls } = capturingClaudeFetch(200, MODELS)
+
+    await probeClaudeModels({
+      account,
+      platform: 'darwin',
+      securityRunner: keychain.runner,
+      fetchImpl,
+    })
+
+    expect(calls[0]?.authorization).toBe('Bearer oat-keychain')
+  })
+
+  it('on darwin falls back to the credential file when the Keychain has no item', async () => {
+    writeCredentialFile(join(home, '.claude'), 'oat-file')
+    const account = harnessAccount('claude-code', home, { HOME: home, USER: 'person' })
+    const keychain = fakeKeychain({})
+    const { fetchImpl, calls } = capturingClaudeFetch(200, MODELS)
+
+    await probeClaudeModels({
+      account,
+      platform: 'darwin',
+      securityRunner: keychain.runner,
+      fetchImpl,
+    })
+
+    expect(keychain.calls.length).toBeGreaterThan(0)
+    expect(calls[0]?.authorization).toBe('Bearer oat-file')
+  })
+
+  it('elsewhere reads only the credential file and never runs security', async () => {
+    writeCredentialFile(join(home, '.claude'), 'oat-file')
+    const account = harnessAccount('claude-code', home, { HOME: home, USER: 'person' })
+    const keychain = fakeKeychain({ 'Claude Code-credentials': claudeLogin('oat-keychain') })
+    const { fetchImpl, calls } = capturingClaudeFetch(200, MODELS)
+
+    await probeClaudeModels({
+      account,
+      platform: 'linux',
+      securityRunner: keychain.runner,
+      fetchImpl,
+    })
+
+    expect(keychain.calls).toEqual([])
+    expect(calls[0]?.authorization).toBe('Bearer oat-file')
   })
 })
 
