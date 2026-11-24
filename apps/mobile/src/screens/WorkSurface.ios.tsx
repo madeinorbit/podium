@@ -130,29 +130,12 @@ const noteRow = [
   listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 8, bottom: 8 }),
 ]
 
-/** My notices (POD-6881): a bell on the right of the Work bar that opens the
- *  inbox, `bell.badge` while anything is unread. Merged in from upstream
- *  (POD-2656); remove its one use above to drop the toolbar item. */
-const NoticeBellToolbarItem = observer(function NoticeBellToolbarItem() {
-  const router = useRouter()
-  const unreadNotices = useUnreadNotices()
-  return (
-    <Stack.Toolbar placement="right">
-      <Stack.Toolbar.Button
-        icon={unreadNotices > 0 ? 'bell.badge' : 'bell'}
-        accessibilityLabel={unreadNotices > 0 ? `Inbox, ${unreadNotices} unread` : 'Inbox'}
-        onPress={() => router.push('/inbox')}
-      >
-        Inbox
-      </Stack.Toolbar.Button>
-    </Stack.Toolbar>
-  )
-})
-
 /** A real SwiftUI plain list. UIKit owns the stack, search, toolbar and tab bar. */
 export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps) {
   startupTiming.mark('work.surface-render')
   const { phone } = props
+  const router = useRouter()
+  const unreadNotices = useUnreadNotices()
   const searchLaunch = useSearchLaunchTransition()
   const quiet = phone.quietSections
   const sections = (
@@ -205,11 +188,20 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
           ...headerSubtitleOptions(nativeSubtitleAvailable ? subtitle : undefined, { large: true }),
         }}
       />
-      {/* Upstream's notices inbox (POD-6881) on the iOS Work bar: this one line adds it. */}
-      <NoticeBellToolbarItem />
       <NewWorkButton
         renderTrigger={(open) => (
+          // ONE right toolbar: each Stack.Toolbar sets the bar's right items, so a
+          // second one replaced the first, and it reads its buttons by element
+          // type, so they must be direct children (POD-2666).
           <Stack.Toolbar placement="right">
+            {/* My notices (POD-6881): the inbox, `bell.badge` while anything is unread. */}
+            <Stack.Toolbar.Button
+              icon={unreadNotices > 0 ? 'bell.badge' : 'bell'}
+              accessibilityLabel={unreadNotices > 0 ? `Inbox, ${unreadNotices} unread` : 'Inbox'}
+              onPress={() => router.push('/inbox')}
+            >
+              Inbox
+            </Stack.Toolbar.Button>
             <Stack.Toolbar.Button
               icon="square.and.pencil"
               accessibilityLabel="New work"

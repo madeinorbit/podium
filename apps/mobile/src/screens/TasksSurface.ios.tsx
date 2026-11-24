@@ -525,7 +525,16 @@ const TaskRow = taskObserver(function TaskRow({
               contentShape(shapes.rectangle()),
               accessibilityElement('ignore'),
               accessibilityLabel(
-                `${issue.title}. ${ref}. ${progress}${match ? `. Matching sub-task ${match.displayRef}. ${match.title}` : ''}${unread ? '. Unread' : ''}${notSaved ? '. Not saved' : ''}`,
+                [
+                  issue.title,
+                  ref,
+                  progress,
+                  match ? `Matching sub-task ${match.displayRef}. ${match.title}` : '',
+                  unread ? 'Unread' : '',
+                  notSaved ? 'Not saved' : '',
+                ]
+                  .filter(Boolean)
+                  .join('. '),
               ),
               accessibilityHint('Opens the task. Swipe or long press for actions.'),
               // Last: the native row Button (List highlight, label colours, taps only).
