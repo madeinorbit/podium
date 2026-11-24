@@ -261,7 +261,12 @@ function installRelations(prototype: EntityModel, entity: EntityName): void {
         enumerable: false,
         get(this: EntityModel): EntityModel | typeof LOADING | null {
           const host = hostOf(this)
-          const target = host.relations.one(entity, this.id, name)
+          // A lazy relation's target can be absent from the device: look it
+          // up by the id the source names, so it answers LOADING and loads
+          // (POD-7547). `one` answers only a target in memory.
+          const target = spec.lazy
+            ? host.relations.reference(entity, this.id, name)
+            : host.relations.one(entity, this.id, name)
           return target === null ? null : objectOrLoading(host, spec.to, target)
         },
       })

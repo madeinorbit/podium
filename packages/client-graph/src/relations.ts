@@ -147,6 +147,16 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     return this.present(to, target) ? target : null
   }
 
+  reference(from: EntityName, id: string, relation: string): string | null {
+    const key = `${from}.${relation}`
+    if (!this.singles.has(key)) {
+      this.spec(from, relation)
+      throw new Error(`[pool] ${from}.${relation} is a collection; read it with many()`)
+    }
+    this.observe(`f:${key}:${id}`)
+    return this.index().forward(from, id, relation)
+  }
+
   many(from: EntityName, id: string, relation: string): readonly string[] {
     const slot = this.slot(from, id, relation)
     return this.list(slot.key, slot.read)

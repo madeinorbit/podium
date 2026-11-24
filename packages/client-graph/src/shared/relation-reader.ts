@@ -10,6 +10,12 @@ import type { EntityName } from './schema'
 export interface RelationReader {
   /** A single-valued relation (`belongsTo`, `prefix`, `edge` out): the target id, or null. */
   one(from: EntityName, id: string, relation: string): string | null
+  /**
+   * POD-7547 — the id a single-valued relation names, whether or not that
+   * record is on the device: what a lazy relation looks up, so an absent
+   * target answers LOADING and loads (`models.ts`), where `one` answers null.
+   */
+  reference(from: EntityName, id: string, relation: string): string | null
   /** A collection (`hasMany`, `edge` in): the target ids. */
   many(from: EntityName, id: string, relation: string): Iterable<string>
   /** The collection's size. Uncounted, like `Map.size`. */

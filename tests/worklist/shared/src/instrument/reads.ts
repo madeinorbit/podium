@@ -606,6 +606,12 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
           if (target !== null) touch(to, target, 'relation')
           return target
         },
+        reference(from, id, relation) {
+          const to = relationTarget(from, relation)
+          const target = reader.reference(from, id, relation)
+          if (target !== null) touch(to, target, 'relation')
+          return target
+        },
         many(from, id, relation) {
           const to = relationTarget(from, relation)
           const ids = reader.many(from, id, relation)

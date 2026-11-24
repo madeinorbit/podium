@@ -8,22 +8,14 @@
  * pool's tables, engine and views but never the reverse.
  */
 
-import { untracked } from 'mobx'
-import type { LocalsSource, RowSource } from '../../../shared/src/arm'
-import type { RelationReader } from '../../../shared/src/instrument/reads'
-import { relationLinks } from '@podium/client-graph/shared/links'
+import { isLinkSpec, relationRef } from '@podium/client-graph/relations'
+import { relationLinks, relationTargets } from '@podium/client-graph/shared/links'
 import {
   compareClosedFold,
   groupKeyOf,
   type RowView,
   sliceRowOf,
 } from '@podium/client-graph/shared/row-view'
-import type {
-  SliceGroup,
-  SliceIssue,
-  SliceSession,
-  SliceSnapshot,
-} from '@podium/client-graph/shared/slice-types'
 import {
   type CollapseMember,
   collapseLosers,
@@ -33,13 +25,13 @@ import {
   type ModelSchema,
   SCHEMA,
 } from '@podium/client-graph/shared/schema'
-import { isLinkSpec, relationRef } from '@podium/client-graph/relations'
-import { relationTargets } from '@podium/client-graph/shared/links'
-import {
-  createPlainTables,
-  ingestOut,
-  ingestRecord,
-} from '@podium/client-graph/tables'
+import type {
+  SliceGroup,
+  SliceIssue,
+  SliceSession,
+  SliceSnapshot,
+} from '@podium/client-graph/shared/slice-types'
+import { createPlainTables, ingestOut, ingestRecord } from '@podium/client-graph/tables'
 import {
   activityMsOf,
   buildRowView,
@@ -58,6 +50,9 @@ import {
   sortByRank,
   type VisibleInputs,
 } from '@podium/client-graph/worklist/visible'
+import { untracked } from 'mobx'
+import type { LocalsSource, RowSource } from '../../../shared/src/arm'
+import type { RelationReader } from '../../../shared/src/instrument/reads'
 
 /** Whole tables, walkable (plain maps in the rebuild; the pool's maps in tests). */
 export type ScannableTables = {
@@ -119,9 +114,9 @@ export function scanRelations(
       if (spec.kind === 'prefix') {
         roots = [...tables[spec.to].keys()]
         const extra = extraRootsOf(spec, (entity) => {
-          const table = (tables as Record<string, { entries(): IterableIterator<[string, unknown]> }>)[
-            entity
-          ]
+          const table = (
+            tables as Record<string, { entries(): IterableIterator<[string, unknown]> }>
+          )[entity]
           if (table === undefined) return undefined
           return (function* () {
             for (const [, row] of table.entries()) yield row
@@ -207,7 +202,8 @@ export function scanRelations(
     subset: string,
   ): readonly string[] => {
     const buckets = subsets.get(`${from}.${relation}.${subset}`)
-    if (buckets === undefined) throw new Error(`[scan] ${from}.${relation} declares no subset "${subset}"`)
+    if (buckets === undefined)
+      throw new Error(`[scan] ${from}.${relation} declares no subset "${subset}"`)
     return buckets.get(id) ?? NO_IDS
   }
   return {
@@ -223,6 +219,11 @@ export function scanRelations(
       if (tables[to].has(target)) return target
       const byTarget = unionByTarget.get(to)
       return byTarget?.has(target) === true ? target : null
+    },
+    reference(from, id, relation) {
+      const pointers = forward.get(`${from}.${relation}`)
+      if (pointers === undefined) throw new Error(`[scan] ${from}.${relation} is not single-valued`)
+      return pointers.get(id) ?? null
     },
     many: bucketOf,
     size: (from, id, relation) => bucketOf(from, id, relation).length,
@@ -250,9 +251,7 @@ export function diffRelations(
       for (const [name, spec] of Object.entries(schema[from].relations)) {
         // The live buckets are unordered (M3 F1); the scan's are sorted.
         const single = isLinkSpec(spec) && !(spec.kind === 'edge' && spec.many)
-        const got = single
-          ? live.one(from, id, name)
-          : [...live.many(from, id, name)].sort()
+        const got = single ? live.one(from, id, name) : [...live.many(from, id, name)].sort()
         const want = single ? scan.one(from, id, name) : [...scan.many(from, id, name)]
         if (JSON.stringify(got) === JSON.stringify(want)) continue
         if (out.length < 12) {
@@ -402,9 +401,9 @@ function rebuild(
     const repoId = (raw as { readonly repoId?: unknown }).repoId
     const repoPath =
       typeof repoId === 'string'
-        ? ((tables.repo.get(repoId) as { readonly repoPath?: unknown } | undefined)?.repoPath as
+        ? (((tables.repo.get(repoId) as { readonly repoPath?: unknown } | undefined)?.repoPath as
             | string
-            | undefined) ?? ''
+            | undefined) ?? '')
         : ''
     return { ...raw, repoPath }
   }

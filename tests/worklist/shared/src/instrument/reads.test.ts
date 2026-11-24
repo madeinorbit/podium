@@ -1,4 +1,3 @@
-
 import { autorun, computed, observable, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import type { RowSource } from '../arm'
@@ -95,11 +94,17 @@ describe('feed door', () => {
     const inner = {
       ...staticSource([]),
       records,
-      companions() { return this.records },
+      companions() {
+        return this.records
+      },
     }
     const wrapped = fence.wrapSource(inner)
-    const first = wrapped.companions!(), again = wrapped.companions!()
-    expect(first.map(row => [row.kind, row.id])).toEqual([['repo', 'r1'], ['machine', 'm1']])
+    const first = wrapped.companions!(),
+      again = wrapped.companions!()
+    expect(first.map((row) => [row.kind, row.id])).toEqual([
+      ['repo', 'r1'],
+      ['machine', 'm1'],
+    ])
     for (const [index, row] of first.entries()) {
       expect(fence.isBorrowed(row.value)).toBe(true)
       expect(row.value).toBe(again[index]!.value)
@@ -112,7 +117,9 @@ describe('feed door', () => {
     expect(fence.stats().data).toBe(2)
     expect(fence.stats().byEntity).toEqual({ repo: 1, machine: 1 })
     expect(fence.stats().accesses.field).toBe(2)
-    expect(() => { repo.prefix = 'OTHER' }).toThrow(/read-only/)
+    expect(() => {
+      repo.prefix = 'OTHER'
+    }).toThrow(/read-only/)
   })
 })
 
@@ -285,6 +292,7 @@ describe('violations are sticky', () => {
 describe('relation door', () => {
   const reader: RelationReader = {
     one: (_from, _id, relation) => (relation === 'parent' ? 'i0' : null),
+    reference: (_from, _id, relation) => (relation === 'parent' ? 'i0' : null),
     many: () => ['s1', 's2', 's3'],
     size: () => 3,
     subset: () => [],
@@ -337,6 +345,7 @@ describe('rows read: data, not ids (POD-4746)', () => {
     expect(fence.stats().data).toBe(1)
     const relations = fence.wrapRelations({
       one: () => 'i1',
+      reference: () => 'i1',
       many: () => ['s7', 's8'],
       size: () => 2,
       subset: () => [],
@@ -379,6 +388,7 @@ describe('disabled (timing runs)', () => {
     const source = staticSource([sessionRow('s0')])
     const reader: RelationReader = {
       one: () => null,
+      reference: () => null,
       many: () => [],
       size: () => 0,
       subset: () => [],
