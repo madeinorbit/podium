@@ -89,6 +89,12 @@ export interface SessionDaemonLifecyclePorts {
   /** This machine's live durable labels, pushed on connect [POD-1953]. */
   onDurableSessionCensus(principal: MachinePrincipal, labels: string[]): Promise<void>
   /**
+   * The daemon bound this session: send the credential its reattach probe went
+   * out without (POD-7574), before the bind drains queued input. Absent (unit
+   * fixtures): nothing is owed.
+   */
+  onSessionBound?(session: Session, machineId: MachineId): Promise<void>
+  /**
    * The Agent Runtime contract's inbound event sink (POD-1761 W3).
    *
    * OPTIONAL because a build without the contract wired has nowhere for these to
@@ -510,6 +516,7 @@ export class SessionDaemonLifecycle {
               draft.requestedDriverId = msg.requestedDriverId
             s.markLive(msg.cmd, msg.geometry, draft)
           })
+          await this.ports.onSessionBound?.(s, machineId)
           await this.autoContinue.onSessionLive(s.sessionId)
         }
         this.broadcastSessions()

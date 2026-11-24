@@ -62,6 +62,21 @@ function awaitsRebind(s: ParkedOnMachine): boolean {
   return s.awaitingRebind === true && (s.status === 'live' || s.status === 'starting')
 }
 
+/**
+ * Whether this session's reattach may be a SPAWNING adopt rather than a passive
+ * PTY bind (POD-2249, POD-2456): the bound driver's family, else the durable
+ * `resume.kind`. Only a terminal driver proves a PTY; server, embedded and unknown
+ * driver ids all answer yes. See {@link SessionMachineReconciler.reviveParkedButAlive}.
+ */
+function mayBeServerDriven(session: Session): boolean {
+  // The live handle, else the binding the row recorded (POD-6160 D2g: a parked
+  // session leaves memory, and a restart drops the handle, but not the row).
+  const boundDriverId = session.driverId ?? session.boundDriverId
+  return boundDriverId
+    ? driverFamilyForId(boundDriverId) !== 'terminal'
+    : session.resume?.kind !== undefined && isServerFamilyResumeKind(session.resume.kind)
+}
+
 export interface MachineReconcilerPorts {
   /** This machine's candidate sessions. Read-only: nothing here adds or removes. */
   sessions(): Iterable<Session>
@@ -135,6 +150,15 @@ export interface MachineReconcilerPorts {
 export const REATTACH_PROBE_WINDOW = 128
 
 export class SessionMachineReconciler {
+  /**
+   * Exited sessions whose reattach went out WITHOUT their credential (POD-7574),
+   * and the machine it went to. Their refresh is owed: sent when that machine's
+   * daemon answers with a bind ({@link onBound}), dropped on `reattachFailed`, a
+   * detach or the machine's next attach. Transient probe state, like
+   * `awaitingRebind`: a server restart loses it, and the next attach probes again.
+   */
+  private readonly refreshOnBind = new Map<Session['sessionId'], MachineId>()
+
   constructor(private readonly ports: MachineReconcilerPorts) {}
 
   /**
@@ -148,6 +172,7 @@ export class SessionMachineReconciler {
    */
   async onAttached(principal: MachinePrincipal): Promise<void> {
     const machineId = principal.machine
+    this.forgetOwedRefreshes(machineId)
 
     // Re-arm queued-send delivery for this machine's sessions: their earlier drain
     // attempts parked while the daemon was away (single-flight + liveness wait make
@@ -323,6 +348,36 @@ export class SessionMachineReconciler {
     }
   }
 
+  /**
+   * The daemon bound a session this server probed (its `bind`, before the bind
+   * drains queued input). An exited session's reattach went out without its
+   * credential (POD-7574); now that the daemon has confirmed the process, resolve
+   * it again (a grant that ended meanwhile is refused and recorded), commit its
+   * delivery audit and send it. A bind from another machine, or for a session
+   * whose refresh is not owed, sends nothing.
+   */
+  async onBound(session: Session, machineId: MachineId): Promise<void> {
+    if (this.refreshOnBind.get(session.sessionId) !== machineId) return
+    this.refreshOnBind.delete(session.sessionId)
+    if (session.machineId !== machineId || session.archived) return
+    const refresh = await this.ports.accessRefresh?.(session, machineId)
+    if (refresh && session.machineId === machineId && !session.archived) {
+      await this.ports.toMachine(machineId, refresh)
+    }
+  }
+
+  /** That machine's daemon could not reattach this session: its owed refresh is not owed. */
+  onReattachFailed(sessionId: Session['sessionId'], machineId: MachineId): void {
+    if (this.refreshOnBind.get(sessionId) === machineId) this.refreshOnBind.delete(sessionId)
+  }
+
+  /** Drop the refreshes owed on a machine whose daemon left or attached again. */
+  private forgetOwedRefreshes(machineId: MachineId): void {
+    for (const [sessionId, owedOn] of this.refreshOnBind) {
+      if (owedOn === machineId) this.refreshOnBind.delete(sessionId)
+    }
+  }
+
   /** Send ordered probes in time slices, keeping each audited refresh and reattach together. */
   private async probeEach(probes: readonly ParkedOnMachine[], machineId: MachineId): Promise<void> {
     let index = 0
@@ -334,9 +389,22 @@ export class SessionMachineReconciler {
       await this.withSession(candidate.sessionId, 'reattachProbe', async (s) => {
         if (!s) return
         const message = await this.ports.reattachMessage(s, machineId)
-        const refresh = await this.ports.accessRefresh?.(s, machineId)
         const probed = () =>
           s.machineId === machineId && !s.archived && (awaitsRebind(s) || s.status === 'exited')
+        // AN EXITED ROW'S PROBE CARRIES NO CREDENTIAL (POD-7574). Almost every one
+        // is dead and answers `reattachFailed`; a refresh for it read a secret and
+        // committed a delivery audit for a process that does not exist, about 21 ms
+        // a row. A passive PTY reattach starts nothing, so the credential can wait
+        // for the bind that proves the process ({@link onBound}). A row whose
+        // reattach may be a spawning adopt keeps its refresh first: that start
+        // waits for the credential, and would wait for a bind that never comes.
+        if (s.status === 'exited' && !awaitsRebind(s) && !mayBeServerDriven(s)) {
+          if (!probed()) return
+          if (this.ports.accessRefresh) this.refreshOnBind.set(s.sessionId, machineId)
+          this.ports.toMachine(machineId, message)
+          return
+        }
+        const refresh = await this.ports.accessRefresh?.(s, machineId)
         if (!probed()) return
         if (refresh) {
           // The access's link is judged at the send, which reads the settings;
@@ -456,18 +524,12 @@ export class SessionMachineReconciler {
      * kind, and that is the only case where the short-circuit is a proof
      * rather than a guess.
      */
-    // The live handle, else the binding the row recorded (POD-6160 D2g: a parked
-    // session leaves memory, and a restart drops the handle, but not the row).
-    const boundDriverId = session.driverId ?? session.boundDriverId
-    const mayBeServerDriven = boundDriverId
-      ? driverFamilyForId(boundDriverId) !== 'terminal'
-      : session.resume?.kind !== undefined && isServerFamilyResumeKind(session.resume.kind)
-    if (!opts.measuredPtyHost && mayBeServerDriven) {
+    if (!opts.measuredPtyHost && mayBeServerDriven(session)) {
       log.warn(
         'a parked possibly-server-driver session still reports a live process — holding the park (needs recovery)',
         {
           sessionId: session.sessionId,
-          driverId: boundDriverId,
+          driverId: session.driverId ?? session.boundDriverId,
           resumeKind: session.resume?.kind,
           status: session.status,
           reason,
@@ -517,6 +579,7 @@ export class SessionMachineReconciler {
    */
   onDetached(principal: MachinePrincipal): void {
     const machineId = principal.machine
+    this.forgetOwedRefreshes(machineId)
     // The daemon that held THIS machine's sessions' PTY bridges is gone (daemon
     // restart/crash; durable masters survive in their own scopes). Mark only THIS
     // machine's live/starting sessions `awaitingRebind` so the next daemon to attach

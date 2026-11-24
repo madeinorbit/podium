@@ -954,6 +954,72 @@ describe('after the daemon reconnects (Task 5)', () => {
     expect(added.filter((row) => row.command === 'credentials.deliver')).toHaveLength(ids.length)
   })
 
+  // POD-7574: an exited row's reattach is a passive probe that almost always
+  // fails, so its credential is read and audited only once the daemon binds it.
+  it('an exited session is probed without its access, and gets it only when the daemon binds it', async () => {
+    const store = await openTestStore(':memory:')
+    const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
+    const { reg } = await makeRegistry(store)
+    const host = store.hostMachine!.id
+    const [alive, dead] = [await liveSession(reg, id), await liveSession(reg, id)]
+    for (const sessionId of [alive, dead])
+      await reg.gateway.routeDaemonFrame(host, { type: 'agentExit', sessionId, code: 0 })
+    const before = (await store.settingsAudit.list(100)).length
+    const deliveries = async () =>
+      (await store.settingsAudit.list(100))
+        .slice(before)
+        .filter((row) => row.command === 'credentials.deliver')
+    const after = await reconnect(reg)
+
+    for (const sessionId of [alive, dead]) {
+      expect(indexOf(after, 'reattach', sessionId)).toBeGreaterThanOrEqual(0)
+      expect(indexOf(after, 'sessionAccessRefresh', sessionId)).toBe(-1)
+    }
+    expect(JSON.stringify(after)).not.toContain(FAKE_A)
+    expect(await deliveries()).toHaveLength(0)
+
+    // The dead one answers reattachFailed: nothing is read or recorded for it.
+    await reg.gateway.routeDaemonFrame(host, {
+      type: 'reattachFailed',
+      sessionId: dead,
+      reason: 'session not found',
+    })
+    // The live one binds: its access follows, after its audit row.
+    await reg.gateway.routeDaemonFrame(host, {
+      type: 'bind',
+      sessionId: alive,
+      cmd: 'claude',
+      cwd: '/p',
+      agentKind: 'claude-code',
+      geometry: { cols: 80, rows: 24 },
+    })
+    expect(indexOf(after, 'sessionAccessRefresh', alive)).toBeGreaterThan(
+      indexOf(after, 'reattach', alive),
+    )
+    expect(after[indexOf(after, 'sessionAccessRefresh', alive)]).toEqual({
+      type: 'sessionAccessRefresh',
+      sessionId: alive,
+      access: {
+        credentialId: id,
+        delivery: { kind: 'env', variable: 'ANTHROPIC_API_KEY', secret: FAKE_A },
+      },
+    })
+    expect(indexOf(after, 'sessionAccessRefresh', dead)).toBe(-1)
+    const delivered = await deliveries()
+    expect(delivered).toHaveLength(1)
+    expect(delivered[0]!.detail).toMatchObject({ sessionId: alive })
+    // Owed once: the next bind sends nothing more.
+    await reg.gateway.routeDaemonFrame(host, {
+      type: 'bind',
+      sessionId: alive,
+      cmd: 'claude',
+      cwd: '/p',
+      agentKind: 'claude-code',
+      geometry: { cols: 80, rows: 24 },
+    })
+    expect(after.filter((m) => m.type === 'sessionAccessRefresh')).toHaveLength(1)
+  })
+
   it('refuses a credential revoked while the probe loop yields', async () => {
     const store = await openTestStore(':memory:')
     const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })

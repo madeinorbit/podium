@@ -19,26 +19,31 @@ const principal: MachinePrincipal = {
 
 afterEach(() => vi.restoreAllMocks())
 
-function fixture(count: number) {
-  const sessions = Array.from(
-    { length: count },
-    (_, index) =>
-      new Session({
-        sessionId: asSessionId(`reconnect-${index}`),
-        ownerUserId: asUserId('reconnect-owner'),
-        machineId: machine,
-        durableLabel: `podium-reconnect-${index}`,
-        agentKind: 'claude-code',
-        cwd: '/project',
-        title: 'Reconnect fixture',
-        origin: { kind: 'spawn' },
-        createdAt: '2026-11-23T00:00:00.000Z',
-        lastActiveAt: `2026-11-23T00:00:0${index}.000Z`,
-        geometry: { cols: 80, rows: 24 },
-        status: 'exited',
-        toDaemon() {},
-      }),
-  )
+/**
+ * `count` sessions on one machine. Survivors (the default) still run and await
+ * their rebind, so each probe carries an audited refresh first; exited ones
+ * probe without it (POD-7574).
+ */
+function fixture(count: number, status: 'survivor' | 'exited' = 'survivor') {
+  const sessions = Array.from({ length: count }, (_, index) => {
+    const session = new Session({
+      sessionId: asSessionId(`reconnect-${index}`),
+      ownerUserId: asUserId('reconnect-owner'),
+      machineId: machine,
+      durableLabel: `podium-reconnect-${index}`,
+      agentKind: 'claude-code',
+      cwd: '/project',
+      title: 'Reconnect fixture',
+      origin: { kind: 'spawn' },
+      createdAt: '2026-11-23T00:00:00.000Z',
+      lastActiveAt: `2026-11-23T00:00:0${index}.000Z`,
+      geometry: { cols: 80, rows: 24 },
+      status: status === 'exited' ? 'exited' : 'live',
+      toDaemon() {},
+    })
+    if (status === 'survivor') session.markAwaitingRebind()
+    return session
+  })
   const order: string[] = []
   let now = 0
   vi.spyOn(performance, 'now').mockImplementation(() => now)
@@ -143,7 +148,7 @@ describe('time-sliced reattach probes', () => {
 
   it('restores parked survivors a window at a time, never all of them at once', async () => {
     const count = REATTACH_PROBE_WINDOW * 2 + 44
-    const f = fixture(count)
+    const f = fixture(count, 'exited')
     const parked = new Map(f.sessions.map((s) => [s.sessionId, s]))
     const held = new Set<string>()
     let mostHeld = 0
@@ -166,5 +171,103 @@ describe('time-sliced reattach probes', () => {
     expect(mostHeld).toBe(REATTACH_PROBE_WINDOW)
     expect(held.size).toBe(0)
     expect(f.order.filter((entry) => entry.startsWith('reattach:'))).toHaveLength(count)
+  })
+})
+
+// POD-7574: an exited row's probe is a passive PTY reattach that almost always
+// answers reattachFailed, so its credential waits for the bind that proves it.
+describe("an exited session's credential on reattach", () => {
+  const other = asMachineId('reconnect-other-machine')
+
+  it('probes without a refresh, then sends the audited refresh when the daemon binds', async () => {
+    const f = fixture(3, 'exited')
+    await f.reconciler.onAttached(principal)
+    expect(f.order).toEqual([2, 1, 0].map((index) => `reattach:${f.sessions[index]!.sessionId}`))
+    const bound = f.sessions[1]!
+    await f.reconciler.onBound(bound, machine)
+    expect(f.order.slice(3)).toEqual([
+      `audit:${bound.sessionId}`,
+      `sessionAccessRefresh:${bound.sessionId}`,
+    ])
+    // Owed once: a second bind of the same session sends nothing more.
+    await f.reconciler.onBound(bound, machine)
+    expect(f.order).toHaveLength(5)
+  })
+
+  it('owes nothing after reattachFailed, a detach, the next attach, or a bind from another machine', async () => {
+    const f = fixture(4, 'exited')
+    await f.reconciler.onAttached(principal)
+    const [failed, foreign, detached, unrelated] = f.sessions as [
+      Session,
+      Session,
+      Session,
+      Session,
+    ]
+    f.reconciler.onReattachFailed(failed.sessionId, machine)
+    await f.reconciler.onBound(failed, machine)
+    await f.reconciler.onBound(foreign, other)
+    // A reattachFailed from another machine leaves this machine's debt standing.
+    f.reconciler.onReattachFailed(unrelated.sessionId, other)
+    expect(f.order.filter((entry) => !entry.startsWith('reattach:'))).toEqual([])
+    await f.reconciler.onBound(unrelated, machine)
+    expect(f.order.filter((entry) => !entry.startsWith('reattach:'))).toEqual([
+      `audit:${unrelated.sessionId}`,
+      `sessionAccessRefresh:${unrelated.sessionId}`,
+    ])
+    f.reconciler.onDetached(principal)
+    await f.reconciler.onBound(detached, machine)
+    expect(f.order.filter((entry) => entry.startsWith('audit:'))).toHaveLength(1)
+
+    const again = fixture(1, 'exited')
+    await again.reconciler.onAttached(principal)
+    await again.reconciler.onAttached(principal)
+    expect(again.order).toEqual([
+      `reattach:${again.sessions[0]!.sessionId}`,
+      `reattach:${again.sessions[0]!.sessionId}`,
+    ])
+    again.order.length = 0
+    await again.reconciler.onBound(again.sessions[0]!, machine)
+    expect(again.order).toEqual([
+      `audit:${again.sessions[0]!.sessionId}`,
+      `sessionAccessRefresh:${again.sessions[0]!.sessionId}`,
+    ])
+  })
+
+  it('resolves the credential at the bind, so a grant that ended meanwhile is refused', async () => {
+    const f = fixture(1, 'exited')
+    await f.reconciler.onAttached(principal)
+    f.ports.accessRefresh = async (s) => {
+      f.order.push(`refused:${s.sessionId}`)
+      return undefined
+    }
+    await f.reconciler.onBound(f.sessions[0]!, machine)
+    expect(f.order).toEqual([
+      `reattach:${f.sessions[0]!.sessionId}`,
+      `refused:${f.sessions[0]!.sessionId}`,
+    ])
+  })
+
+  it('keeps the refresh before the reattach for an exited row that may be server-driven', async () => {
+    const f = fixture(3, 'exited')
+    const [server, codexKind, pty] = f.sessions as [Session, Session, Session]
+    // A spawning adopt waits for the credential: it must arrive first.
+    server.boundDriverId = 'codex-app-server'
+    codexKind.resume = { kind: 'codex-thread', value: 'thread-1' }
+    // A bound terminal driver proves the PTY even with a server-family resume kind.
+    pty.boundDriverId = 'generic-pty'
+    pty.resume = { kind: 'codex-thread', value: 'thread-2' }
+    await f.reconciler.onAttached(principal)
+    expect(f.order).toEqual([
+      `reattach:${pty.sessionId}`,
+      `audit:${codexKind.sessionId}`,
+      `sessionAccessRefresh:${codexKind.sessionId}`,
+      `reattach:${codexKind.sessionId}`,
+      `audit:${server.sessionId}`,
+      `sessionAccessRefresh:${server.sessionId}`,
+      `reattach:${server.sessionId}`,
+    ])
+    // Their refresh is already delivered: a bind owes nothing more.
+    await f.reconciler.onBound(server, machine)
+    expect(f.order).toHaveLength(7)
   })
 })

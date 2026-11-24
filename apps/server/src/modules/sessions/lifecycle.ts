@@ -1115,6 +1115,9 @@ export class SessionLifecycle {
     // restoring it for that was the second of two materializations per exited
     // session per attach (the POD-7027 audit's finding 11). A row in any other
     // state, or with queued input, goes through the handler as before.
+    // Its credential, held back for the bind that did not come (POD-7574), is not owed.
+    if (msg.type === 'reattachFailed' && sessionId !== undefined)
+      this.machineReconciler.onReattachFailed(sessionId, principal.machine)
     if (
       msg.type === 'reattachFailed' &&
       sessionId !== undefined &&
