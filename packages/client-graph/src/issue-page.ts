@@ -484,9 +484,16 @@ export function createIssuePageViews(pool: MobxPool) {
   function row(id: string): IssuePageRow {
     return companions(pool.issueObject(id) as PageIssue)
   }
-  function issue(id: string): Loaded<PageIssue> {
+  /**
+   * The page's issue. While its row is on its way the page also reads the
+   * bodies it draws, through the model's fields: their loads join the row's
+   * batch window instead of waiting a hop for the row (POD-7545).
+   */
+  function issue(id: string, bodies: readonly PageBody[] = PAGE_BODIES): Loaded<PageIssue> {
     if (disposed) return LOADING
-    return readPageIssue(pool, id)
+    const found = readPageIssue(pool, id)
+    if (found === LOADING) readBodies(pool, id, bodies)
+    return found
   }
   /** Resolve identity before any detail section subscribes to its own fields. */
   function panelIssue(args: {
@@ -496,7 +503,7 @@ export function createIssuePageViews(pool: MobxPool) {
   }): Loaded<PageIssue> {
     if (disposed) return LOADING
     if (args.issueId) {
-      const explicit = issue(args.issueId)
+      const explicit = issue(args.issueId, PANEL_BODIES)
       if (explicit === LOADING || (explicit && !explicit.deletedAt)) return explicit
     }
     if (args.sessionId) {
@@ -504,7 +511,7 @@ export function createIssuePageViews(pool: MobxPool) {
       try {
         if (seat.exists) {
           if (!seat.issueId) return undefined
-          const attached = issue(seat.issueId)
+          const attached = issue(seat.issueId, PANEL_BODIES)
           return attached === LOADING || (attached && !attached.archived && !attached.deletedAt)
             ? attached
             : undefined
@@ -515,7 +522,7 @@ export function createIssuePageViews(pool: MobxPool) {
       }
     }
     const id = pool.queries.containingIssueId(args.cwd)
-    return id ? issue(id) : undefined
+    return id ? issue(id, PANEL_BODIES) : undefined
   }
   function destination(id: string): Loaded<IssueViewModel> {
     const target = issue(id)
@@ -588,6 +595,23 @@ export function readIssueCloseFacts(
 }
 
 /** Shared identity lookup for controls that have no detail-view rules. */
+/** The body fields a screen draws: the issue page both, the right-dock panel the description. */
+type PageBody = 'description' | 'brief'
+const PAGE_BODIES: readonly PageBody[] = ['description', 'brief']
+const PANEL_BODIES: readonly PageBody[] = ['description']
+
+/** Read body fields of an issue whose row is on its way: each read holds and loads its record. */
+function readBodies(pool: MobxPool, id: string, bodies: readonly PageBody[]): void {
+  const model = pool.issueObject(id)
+  for (const body of bodies) {
+    try {
+      void model[body]
+    } catch (error) {
+      if (error !== LOADING) throw error
+    }
+  }
+}
+
 export function readPageIssue(pool: MobxPool, id: string): Loaded<PageIssue> {
   const raw = omitGone(pool.row('issue', id))
   return !raw || raw === LOADING ? raw : (pool.issueObject(id) as PageIssue)

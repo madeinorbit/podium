@@ -462,7 +462,7 @@ export class IssueModel extends EntityModel {
   // wins at once.
   /** The agent brief; absent when the issue has none; LOADING until it is on the device. */
   @lazy get brief(): string | undefined | typeof LOADING {
-    const painted = this.storedField('brief')
+    const painted = this.paintedBody('brief', this.briefRecords)
     if (painted !== undefined) return painted as string
     const records = this.briefRecords.members
     return records === LOADING ? LOADING : records[0]?.text
@@ -494,9 +494,22 @@ export class IssueModel extends EntityModel {
       if (artifact.chatUploadId && artifact.artifactId) out.set(artifact.chatUploadId, artifact)
     return out
   }
+  /**
+   * A body field painted on the row, which wins. While the row itself is on
+   * its way (the read throws LOADING) the body's relation is read too, so its
+   * load joins the row's batch window rather than waiting a hop for it.
+   */
+  private paintedBody(field: 'brief' | 'description', records: { readonly members: unknown }): unknown {
+    try {
+      return this.storedField(field)
+    } catch (error) {
+      if (error === LOADING) void records.members
+      throw error
+    }
+  }
   /** The human summary's text; empty when there is none; LOADING until it is on the device. */
   @lazy get description(): string | typeof LOADING {
-    const painted = this.storedField('description')
+    const painted = this.paintedBody('description', this.descriptionRecords)
     if (painted !== undefined) return documentText(painted)
     const records = this.descriptionRecords.members
     return records === LOADING ? LOADING : (records[0]?.text ?? '')
