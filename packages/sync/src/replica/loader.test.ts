@@ -734,8 +734,12 @@ describe('what an open view holds through a gap the feed cannot bridge (POD-7538
     server.gate = undefined
     open()
     await settle(d)
+    // The reload follows the held pages; nothing asks below them.
+    const below = JSON.stringify(held.range!.through)
     const later = server.fetches.slice(fetched)
-    expect(later.some((batch) => batch.some((spec) => spec.after !== undefined))).toBe(false)
+    expect(later.some((batch) => batch.some((spec) => JSON.stringify(spec.after) === below))).toBe(
+      false,
+    )
     expect(resident()).toBeLessThanOrEqual(20)
   })
 

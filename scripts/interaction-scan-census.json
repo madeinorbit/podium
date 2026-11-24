@@ -7857,7 +7857,7 @@
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
       "rule": "reader-summary",
-      "tokens": "43bda28518cc09768d7c048590994d6a8ff96aa59f41e3e685bdea64b61e1f72",
+      "tokens": "10e79911660c39349be365a122f861c268dbbb2034500e4b65614f92d83af297",
       "gate": [
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
@@ -7865,13 +7865,13 @@
         "0dd52a44cee415be7900ad1ce02ffaebcfe49ddb0ea189325d8cd3cdfdec052f",
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "d96903057f2e00f43a25ac18b25cb4975cc7966f930d0b3a26c561cd5ecefc6d",
+      "fingerprint": "26ae3dc572fb32f1c47507d2336a8ab6dfbd86c60ebb388dd6c4678c0b2faa0a",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-6947: the feed sink's access-move listener (onAccessMoved) in the assembly's feed port changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7165: the Replica's `batchEvents` composes the loader's burst around the facade's (each kind of change told once per burst), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7161: the assembly hands the Replica the browser's memory signals (idle moments and the page going hidden), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7193: storage open/upgrade diagnostics add constant logging to replica composition; the forwarded transcript port and collection bound are unchanged. POD-7480: namespace retention now requires an empty outbox and no unsent drafts, and reclaims only cache data. This changes the composition fingerprint; transcript ports and their collection bounds are unchanged.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-6947: the feed sink's access-move listener (onAccessMoved) in the assembly's feed port changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7165: the Replica's `batchEvents` composes the loader's burst around the facade's (each kind of change told once per burst), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7161: the assembly hands the Replica the browser's memory signals (idle moments and the page going hidden), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7193: storage open/upgrade diagnostics add constant logging to replica composition; the forwarded transcript port and collection bound are unchanged. POD-7480: namespace retention now requires an empty outbox and no unsent drafts, and reclaims only cache data. This changes the composition fingerprint; transcript ports and their collection bounds are unchanged. POD-7560: the assembly passes the loader the priority of a page the Replica asks for again, and the Replica gains a retry timer for a marker walk that did not finish, which changes this composition fingerprint; the collection bound and classification are unchanged.",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
@@ -39966,14 +39966,14 @@
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
       "rule": "helper-consumer",
-      "tokens": "3f4c3c9c6be603552a0e23efcc86f1ff9a578f9ca3c407fd5f240e762f5768f4",
+      "tokens": "6e65c204fdae2722d5c4068744475d976ac053696be9b7087dd3e222f0974a26",
       "gate": [
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
       "origin": [
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "2ba553ffcac03d27bddfb8e5117c92743fb10a94fd57691e22a089dfabacc1be",
+      "fingerprint": "2cdc2f94ca48fc542eb41b97757bbdf9b4466e665f0eb3048b02e7157cd7741b",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
