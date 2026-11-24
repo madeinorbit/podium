@@ -1337,6 +1337,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: "a predicate over a change's entity kind (POD-7552): whether a visibility edge on it moves anyone's access. The server's implementation is a pure comparison (`edgeMovesAccess`); it reads nothing, writes nothing, and nothing outside the process can tell it was called.",
   },
+  'packages/sync/src/authority/authority.ts#Authority.wake': {
+    kind: 'contained',
+    why: "a waiter on the recorded-through mark (POD-7585): it clears the waiter's timer and resolves an in-process promise a refusal awaits. It reads nothing, writes nothing, and nothing outside the process can tell it was called.",
+  },
   'packages/sync/src/authority/ports.ts#AuthorityClock.AuthorityClock': {
     kind: 'contained',
     why: 'a clock read',

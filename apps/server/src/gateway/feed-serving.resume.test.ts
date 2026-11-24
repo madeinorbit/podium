@@ -332,6 +332,31 @@ describe('a cursor the log cannot serve is refused, and the refusal requests HTT
     expect(compacted.p.serving.accessMovesTrailingAnswers).toBe(3)
   })
 
+  // POD-7585 review F6: a pass in flight is waited for briefly, on the mark itself.
+  it('waits briefly for the mark of a pass still running, then answers from the log', async () => {
+    const compacted = await servedOnce({ retention: { minAvailableSeq: () => 5 } })
+    for (let i = 3; i <= 6; i += 1) await commit(compacted.p, `s${i}`)
+    const authority = compacted.p.authority
+    const mark = vi.spyOn(authority, 'accessMovesRecordedThrough').mockReturnValue(5)
+    const answer = compacted.p.serving.accessMovedAfter(DEVICE_GRADE_PRINCIPAL, 2, 6)
+    mark.mockRestore()
+    // The next pass lands: the mark moves and wakes the refusal.
+    await commit(compacted.p, 's7')
+    expect(await answer).toBe(false)
+    expect(compacted.p.serving.accessMovesTrailingAnswers).toBe(0)
+  })
+
+  // POD-7585 review F4: an Authority that cannot say how far it recorded fails closed.
+  it('answers as moved when the authority cannot report its recorded-through mark', async () => {
+    const compacted = await servedOnce({ retention: { minAvailableSeq: () => 5 } })
+    for (let i = 3; i <= 6; i += 1) await commit(compacted.p, `s${i}`)
+    Object.defineProperty(compacted.p.authority, 'whenAccessMovesRecordedThrough', {
+      value: undefined,
+    })
+    expect(await compacted.p.serving.accessMovedAfter(DEVICE_GRADE_PRINCIPAL, 2)).toBe(true)
+    expect(compacted.p.serving.accessMovesTrailingAnswers).toBe(1)
+  })
+
   // POD-7585: the access moves of a commit whose delivery pass never ran.
   describe('a move committed just before a process exits or hands over is not lost', () => {
     const human = String(DEVICE_GRADE_PRINCIPAL.kind === 'user' && DEVICE_GRADE_PRINCIPAL.user)
@@ -417,7 +442,7 @@ describe('a cursor the log cannot serve is refused, and the refusal requests HTT
       expect(b.p.serving.accessMovesTrailingAnswers).toBe(1)
     })
 
-    it("a writer that never took over still records the old one's move with its next pass", async () => {
+    it("a writer that never took over still closes the old one's gap after its next pass", async () => {
       const a = await processThatExits()
       await commit(a.p, 's1')
       const b = await processThatExits(a.p.store)
@@ -425,8 +450,36 @@ describe('a cursor the log cannot serve is refused, and the refusal requests HTT
       a.exit()
       await commit(a.p, 'revoke-1')
       await commit(b.p, 's2')
+      // The pass did not wait for the gap; a catch-up behind it closes it.
+      const head = await b.p.authority.cursor()
+      expect(await b.p.authority.whenAccessMovesRecordedThrough(head, 5_000)).toBe(head)
       expect(await b.p.store.sync.accessMovedAfter(human, before)).toBe(true)
-      expect(b.p.authority.accessMovesRecordedThrough()).toBe(await b.p.authority.cursor())
+    })
+
+    // POD-7585 review F1: the maintenance prune runs while a replay reads the log.
+    it('a prune during the start-up replay: recording starts after the tail, the move is not lost', async () => {
+      const a = await processThatExits()
+      await commit(a.p, 's1')
+      const before = await a.p.authority.cursor()
+      a.exit()
+      await commit(a.p, 'revoke-1')
+      await commit(a.p, 's2')
+      const head = await a.p.authority.cursor()
+      // The prune commits right after the replay's first page was read.
+      const sync = a.p.store.sync
+      const read = sync.changeRefsInRange.bind(sync)
+      const pages = vi.spyOn(sync, 'changeRefsInRange').mockImplementation(async (...args) => {
+        const page = await read(...args)
+        await sync.pruneChangeBatch({ thresholdSeq: head - 1 }, 100)
+        return page
+      })
+      const b = await processThatExits(a.p.store)
+      expect(pages).toHaveBeenCalledTimes(1)
+      expect(b.p.authority.accessMovesRecordedThrough()).toBe(head)
+      // Recording starts after the tail: the cursor from before cannot be told.
+      expect(await b.p.store.sync.accessMovedAfter(human, before)).toBe(true)
+      expect((await refusedAt(b.p, before)).types()).toEqual(['feedRescope'])
+      expect(b.p.serving.accessMovesTrailingAnswers).toBe(0)
     })
   })
 

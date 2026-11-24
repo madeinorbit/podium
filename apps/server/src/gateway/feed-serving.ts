@@ -62,6 +62,14 @@ const MIN_RESUME_WIRE_VERSION = 2
 export const ACCESS_MOVED_IN_GAP = 'access-moved-in-gap'
 
 /**
+ * POD-7585 — how long a refusal waits for the recorded-through mark to reach
+ * the head before it answers as moved: about one delivery pass, so a refusal
+ * that lands while the pass of the last commit runs is still answered from the
+ * log. Not a wait for every queued pass.
+ */
+export const ACCESS_MOVE_MARK_WAIT_MS = 250
+
+/**
  * POD-7585 (POD-7552 review N1) — at most one warning per this many ms for the
  * refusals answered as moved because the recorded-through mark trailed the
  * head. Each such answer is counted ({@link FeedServing.accessMovesTrailingAnswers}).
@@ -403,8 +411,9 @@ export class FeedServing {
    * log is complete only through the Authority's recorded-through mark. While
    * that mark is below the head (`head`, the one the caller placed the device
    * at, read here when not given), a move may be committed and not yet
-   * recorded, or lost with a process that exited: the server cannot tell, and
-   * answers as moved. Nothing waits.
+   * recorded, or lost with a process that exited. The refusal waits at most
+   * {@link ACCESS_MOVE_MARK_WAIT_MS} for the mark, then cannot tell, and
+   * answers as moved.
    */
   async accessMovedAfter(principal: Principal, seq: number, head?: number): Promise<boolean> {
     const port = this.deps.accessMoves
@@ -412,13 +421,16 @@ export class FeedServing {
     if (port === undefined || human === null) return false
     try {
       const authority = this.deps.authority
-      if (authority.accessMovesRecordedThrough !== undefined) {
-        const through = authority.accessMovesRecordedThrough()
-        const at = head ?? (await authority.cursor())
-        if (through === null || through < at) {
-          this.answeredTrailing(seq, through, at)
-          return true
-        }
+      const at = head ?? (await authority.cursor())
+      // Fail closed: an Authority that cannot say how far its moves are
+      // recorded is one whose log cannot be trusted complete.
+      const through =
+        authority.whenAccessMovesRecordedThrough === undefined
+          ? null
+          : await authority.whenAccessMovesRecordedThrough(at, ACCESS_MOVE_MARK_WAIT_MS)
+      if (through === null || through < at) {
+        this.answeredTrailing(seq, through, at)
+        return true
       }
       return await port.accessMovedAfter(String(human), seq)
     } catch (error) {
