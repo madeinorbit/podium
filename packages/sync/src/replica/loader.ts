@@ -46,6 +46,10 @@ export const LOADER_WINDOW_MS = 50
 /** Most instances one request names (the route's bound, `COLLECTION_FETCH_MAX_INSTANCES`). */
 const MAX_INSTANCES = 200
 
+/** POD-7538 — the first and the longest wait before a stale reload that broke off is sent again. */
+export const STALE_RETRY_MS = 1_000
+export const STALE_RETRY_MAX_MS = 60_000
+
 /** Arms a timer; returns its cancel. Tests pass a manual one. */
 export type LoaderSchedule = (run: () => void, ms: number) => () => void
 
@@ -146,6 +150,9 @@ export class CollectionLoader {
   >('loader.diskRecords')
   private readonly listeners = new SideSet<(change: LoaderChange) => void>('loader.listeners')
   private cancel: (() => void) | null = null
+  /** POD-7538 — the timer of the next stale reload retry, and the wait after it. */
+  private retryCancel: (() => void) | null = null
+  private retryMs = STALE_RETRY_MS
   /** Inside a burst of the Replica's events: what moved, told once when it ends. */
   private burst = 0
   private readonly moved = new SideSet<LoaderChange>('loader.moved')
@@ -447,6 +454,8 @@ export class CollectionLoader {
     this.disposed = true
     this.cancel?.()
     this.cancel = null
+    this.retryCancel?.()
+    this.retryCancel = null
     this.queue.clear()
     this.diskRecords.clear()
     this.listeners.clear()
@@ -488,16 +497,23 @@ export class CollectionLoader {
       for (const request of requests) this.inFlight.delete(instanceKey(request))
     }
     if (this.disposed) return
+    let retry = false
     for (const request of requests) {
       const key = instanceKey(request)
       if (this.replica.isComplete(request) !== undefined) {
         // A stale disk load requests its replacement before this send has
         // left inFlight. Keep that handoff: it was deduplicated while the
         // disk answer landed, and reconnect must still reload it. Only a
-        // disk answer queues here; a failed server reload never spins.
+        // disk answer queues here at once.
         if (fromDevice.has(key) && this.replica.instanceStale?.(request) === true) {
           if (!this.queue.has(key)) this.queue.set(key, { request, priority: 'background' })
           if (this.connected) this.arm()
+        } else if (failed && this.replica.instanceStale?.(request) === true) {
+          // POD-7538: a stale reload that broke off goes again, after a wait
+          // that doubles: a screen never stays refreshing for ever, and a
+          // failing route is never asked in a loop.
+          if (!this.queue.has(key)) this.queue.set(key, { request, priority: 'background' })
+          retry = true
         }
         continue
       }
@@ -507,7 +523,20 @@ export class CollectionLoader {
         if (!this.queue.has(key)) this.queue.set(key, { request, priority: 'background' })
       } else this.refusedKeys.add(key)
     }
+    if (retry) this.retryLater()
+    else if (!failed) this.retryMs = STALE_RETRY_MS
     this.notify('markers')
+  }
+
+  /** POD-7538 — send the queue again after the current wait, then double the wait. */
+  private retryLater(): void {
+    if (this.retryCancel !== null || this.disposed) return
+    const wait = this.retryMs
+    this.retryMs = Math.min(this.retryMs * 2, STALE_RETRY_MAX_MS)
+    this.retryCancel = this.schedule(() => {
+      this.retryCancel = null
+      if (this.queue.size > 0) this.arm()
+    }, wait)
   }
 
   /**

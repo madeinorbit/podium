@@ -602,3 +602,96 @@ describe('a paged instance, a page at a time (POD-7158)', () => {
     expect(second?.total).toBe(25)
   })
 })
+
+describe('what an open view holds through a gap the feed cannot bridge (POD-7538)', () => {
+  /** Disconnect, let the server move past what it retains, and reconnect. */
+  async function gap(d: Device, server: CollectionServer, change: () => void): Promise<void> {
+    d.replica.disconnect()
+    change()
+    server.minAvailableSeq = server.head
+    d.replica.connect()
+    await settle(d)
+  }
+
+  it('a reload of a held instance that broke off is sent again while the device stays live', async () => {
+    const server = new CollectionServer()
+    server.policy = POLICY
+    server.put(ISSUE, 'R', issue('R'))
+    server.put(ISSUE, 'C', issue('C', { stage: 'done', closedReason: 'completed', parentId: 'R' }))
+    const d = device(await inMemoryInstantiation.open(), server)
+    d.replica.connect()
+    await settle(d)
+    const release = d.loader.show(tree('R'))
+    await settle(d)
+    expect(d.replica.isComplete(tree('R'))).toBeDefined()
+    // The tree's first reload after the load fails; the route itself stays up.
+    const collections = server.collections.bind(server)
+    let failures = 0
+    server.collections = (instances) => {
+      if (failures === 0 && instances.some((spec) => spec.collection === 'issueProjection.tree')) {
+        failures += 1
+        return (async function* () {
+          yield* []
+          throw new Error('the route failed')
+        })()
+      }
+      return collections(instances)
+    }
+    d.replica.disconnect()
+    server.put(
+      ISSUE,
+      'C',
+      issue('C', { stage: 'done', closedReason: 'completed', parentId: 'R', title: 'new C' }),
+    )
+    server.minAvailableSeq = server.head
+    d.replica.connect()
+    // The broken answer is reported once, as every failed fetch is.
+    await expect(settle(d)).rejects.toThrow('the route failed')
+    expect(d.replica.posture).toBe('live')
+    expect(d.replica.instanceStale(tree('R'))).toBe(true)
+    await settle(d)
+    // Retried with no reconnect: replaced, current, never left refreshing.
+    expect(failures).toBe(1)
+    expect(d.replica.posture).toBe('live')
+    expect(d.replica.instanceStale(tree('R'))).toBe(false)
+    expect((d.replica.view(ISSUE, 'C') as { title?: string } | undefined)?.title).toBe('new C')
+    release()
+  })
+
+  it('a held paged instance reloads every page the device held, not only the first', async () => {
+    const server = new CollectionServer()
+    server.policy = POLICY
+    server.chunkRows = 50
+    server.pageRows = 10
+    for (let i = 1; i <= 25; i += 1)
+      server.put(ISSUE, `P${i}`, issue(`P${i}`, { stage: 'done', closedReason: 'completed' }))
+    const PAGE: InstanceRequest = {
+      collection: 'issueProjection.byStage',
+      args: { stage: 'done' },
+      part: 'main',
+    }
+    const d = device(await inMemoryInstantiation.open(), server)
+    d.replica.connect()
+    await settle(d)
+    const release = d.loader.show(PAGE)
+    await settle(d)
+    const first = d.replica.isComplete(PAGE)
+    d.loader.request([{ ...PAGE, after: first!.range!.through! }], 'visible')
+    await settle(d)
+    const held = d.replica.isComplete(PAGE)?.range
+    expect(held?.end).toBe(false)
+    const resident = () =>
+      Array.from({ length: 25 }, (_, i) => `P${i + 1}`).filter(
+        (id) => d.replica.view(ISSUE, id) !== undefined,
+      ).length
+    expect(resident()).toBe(20)
+    // While offline, something the board does not show changes.
+    await gap(d, server, () => server.put(ISSUE, 'X', issue('X')))
+    expect(d.replica.posture).toBe('live')
+    expect(d.replica.instanceStale(PAGE)).toBe(false)
+    // The open board stays where it was: both pages, the same range, current.
+    expect(d.replica.isComplete(PAGE)?.range).toEqual(held)
+    expect(resident()).toBe(20)
+    release()
+  })
+})

@@ -1340,6 +1340,16 @@ export class Replica implements DeviceCollectionReads {
       else {
         this.checkKindAdvertisement()
         this.requestMissingComesWith()
+        // POD-7538: a gap whose load never began (every attempt failed before
+        // its first chunk) left the policy's markers stale. The heal bridged
+        // the feed; unless a kind repair is replacing them, a load does.
+        if (
+          this.state === 'live' &&
+          !this.kindReloading &&
+          this.store.readPolicy() !== null &&
+          this.missingPolicyInstances().length > 0
+        )
+          this.rebootstrap('resume')
       }
     })
   }
@@ -1475,16 +1485,20 @@ export class Replica implements DeviceCollectionReads {
   /**
    * POD-7160, POD-7538 — what a gap the feed cannot bridge does to the
    * markers (design POD-7157 "Offline and gaps"). An instance whose members
-   * the device knows keeps its rows and its marker, marked stale: a screen
-   * that shows it keeps showing it, refreshing, and never falls back to
-   * loading. In memory and held by a view, it is reloaded once the load
-   * after the gap is in (`staleWanted`): the replacement installs whole, in
-   * one step, before the old rows leave (`sweepStale`). A policy instance is
-   * replaced by that load itself. Only on disk, a read reloads it.
+   * the device knows keeps its rows and its marker, marked stale, when a
+   * screen shows it (a view holds it) or the policy names it: the screen
+   * keeps showing it, refreshing, and never falls back to loading. Held by a
+   * view, it is reloaded once the load after the gap is in (`staleWanted`):
+   * the replacement installs whole, in one step, before the old rows leave
+   * (`sweepStale`). A policy instance is replaced by that load itself. Only
+   * on disk, a read reloads it.
    *
-   * A rescope is the exception: the viewer's rights changed, so nothing in
-   * memory may go on vouching for what it showed. Its markers go, as do
-   * those of any instance whose members the device does not know. One that
+   * Warm in memory (no view holds it, the policy does not name it), its
+   * marker goes, as before: nobody sees it, and its rows must not outlive the
+   * load's sweep for the readers of a whole kind. A rescope drops every
+   * marker in memory: the viewer's rights changed, so nothing in memory may
+   * go on vouching for what it showed. So do the markers of any instance
+   * whose members the device does not know. One that
    * is being pruned (POD-7186) keeps its marker, stale: it is what holds the
    * members it still has. Dropped here, its members would be held by
    * nothing: loaded into memory at every start, and never pruned.
@@ -1494,6 +1508,7 @@ export class Replica implements DeviceCollectionReads {
     const instances = this.store.readInstances()
     const ops: InstanceOperation[] = []
     const keepInMemory = cause !== 'rescope'
+    const policy = new Set(policyInstances(this.store.readPolicy()).map(instanceKey))
     let dropped = 0
     for (const [key, marker] of instances) {
       const state = disk.instance(key)
@@ -1501,13 +1516,14 @@ export class Replica implements DeviceCollectionReads {
         marker.part === 'main' && state?.indexed === false && disk.membersOf(key).size > 0
       const known = marker.part === 'stub' || state?.indexed === true || beingPruned
       const inMemory = disk.inMemory(key)
-      if (state === undefined || !known || (inMemory && !keepInMemory)) {
+      const held = this.holds.get(key)
+      const shown = held !== undefined || policy.has(key)
+      if (state === undefined || !known || (inMemory && (!keepInMemory || !shown))) {
         ops.push({ kind: 'drop', key })
         dropped += 1
         continue
       }
       if (state.stale !== true) ops.push({ kind: 'stale', key })
-      const held = this.holds.get(key)
       if (inMemory && held !== undefined) this.staleWanted.set(key, held.spec)
     }
     return dropped === instances.size ? [{ kind: 'dropAll' }] : ops
@@ -1827,11 +1843,36 @@ export class Replica implements DeviceCollectionReads {
 
   /**
    * POD-7160, POD-7538 — a row a load after a gap keeps although it did not
-   * confirm it: whole, held only by stale instances, in memory (a screen
-   * shows it) or only on disk. Their reload replaces it.
+   * confirm it: whole and held only by stale instances. Only on disk, any
+   * stale holder keeps it. In memory, only a stale holder that is itself in
+   * memory does (a screen shows it, and its reload replaces the row): after
+   * a rescope no instance in memory is stale, so a row the load refused
+   * leaves memory, even when an instance only on disk still lists it.
    */
   private keptForStale(key: string): boolean {
-    return this.staleOnly(key)
+    const { entity, entityId } = splitRowKey(key)
+    if (this.store.read(entity, entityId) === undefined) return this.staleOnly(key)
+    return this.staleInMemoryHolder(key) && this.staleOnly(key)
+  }
+
+  /** Whether a stale instance in memory holds the record, directly or through what it comes with. */
+  private staleInMemoryHolder(key: string, depth = 0): boolean {
+    const disk = this.store.readDiskIndex()
+    const entry = disk.record(key)
+    if (entry === undefined) return false
+    const markers = this.store.readInstances()
+    for (const holder of entry.holders) {
+      if (isComesWithHolder(holder)) {
+        const record = holder.slice(COMES_WITH_HOLDER.length)
+        if (depth < 4 && this.staleInMemoryHolder(record, depth + 1)) return true
+      } else if (
+        markers.has(holder) &&
+        disk.instance(holder)?.stale === true &&
+        disk.inMemory(holder)
+      )
+        return true
+    }
+    return false
   }
 
   /**
@@ -3466,6 +3507,19 @@ export class Replica implements DeviceCollectionReads {
     if (signal.aborted) throw new Error('the fetch was cut off by a reload')
   }
 
+  /** POD-7538 — the ranges the device holds of paged instances, by key: where a reload of them reaches. */
+  private heldRanges(requests: readonly InstanceRequest[]): ReadonlyMap<string, InstanceRange> {
+    const markers = this.store.readInstances()
+    const ranges = new Map<string, InstanceRange>()
+    for (const request of requests) {
+      if (request.after !== undefined) continue
+      const key = instanceKey(request)
+      const range = markers.get(key)?.range
+      if (range !== undefined) ranges.set(key, range)
+    }
+    return ranges
+  }
+
   private async fetchInstances(
     requests: readonly InstanceRequest[],
     reload?: KindReload,
@@ -3483,6 +3537,10 @@ export class Replica implements DeviceCollectionReads {
     const fresh = requests.filter((request) => !this.inFlight.has(instanceKey(request)))
     if (fresh.length === 0) return []
     for (const request of fresh) this.inFlight.set(instanceKey(request), request)
+    // POD-7538: a stale reload of a paged instance (a board) follows its pages
+    // to where the device held it, or its sweep would release every page but
+    // the first and the open screen would jump back to the top.
+    const ranges = reload?.ranges ?? (stale === undefined ? undefined : this.heldRanges(fresh))
     this.inFlightVersion += 1
     this.seen ??= new SideMap('replica.seen')
     this.fetchCount += 1
@@ -3607,10 +3665,10 @@ export class Replica implements DeviceCollectionReads {
               if (!insideLoad)
                 for (const change of chunk.changes)
                   named.set(entityKey(change.entity, change.entityId), change)
-              if (reload !== undefined)
+              if (ranges !== undefined)
                 for (const marker of chunk.complete ?? []) {
                   const key = instanceKey(marker)
-                  const range = reload.ranges.get(key)
+                  const range = ranges.get(key)
                   const collection = COLLECTIONS.get(marker.collection)
                   if (
                     range === undefined ||
@@ -3622,7 +3680,7 @@ export class Replica implements DeviceCollectionReads {
                   const after = marker.range.through
                   const next = `${key}|${JSON.stringify(after)}`
                   if (after === undefined || followedPages.has(next))
-                    throw new Error('kind reload page did not advance')
+                    throw new Error('reload page did not advance')
                   followedPages.add(next)
                   const { collection: id, part, args, via } = marker
                   fresh.push({
@@ -4250,12 +4308,15 @@ export class Replica implements DeviceCollectionReads {
     const previous = this.state
     this.state = next
     // POD-7160: stale instances read while the device could not reload them.
+    // POD-7538: through the loader when there is one, whose queue retries a
+    // reload that broke off while the device stays live.
     if (next === 'live' && this.staleWanted.size > 0)
       queueMicrotask(() => {
         if (this.state !== 'live' || this.staleWanted.size === 0) return
         const wanted = [...this.staleWanted.values()]
         this.staleWanted.clear()
-        void this.reloadStale(wanted).catch(() => undefined)
+        if (this.requestHook !== undefined) this.requestHook(wanted)
+        else void this.reloadStale(wanted).catch(() => undefined)
       })
     // A row's `to` is the posture its effect settles on, so seal here rather than
     // making callers remember. A row that changes no posture keeps to === from,

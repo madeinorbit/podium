@@ -558,7 +558,6 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
           expect(cache.read(SESSION, 'S2')).toBeDefined()
           replica.disconnect()
           server.put(ISSUE, 'A3', issue('A3', { stage: 'planning' }))
-          server.drop(ISSUE, 'A2')
           server.minAvailableSeq = server.head
           const before = loadsInstalled(events)
           const release = commits.hold()
@@ -566,9 +565,8 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
           await until(() => loadsInstalled(events) > before)
           expect(loadsInstalled(events)).toBeGreaterThan(before)
           expect(replica.posture).toBe('bootstrapping')
-          // POD-7538: the reload keeps the tree's marker, stale; its rows stay readable.
-          expect(markedStale(cache, tree('A1'))).toBe(true)
-          expect(markedStale(cache, ONE_S2)).toBe(true)
+          // The reload withdrew the tree's marker; its rows stay readable.
+          expect(marked(cache, tree('A1'))).toBe(false)
           return { ...booted, release }
         }
 
@@ -626,19 +624,9 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
             expect(cache.read(SESSION, 'S9')).toBeDefined()
             expect(cache.read(ISSUE, 'D1')).toBeDefined()
             expect(marked(cache, tree('A1'))).toBe(true)
-            expect(markedStale(cache, tree('A1'))).toBe(false)
-            // Nothing names A2 any more: swept. S2 stays for its one-record
-            // instance, stale, until a read reloads it (POD-7160, POD-7538).
-            expect(cache.readRow(ISSUE, 'A2')).toBeUndefined()
+            // The reload no longer holds S2 and no fetch named it: swept.
+            expect(cache.readRow(SESSION, 'S2')).toBeUndefined()
             expect(cache.read(ISSUE, 'A3')).toBeDefined()
-            expect(markedStale(cache, ONE_S2)).toBe(true)
-            expect(cache.read(SESSION, 'S2')).toBeDefined()
-            await replica.load([ONE_S2])
-            await replica.settled()
-            await ticks()
-            await replica.settled()
-            expect(markedStale(cache, ONE_S2)).toBe(false)
-            expect(cache.read(SESSION, 'S2')).toBeDefined()
             expectMarkersTrue(cache, server)
           } finally {
             release()
@@ -658,10 +646,7 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
           const second = await boot(instantiation, server, storage)
           expect(second.replica.posture).toBe('live')
           expect(second.cache.readLoadingSince()).toBeNull()
-          expect(second.cache.readRow(ISSUE, 'A2')).toBeUndefined()
-          // S2's one-record instance is still on the device, stale: kept for its reload.
-          expect(markedStale(second.cache, ONE_S2)).toBe(true)
-          expect(second.cache.readDiskIndex().record(keyOf(SESSION, 'S2'))?.level).toBe('main')
+          expect(second.cache.readRow(SESSION, 'S2')).toBeUndefined()
           expect(second.cache.read(ISSUE, 'A3')).toBeDefined()
           if (marked(second.cache, tree('A1'))) {
             expect(second.cache.read(ISSUE, 'D1')).toBeDefined()
@@ -2941,6 +2926,145 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         expectMarkersTrue(cache, server)
         expectIndexTrue(cache, server, 'after the held reload')
         release()
+      })
+
+      it('a held instance in memory the viewer lost during the gap: reloaded right after the load, refused, and gone from memory and disk', async () => {
+        const server = world()
+        const { cache, replica, events } = await boot(instantiation, server)
+        const release = replica.hold(tree('A1'))
+        await replica.load([tree('A1')])
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        const key = instanceKey(tree('A1'))
+        replica.disconnect()
+        server.put(ISSUE, 'A3', issue('A3', { stage: 'planning' }))
+        server.minAvailableSeq = server.head
+        // While offline the viewer lost the tree: its answer comes back without it.
+        const original = server.collections.bind(server)
+        const asked: string[] = []
+        server.collections = (instances) => {
+          asked.push(...instances.map((spec) => instanceKey(spec)))
+          return (async function* () {
+            for await (const chunk of original(instances))
+              yield {
+                ...chunk,
+                changes: chunk.changes.filter(
+                  (change) => !(change.entity === ISSUE && ['D1', 'D3'].includes(change.entityId)),
+                ),
+                complete: (chunk.complete ?? []).filter((marker) => instanceKey(marker) !== key),
+              }
+          })()
+        }
+        const told = events.length
+        replica.connect()
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        // Asked again right after the load, with no read: refused, it leaves.
+        expect(replica.posture).toBe('live')
+        expect(asked).toContain(key)
+        expect(cache.readInstances().has(key)).toBe(false)
+        expect(replica.isComplete(tree('A1'))).toBeUndefined()
+        expect(replica.instanceStale(tree('A1'))).toBe(false)
+        // Its rows nothing else holds left memory; an issue keeps its stub.
+        for (const id of ['D1', 'D3']) {
+          expect(cache.read(ISSUE, id), id).toBeUndefined()
+          expect(cache.readDiskIndex().record(keyOf(ISSUE, id))?.level, id).not.toBe('main')
+        }
+        expect(
+          events.slice(told).some((event) => event.type === 'released' && event.entityId === 'D3'),
+        ).toBe(true)
+        release()
+      })
+
+      it('a gap drops the marker of a warm instance in memory, as before: the load sweeps a row only it held that the server deleted', async () => {
+        const server = world()
+        const { cache, replica } = await boot(instantiation, server)
+        // Read and let go: in memory, warm, no view holds it.
+        await replica.load([tree('A1')])
+        await replica.settled()
+        expect(cache.read(ISSUE, 'D3')).toBeDefined()
+        replica.disconnect()
+        server.drop(ISSUE, 'D3')
+        server.minAvailableSeq = server.head
+        replica.connect()
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        expect(replica.posture).toBe('live')
+        expect(marked(cache, tree('A1'))).toBe(false)
+        expect(cache.readRow(ISSUE, 'D3')).toBeUndefined()
+        expect(cache.readDiskIndex().record(keyOf(ISSUE, 'D3'))).toBeUndefined()
+        expectMarkersTrue(cache, server)
+      })
+
+      it('a rescope sweeps a row in memory that only an instance on disk still lists: it leaves memory and disk', async () => {
+        const server = new CollectionServer()
+        seedWorld(server)
+        server.answerComesWith = true
+        server.put(SESSION, 'S3', session('S3', { issueId: 'D2', status: 'hibernated' }))
+        const { cache, replica } = await boot(instantiation, server)
+        // D2's tree lists S3, then leaves memory: on disk only.
+        await replica.load([tree('D2')])
+        await replica.settled()
+        await replica.unload(instanceKey(tree('D2')))
+        expect(replica.isUnloaded(SESSION, 'S3')).toBe(true)
+        // A view looks S3 up: whole in memory again, through its one-record instance.
+        const one: InstanceSpec = { collection: 'session.one', args: { id: 'S3' }, part: 'main' }
+        const release = replica.hold(one)
+        await replica.load([one])
+        await replica.settled()
+        expect(cache.read(SESSION, 'S3')).toBeDefined()
+        // The viewer loses S3, and the server rescopes.
+        server.drop(SESSION, 'S3', 'evict')
+        await replica.receive({ kind: 'rescope', feedId: server.feedId, epoch: server.epoch })
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        // The disk-only tree stays, stale, for its reload; S3 does not stay in memory.
+        expect(replica.instanceStale(tree('D2'))).toBe(true)
+        expect(cache.read(SESSION, 'S3')).toBeUndefined()
+        expect(cache.readDiskIndex().record(keyOf(SESSION, 'S3'))).toBeUndefined()
+        release()
+      })
+
+      it('a heal after a load that never began replaces the stale policy markers', async () => {
+        const server = world()
+        const { cache, replica, events } = await boot(instantiation, server)
+        const bootstrap = server.bootstrap.bind(server)
+        server.bootstrap = () =>
+          (async function* () {
+            yield* []
+            throw new Error('the server is restarting')
+          })()
+        replica.requestRebootstrap()
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        // Every attempt failed before its first chunk: the old cursor, the markers stale.
+        expect(events.some((event) => event.type === 'bootstrap-failed')).toBe(true)
+        expect(replica.posture).toBe('stale')
+        expect(cache.readLoadingSince()).toBeNull()
+        for (const spec of [LIVE, SIDEBAR, STUBS]) expect(markedStale(cache, spec)).toBe(true)
+        // The server is back and the cursor is still in its retention: a heal.
+        server.bootstrap = bootstrap
+        server.put(ISSUE, 'A3', issue('A3', { stage: 'planning' }))
+        replica.connect()
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        await ticks()
+        await replica.settled()
+        expect(replica.posture).toBe('live')
+        for (const spec of [LIVE, SIDEBAR, STUBS]) {
+          expect(marked(cache, spec)).toBe(true)
+          expect(markedStale(cache, spec)).toBe(false)
+        }
+        expect(cache.read(ISSUE, 'A3')).toBeDefined()
+        expectMarkersTrue(cache, server)
       })
 
       it('a rescope withdraws a held instance in memory: nothing vouches for what the viewer may no longer see', async () => {
