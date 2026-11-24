@@ -2398,9 +2398,10 @@ describe('SessionRegistry', () => {
       const reported = await meta()
       expect(reported?.launchPosture).toEqual(report)
       expect(reported?.driverFamily).toBe('terminal')
-      expect(postureNotices(reported as SessionMeta)).toEqual([
-        'Pi cannot run in the chosen mode here: Pi has no approval gate, so it cannot ask first',
-      ])
+      // Client-core owns the notice wording; this pins the server's reported inputs.
+      expect(postureNotices(reported as SessionMeta)).toEqual(
+        postureNotices({ agentKind: 'pi', launchPosture: report }),
+      )
 
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachine!.id, decision)
       expect((await meta())?.launchPosture).toBeUndefined()
