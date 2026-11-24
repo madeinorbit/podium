@@ -151,7 +151,11 @@ it('reads only the record fields of a checkpoint, scoped as the full read (POD-7
         lastResumedAt: null,
         spawnedBy: null,
       } as never)
-      await store.observationCheckpoints.advanceGeneration(id, 'codex', `thread-${id}`)
+      await store.observationCheckpoints.advanceGeneration(
+        id,
+        'codex',
+        id === threadLess ? null : `thread-${id}`,
+      )
     }
     const checkpointOf = (
       id: string,

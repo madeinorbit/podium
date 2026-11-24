@@ -223,6 +223,7 @@ export const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = 
   ['apps/server/src/store/sessions.ts:offersOfIds', SIZES],
   ['apps/server/src/store/sessions.ts:draftTimesOfIds', SIZES],
   ['apps/server/src/store/observation-checkpoints.ts:checkpointedLeasesOfIds', SIZES],
+  ['apps/server/src/store/observation-checkpoints.ts:checkpointRecordFactsOfIds', SIZES],
   ['apps/server/src/store/observation-checkpoints.ts:leasesOfIds', SIZES],
   ['apps/server/src/store/observation-checkpoints.ts:terminalCandidatesOfIds', SIZES],
   ['apps/server/src/store/messages.ts:pendingForSessionsProof', SIZES],
