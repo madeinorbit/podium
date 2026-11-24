@@ -223,7 +223,7 @@ describe('MU-08: real raw-git and file routes resolve the actor and the checkout
     'write',
     'list',
     'search',
-  ] as const)('pins the default target through %s authorization and dispatch', async (route) => {
+  ] as const)('pins the resolved target through %s authorization and dispatch', async (route) => {
     const bob = (await f.as('bob')).trpc
     const machines = registry().modules.machines
     let selected = f.machines.bob
@@ -234,15 +234,19 @@ describe('MU-08: real raw-git and file routes resolve the actor and the checkout
       .spyOn(machines, 'resolveMachine')
       .mockImplementation(async (requested) => (requested ? asMachineId(requested) : selected))
     const repos = registry().sessionStore.repos
+    const usesDefault = route === 'git' || route === 'search'
+    const root = usesDefault ? `${REPO_PATH}/mu08-pin-${route}` : `/mu08-pin-${route}`
+    // File roots resolve from their sole reporting machine, independently of
+    // the default. Git and search still use the default on the shared root.
+    if (!usesDefault) await repos.addRepo(root, f.machines.bob)
     const list = repos.listRepos.bind(repos)
     vi.spyOn(repos, 'listRepos').mockImplementation(async (machineId) => {
       const roots = await list(machineId)
-      // Both hosts register /repo. The default changes after the authorized
-      // root was read, before the broker resolves an omitted dispatch target.
+      // Change the default after reading the root, before dispatch. Resolving
+      // an omitted machine again would send Bob's request to Alice instead.
       selected = f.machines.alice
       return roots
     })
-    const root = `${REPO_PATH}/mu08-pin-${route}`
     const requests = () =>
       [f.machines.alice, f.machines.bob].flatMap((machineId) =>
         f
@@ -294,10 +298,41 @@ describe('MU-08: real raw-git and file routes resolve the actor and the checkout
     // File reads are answered by the fixture's normal daemon handler.
     await pending
     expect(request.machineId).toBe(f.machines.bob)
-    expect(
-      route === 'git' || route === 'search' ? repoMachine : defaultMachine,
-    ).toHaveBeenCalledTimes(1)
+    expect(selected).toBe(f.machines.alice)
+    expect(repoMachine).toHaveBeenCalledTimes(usesDefault ? 1 : 0)
+    expect(defaultMachine).not.toHaveBeenCalled()
     expect(requests().filter((item) => item.machineId === f.machines.alice)).toEqual([])
+  })
+
+  it.each([
+    'read',
+    'write',
+    'list',
+  ] as const)('refuses an ambiguous root through %s without dispatching', async (route) => {
+    const bob = (await f.as('bob')).trpc
+    const defaultMachine = vi
+      .spyOn(registry().modules.machines, 'defaultMachine')
+      .mockResolvedValue(f.machines.bob)
+    const before = [f.machines.alice, f.machines.bob].map(
+      (machineId) => f.daemonFrames(machineId).length,
+    )
+    // Both machines register /repo. Owning the current default does not
+    // disambiguate the repository, and must not send a request to either host.
+    const root = REPO_PATH
+    const pending =
+      route === 'read'
+        ? bob.files.read.query({ root, path: `${root}/private.txt` })
+        : route === 'write'
+          ? bob.files.write.mutate({ root, path: `${root}/private.txt`, content: 'owner-only' })
+          : bob.files.list.query({ root })
+    await expect(pending).rejects.toMatchObject({
+      message: 'repository root is registered on several machines; specify machineId',
+      data: { code: 'BAD_REQUEST' },
+    })
+    expect(defaultMachine).not.toHaveBeenCalled()
+    expect(
+      [f.machines.alice, f.machines.bob].map((machineId) => f.daemonFrames(machineId).length),
+    ).toEqual(before)
   })
 
   it('keeps the path index on its resolved machine when two checkouts have the same root', async () => {

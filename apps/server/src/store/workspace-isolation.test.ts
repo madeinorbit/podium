@@ -66,7 +66,11 @@ function asSlice<T>(store: SessionStore): T {
 // ---- the inventory ------------------------------------------------------------------------
 
 /** Fields of a store that are no repository of a workspace's rows. */
-const NOT_REPOSITORIES = new Set(['database'])
+const NOT_REPOSITORIES = new Set([
+  'database',
+  // An in-memory invalidation signal, covered by workspace-caches.test.ts.
+  'tableWrites',
+])
 
 /**
  * Repositories whose rows are the INSTALL's, not a workspace's (design 2.1: `install` tables

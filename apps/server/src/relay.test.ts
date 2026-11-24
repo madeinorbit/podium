@@ -4185,7 +4185,10 @@ describe('hibernation', () => {
    * up, and the deferred sample acts once it ends.
    */
   it('defers daemon inventory and idle-pressure writes across the transfer fence', async () => {
-    vi.useFakeTimers()
+    // Store shutdown drains workspace wake-ups on setImmediate; keep host turns real.
+    vi.useFakeTimers({
+      toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
+    })
     vi.setSystemTime(new Date('2026-08-18T00:00:00.000Z'))
     const store = await SessionStore.open(':memory:', { id: TEST_MACHINE })
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
@@ -6148,7 +6151,10 @@ describe('reconnect identity (hello reclaim)', () => {
     })
 
     it('clears the persisted draft immediately when the composer empties (send)', async () => {
-      vi.useFakeTimers()
+      // Store shutdown drains workspace wake-ups on setImmediate; keep host turns real.
+      vi.useFakeTimers({
+        toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
+      })
       try {
         const store = await openTestStore(':memory:', TEST_MACHINE)
         const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
