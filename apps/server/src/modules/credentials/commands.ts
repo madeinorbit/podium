@@ -442,7 +442,7 @@ export const CREDENTIAL_COMMANDS_TRPC = {
           credentialId: record.id,
           detail: `${input.verb ?? 'use and manage'} from ${grantee}`,
         })
-        // A session that ran on the grant stops at its next turn boundary (POD-7591).
+        // A session that ran on the grant stops at once, its turn cut (POD-7591).
         await state.health.afterWithdraw(record)
       }
       return { ok: true as const, removed }
@@ -482,7 +482,8 @@ export const CREDENTIAL_COMMANDS_TRPC = {
         machineId: input.machineId as MachineId,
         detail: 'no longer allowed on machine',
       })
-      // A session running on it there stops at its next turn boundary (POD-7591).
+      // A session running on it there stops at its next turn boundary (POD-7591):
+      // a machine withdrawn is `machine-not-allowed`, not a taken-back grant.
       await state.health.afterWithdraw(record)
       return { ok: true as const }
     }) satisfies CredentialHandler<In<'disallowMachine'>, unknown>,

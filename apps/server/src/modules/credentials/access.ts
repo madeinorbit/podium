@@ -68,19 +68,20 @@ export const DEFAULT_HOME_ID = 'default'
 /**
  * THE REFUSALS THAT WITHDRAW A RUNNING SESSION'S RIGHT TO ITS CREDENTIAL
  * (POD-7591). Judged again for a process that already holds the secret (a
- * refresh, or a grant that ended), one of these stops it (at once or at its
- * next turn boundary, {@link STOPS_AT_ONCE}): the credential is gone, its grant or
- * its machine was withdrawn, or the session may not run on it. The others are
- * delivery conditions, not withdrawals: `needs-attention` (renewal restarts the
- * session), `daemon-too-old`, `connection-not-encrypted` and `machine-offline`
- * leave the running process alone.
+ * refresh, or a grant that ended), one of these stops it: at once when the
+ * credential is gone or its grant was taken back ({@link STOPS_AT_ONCE}), at its
+ * next turn boundary when its machine was withdrawn or the session may not run
+ * on it. The others are delivery conditions, not withdrawals, and leave the
+ * running process alone: `needs-attention` (renewal restarts the session),
+ * `not-on-this-machine` (read from the machine's reported logins, which a late or
+ * expired report changes, for a home login Podium put no secret into: review
+ * F4), `daemon-too-old`, `connection-not-encrypted` and `machine-offline`.
  */
 export const WITHDRAWS_ACCESS: ReadonlySet<AccessRefusal> = new Set<AccessRefusal>([
   'not-found',
   'revoked',
   'not-yours',
   'machine-not-allowed',
-  'not-on-this-machine',
   'wrong-type',
   'own-credential-required',
 ])
@@ -89,9 +90,8 @@ export const WITHDRAWS_ACCESS: ReadonlySet<AccessRefusal> = new Set<AccessRefusa
  * The withdrawals that stop a running session AT ONCE, cutting its turn
  * (POD-7591, coordinator decision): the credential is gone or someone took the
  * grant back on purpose, and a turn can run for an hour. The transcript and the
- * worktree survive; only the turn in flight is lost. The other withdrawals (a
- * machine or a home taken back, a type or custody rule) stop it at its next turn
- * boundary.
+ * worktree survive; only the turn in flight is lost. The other withdrawals (the
+ * machine taken back, a type or custody rule) stop it at its next turn boundary.
  */
 export const STOPS_AT_ONCE: ReadonlySet<AccessRefusal> = new Set<AccessRefusal>([
   'revoked',

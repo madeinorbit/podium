@@ -54,7 +54,7 @@ export interface SessionAuthzStorePort {
 
 export interface SessionAuthzPorts {
   clientControl: import('./client-control').SessionClientControl
-  deps: Pick<SessionLifecycleDeps, 'issueAccess' | 'authorizeQueuedMessage' | 'credentialInputHold'>
+  deps: Pick<SessionLifecycleDeps, 'issueAccess' | 'authorizeQueuedMessage'>
   sessionById: SessionAccessDeps['sessionById']
   machines: import('../../machine-access').AsyncMachineRowSource
   /** Complete session registry, including parked sessions; the same map the
@@ -80,10 +80,6 @@ export class SessionAuthz {
     const target = await this.ports.records.ownershipOf(input.sessionId, 'queuedInputAtApply')
     const ownership = await this.sessionOwner(input.sessionId)
     if (!target || !ownership) return refused
-    // A session whose credential was withdrawn or removed stops at its turn
-    // boundary (POD-7591); until then no input reaches it, whoever sent it.
-    const held = this.ports.deps.credentialInputHold?.(input.sessionId)
-    if (held) return { ok: false, reason: held }
 
     if (input.sourceMessageId) {
       const authorization: Promise<import('./inbox').InboxAuthorizationDecision> | undefined =

@@ -2157,7 +2157,12 @@ export class SessionRegistry {
     let issueSessionToken: AttachAccessDeps['issueToken'] | undefined
     // Credential health, for what a refused refresh does to a running session
     // and for the input hold while its stop waits (POD-7591). Late-bound too.
-    let credentialStops: Pick<CredentialHealth, 'accessWithdrawn' | 'holdsInput'> | undefined
+    let credentialStops:
+      | Pick<
+          CredentialHealth,
+          'accessWithdrawn' | 'holdsInput' | 'hold' | 'holdFor' | 'releaseHold'
+        >
+      | undefined
     const issueUploads = new LifecyclePort<
       Pick<IssueService['crud'], 'chatUploadBytes' | 'chatUploadOwner'>
     >('session issue uploads')
@@ -2183,10 +2188,13 @@ export class SessionRegistry {
       credentialAccessRefused: async (sessionId, credentialId, refusal) => {
         await credentialStops?.accessWithdrawn(sessionId, credentialId, refusal)
       },
-      credentialInputHold: (sessionId) =>
-        credentialStops?.holdsInput(sessionId)
-          ? 'This session may no longer use its credential and is being stopped.'
-          : undefined,
+      credentialHoldOnRefusal: (sessionId, credentialId, refusal) =>
+        credentialStops?.holdFor(sessionId, credentialId, refusal),
+      credentialHold: (sessionId, credentialId) => credentialStops?.hold(sessionId, credentialId),
+      credentialReleaseHold: (sessionId, credentialId) =>
+        credentialStops?.releaseHold(sessionId, credentialId),
+      credentialInputHeld: (sessionId, credentialId) =>
+        credentialStops?.holdsInput(sessionId, credentialId) ?? false,
       handOffQueuedMessage: async (writer, messageId, sessionId) =>
         (await queuedApplyHooks.handingOn?.(writer, messageId, sessionId)) ?? true,
       recordSpawnPrompt: async (writer, input) => {

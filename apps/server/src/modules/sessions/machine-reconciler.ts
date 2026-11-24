@@ -152,10 +152,28 @@ export interface MachineReconcilerPorts {
   /**
    * A bound process's credential was refused when judged again (POD-7591). The
    * composition root hands it to credential health, which flags and stops a
-   * session whose right was withdrawn at its next turn boundary. Called after
-   * the bind committed, so the session reads live; never for a launch's bind.
+   * session whose right was withdrawn, at once or at its next turn boundary.
+   * Called after the bind committed, so the session reads live; never for a
+   * launch's bind.
    */
   accessRefused?(session: Session, refused: RefreshRefused): Promise<void>
+  /**
+   * A probe's refresh was refused and its reattach goes out: hold the session's
+   * input now, before its bind makes it live (review F3). Synchronous, so the
+   * hold exists before the reattach is sent.
+   */
+  holdOnRefusal?(session: Session, refused: RefreshRefused): void
+  /**
+   * Hold the session's input while its owed refresh is judged at the bind
+   * (review F3): the row is already live, and the resolve awaits.
+   */
+  holdWhileJudged?(session: Session): void
+  /**
+   * Release a hold set above for `credentialId` (null: nothing to release),
+   * unless a stop for that credential now waits: a refusal dropped without being
+   * acted on, or a judgement that ended without a withdrawal.
+   */
+  releaseRefusalHold?(sessionId: Session['sessionId'], credentialId: CredentialId | null): void
   /**
    * This machine's sessions that do not run, parked ones read from the
    * database (POD-6160 D2g): what the attach probe and the census look at.
@@ -446,8 +464,14 @@ export class SessionMachineReconciler {
     const refused = this.refusedOnBind.get(sessionId)
     if (refused && refused.machineId === machineId) {
       this.refusedOnBind.delete(sessionId)
-      if (statusBeforeBind !== refused.status) return
-      if (session.machineId !== machineId || session.archived) return
+      if (
+        statusBeforeBind !== refused.status ||
+        session.machineId !== machineId ||
+        session.archived
+      ) {
+        this.ports.releaseRefusalHold?.(sessionId, refused.refused.credentialId)
+        return
+      }
       await this.handOnRefusal(session, refused.refused)
       return
     }
@@ -461,6 +485,7 @@ export class SessionMachineReconciler {
     // can arrive together. The first resolves and sends; the second sends nothing.
     if (this.owedInFlight.has(sessionId)) return
     this.owedInFlight.add(sessionId)
+    this.ports.holdWhileJudged?.(session)
     try {
       const refresh = await this.ports.accessRefresh?.(session, machineId)
       if (isRefreshRefused(refresh)) {
@@ -486,6 +511,7 @@ export class SessionMachineReconciler {
       })
     } finally {
       this.owedInFlight.delete(sessionId)
+      this.ports.releaseRefusalHold?.(sessionId, session.credentialId ?? null)
     }
   }
 
@@ -508,7 +534,9 @@ export class SessionMachineReconciler {
       if (owedOn === machineId) this.refreshOnBind.delete(sessionId)
     }
     for (const [sessionId, refused] of this.refusedOnBind) {
-      if (refused.machineId === machineId) this.refusedOnBind.delete(sessionId)
+      if (refused.machineId !== machineId) continue
+      this.refusedOnBind.delete(sessionId)
+      this.ports.releaseRefusalHold?.(sessionId, refused.refused.credentialId)
     }
   }
 
@@ -586,6 +614,7 @@ export class SessionMachineReconciler {
           // refusal is acted on at that bind (POD-7591). A dead process answers
           // reattachFailed and holds nothing.
           this.refusedOnBind.set(s.sessionId, { machineId, refused: refresh, status: s.status })
+          this.ports.holdOnRefusal?.(s, refresh)
         } else if (refresh) {
           // The access's link is judged at the send, which reads the settings;
           // the reattach follows only a refresh that went out, for a session
@@ -749,6 +778,7 @@ export class SessionMachineReconciler {
         refused: refresh,
         status: session.status,
       })
+      this.ports.holdOnRefusal?.(session, refresh)
     } else if (refresh) {
       // Judged at the send, as in the probe above.
       await this.ports.toMachine(machineId, refresh)

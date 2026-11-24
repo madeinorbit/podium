@@ -359,11 +359,14 @@ export class CredentialHealth {
   /** Restarts and stops waiting for a session's next turn boundary. */
   private readonly pending = new Map<SessionId, PendingAction>()
   /**
-   * Sessions that take no input until their credential stop has run (POD-7591):
-   * from the flag until the stop succeeds or the session is found not running.
-   * Kept through a failed stop, which is tried again at the next turn boundary.
+   * Sessions that take no input until their credential stop has run (POD-7591),
+   * keyed by the credential that was withdrawn: a session that moved to another
+   * credential takes input again (review F1). Set before any await (review F3),
+   * already when a reattach probe's refresh was refused; cleared when the stop
+   * succeeds, when the session is found not running (a stop whose kill was not
+   * confirmed still parked the row), or when a refusal at the probe is dropped.
    */
-  private readonly holding = new Set<SessionId>()
+  private readonly holding = new Map<SessionId, CredentialId>()
 
   constructor(deps: CredentialHealthDeps) {
     this.store = deps.store
@@ -557,6 +560,8 @@ export class CredentialHealth {
     refusal: AccessRefusal,
   ): Promise<void> {
     if (!WITHDRAWS_ACCESS.has(refusal)) return
+    // Held before the label is read (review F3).
+    this.holding.set(sessionId, credentialId)
     const record = await this.store.credentials.get(credentialId)
     await this.flagAndStop(
       sessionId,
@@ -609,7 +614,11 @@ export class CredentialHealth {
    */
   async onTurnBoundary(sessionId: SessionId, credentialId: CredentialId | null): Promise<void> {
     const action = this.pending.get(sessionId)
-    if (action) {
+    if (action?.kind === 'stop' && action.credential.id !== credentialId) {
+      // The session moved to another credential: that stop is not its own any
+      // more, and a revival never inherits it (review F1).
+      this.dropStop(sessionId, action.credential.id)
+    } else if (action) {
       await this.run(sessionId, action)
       return
     }
@@ -639,11 +648,40 @@ export class CredentialHealth {
 
   /**
    * Whether the session must take no input: its credential was withdrawn or
-   * removed and its stop has not run yet (POD-7591). The inbox refuses queued
-   * input to it at drain.
+   * removed and its stop has not run yet (POD-7591). The inbox keeps its queued
+   * rows queued (review F6).
    */
-  holdsInput(sessionId: SessionId): boolean {
-    return this.holding.has(sessionId)
+  holdsInput(sessionId: SessionId, credentialId: CredentialId | null): boolean {
+    return credentialId !== null && this.holding.get(sessionId) === credentialId
+  }
+
+  /**
+   * A reattach probe's refresh was refused and its reattach went out (POD-7591,
+   * review F3): hold the session's input now, so nothing starts a turn between
+   * its bind going live and the refusal being acted on.
+   */
+  holdFor(sessionId: SessionId, credentialId: CredentialId, refusal: AccessRefusal): void {
+    if (WITHDRAWS_ACCESS.has(refusal)) this.hold(sessionId, credentialId)
+  }
+
+  /** Hold the session's input while its credential is judged again (review F3). */
+  hold(sessionId: SessionId, credentialId: CredentialId): void {
+    this.holding.set(sessionId, credentialId)
+  }
+
+  /** A hold above ended without a withdrawal (a dropped refusal, a judgement that passed): release it, not a stop's. */
+  releaseHold(sessionId: SessionId, credentialId: CredentialId): void {
+    const action = this.pending.get(sessionId)
+    if (action?.kind === 'stop' && action.credential.id === credentialId) return
+    if (this.holding.get(sessionId) === credentialId) this.holding.delete(sessionId)
+  }
+
+  private dropStop(sessionId: SessionId, credentialId: CredentialId): void {
+    const action = this.pending.get(sessionId)
+    if (action?.kind === 'stop' && action.credential.id === credentialId) {
+      this.pending.delete(sessionId)
+    }
+    if (this.holding.get(sessionId) === credentialId) this.holding.delete(sessionId)
   }
 
   private async flagAndStop(
@@ -652,29 +690,38 @@ export class CredentialHealth {
     refusal: AccessRefusal,
   ): Promise<void> {
     const now = STOPS_AT_ONCE.has(refusal)
-    try {
-      await this.sessions.flagWithdrawn(
-        sessionId,
-        { id: credential.id, label: credential.label },
-        refusal,
-        now ? 'now' : 'at-turn-end',
-      )
-    } catch (err) {
-      log.warn('could not flag a session on a withdrawn credential', { err, sessionId })
-    }
+    const waiting = this.pending.get(sessionId)
+    // Flagged once per session and credential (review F8): a reconnect that is
+    // refused again while the stop waits raises no second flag.
+    const repeat = waiting?.kind === 'stop' && waiting.credential.id === credential.id
+    // Held before any await (review F3).
     this.pending.set(sessionId, { kind: 'stop', credential: { id: credential.id } })
-    this.holding.add(sessionId)
-    if (!now) {
-      await this.actIfBetweenTurns(sessionId)
+    this.holding.set(sessionId, credential.id)
+    const standing = await this.sessions.standing(sessionId)
+    if (standing === 'not-running') {
+      // Parked: nothing holds the secret, and its next revival is judged. No
+      // flag that would tell it a turn was cut (review F8).
+      this.dropStop(sessionId, credential.id)
       return
     }
-    // Removed, or the grant taken back: the turn in flight is cut (POD-7591).
-    if ((await this.sessions.standing(sessionId)) === 'not-running') {
-      this.pending.delete(sessionId)
-      this.holding.delete(sessionId)
+    if (!repeat) {
+      try {
+        await this.sessions.flagWithdrawn(
+          sessionId,
+          { id: credential.id, label: credential.label },
+          refusal,
+          now ? 'now' : 'at-turn-end',
+        )
+      } catch (err) {
+        log.warn('could not flag a session on a withdrawn credential', { err, sessionId })
+      }
+    }
+    if (now) {
+      // Removed, or the grant taken back: the turn in flight is cut (POD-7591).
+      await this.run(sessionId, { kind: 'stop', credential: { id: credential.id } })
       return
     }
-    await this.run(sessionId, { kind: 'stop', credential: { id: credential.id } })
+    await this.actIfBetweenTurns(sessionId)
   }
 
   private async actIfBetweenTurns(sessionId: SessionId): Promise<void> {
@@ -685,7 +732,7 @@ export class CredentialHealth {
     if (standing === 'not-running') {
       // Nothing holds the old secret; the next revival resolves afresh.
       this.pending.delete(sessionId)
-      this.holding.delete(sessionId)
+      if (action.kind === 'stop') this.dropStop(sessionId, action.credential.id)
       return
     }
     await this.run(sessionId, action)
@@ -696,11 +743,19 @@ export class CredentialHealth {
     if (action.kind === 'stop') {
       try {
         await this.sessions.stop(sessionId)
-        this.holding.delete(sessionId)
+        this.dropStop(sessionId, action.credential.id)
       } catch (err) {
-        // Fail closed: the input stays held and the stop is tried again at the
-        // next turn boundary, unless another action took its place meanwhile.
         log.warn('a session on a withdrawn credential did not stop', { err, sessionId })
+        // A stop whose kill was not confirmed has still parked the row and queued
+        // the kill: nothing waits for a turn boundary that will not come (review
+        // F1). A restart's probe or the census judges any survivor again.
+        const standing = await this.sessions.standing(sessionId).catch(() => 'in-turn' as const)
+        if (standing === 'not-running') {
+          this.dropStop(sessionId, action.credential.id)
+          return
+        }
+        // Still running: fail closed. The input stays held and the stop is tried
+        // again at the next turn boundary, unless another action took its place.
         if (!this.pending.has(sessionId)) this.pending.set(sessionId, action)
       }
       return

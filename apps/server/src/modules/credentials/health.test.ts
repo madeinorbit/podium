@@ -483,7 +483,7 @@ describe('acceptance 6: removal with running sessions (review focus 2)', () => {
     ])
     expect(f.sessions.stopped).toEqual([idle, busy])
     expect(f.health.waitingFor(busy)).toBeUndefined()
-    expect(f.health.holdsInput(busy)).toBe(false)
+    expect(f.health.holdsInput(busy, credentialId)).toBe(false)
     expect((await f.store.credentials.get(credentialId))?.status).toBe('revoked')
     expect(await f.store.credentials.latestSecret(credentialId)).toBeNull()
   })
@@ -637,9 +637,9 @@ describe('a withdrawn credential stops the sessions that run on it', () => {
     ])
     // The grant was taken back: the running turn is cut too.
     expect(f.sessions.stopped).toEqual([idle, busy])
-    expect(f.health.holdsInput(idle)).toBe(false)
-    expect(f.health.holdsInput(busy)).toBe(false)
-    expect(f.health.holdsInput(owners)).toBe(false)
+    expect(f.health.holdsInput(idle, credentialId)).toBe(false)
+    expect(f.health.holdsInput(busy, credentialId)).toBe(false)
+    expect(f.health.holdsInput(owners, credentialId)).toBe(false)
   })
 
   it('disallowing a machine stops a session there at its turn boundary, its input held meanwhile', async () => {
@@ -660,12 +660,12 @@ describe('a withdrawn credential stops the sessions that run on it', () => {
     ])
     expect(f.sessions.stopped).toEqual([idle])
     // The running turn finishes; no input reaches the session until it stops.
-    expect(f.health.holdsInput(busy)).toBe(true)
+    expect(f.health.holdsInput(busy, credentialId)).toBe(true)
     expect(f.health.waitingFor(busy)).toBe('stop')
     f.sessions.standing.set(busy, 'between-turns')
     await f.health.onTurnBoundary(busy, credentialId)
     expect(f.sessions.stopped).toEqual([idle, busy])
-    expect(f.health.holdsInput(busy)).toBe(false)
+    expect(f.health.holdsInput(busy, credentialId)).toBe(false)
   })
 
   it('a refused refresh stops only on a withdrawal; a delivery condition leaves the process', async () => {
@@ -675,21 +675,27 @@ describe('a withdrawn credential stops the sessions that run on it', () => {
     const offline = asSessionId('ses_refresh_offline')
     const attention = asSessionId('ses_refresh_attention')
     const placed = asSessionId('ses_refresh_placed')
-    for (const id of [withdrawn, placed, offline, attention]) f.sessions.standing.set(id, 'in-turn')
+    // Review F4: read from the machine's reported logins, so a delivery condition.
+    const notSignedIn = asSessionId('ses_refresh_not_signed_in')
+    for (const id of [withdrawn, placed, offline, attention, notSignedIn]) {
+      f.sessions.standing.set(id, 'in-turn')
+    }
     await f.health.accessWithdrawn(withdrawn, credentialId, 'revoked')
-    await f.health.accessWithdrawn(placed, credentialId, 'not-on-this-machine')
+    await f.health.accessWithdrawn(placed, credentialId, 'machine-not-allowed')
     await f.health.accessWithdrawn(offline, credentialId, 'machine-offline')
     await f.health.accessWithdrawn(attention, credentialId, 'needs-attention')
+    await f.health.accessWithdrawn(notSignedIn, credentialId, 'not-on-this-machine')
     expect(f.sessions.flagged).toEqual([
       { sessionId: withdrawn, label: 'Work key', refusal: 'revoked' },
-      { sessionId: placed, label: 'Work key', refusal: 'not-on-this-machine' },
+      { sessionId: placed, label: 'Work key', refusal: 'machine-not-allowed' },
     ])
+    expect(f.health.holdsInput(notSignedIn, credentialId)).toBe(false)
     // Removed: stopped at once. A placement refusal waits for the turn's end.
     expect(f.sessions.stopped).toEqual([withdrawn])
     expect(f.health.waitingFor(placed)).toBe('stop')
-    expect(f.health.holdsInput(placed)).toBe(true)
+    expect(f.health.holdsInput(placed, credentialId)).toBe(true)
     expect(f.health.waitingFor(offline)).toBeUndefined()
-    expect(f.health.holdsInput(attention)).toBe(false)
+    expect(f.health.holdsInput(attention, credentialId)).toBe(false)
   })
 
   it('a stop that fails keeps the input held and is tried again at the next turn boundary', async () => {
@@ -703,12 +709,93 @@ describe('a withdrawn credential stops the sessions that run on it', () => {
     }
     await f.health.accessWithdrawn(stuck, credentialId, 'not-yours')
     expect(f.sessions.stopped).toEqual([])
-    expect(f.health.holdsInput(stuck)).toBe(true)
+    expect(f.health.holdsInput(stuck, credentialId)).toBe(true)
     expect(f.health.waitingFor(stuck)).toBe('stop')
     f.sessions.port.stop = stop
     await f.health.onTurnBoundary(stuck, credentialId)
     expect(f.sessions.stopped).toEqual([stuck])
-    expect(f.health.holdsInput(stuck)).toBe(false)
+    expect(f.health.holdsInput(stuck, credentialId)).toBe(false)
+  })
+
+  // Review F1: the stop parked the row and queued the kill, but the daemon did
+  // not confirm it. No turn boundary will come; nothing may wait for one.
+  it('a stop whose kill is not confirmed but parked the row leaves no hold and no stop behind', async () => {
+    const f = await setup()
+    const { credentialId } = await f.add(GOOD)
+    const { credentialId: other } = await f.add(RENEWED, 'anthropic.api-key', 'Other key')
+    const parked = asSessionId('ses_withdraw_unconfirmed')
+    f.sessions.standing.set(parked, 'between-turns')
+    f.sessions.port.stop = async () => {
+      f.sessions.standing.set(parked, 'not-running')
+      throw new Error('process retirement was not confirmed')
+    }
+    await f.health.accessWithdrawn(parked, credentialId, 'not-yours')
+    expect(f.health.holdsInput(parked, credentialId)).toBe(false)
+    expect(f.health.waitingFor(parked)).toBeUndefined()
+    // Switched to another key and woken: its first turn boundary stops nothing.
+    f.sessions.standing.set(parked, 'between-turns')
+    const before = f.sessions.flagged.length
+    await f.health.onTurnBoundary(parked, other)
+    expect(f.sessions.flagged).toHaveLength(before)
+    expect(f.health.holdsInput(parked, other)).toBe(false)
+  })
+
+  it('a stop waiting for one credential is dropped when the session moved to another', async () => {
+    const f = await setup()
+    const { credentialId } = await f.add(GOOD)
+    const { credentialId: other } = await f.add(RENEWED, 'anthropic.api-key', 'Other key')
+    const moved = asSessionId('ses_withdraw_moved')
+    f.sessions.standing.set(moved, 'in-turn')
+    await f.health.accessWithdrawn(moved, credentialId, 'machine-not-allowed')
+    expect(f.health.holdsInput(moved, credentialId)).toBe(true)
+    // The hold is the withdrawn credential's, never the session's next one.
+    expect(f.health.holdsInput(moved, other)).toBe(false)
+    f.sessions.standing.set(moved, 'between-turns')
+    await f.health.onTurnBoundary(moved, other)
+    expect(f.sessions.stopped).toEqual([])
+    expect(f.health.waitingFor(moved)).toBeUndefined()
+    expect(f.health.holdsInput(moved, credentialId)).toBe(false)
+  })
+
+  // Review F3: the hold exists before anything awaits, and from the probe on.
+  it('holds input from the probe refusal, and releases it when the refusal is dropped', async () => {
+    const f = await setup()
+    const { credentialId } = await f.add(GOOD)
+    const probed = asSessionId('ses_withdraw_probed')
+    f.health.holdFor(probed, credentialId, 'machine-not-allowed')
+    expect(f.health.holdsInput(probed, credentialId)).toBe(true)
+    f.health.releaseHold(probed, credentialId)
+    expect(f.health.holdsInput(probed, credentialId)).toBe(false)
+    // A delivery condition is never held.
+    f.health.holdFor(probed, credentialId, 'machine-offline')
+    expect(f.health.holdsInput(probed, credentialId)).toBe(false)
+    // A release does not lift a hold whose stop now waits.
+    f.sessions.standing.set(probed, 'in-turn')
+    let heldDuringFlag = false
+    f.sessions.port.flagWithdrawn = async () => {
+      heldDuringFlag = f.health.holdsInput(probed, credentialId)
+    }
+    await f.health.accessWithdrawn(probed, credentialId, 'machine-not-allowed')
+    expect(heldDuringFlag).toBe(true)
+    f.health.releaseHold(probed, credentialId)
+    expect(f.health.holdsInput(probed, credentialId)).toBe(true)
+  })
+
+  // Review F8: one flag per session and credential, none for a parked session.
+  it('flags once while a stop waits, and never flags a parked session', async () => {
+    const f = await setup()
+    const { credentialId } = await f.add(GOOD)
+    const busy = asSessionId('ses_withdraw_flag_busy')
+    const parked = asSessionId('ses_withdraw_flag_parked')
+    f.sessions.standing.set(busy, 'in-turn')
+    f.sessions.standing.set(parked, 'not-running')
+    await f.health.accessWithdrawn(busy, credentialId, 'machine-not-allowed')
+    await f.health.accessWithdrawn(busy, credentialId, 'machine-not-allowed')
+    await f.health.accessWithdrawn(parked, credentialId, 'revoked')
+    expect(f.sessions.flagged).toEqual([
+      { sessionId: busy, label: 'Work key', refusal: 'machine-not-allowed' },
+    ])
+    expect(f.health.holdsInput(parked, credentialId)).toBe(false)
   })
 })
 

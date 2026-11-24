@@ -1222,6 +1222,13 @@ describe('after the daemon reconnects (Task 5)', () => {
       })
       await store.credentials.allowMachine(id, host, BOB)
       const busy = await bobsSession(id)
+      // Resumable: a stop keeps its queue for the revival (one that never
+      // reported a resume ref cannot come back, and fails its rows with a notice).
+      await reg.gateway.routeDaemonFrame(host, {
+        type: 'sessionResumeRef',
+        sessionId: busy,
+        resume: { kind: 'claude-session', value: 'conv-withdrawn' },
+      })
       await phase(busy, 'working', '2999-01-01T00:00:00.000Z')
       await withPlainCommand('credentials.disallowMachine', async () => {
         await CREDENTIAL_COMMANDS_TRPC.disallowMachine.handler(as(BOB), {
@@ -1231,16 +1238,30 @@ describe('after the daemon reconnects (Task 5)', () => {
       })
       expect(await flags(store, busy, 'anthropic.api-key')).toHaveLength(1)
       expect(stopRequests(daemon, busy)).toHaveLength(0)
-      expect(reg.modules.credentialHealth.holdsInput(busy)).toBe(true)
-      const input = await reg.modules.sessions.authorizeQueuedInputAtApply({
-        sessionId: busy,
-        principal: { kind: 'system' } as never,
-        sourceMessageId: null,
-      })
-      expect(input).toEqual({ ok: false, reason: expect.stringContaining('credential') })
+      expect(reg.modules.credentialHealth.holdsInput(busy, id)).toBe(true)
+      // Input sent now reaches nothing, and stays queued (review F6).
+      expect(
+        await reg.modules.sessions.queueText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId: busy,
+          text: 'unsent work',
+        }),
+      ).toMatchObject({ ok: true, queued: true })
+      const handedOn = () =>
+        daemon.filter(
+          (m) =>
+            (m.type === 'runtimeDurableSendRequest' || m.type === 'runtimeSendRequest') &&
+            m.sessionId === busy,
+        )
+      const queued = async () => (await store.sync.listQueuedMessages(busy)).length
+      await vi.waitFor(async () => expect(await queued()).toBe(1))
+      expect(handedOn()).toHaveLength(0)
       await phase(busy, 'idle', '2999-01-01T00:00:01.000Z')
       await vi.waitFor(() => expect(stopRequests(daemon, busy)).toHaveLength(1))
-      expect(reg.modules.credentialHealth.holdsInput(busy)).toBe(false)
+      expect(reg.modules.credentialHealth.holdsInput(busy, id)).toBe(false)
+      // Stopped, not delivered and not deleted: it goes out when the session runs again.
+      expect(handedOn()).toHaveLength(0)
+      expect(await queued()).toBe(1)
     })
   })
 

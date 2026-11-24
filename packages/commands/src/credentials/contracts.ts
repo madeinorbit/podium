@@ -314,7 +314,7 @@ export const credentialsUnshareContract = {
     confirmation: 'none',
     rationale:
       'Takes a grant back; the next launch or call by that person is refused, and a session ' +
-      'of theirs running on it stops at its next turn boundary. Owner or `manage`.',
+      'of theirs running on it stops at once, its current turn cut. Owner or `manage`.',
   },
   redaction: NO_SECRET,
   ownership: NO_NEW_ROWS('Deletes grant edges of an existing credential.'),

@@ -437,17 +437,35 @@ it there, and the dialog says so.
 When a member is removed from the instance, their credentials are removed everywhere and the
 access they shared ends with them.
 
-**Access withdrawn from a running session** (POD-7591) is treated like removal. Ending a grant
-(`unshare`) or withdrawing a machine (`disallowMachine`) judges each running session on the
-credential again. When a daemon reattaches a process, its refresh is judged at that moment. A
-refusal that withdraws the session's right flags the session and stops it at its next turn
-boundary. Those refusals are `revoked`, `not-found`, `not-yours`, `machine-not-allowed`,
-`not-on-this-machine`, `wrong-type` and `own-credential-required`. The stop ends the process
-and parks the row; the worktree stays as it is. Until the stop runs, the session takes no
-queued input. A delivery condition does not stop the process: `needs-attention`,
-`daemon-too-old`, `connection-not-encrypted` or `machine-offline`. Pausing the process would
-leave the secret in its environment. Cutting its network needs an egress proxy, which a daemon
-on a person's own machine does not have.
+**Access withdrawn from a running session** (POD-7591) is judged at three points:
+
+- when a grant ends (`unshare`) or a machine is withdrawn (`disallowMachine`), for each
+  running session on that credential;
+- when a daemon reattaches a process, for the refresh it is owed;
+- when a credential is removed, for every session on it.
+
+A refusal that withdraws the session's right flags the session with the reason and stops it:
+
+- **At once, its current turn cut:** `revoked` (removal included), `not-found` and `not-yours`
+  (a grant taken back). A turn can run for an hour, and a key someone withdrew on purpose must
+  not stay in use that long.
+- **At its next turn boundary:** `machine-not-allowed`, `wrong-type` and
+  `own-credential-required`. Until then the session takes no queued input; its rows stay
+  queued and are delivered once it runs again on a credential it may use.
+
+The stop ends the process and parks the row. The transcript and the worktree are kept.
+
+A delivery condition leaves the process running: `needs-attention`, `not-on-this-machine`,
+`daemon-too-old`, `connection-not-encrypted` and `machine-offline`. `not-on-this-machine`
+comes from the machine's reported logins, which change with a late or expired report, and it
+concerns a home login into which Podium put no secret.
+
+A release that narrows which credential types a harness accepts stops the affected running
+sessions at their first reconnect after the upgrade (`wrong-type`).
+
+Two alternatives were rejected. Pausing the process would leave the secret in its
+environment. Cutting its network would need an egress proxy, which a daemon on a person's own
+machine does not have.
 
 ## 9. Using it
 

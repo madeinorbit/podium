@@ -489,6 +489,13 @@ export interface InboxAttentionPort {
 
 export interface SessionInboxDeps {
   getSession(sessionId: SessionId): Session | undefined
+  /**
+   * The session takes no input now: its credential was withdrawn and its stop
+   * has not run (POD-7591). The drain stops and every row STAYS QUEUED (review
+   * F6): a person's unsent message is never deleted for it, and goes out once
+   * the session runs again on a credential it may use.
+   */
+  inputHeld?(session: Session): boolean
   queue: InboxQueuePort
   daemon: SessionInputGatewayPort
   authorization: InboxAuthorizationPort
@@ -1464,6 +1471,7 @@ export class SessionInbox {
         }
         if (binding.ids.has(row.id)) continue
         if (!this.deps.contractDeliver || !this.deps.queue.reserveDelivery) return
+        if (this.deps.inputHeld?.(session)) return
         const allowed = await this.deps.authorization.authorizeAtDrain({
           sessionId,
           principal: row.principal,
@@ -2025,6 +2033,8 @@ export class SessionInbox {
           )
           return
         }
+        // Held for a withdrawn credential: the row stays queued (POD-7591).
+        if (this.deps.inputHeld?.(session)) return
         // The security boundary is HERE, immediately before the daemon gateway.
         // Nothing accepted at enqueue is trusted now.
         const authorized = await this.deps.authorization.authorizeAtDrain({

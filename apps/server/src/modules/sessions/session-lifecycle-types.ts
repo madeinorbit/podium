@@ -89,8 +89,8 @@ export interface SessionLifecycleDeps {
   authorizeQueuedMessage?(messageId: string): Promise<import('./inbox').InboxAuthorizationDecision>
   /**
    * A bound process's credential was refused when judged again (POD-7591):
-   * credential health flags and stops the session at its next turn boundary
-   * when the refusal withdraws its right.
+   * credential health flags and stops the session when the refusal withdraws
+   * its right, at once or at its next turn boundary by the refusal.
    */
   credentialAccessRefused?(
     sessionId: SessionId,
@@ -98,10 +98,29 @@ export interface SessionLifecycleDeps {
     refusal: import('@podium/model').AccessRefusal,
   ): Promise<void>
   /**
-   * Why a session takes no input now: a stop for a withdrawn or removed
-   * credential waits for its turn boundary (POD-7591). Undefined: it takes input.
+   * Hold a session's input from the moment a reattach probe's refresh is
+   * refused, before its bind makes it live (POD-7591, review F3); release it
+   * when that refusal is dropped (a launch bind, a detach).
    */
-  credentialInputHold?(sessionId: SessionId): string | undefined
+  credentialHoldOnRefusal?(
+    sessionId: SessionId,
+    credentialId: import('@podium/model').CredentialId,
+    refusal: import('@podium/model').AccessRefusal,
+  ): void
+  /** Hold a session's input unconditionally while its credential is judged. */
+  credentialHold?(sessionId: SessionId, credentialId: import('@podium/model').CredentialId): void
+  credentialReleaseHold?(
+    sessionId: SessionId,
+    credentialId: import('@podium/model').CredentialId,
+  ): void
+  /**
+   * Whether the session takes no input now: its own credential was withdrawn
+   * and its stop has not run (POD-7591). The inbox keeps the rows queued.
+   */
+  credentialInputHeld?(
+    sessionId: SessionId,
+    credentialId: import('@podium/model').CredentialId | null,
+  ): boolean
   /** Dead-letter the durable source intent after a drain-time refusal or a
    *  daemon failure; `cause` names why when the daemon said (POD-4775). */
   rejectQueuedMessage?(

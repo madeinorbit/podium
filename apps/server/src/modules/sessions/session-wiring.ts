@@ -233,12 +233,22 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       return { type: 'sessionAccessRefresh', sessionId: session.sessionId, access: resolved.access }
     },
     // A bound process whose credential was refused (POD-7591): credential
-    // health flags and stops it at its next turn boundary when the refusal
-    // withdraws its right. A legacy account that resolved to no Podium
-    // credential holds no Podium secret, so nothing is stopped for it.
+    // health flags and stops it when the refusal withdraws its right, at once
+    // or at its next turn boundary. A legacy account that resolved to no Podium
+    // credential holds no Podium secret, so nothing is stopped or held for it.
     accessRefused: async (session, refused) => {
       if (refused.credentialId === null) return
       await deps.credentialAccessRefused?.(session.sessionId, refused.credentialId, refused.refused)
+    },
+    holdOnRefusal: (session, refused) => {
+      if (refused.credentialId === null) return
+      deps.credentialHoldOnRefusal?.(session.sessionId, refused.credentialId, refused.refused)
+    },
+    holdWhileJudged: (session) => {
+      if (session.credentialId) deps.credentialHold?.(session.sessionId, session.credentialId)
+    },
+    releaseRefusalHold: (sessionId, credentialId) => {
+      if (credentialId !== null) deps.credentialReleaseHold?.(sessionId, credentialId)
     },
     parkedOn: async (machineId) =>
       (await bag.records.onMachine(machineId, 'machineReconciler')).filter(
@@ -549,6 +559,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   })
   const inbox = new SessionInbox({
     getSession: (sessionId) => bag.sessions.get(sessionId),
+    // Rows to a session whose credential was withdrawn stay queued (POD-7591).
+    inputHeld: (session) =>
+      deps.credentialInputHeld?.(session.sessionId, session.credentialId ?? null) ?? false,
     queue: {
       enqueue: (row) => {
         const actor = inboxActorColumns(row.principal.attribution.actor)
