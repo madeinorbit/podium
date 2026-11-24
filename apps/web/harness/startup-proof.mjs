@@ -10,6 +10,11 @@ import { createLogger, createServer } from 'vite'
 
 const webRoot = fileURLToPath(new URL('..', import.meta.url))
 const out = resolve(process.argv[2] ?? '.artifacts/harness-startup')
+const names = process.argv.length > 3 ? process.argv.slice(3) : ['settings-frame', 'deck']
+assert(
+  names.every((name) => ['settings-frame', 'deck'].includes(name)),
+  'Unknown harness screen',
+)
 mkdirSync(out, { recursive: true })
 const cacheRoot = mkdtempSync(resolve(tmpdir(), 'podium-harness-startup-'))
 const result = {
@@ -26,7 +31,7 @@ const browser = await chromium.launch({
 })
 let shutdownTimedOut = false
 try {
-  for (const name of ['settings-frame', 'deck']) {
+  for (const name of names) {
     const screen = { name, status: 'running', errors: [], logs: [], failed: [], pending: [] }
     result.screens.push(screen)
     const logger = createLogger('warn')
@@ -87,7 +92,8 @@ try {
           timeout: 45_000,
         })
         await page.getByRole('button', { name: 'Machines', exact: true }).click()
-        await expect(page.getByRole('heading', { name: 'Machines', exact: true })).toBeVisible({
+        // Workspace headings include a visible scope tag in their accessible name.
+        await expect(page.getByRole('heading', { name: /^Machines\b/ })).toBeVisible({
           timeout: 45_000,
         })
         await expect(page.getByText('Studio', { exact: true }).first()).toBeVisible()
@@ -143,4 +149,4 @@ assert(
   result.screens.every((screen) => screen.status === 'passed'),
   'Harness startup failed',
 )
-console.log('Harness startup passed: Settings → Machines and flight deck captured.')
+console.log(`Harness startup passed: ${names.join(', ')} captured.`)

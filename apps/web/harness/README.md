@@ -15,6 +15,12 @@ machine list. The deck check waits for the real mission header. Screenshots and 
 console, and page-error diagnostics go to `.artifacts/harness-startup/`; pass an output
 directory after `--` to change it.
 
+To rerun only a failed Settings check, use `bun run test:harness-startup --
+.artifacts/harness-startup settings-frame`. Machines has a visible scope tag, so its
+accessible heading is **Machines Everyone** for an admin. Wait for the heading with
+`getByRole('heading', { name: /^Machines\b/ })`, then for the machine rows; an exact
+`Machines` name never matches the full Settings view.
+
 For an interactive fixture, start Vite from `apps/web` with the matching config:
 
 | Screen | Config | URL |
