@@ -49,21 +49,21 @@ export const RAW_RELATION_READERS: readonly RawRelationReader[] = [
   ),
   ...reader(
     'MissionDeckModel@*.continuation',
-    ['issue.canonicalIssue', 'issue.supersedingIssue', 'issue.spinOffs', 'issue.discoveredFrom'],
+    ['issue.spinOffs', 'issue.discoveredFrom'],
     'POD-7580',
     'mission-view.ts',
     'get continuation() { return rootContinuation(this) }',
   ),
   ...reader(
     'MissionDeckModel@*.note',
-    ['issue.canonicalIssue', 'issue.supersedingIssue', 'issue.spinOffs', 'issue.discoveredFrom'],
+    ['issue.spinOffs', 'issue.discoveredFrom'],
     'POD-7580',
     'mission-view.ts',
     'get note() { return rootNote(this) }',
   ),
   ...reader(
     'MissionDeckModel@*.presence',
-    ['issue.canonicalIssue', 'issue.supersedingIssue', 'issue.spinOffs', 'issue.discoveredFrom'],
+    ['issue.spinOffs', 'issue.discoveredFrom'],
     'POD-7580',
     'mission-view.ts',
     'get presence() { return rootPresence(this) }',
@@ -110,75 +110,77 @@ export const RAW_RELATION_READERS: readonly RawRelationReader[] = [
     'mission-view.ts',
     'get spinOffDependent(): boolean',
   ),
+  // Per-row facts over an issue's whole session history, read for every
+  // visible row (board cards' session counts, the sidebar rollup, the deck's
+  // tasks). A holding read per row would download each row's archived
+  // history; per-row counts need a small filtered or aggregate collection,
+  // not full history. The issue page reads its own rosters and counts through
+  // the holding read (issue-page.ts, POD-7579). The mission bucket also asks
+  // whether any session was born here (bornSessions), which no keyed
+  // collection holds (POD-7582); the whole getter moves with its readers.
   ...reader(
     'Seats.missionSessions@*.partition',
     ['issue.missionSessions'],
-    'POD-7579',
+    'POD-7580',
     'session-seats.ts',
     "'partition', (issueId)",
   ),
   ...reader(
     'Seats.pageSessions@*.partition',
     ['issue.pageSessions'],
-    'POD-7579',
+    'POD-7581',
     'session-seats.ts',
     "'partition', (issueId)",
   ),
   ...reader(
-    'IssuePageRow.continuation',
-    ['issue.canonicalIssue', 'issue.supersedingIssue', 'issue.spinOffs', 'issue.discoveredFrom'],
-    'POD-7579',
-    'issue-page.ts',
-    'get continuation() { return missionView(this.pool).continuation(this.issue, false) }',
-  ),
-  ...reader(
-    'IssueModel@*.relationGroups',
-    ['issue.pageDependents'],
-    'POD-7579',
-    'models.ts',
-    'get relationGroups()',
-  ),
-  ...reader(
     'IssueModel@*.memberSessionIds',
     ['issue.pageSessions'],
-    'POD-7579',
+    'POD-7581',
     'models.ts',
     'get memberSessionIds(): ReturnType<typeof asSessionId>[]',
   ),
   ...reader(
-    'IssueModel@*.liveSeatId',
-    ['issue.pageSessions'],
-    'POD-7579',
+    'IssueModel@*.missionBucket',
+    ['issue.missionSessions', 'issue.bornSessions'],
+    'POD-7581',
     'models.ts',
-    'get liveSeatId(): string | undefined',
+    'get missionBucket(): MissionTaskBucket | null',
   ),
+  // Whether a session is open or working: such a session is starting or live,
+  // and `session.live` (a policy collection) always holds every one of them,
+  // so memory answers it. POD-7581 (sidebar) and POD-7580 (deck) confirm it.
   ...reader(
     'IssueModel@*.live',
     ['issue.missionSessions'],
-    'POD-7579',
+    'POD-7581',
     'models.ts',
     'get live(): boolean',
   ),
   ...reader(
     'IssueModel@*.missionWorking',
     ['issue.missionSessions'],
-    'POD-7579',
+    'POD-7580',
     'models.ts',
     'get missionWorking(): boolean',
   ),
+  // The continuation walks the spin-off tree (MissionView.readTips): no
+  // collection holds the issues whose deps name this one, and each spin-off's
+  // origin is read on a member that walk found in memory. POD-7582.
   ...reader(
-    'IssueModel@*.missionBucket',
-    ['issue.missionSessions'],
-    'POD-7579',
-    'models.ts',
-    'get missionBucket(): MissionTaskBucket | null',
+    'IssuePageRow.continuation',
+    ['issue.spinOffs', 'issue.discoveredFrom'],
+    'POD-7582',
+    'issue-page.ts',
+    'get continuation() { return missionView(this.pool).continuation(this.issue, false) }',
   ),
+  // Incoming dependency edges: no collection holds the issues whose deps name
+  // this one (IN_MEMORY_RELATIONS). POD-7582.
   ...reader(
-    'IssueModel@*.missionBucket',
-    ['issue.bornSessions'],
+    'IssueModel@*.relationGroups',
+    ['issue.pageDependents'],
     'POD-7582',
     'models.ts',
-    'get missionBucket(): MissionTaskBucket | null',
+    'get relationGroups()',
   ),
   // The new phone app (POD-7578) reached integrate in POD-7592; its board and
   // its task rows still read these relations raw. Moving them onto holding
@@ -224,13 +226,6 @@ export const RAW_RELATION_READERS: readonly RawRelationReader[] = [
     'POD-7555',
     'worklist/issue.ts',
     "private get unitOwnDone(): UnitOwn['done'] {",
-  ),
-  ...reader(
-    'observerIssueNow',
-    ['issue.missionSessions'],
-    'POD-7579',
-    'apps/web/src/features/issues/issue-page/IssueNow.tsx',
-    'export const IssueNow = observer(function IssueNow(',
   ),
 ]
 
