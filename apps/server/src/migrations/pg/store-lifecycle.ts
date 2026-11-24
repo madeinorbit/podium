@@ -181,6 +181,9 @@ export async function openPgStoreLifecycle(
     createPgStoreDriver({
       url,
       ...(options.poolSize === undefined ? {} : { poolSize: options.poolSize }),
+      ...(options.replanRowsWritten === undefined
+        ? {}
+        : { replanRowsWritten: options.replanRowsWritten }),
     }),
   )
   const executor = createStoreExecutor<QueryClient>({

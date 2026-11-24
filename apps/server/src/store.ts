@@ -297,6 +297,12 @@ export type StoreDatabaseOptions = SnapshotVerifierDeps & {
    * store opens a small one: a test file may hold many stores at once.
    */
   poolSize?: number
+  /**
+   * POSTGRES ONLY: the rows a write transaction writes before it re-plans its statements,
+   * doubling after each (`PgDriverOptions.replanRowsWritten`, POD-7587). The driver's
+   * default otherwise; `null` never re-plans, for a bench's before arm.
+   */
+  replanRowsWritten?: number | null
   /** The workspace wake-ups' listener and poll ({@link storeWakeUpOptions}). */
   wakeUp?: StoreWakeUpOptions
 }
@@ -426,6 +432,9 @@ export class StoreDatabase {
       snapshotVerifier: options,
       ...(options.migrateAtBoot === undefined ? {} : { migrateAtBoot: options.migrateAtBoot }),
       ...(options.poolSize === undefined ? {} : { poolSize: options.poolSize }),
+      ...(options.replanRowsWritten === undefined
+        ? {}
+        : { replanRowsWritten: options.replanRowsWritten }),
       stage: bootStage,
     })
     const executor = lifecycle.executor

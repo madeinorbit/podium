@@ -45,6 +45,22 @@
  * failures (`40001`, `40P01`) are fatal; under the workspace lock they need a
  * transaction that spans workspaces or install tables.
  *
+ * RE-PLANNING AS A WRITE TRANSACTION GROWS [POD-7587]. Every statement is a named
+ * prepared statement, and after five executions Postgres may keep one generic plan for
+ * it, costed for the tables as they were then. Nothing re-plans it while one transaction
+ * grows them: its rows are not committed, so no ANALYZE sees them and no invalidation
+ * comes. A transaction that starts on small tables and writes thousands of rows (an
+ * import, a migration, a backfill, a seed) therefore runs every statement on plans made
+ * for empty tables: sequential scans for key lookups, and the asks_user maintenance CTE
+ * computing its value for every session before it joins to the written one. Each
+ * statement then costs more than the one before, by the table size or its square.
+ * So a write transaction counts the rows its write statements return or change, and each
+ * time that count reaches {@link PgDriverOptions.replanRowsWritten} times a power of two,
+ * `DISCARD PLANS` goes out in the pipeline of its next statement: no round trip of its
+ * own, and the prepared statements stay (only `DISCARD ALL` deallocates them). The next
+ * executions are planned for the tables as they now are. A transaction of a few writes
+ * never sends it; one that writes n rows sends it about log2(n / threshold) times.
+ *
  * ONE POSTGRES DIFFERENCE THE DRIVER DOES NOT HIDE. A failed statement aborts the
  * whole Postgres transaction (later statements fail with `25P02` until it ends),
  * where SQLite carries on. A body that catches a statement's failure and continues
@@ -124,6 +140,13 @@ export interface PgDriverOptions {
   readonly strictTimestamps?: boolean
   /** Called once when the driver closes, after the pool has ended. */
   readonly onClose?: () => void
+  /**
+   * The rows a write transaction writes before its statements are first re-planned, and
+   * again at each doubling (`DISCARD PLANS`, see the module comment). Default
+   * {@link DEFAULT_REPLAN_ROWS_WRITTEN}; `null` never re-plans (the pre-POD-7587 driver,
+   * for a bench's before arm).
+   */
+  readonly replanRowsWritten?: number | null
 }
 
 export interface PgStoreDriver extends StoreDriver<QueryClient> {
@@ -146,6 +169,10 @@ const DEFAULT_LOCK_TIMEOUT_MS = 5_000
 const DEFAULT_ACQUIRE_TIMEOUT_MS = 5_000
 const DEFAULT_CONNECT_TIMEOUT_SECONDS = 10
 const DEFAULT_WRITE_BUDGET_MS = 60_000
+/** See {@link PgDriverOptions.replanRowsWritten}. */
+export const DEFAULT_REPLAN_ROWS_WRITTEN = 128
+/** Drops this connection's cached plans; its prepared statements stay. */
+export const REPLAN_SQL = 'DISCARD PLANS'
 
 const BEGIN_READ = 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'
 /** READ COMMITTED: the workspace lock, not the isolation level, serialises writers (2.4). */
@@ -321,6 +348,13 @@ const OPEN: TransactionState = Object.freeze({ kind: 'open' })
 interface SessionConfig {
   readonly lockTimeoutMs: number
   readonly baseline: PlainRoundTripBaseline
+  readonly replanRowsWritten: number | null
+}
+
+/** The rows a write statement returned or changed, as postgres.js counts them. */
+function rowsWritten(statement: Statement, result: PromiseSettledResult<Rows> | undefined): number {
+  if (statement.intent !== 'write' || result?.status !== 'fulfilled') return 0
+  return result.value.count ?? result.value.length
 }
 
 function createSession(
@@ -333,6 +367,28 @@ function createSession(
   let nextBatchBoundary = 1
   const setLockTimeout = `SET LOCAL lock_timeout = '${config.lockTimeoutMs}ms'`
   const timing = new WorkspaceWriteTiming(config.baseline)
+  // The open transaction's rows written, and the count at which it next re-plans.
+  let written = 0
+  let replanAt = config.replanRowsWritten
+  const growthEnds = (): void => {
+    written = 0
+    replanAt = config.replanRowsWritten
+  }
+  /** `DISCARD PLANS` for the next pipeline, once the transaction has written enough. */
+  const replanSteps = (): Step[] => {
+    if (replanAt === null || written < replanAt) return []
+    while (replanAt <= written) replanAt *= 2
+    return [{ sql: REPLAN_SQL }]
+  }
+  const countWritten = (
+    statements: readonly Statement[],
+    results: readonly PromiseSettledResult<Rows>[],
+    offset: number,
+  ): void => {
+    statements.forEach((statement, index) => {
+      written += rowsWritten(statement, results[offset + index])
+    })
+  }
   const pipeline = (connection: Reserved, steps: readonly Step[], statements = 0, lockAt = -1) =>
     sendPipeline(connection, steps, timing, statements, lockAt)
 
@@ -440,10 +496,11 @@ function createSession(
       live()
       assertMayWrite([statement])
       if (state.kind === 'none') return (await runAtRoot([statement]))[0] as StatementResult
-      const steps = [...takePendingBegin(), stepOf(statement)]
+      const steps = [...takePendingBegin(), ...replanSteps(), stepOf(statement)]
       const results = await pipeline(connection, steps, 1)
       const failure = firstFailure(results)
       if (failure !== undefined) throw failure
+      countWritten([statement], results, steps.length - 1)
       return statementResult(statement, settledRows(results.at(-1)))
     },
 
@@ -455,7 +512,7 @@ function createSession(
       // Inside a transaction the transaction is not the batch's boundary: a savepoint
       // of its own, so a caller that catches the failure keeps a clean transaction.
       const boundary = `podium_batch_${nextBatchBoundary++}`
-      const head = [...takePendingBegin(), { sql: `SAVEPOINT ${boundary}` }]
+      const head = [...takePendingBegin(), ...replanSteps(), { sql: `SAVEPOINT ${boundary}` }]
       const results = await pipeline(
         connection,
         [...head, ...statements.map(stepOf), { sql: `RELEASE SAVEPOINT ${boundary}` }],
@@ -472,6 +529,7 @@ function createSession(
           throw new AggregateError([failure, undoFailure], String(failure))
         throw failure
       }
+      countWritten(statements, results, head.length)
       return statements.map((statement, index) =>
         statementResult(statement, settledRows(results[head.length + index])),
       )
@@ -480,6 +538,7 @@ function createSession(
     async begin(lane: Lane) {
       live()
       if (state.kind !== 'none') throw new Error('a transaction is already open on this session')
+      growthEnds()
       if (lane === 'exclusive') return
       if (lane === 'read') {
         state = { kind: 'pending', begin: BEGIN_READ }
@@ -505,6 +564,7 @@ function createSession(
 
     async commit() {
       live()
+      growthEnds()
       if (state.kind !== 'open') {
         state = NONE
         return
@@ -522,6 +582,7 @@ function createSession(
 
     async rollback() {
       live()
+      growthEnds()
       if (state.kind !== 'open') {
         state = NONE
         return
@@ -594,6 +655,15 @@ function pgLanes(poolSize: number, options: PgDriverOptions): LanePolicy {
   return { readConcurrency, workspaceWrites: writeSlots }
 }
 
+function replanThreshold(value: number | null | undefined): number | null {
+  if (value === null) return null
+  const threshold = value ?? DEFAULT_REPLAN_ROWS_WRITTEN
+  if (!Number.isInteger(threshold) || threshold < 1) {
+    throw new Error(`pg driver: replanRowsWritten must be a positive integer, got ${value}`)
+  }
+  return threshold
+}
+
 /** Open a Postgres store driver over a new pool on `options.url`. */
 export function createPgStoreDriver(options: PgDriverOptions): PgStoreDriver {
   const poolSize = Math.max(1, Math.floor(options.poolSize ?? DEFAULT_POOL_SIZE))
@@ -603,6 +673,7 @@ export function createPgStoreDriver(options: PgDriverOptions): PgStoreDriver {
   const config: SessionConfig = {
     lockTimeoutMs: Math.max(1, Math.floor(options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS)),
     baseline: new PlainRoundTripBaseline(),
+    replanRowsWritten: replanThreshold(options.replanRowsWritten),
   }
   const sql = postgres(options.url, {
     max: poolSize,
@@ -705,6 +776,7 @@ export function createPgStoreExecutor(
     busyRetry,
     strictTimestamps,
     onClose,
+    replanRowsWritten,
     pgTables,
     ...executor
   } = options
@@ -720,6 +792,7 @@ export function createPgStoreExecutor(
     ...(busyRetry !== undefined ? { busyRetry } : {}),
     ...(strictTimestamps !== undefined ? { strictTimestamps } : {}),
     ...(onClose !== undefined ? { onClose } : {}),
+    ...(replanRowsWritten !== undefined ? { replanRowsWritten } : {}),
   }
   return createStoreExecutor<QueryClient>({
     driver: createPgStoreDriver(driverOptions),

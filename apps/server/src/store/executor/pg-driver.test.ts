@@ -386,6 +386,23 @@ describe.runIf(testStoreEngine() === 'pg')('Postgres store driver', () => {
       )) as { statement: string }[]
       expect(prepared).toHaveLength(1)
     })
+
+    it('re-plans a growing write transaction without a round trip of its own (POD-7587)', async () => {
+      const store = openStore({ url: proxy.url, poolSize: 1, replanRowsWritten: 4 })
+      const insert = 'INSERT INTO notes (id, body) VALUES ($1, $2)'
+      // Prepared first: a statement's first use describes its parameters, a round trip.
+      await store.transact(async (tx) => void (await tx.drizzle.run(insert, 'p-warm', 'x')), WS_A)
+      const trips: number[] = []
+      await store.transact(async (tx) => {
+        for (let n = 0; n < 12; n++) {
+          const before = proxy.roundTrips()
+          await tx.drizzle.run(insert, `p${n}`, 'x')
+          trips.push(proxy.roundTrips() - before)
+        }
+      }, WS_A)
+      // Re-planned before the 5th and the 9th insert, each still one round trip.
+      expect(trips).toEqual(Array.from({ length: 12 }, () => 1))
+    })
   })
 
   describe('root writes through query handles', () => {
@@ -471,6 +488,109 @@ describe.runIf(testStoreEngine() === 'pg')('Postgres store driver', () => {
         }),
       ).rejects.toBeInstanceOf(WorkspaceFeedRowMissingError)
       expect(await bodies()).toEqual([])
+    })
+  })
+
+  describe('re-planning as a write transaction grows (POD-7587)', () => {
+    const insert = 'INSERT INTO notes (id, body) VALUES ($1, $2)'
+    const lookup = 'SELECT body FROM notes WHERE id = $1'
+    /** A plan that reads the lookup's row through the primary key's index. */
+    const THROUGH_THE_INDEX = ['Index Scan', 'Index Only Scan', 'Bitmap Heap Scan']
+
+    beforeAll(async () => {
+      // No ANALYZE behind a test's back: only the driver may change the plans here.
+      await admin.unsafe('ALTER TABLE notes SET (autovacuum_enabled = false)')
+    })
+    afterAll(async () => {
+      await admin.unsafe('ALTER TABLE notes RESET (autovacuum_enabled)')
+    })
+
+    /**
+     * A store whose lookup has its generic plan for a table of four analyzed rows: a
+     * sequential scan, as every key lookup is planned for a table that small.
+     */
+    async function storeWithSmallTablePlans(options: Partial<PgDriverOptions>) {
+      // TRUNCATE, not the shared DELETE: without autovacuum a deleted row's page stays, and
+      // the statistics would describe four rows over an earlier test's pages.
+      await admin.unsafe('TRUNCATE notes')
+      for (let n = 0; n < 4; n++) await admin.unsafe(insert, [`s${n}`, 'small'])
+      await admin.unsafe('ANALYZE notes')
+      const store = openStore({ poolSize: 1, ...options })
+      for (let n = 0; n < 8; n++) await store.drizzle.get(lookup, `s${n % 4}`)
+      return store
+    }
+
+    /** The plan the lookup's prepared statement runs now, on the transaction's connection. */
+    async function lookupPlan(tx: RootStoreExecutor<QueryClient>['drizzle']): Promise<string> {
+      const [statement] = (await tx.all(
+        'SELECT name FROM pg_prepared_statements WHERE statement = $1',
+        lookup,
+      )) as { name: string }[]
+      if (statement === undefined) throw new Error('the lookup is not prepared')
+      const [row] = (await tx.all(`EXPLAIN (FORMAT JSON) EXECUTE "${statement.name}"('s0')`)) as {
+        'QUERY PLAN': unknown
+      }[]
+      // `json` comes back as its text on this driver.
+      const value = row?.['QUERY PLAN']
+      const plan = (typeof value === 'string' ? JSON.parse(value) : value) as [
+        { Plan: { 'Node Type': string } },
+      ]
+      return plan[0].Plan['Node Type']
+    }
+
+    it('plans a growing transaction for the table as it is, once it has written enough rows', async () => {
+      const store = await storeWithSmallTablePlans({ replanRowsWritten: 128 })
+      const plans = await store.transact(async (tx) => {
+        const before = await lookupPlan(tx.drizzle)
+        for (let n = 0; n < 2_000; n++) await tx.drizzle.run(insert, `g${n}`, `body ${n}`)
+        await tx.drizzle.get(lookup, 'g0')
+        return [before, await lookupPlan(tx.drizzle)]
+      }, WS_A)
+      expect(plans[0]).toBe('Seq Scan')
+      expect(THROUGH_THE_INDEX).toContain(plans[1])
+    })
+
+    it('keeps the small-table plan without re-planning, as the driver did before', async () => {
+      const store = await storeWithSmallTablePlans({ replanRowsWritten: null })
+      const plan = await store.transact(async (tx) => {
+        for (let n = 0; n < 2_000; n++) await tx.drizzle.run(insert, `g${n}`, `body ${n}`)
+        await tx.drizzle.get(lookup, 'g0')
+        return await lookupPlan(tx.drizzle)
+      }, WS_A)
+      expect(plan).toBe('Seq Scan')
+    })
+
+    it('re-plans nothing in a transaction under the threshold, and counts each transaction from zero', async () => {
+      const store = await storeWithSmallTablePlans({ replanRowsWritten: 128 })
+      const plans: string[] = []
+      for (let round = 0; round < 3; round++) {
+        plans.push(
+          await store.transact(async (tx) => {
+            for (let n = 0; n < 100; n++) await tx.drizzle.run(insert, `r${round}-${n}`, 'x')
+            await tx.drizzle.get(lookup, `r${round}-0`)
+            return await lookupPlan(tx.drizzle)
+          }, WS_A),
+        )
+      }
+      // 300 rows in all, never 128 in one transaction.
+      expect(plans).toEqual(['Seq Scan', 'Seq Scan', 'Seq Scan'])
+    })
+
+    it('counts every row of a many-row write', async () => {
+      const store = await storeWithSmallTablePlans({ replanRowsWritten: 128 })
+      const plan = await store.transact(async (tx) => {
+        await tx.drizzle.run(
+          "INSERT INTO notes (id, body) SELECT 'm' || i, 'x' FROM generate_series(1, 2000) AS i",
+        )
+        await tx.drizzle.get(lookup, 'm1')
+        return await lookupPlan(tx.drizzle)
+      }, WS_A)
+      expect(THROUGH_THE_INDEX).toContain(plan)
+    })
+
+    it('refuses a threshold that is not a positive integer', () => {
+      expect(() => createPgStoreDriver({ url, replanRowsWritten: 0 })).toThrow(/positive integer/)
+      expect(() => createPgStoreDriver({ url, replanRowsWritten: 1.5 })).toThrow(/positive integer/)
     })
   })
 

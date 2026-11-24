@@ -81,6 +81,8 @@ export interface StoreLifecycleOptions {
   readonly migrateAtBoot?: boolean
   /** Postgres only: the connection pool's size. */
   readonly poolSize?: number
+  /** Postgres only: when a growing write transaction re-plans (`PgDriverOptions`). */
+  readonly replanRowsWritten?: number | null
   /** A boot stage's timing, reported as `store.ts` reports its own. */
   readonly stage: (name: string, startedAt: number) => void
 }
