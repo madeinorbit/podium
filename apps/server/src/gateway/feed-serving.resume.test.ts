@@ -25,6 +25,7 @@ import { asUserId } from '@podium/model'
 import type { FeedCursorField, ServerMessage } from '@podium/protocol'
 import { asCapabilityRef, asDeviceId, CLIENT_WIRE_VERSION, type Principal } from '@podium/protocol'
 import { DEVICE_GRADE_PRINCIPAL, type VisibilityAnchorPort } from '@podium/sync'
+import { ChangeRangeBootstrapRequired } from '@podium/sync/bootstrap-worker'
 import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../store'
@@ -575,5 +576,71 @@ describe('HTTP bootstrap capability', () => {
     await ctx.p.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)
     expect(peer.of('feedDelta')[0]?.fromSeq).toBe(ctx.held.seq)
     expect(peer.types().filter((type) => type === 'feedBootstrap')).toHaveLength(0)
+  })
+})
+
+// POD-7589: the maintenance prune commits while a heal reads `(cursor, head]`. The
+// heal must answer a resync, never a batch with the pruned rows missing.
+describe('a prune during a heal', () => {
+  /** A server at `head`, healing from `from`, with the seqs the heal covers. */
+  async function healing() {
+    const p = await feedTestPlumbing()
+    // Two rows below the cursor, so a prune can stay below it.
+    await commit(p, 's0')
+    await commit(p, 's1')
+    const from = await p.authority.cursor()
+    for (const id of ['s2', 's3', 's4']) await commit(p, id)
+    const head = await p.authority.cursor()
+    const seqs = (await p.store.sync.changesInRange(from, head, 100)).map((row) => row.seq)
+    return { p, from, head, seqs }
+  }
+
+  /** Run a real prune through `threshold` once, after the heal's page `afterPage` is read. */
+  function pruneAfterPage(p: FeedTestPlumbing, threshold: number, afterPage: number) {
+    const sync = p.store.sync
+    const read = sync.changesInRange.bind(sync)
+    let pages = 0
+    let pruned = 0
+    const spy = vi.spyOn(sync, 'changesInRange').mockImplementation(async (...args) => {
+      // `afterPage` 0: the prune lands between the start of the heal and its first read.
+      if (pages === afterPage)
+        pruned = await sync.pruneChangeBatch({ thresholdSeq: threshold }, 100)
+      pages++
+      return await read(...args)
+    })
+    return { spy, pruned: () => pruned }
+  }
+
+  it('answers a resync when the prune lands before the first page is read', async () => {
+    const { p, from, head } = await healing()
+    const prune = pruneAfterPage(p, head - 1, 0)
+    expect(await p.authority.changesSince(from, DEVICE_GRADE_PRINCIPAL)).toBeNull()
+    expect(prune.pruned()).toBeGreaterThan(0)
+    expect(await p.store.sync.minChangeSeq()).toBe(head)
+  })
+
+  it('stops a paged heal at the page the prune cut into, before yielding it', async () => {
+    const { p, from, head, seqs } = await healing()
+    expect(seqs.length).toBeGreaterThanOrEqual(3)
+    // After the first page, the prune deletes the second page's row and those below.
+    const prune = pruneAfterPage(p, seqs[1]!, 1)
+    const delivered: { fromSeq: number; throughSeq: number }[] = []
+    const read = (async () => {
+      for await (const page of p.authority.changesRange(DEVICE_GRADE_PRINCIPAL, from, head, 1))
+        delivered.push({ fromSeq: page.fromSeq, throughSeq: page.throughSeq })
+    })()
+    await expect(read).rejects.toBeInstanceOf(ChangeRangeBootstrapRequired)
+    expect(prune.pruned()).toBeGreaterThan(0)
+    expect(prune.spy).toHaveBeenCalledTimes(2)
+    // Nothing past the pages read before the prune was certified.
+    expect(delivered.every((page) => page.throughSeq <= seqs[0]!)).toBe(true)
+  })
+
+  it('still serves the heal when the prune stays below its cursor', async () => {
+    const { p, from, head } = await healing()
+    const prune = pruneAfterPage(p, from - 1, 0)
+    const delivery = await p.authority.changesSince(from, DEVICE_GRADE_PRINCIPAL)
+    expect(prune.pruned()).toBeGreaterThan(0)
+    expect(delivery).toMatchObject({ kind: 'batch', throughSeq: head })
   })
 })

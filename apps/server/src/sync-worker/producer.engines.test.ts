@@ -330,6 +330,51 @@ describe(`the producer's read session [${ENGINE}]`, () => {
     expect(out.at(-1)).toMatchObject({ type: 'syncComplete', seq: head })
   })
 
+  // POD-7589: the maintenance prune commits between the delta's pages. The snapshot
+  // the job's first read fixed still holds every row of the range, so the transfer
+  // completes whole; a delta started after the prune is refused.
+  it('serves a whole delta when a prune commits between its pages', async () => {
+    await seed(w, ['s1'])
+    const from = await w.sync.maxChangeSeq()
+    await seed(w, ['s2', 's3', 's4'])
+    const head = await w.sync.maxChangeSeq()
+    const read = SyncRepository.prototype.changesInRange
+    let pruned = 0
+    const pages = vi
+      .spyOn(SyncRepository.prototype, 'changesInRange')
+      .mockImplementation(async function (this: SyncRepository, ...args) {
+        const page = await read.apply(this, args)
+        // The job's own repository, after its first page: the writer prunes.
+        if (this !== w.sync && pruned === 0)
+          pruned = await w.sync.pruneChangeBatch({ thresholdSeq: head - 1 }, 100)
+        return page
+      })
+    try {
+      const out = await drain(w, job({ mode: 'delta', from, pageRows: 1 }))
+      expect(pruned).toBeGreaterThan(0)
+      expect(pages.mock.calls.length).toBeGreaterThan(1)
+      const frames = out.filter((line) => line.type === 'feedDelta') as (Line & {
+        fromSeq: number
+      })[]
+      // Contiguous frames over the whole range: nothing was skipped.
+      expect(frames[0]?.fromSeq).toBe(from)
+      for (let i = 1; i < frames.length; i++) expect(frames[i]?.fromSeq).toBe(frames[i - 1]?.seq)
+      expect(frames.at(-1)?.seq).toBe(head)
+      expect(changesOf(out, 'feedDelta').map((change) => change.entityId)).toEqual([
+        's2',
+        's3',
+        's4',
+      ])
+      expect(out.at(-1)).toMatchObject({ type: 'syncComplete', seq: head })
+    } finally {
+      pages.mockRestore()
+    }
+    // The prune committed: the same cursor now needs a new start-up load.
+    await expect(drain(w, job({ mode: 'delta', from }))).rejects.toMatchObject({
+      reason: 'compacted-or-unknown',
+    })
+  })
+
   it('refuses a write', async () => {
     await seed(w, ['s1'])
     const reader = await openWorkerReadSession(w.location)
