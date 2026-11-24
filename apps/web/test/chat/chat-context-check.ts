@@ -127,7 +127,7 @@ export function checkChatContext(
       const old =
         issues.find((row) => row.id === session.issueId) ??
         issues.find((row) => row.memberSessionIds?.includes(session.sessionId))
-      const facts = (issue: (IssueViewModel & IssueBodyValues) | undefined) =>
+      const facts = (issue: (IssueViewModel & Pick<IssueBodyValues, 'panel'>) | undefined) =>
         issue
           ? {
               id: issue.id,

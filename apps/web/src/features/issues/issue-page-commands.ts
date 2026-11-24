@@ -15,6 +15,7 @@
 import type { IssueWorkAction, StartIssueSession } from '@podium/client-core/spawn-agent'
 import type { ActivityComment, IssueEvent, RelationEntry } from '@podium/client-core/values'
 import type { IssueActivityPorts } from '@podium/client-graph/issue-activity'
+import { LOADING } from '@podium/client-graph/loading'
 import type { IssueUpdatePatch } from '@podium/commands'
 import { issueWrites } from '@podium/commands/issues-synced'
 import { type IssueId, parseIssueStatusValue, type StoredIssueDepType } from '@podium/model/browser'
@@ -112,7 +113,9 @@ export function issuePageCommands({
      *  a newer text from another member or another device is never replaced
      *  unseen. `done` hears how it ended: a real conflict carries the current
      *  text with the draft unsaved, and any other failure hands the draft
-     *  back, so the editor can keep it. */
+     *  back, so the editor can keep it. Refused while the field is not on
+     *  the device (`LOADING`, POD-7545): the save is a whole-text replace, so
+     *  nothing is sent over text that has not loaded, and the draft is kept. */
     commitText: (
       field: IssueTextField,
       value: string,
@@ -120,7 +123,12 @@ export function issuePageCommands({
       done: (outcome: TextSaveOutcome | TextConflict | { failed: string }) => void,
     ): void => {
       const text = field === 'title' ? value.trim() : value
-      if ((field === 'title' && !text) || text === base.text || text === issue[field]) {
+      const current = issue[field]
+      if (current === LOADING) {
+        done({ failed: text })
+        return
+      }
+      if ((field === 'title' && !text) || text === base.text || text === current) {
         done('saved')
         return
       }
@@ -128,7 +136,11 @@ export function issuePageCommands({
         try {
           done(
             await saveIssueText(trpc as unknown as TextSaveApi, id, field, text, base, {
-              now: () => ({ text: issue[field], revision: issue.revision }),
+              now: () => {
+                // Held complete once, the field never answers LOADING again.
+                const now = issue[field]
+                return { text: now === LOADING ? current : now, revision: issue.revision }
+              },
               queue: (patch, expectedRevision) =>
                 updateIssue(id, patch, expectedRevision === undefined ? {} : { expectedRevision }),
             }),

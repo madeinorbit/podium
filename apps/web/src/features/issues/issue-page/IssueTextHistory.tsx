@@ -10,6 +10,7 @@
  * holds now; the restore is itself a new revision, so nothing is rewritten.
  */
 import { eventStamp } from '@podium/client-core/values'
+import { LOADING } from '@podium/client-graph/loading'
 import { RequestAnswer } from '@podium/client-graph/request-answer'
 import { History } from 'lucide-react'
 import type { JSX } from 'react'
@@ -48,8 +49,9 @@ export const IssueTextHistory = observer(function IssueTextHistory({
 }: {
   issueId: string
   field: 'description' | 'brief'
-  /** The text the field holds now: its revision gets no Restore. */
-  current: string
+  /** The text the field holds now: its revision gets no Restore. While it is
+   *  not on the device (`LOADING`, POD-7545) no revision offers a Restore. */
+  current: string | typeof LOADING
   /** The server's answer for this reader (`allowed.restore`). */
   mayRestore: boolean
   busy: boolean
@@ -110,7 +112,7 @@ export const IssueTextHistory = observer(function IssueTextHistory({
                 >
                   <IssueAge stamp={revision.createdAt} />
                 </span>
-                {mayRestore && revision.body !== current && (
+                {mayRestore && current !== LOADING && revision.body !== current && (
                   <Button
                     type="button"
                     variant="ghost"

@@ -31,6 +31,7 @@ import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
 import { inlineRenameEditor, type OpenedOn, useInlineRename } from '../worklist/use-inline-rename'
+import { BodyPending } from './BodyPending'
 import { type FirstArtifactAnchorProps, useFirstArtifactAnchor } from './first-artifact-tip'
 import { IssueCompactControls } from './IssueCompactControls'
 import { IssueStatusPicker } from './IssueStatusPicker'
@@ -991,14 +992,19 @@ export const IssuePanelBody = observer(function IssuePanelBody({
           </div>
         )}
 
-        {/* The task in the author's own words, uncapped (POD-516 r3 #2). */}
-        {issue.description.trim() && (
-          <p
-            className="text-[13px] leading-5 whitespace-pre-wrap text-foreground [text-wrap:pretty]"
-            data-testid="dock-description"
-          >
-            {issue.description}
-          </p>
+        {/* The task in the author's own words, uncapped (POD-516 r3 #2). It
+            loads on read (POD-7545): quiet until it is on the device. */}
+        {issue.description === LOADING ? (
+          <BodyPending value={LOADING} what="description" />
+        ) : (
+          issue.description.trim() && (
+            <p
+              className="text-[13px] leading-5 whitespace-pre-wrap text-foreground [text-wrap:pretty]"
+              data-testid="dock-description"
+            >
+              {issue.description}
+            </p>
+          )
         )}
 
         {/* The agent's latest posted update: quiet and clamped to four lines,

@@ -15,10 +15,15 @@
  * - while a save is on its way, the field shows the saved text, until the
  *   device's row moves past the base (its own write, or a newer one, arrived).
  *
+ * While the field is not on the device (`LOADING`, POD-7545) the editor does
+ * not open and no base is taken: its text would be '' and a save would
+ * replace what the server holds.
+ *
  * The editor's text and these states belong to this one field, so they stay
  * in the page as component state (frontend-data.md, "A single inline field
  * keeps its text in its component").
  */
+import { LOADING } from '@podium/client-graph/loading'
 import { useEffect, useRef, useState } from 'react'
 import type { IssueWithBodies } from '@/app/store'
 import type { IssuePageCommands } from '../issue-page-commands'
@@ -69,13 +74,15 @@ export function useTextEdit(
       : undefined
 
   const setEditing = (next: boolean): void => {
+    const current = issue[field]
+    if (next && current === LOADING) return
     // Reopened while the device still shows the text before my own save: the
     // base is my saved text, and the save's rebase finds the field holding it.
     if (next && conflict === null && draft === undefined)
       setBase(
         shown !== undefined && pending !== null
           ? { text: shown, revision: pending.revision }
-          : { text: issue[field], revision: issue.revision },
+          : { text: current === LOADING ? '' : current, revision: issue.revision },
       )
     if (!next) {
       setConflict(null)
@@ -85,8 +92,14 @@ export function useTextEdit(
   }
 
   const commit = (value: string): void => {
-    const from = base ?? { text: issue[field], revision: issue.revision }
+    const current = issue[field]
     const text = field === 'title' ? value.trim() : value
+    // No base was cut and the field has not loaded: keep the text, send nothing.
+    if (base === null && current === LOADING) {
+      setDraft(text)
+      return
+    }
+    const from = base ?? { text: current === LOADING ? '' : current, revision: issue.revision }
     const madeOn = issue.id
     setEditingState(false)
     setConflict(null)

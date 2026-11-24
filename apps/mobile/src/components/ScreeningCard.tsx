@@ -1,7 +1,8 @@
-import { childProgressOf } from '@podium/client-graph/lookup'
 import { issueAgentLabel, issueDefaultAgentKind } from '@podium/client-core/agent-models'
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueWithBodies } from '@podium/client-core/replica'
+import { LOADING } from '@podium/client-graph/loading'
+import { childProgressOf } from '@podium/client-graph/lookup'
 import { observer } from '@podium/client-graph/react'
 import * as Haptics from 'expo-haptics'
 import { StyleSheet, Text, useWindowDimensions, View } from 'react-native'
@@ -220,8 +221,8 @@ export const ScreeningCard = observer(function ScreeningCard({
   const blockers = issue.blockedByNotes.length
   const progress = childProgressOf(issue)
   const openChildren = progress ? Math.max(0, progress.childCount - progress.childDoneCount) : 0
-  const brief = issue.brief?.trim()
-  const description = issue.description.trim()
+  const brief = issue.brief === LOADING ? undefined : issue.brief?.trim() // POD-7555: LOADING reads as empty on the phone
+  const description = issue.description === LOADING ? '' : issue.description.trim() // POD-7555: LOADING reads as empty on the phone
   const agentKind = issueDefaultAgentKind(issue.defaultAgent, codingHarness)
   const modelBits = [issueAgentLabel(agentKind), issue.defaultModel, issue.defaultEffort]
     .filter((bit) => bit && bit !== 'auto')

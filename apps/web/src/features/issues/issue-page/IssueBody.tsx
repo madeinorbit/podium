@@ -8,6 +8,7 @@ import { useIssuePageContext } from './issue-page-data'
  */
 
 import { relativeTime } from '@podium/client-core/focus'
+import { LOADING } from '@podium/client-graph/loading'
 import { ChevronRight, Pin } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -16,6 +17,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useAgeNow } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
+import { BodyPending } from '../BodyPending'
 import type { IssuePageCommands } from '../issue-page-commands'
 import type { TextConflict } from '../issue-text-save'
 import { MACHINE_LABEL, SectionHeading, StatusChip } from './chrome'
@@ -158,6 +160,14 @@ export const IssueDescription = observer(function IssueDescription({
 }): JSX.Element {
   const description = edit.pending ?? issue.description
   const textarea = useRef<HTMLTextAreaElement>(null)
+  // Not on the device yet (POD-7545): no editor opens over text that has not
+  // loaded, and no "Add a description…" invites one.
+  if (description === LOADING)
+    return (
+      <section className="group/section mb-9" data-testid="issue-description-pending">
+        <BodyPending value={LOADING} what="description" />
+      </section>
+    )
   return (
     <section className="group/section mb-9">
       {edit.editing && mayEdit && edit.conflict && (
@@ -222,7 +232,14 @@ export const IssueBrief = observer(function IssueBrief({
   /** The history line under the brief (POD-6295). */
   children?: ReactNode
 }): JSX.Element | null {
-  if (!issue.brief) return null
+  const brief = issue.brief
+  if (brief === LOADING)
+    return (
+      <div className="mb-9" data-testid="issue-brief-pending">
+        <BodyPending value={LOADING} what="brief" />
+      </div>
+    )
+  if (!brief) return null
   return (
     // Collapsed by default and framed by hairlines rather than a box: the brief
     // is long, written FOR an agent, and sits between two things a human reads.
@@ -238,7 +255,7 @@ export const IssueBrief = observer(function IssueBrief({
         />
       </summary>
       <div className="mt-3 whitespace-pre-wrap break-words text-[13px] text-muted-foreground leading-[1.6]">
-        {issue.brief}
+        {brief}
       </div>
       {children}
     </details>

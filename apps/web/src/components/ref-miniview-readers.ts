@@ -1,9 +1,9 @@
-import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/loading'
+import { omitGone } from '@podium/client-graph/lookup'
+import type { SessionId } from '@podium/model/browser'
 import { parseAnyRef } from '@podium/protocol'
 import { readAddressedIssueRef } from '@/lib/addressed-issue-ref'
-import type { SessionId } from '@podium/model/browser'
 import type { RefIssueLike, RefSessionLike, ResolvedRef } from '@/lib/ref-miniview'
 
 export function readReferenceSession(pool: MobxPool, ref: string) {
@@ -33,15 +33,21 @@ export function readRefTarget(
   const row = id ? omitGone(pool.row('issue', id)) : undefined
   if (typeof row === 'symbol') return { target: null, loading: true }
   if (!id || !row || !parsed) return { target: null, loading: false }
-  const description = (row as { description?: string | { value?: string } }).description
   // Child progress over all history, from the stubs (POD-7088).
   const children = pool.queries.issueChildCounts(id)
   if (children === LOADING) return { target: null, loading: true }
   const issue = {
     ...row,
-    description: typeof description === 'string' ? description : (description?.value ?? ''),
+    // The description is its own record (POD-6921), read through the shared
+    // model: the read holds and loads it, LOADING until it is here (POD-7545).
+    // The stored row holds only a painted value, which the model prefers.
+    description: pool.issueObject(id).description,
     ...children,
-    ...readAddressedIssueRef(pool, id, row as { seq: number; prefix?: string; displayRef?: string }),
+    ...readAddressedIssueRef(
+      pool,
+      id,
+      row as { seq: number; prefix?: string; displayRef?: string },
+    ),
   } as unknown as RefIssueLike
   return { target: { kind: 'issue', ref: parsed, issue }, loading: false }
 }

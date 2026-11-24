@@ -1,4 +1,3 @@
-import { childProgressOf } from '@podium/client-graph/lookup'
 import { relativeTime } from '@podium/client-core/focus'
 import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel, IssueWithBodies } from '@podium/client-core/replica'
@@ -6,6 +5,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { operationalState, sessionTitle } from '@podium/client-core/values'
 import type { DetailSession } from '@podium/client-graph/issue-page'
 import { type PageIssue, readPageIssue } from '@podium/client-graph/issue-page'
+import { childProgressOf } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { issueWrites } from '@podium/commands/issues-synced'
@@ -353,7 +353,10 @@ const SheetBody = observer(function SheetBody({
     <View style={styles.body}>
       {/* The task in the author's own words, UNCAPPED — it sits in the scroll
           precisely so it can be. */}
-      {issue.description.trim() ? <Text style={styles.prose}>{issue.description}</Text> : null}
+      {/* POD-7555: LOADING reads as empty on the phone. */}
+      {issue.description !== LOADING && issue.description.trim() ? (
+        <Text style={styles.prose}>{issue.description}</Text>
+      ) : null}
 
       <Part
         title="Current update"

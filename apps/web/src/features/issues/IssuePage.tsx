@@ -1,3 +1,4 @@
+import { LOADING } from '@podium/client-graph/loading'
 import type { IssueId } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
@@ -216,7 +217,7 @@ export const IssuePageBody = observer(function IssuePageBody({
                     issueId={issue.id}
                     field="brief"
                     load={() => loadIssueTextRevisions(model.trpc, issue.id, 'brief')}
-                    current={issue.brief ?? ''}
+                    current={issue.brief === LOADING ? LOADING : (issue.brief ?? '')}
                     mayRestore={allowed?.restore ?? true}
                     busy={busy}
                     onRestore={restore}

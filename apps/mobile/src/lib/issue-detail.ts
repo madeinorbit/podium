@@ -1,7 +1,15 @@
-import { issueWrites } from '@podium/commands/issues-synced'
 import type { IssueWithBodies } from '@podium/client-core/replica'
+import type { IssueWorkAction, StartIssueSession } from '@podium/client-core/spawn-agent'
 import type { ActivityComment, IssueEvent } from '@podium/client-core/values'
+import type { IssueActivityPorts } from '@podium/client-graph/issue-activity'
+import { LOADING } from '@podium/client-graph/loading'
+import {
+  awaitEffect,
+  type EffectPool,
+  effectShortfall,
+} from '@podium/client-graph/write/await-effect'
 import type { IssueUpdatePatch } from '@podium/commands'
+import { issueWrites } from '@podium/commands/issues-synced'
 import {
   type IssueCloseReason,
   type IssueId,
@@ -10,13 +18,6 @@ import {
   type StoredIssueDepType,
 } from '@podium/model'
 import type { MobileTrpc } from '../client/trpc'
-import type { IssueActivityPorts } from '@podium/client-graph/issue-activity'
-import type { IssueWorkAction, StartIssueSession } from '@podium/client-core/spawn-agent'
-import {
-  awaitEffect,
-  type EffectPool,
-  effectShortfall,
-} from '@podium/client-graph/write/await-effect'
 
 /**
  * THE TASK PAGE'S CALL SURFACE [POD-724] — the phone half of the desktop's
@@ -183,6 +184,9 @@ export function issueCommands({
       update({ title })
     },
     commitDescription: (value: string): void => {
+      // POD-7545: never a whole-text replace over a description not on the
+      // device yet; the phone's editor itself is POD-7555's.
+      if (issue.description === LOADING) return
       if (value === issue.description) return
       update({ description: value })
     },

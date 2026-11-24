@@ -10,6 +10,7 @@ import {
   type machineViewsFromWire,
   continuationPresenceLine as sharedContinuationPresenceLine,
 } from '@podium/client-core/values'
+import { LOADING } from '@podium/client-graph/loading'
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
 import type { SessionModel } from '@podium/client-graph/models'
@@ -43,6 +44,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { BodyPending } from '@/features/issues/BodyPending'
 import { useDockIssue } from '@/features/issues/dock-issue'
 import type { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
@@ -921,7 +923,9 @@ const FullDeckBrief = observer(function FullDeckBrief({
   screen: MissionScreen
   onOpenDetails: () => void
 }): JSX.Element {
-  const description = screen.root.description.trim()
+  // The description loads on read (POD-7545); the deck is ready only once it is here.
+  const answer = screen.root.description
+  const description = answer === LOADING ? '' : answer.trim()
   const acceptance = screen.root.acceptance?.trim() ?? ''
   const descriptionHtml = useMemo(() => renderReadoutMarkdown(description), [description])
   const acceptanceHtml = useMemo(() => renderReadoutMarkdown(acceptance), [acceptance])
@@ -936,7 +940,9 @@ const FullDeckBrief = observer(function FullDeckBrief({
     >
       <div className={open ? 'flight-full-description-panel' : undefined}>
         <div id={contentId} className={open ? 'flight-full-description-content' : undefined}>
-          {description ? (
+          {answer === LOADING ? (
+            <BodyPending value={LOADING} what="description" />
+          ) : description ? (
             <div
               className={cn(
                 'flight-full-description-markdown',

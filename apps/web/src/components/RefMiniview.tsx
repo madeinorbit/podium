@@ -1,6 +1,6 @@
 import { useCommands, useRequestClient, useUiValue } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph'
-import { omitGone } from '@podium/client-graph/lookup'
+import { LOADING } from '@podium/client-graph/loading'
 import { issueWrites } from '@podium/commands/issues-synced'
 import { machinePathBasename } from '@podium/model'
 import type { IssueComment, IssueId, SessionId } from '@podium/model/browser'
@@ -37,6 +37,7 @@ import type { Trpc } from '@/app/trpc'
 import { DropdownMenuOwner } from '@/components/ui/dropdown-menu'
 import { IssueChipLiveness } from '@/features/chat/IssueChipLiveness'
 import { useChatReferenceMachines } from '@/features/chat/use-chat-context'
+import { BodyPending } from '@/features/issues/BodyPending'
 import { useDockIssue } from '@/features/issues/dock-issue'
 import { IssueAgentSettings } from '@/features/issues/IssueAgentSettings'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
@@ -123,15 +124,11 @@ function PoolRefMiniviewHost(): JSX.Element {
   )
 }
 
+/** Another issue the card resolves: the same reader as the open card's, so its
+ * description is the model's (POD-7545), never the stored row's painted value. */
 function resolvePoolIssue(pool: MobxPool | null, token: string): ResolvedRef | null {
-  const parsed = parseAnyRef(token)
-  if (!pool || parsed?.kind !== 'issue') return null
-  const id = pool.queries.issueReferenceId(token)
-  if (!id || typeof id === 'symbol') return null
-  const row = omitGone(pool.row('issue', id))
-  return row && typeof row !== 'symbol'
-    ? { kind: 'issue', ref: parsed, issue: row as unknown as RefIssueLike }
-    : null
+  if (!pool || parseAnyRef(token)?.kind !== 'issue') return null
+  return readRefTarget(pool, token).target
 }
 
 function OpenPoolRefMiniview({
@@ -445,13 +442,17 @@ export function RefCard({
               <span className="flex flex-none items-center gap-1.5">{closeButton}</span>
             </div>
             <IssueSummary issue={target.issue} />
-            {target.issue.description?.trim() && (
-              <ExpandableText
-                key={target.issue.id}
-                text={target.issue.description}
-                label="description"
-                className="mt-2 text-[12px] leading-[1.5] text-muted-foreground"
-              />
+            {target.issue.description === LOADING ? (
+              <BodyPending value={LOADING} what="description" className="mt-2" />
+            ) : (
+              target.issue.description?.trim() && (
+                <ExpandableText
+                  key={target.issue.id}
+                  text={target.issue.description}
+                  label="description"
+                  className="mt-2 text-[12px] leading-[1.5] text-muted-foreground"
+                />
+              )
             )}
           </div>
           {isIssueStartable(target.issue) && (

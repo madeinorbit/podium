@@ -1,12 +1,13 @@
-import { useIssueOpening } from '../../client/issue-opening'
-import { issueObserver as observer } from '../../client/issue-observer'
-import { isClosed } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
-import { useAgeNow } from '../../lib/clock-hooks'
 import type { IssueWithBodies } from '@podium/client-core/replica'
+import { LOADING } from '@podium/client-graph/loading'
 import { isPendingSync, isUpstreamStale, isViaHub } from '@podium/model'
+import { isClosed } from '@podium/model/browser'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
+import { issueObserver as observer } from '../../client/issue-observer'
+import { useIssueOpening } from '../../client/issue-opening'
+import { useAgeNow } from '../../lib/clock-hooks'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { alpha } from '../../theme/mix'
 import { color, font, leading, mono, radius, sans, space, tracking } from '../../theme/theme'
@@ -117,7 +118,7 @@ export const IssueDescription = observer(function IssueDescription({
   return (
     <View style={styles.section}>
       <InlineEditable
-        value={issue.description}
+        value={issue.description === LOADING ? '' : issue.description} // POD-7555: LOADING reads as empty on the phone
         placeholder="Add a description…"
         ariaLabel="Task description"
         busy={busy}
@@ -133,7 +134,7 @@ export const IssueDescription = observer(function IssueDescription({
  *  label until asked for. */
 export const IssueBrief = observer(function IssueBrief({ issue }: { issue: IssueWithBodies }) {
   const [open, setOpen] = useState(false)
-  if (!issue.brief) return null
+  if (!issue.brief || issue.brief === LOADING) return null // POD-7555: LOADING reads as empty on the phone
   return (
     <View style={styles.section}>
       <Disclosure

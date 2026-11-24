@@ -243,7 +243,8 @@ export class MissionScreen {
           this.reader.issue(this.rootId),
           settled(() => deck.rowIds()),
           this.folds,
-          this.rootBodyHeld ? true : LOADING,
+          this.rootModel.description,
+          this.rootStateHeld ? true : LOADING,
         ]
         return !reads.includes(LOADING)
       }) === true
@@ -388,23 +389,29 @@ export class MissionScreen {
   }
   /**
    * The header reads the root's description and panel state line, the
-   * issue's body part (POD-7084): the deck asks for them when it opens and
-   * is ready once they are held (POD-7088). Only the root's, never a member's.
+   * issue's body part (POD-7084), and the deck is ready once both are on the
+   * device (POD-7088). Only the root's, never a member's. The description is
+   * read like on every screen: the field's read holds and loads it (POD-7545).
+   * The state line is still asked for by hand until its field does the same
+   * (POD-7546).
    */
-  @lazy private get rootBodyHeld(): boolean {
-    const held = (collection: string) =>
-      this.pool.collections.held({ collection, args: { issueId: this.rootId }, part: 'main' })
-    const description = held('issueDescription.ofIssue'),
-      state = held('issuePanelState.ofIssue')
-    return description && state
+  @lazy private get rootStateHeld(): boolean {
+    return this.pool.collections.held({
+      collection: 'issuePanelState.ofIssue',
+      args: { issueId: this.rootId },
+      part: 'main',
+    })
   }
   /** The root's bodies (POD-6921) come from its pool model, which reads their records. */
   private get rootModel() {
     return this.pool.issueObject(this.rootId)
   }
-  @lazy get rootAuthoredBrief(): string {
+  /** The header's summary: the description, else the state line; LOADING until the description is here. */
+  @lazy get rootAuthoredBrief(): string | typeof LOADING {
     const root = this.rootModel
-    return root.description.trim() || root.activityNotes?.trim() || ''
+    const description = root.description
+    if (description === LOADING) return LOADING
+    return description.trim() || root.activityNotes?.trim() || ''
   }
   @lazy get rootFinished(): boolean {
     return isFinished(this.rootIssue)
