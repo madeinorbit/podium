@@ -198,6 +198,26 @@ describe('a cursor the log cannot serve is refused, and the refusal requests HTT
     ])
   })
 
+  it('refuses an old cursor once the log is FULLY pruned, and resumes only the head', async () => {
+    // POD-7593: the age budget empties the log of a workspace with no recent
+    // writes. `minChangeSeq` is then null, and a floor read as `null ?? 0` let
+    // every cursor resume over rows nobody can serve. The floor is `head + 1`.
+    const ctx = await servedOnce()
+    for (let i = 3; i <= 5; i += 1) await commit(ctx.p, `s${i}`)
+    const head = await ctx.p.authority.cursor()
+    expect(await ctx.p.store.sync.pruneChangeBatch({ thresholdSeq: head }, 100)).toBeGreaterThan(0)
+    expect(await ctx.p.store.sync.minChangeSeq()).toBeNull()
+    expect(await ctx.p.serving.retentionFloor()).toBe(head + 1)
+
+    const refused = await reconnect(ctx, ctx.held)
+    expect(refused.types()).toEqual(['feedResyncRequired'])
+    expect(refused.of('feedResyncRequired')[0]?.reason).toBe('compacted-or-unknown')
+    // The heal of that cursor is refused too, so the client bootstraps.
+    expect(await ctx.p.authority.changesSince(ctx.held.seq, DEVICE_GRADE_PRINCIPAL)).toBeNull()
+    // Nothing is missing at the head itself.
+    expect((await reconnect(ctx, { ...ctx.held, seq: head })).types()).toEqual(['feedResume'])
+  })
+
   // POD-7552: the rows that would show an access move in the gap are pruned, so
   // the refusal is a rescope when the access-move log says the viewer's moved.
   it("answers a refused cursor as a rescope when the viewer's access moved after it", async () => {
@@ -621,8 +641,8 @@ describe('a prune during a heal', () => {
 
   it('stops a paged heal at the page the prune cut into, before yielding it', async () => {
     const { p, from, head, seqs } = await healing()
-    const [first, second] = seqs
-    if (first === undefined || second === undefined || seqs.length < 3) throw new Error('short log')
+    const second = seqs[1]
+    if (second === undefined || seqs.length < 3) throw new Error('short log')
     // After the first page, the prune deletes the second page's row and those below.
     const prune = pruneAfterPage(p, second, 1)
     const delivered: { fromSeq: number; throughSeq: number }[] = []
@@ -633,8 +653,10 @@ describe('a prune during a heal', () => {
     await expect(read).rejects.toBeInstanceOf(ChangeRangeBootstrapRequired)
     expect(prune.pruned()).toBeGreaterThan(0)
     expect(prune.spy).toHaveBeenCalledTimes(2)
-    // Nothing past the pages read before the prune was certified.
-    expect(delivered.every((page) => page.throughSeq <= first)).toBe(true)
+    // Nothing was yielded at all: `scopeChangesRange` holds a page back until the
+    // next one has passed its floor check, so page 1 was still pending when page
+    // 2's check threw. An `every` over the pages would pass on an empty list.
+    expect(delivered).toEqual([])
   })
 
   it('still serves the heal when the prune stays below its cursor', async () => {

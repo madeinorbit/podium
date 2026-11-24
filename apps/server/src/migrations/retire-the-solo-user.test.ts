@@ -46,7 +46,7 @@ import { ModelRecords } from '@podium/sync/testing'
 import { MemberId, UserId } from '@podium/model'
 import { CLIENT_WIRE_VERSION, type ServerMessage, SubscriptionRegistry } from '@podium/protocol'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
-import { DEVICE_GRADE_PRINCIPAL, FeedIdentityRegistry, Ledger } from '@podium/sync'
+import { DEVICE_GRADE_PRINCIPAL, FeedIdentityRegistry, Ledger, minAvailableSeq } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
 import { SyncRepository } from '../../../../packages/sync/src/adapters/sqlite/sync-repository'
 import {
@@ -641,7 +641,7 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
         },
         () => 'unexpected-mint',
       ),
-      retention: { minAvailableSeq: () => bootRepo.minChangeSeq() },
+      retention: { minAvailableSeq: () => minAvailableSeq(bootRepo) },
       subscriptions: new SubscriptionRegistry(),
       diagnostics: () => [],
     })

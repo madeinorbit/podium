@@ -52,8 +52,9 @@ export interface ChangeStorePort {
   appendChanges(rows: readonly StoredChangeRow[]): Promise<number[]>
   /** Highest seq ever assigned — survives head-pruning. 0 before any change. */
   maxChangeSeq(): Promise<number>
-  /** Lowest RETAINED seq, or null when the log is empty (ADR 2 D5's
-   *  `minAvailableSeq`: below it a heal is refused and the ladder goes to rung 2). */
+  /** Lowest RETAINED seq, or null when the log is empty. Not ADR 2 D5's
+   *  `minAvailableSeq` by itself: an empty log has pruned everything before the
+   *  head, so the floor is `minChangeSeq() ?? maxChangeSeq() + 1` (POD-7593). */
   minChangeSeq(): Promise<number | null>
   /** Plain range read: rows with seq > cursor, in seq order. The CALLER decides
    *  whether the cursor is still inside the retained range. */

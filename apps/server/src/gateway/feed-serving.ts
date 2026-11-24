@@ -485,8 +485,9 @@ export class FeedServing {
     // `cursor + 1 >= minAvailableSeq`. ADR 2 D7 rung 2's shorthand
     // (`cursor < minAvailableSeq`) is the same rule off by one and costs a
     // needless world at exactly `cursor === min - 1`; both are safe, and the
-    // exact form is free.
-    return cursor.seq + 1 >= ((await this.deps.retention.minAvailableSeq()) ?? 0)
+    // exact form is free. The floor is total (POD-7593): a fully pruned log reads
+    // `head + 1`, so only a cursor at the head resumes.
+    return cursor.seq + 1 >= (await this.deps.retention.minAvailableSeq())
       ? undefined
       : 'compacted-or-unknown'
   }
@@ -867,11 +868,12 @@ export class FeedServing {
     return this.deps.identity.current()
   }
 
-  /** ADR 2 D5's retention floor, read live. 0 means nothing has been pruned —
-   *  the same value and the same source every published frame carries, so a
-   *  catch-up reply cannot advertise a different floor than a delta. */
+  /** ADR 2 D5's retention floor, read live: the lowest seq the log can still
+   *  deliver, `head + 1` once it is fully pruned (POD-7593). The same value and
+   *  the same source every published frame carries, so a catch-up reply cannot
+   *  advertise a different floor than a delta. */
   async retentionFloor(): Promise<number> {
-    return (await this.deps.retention.minAvailableSeq()) ?? 0
+    return await this.deps.retention.minAvailableSeq()
   }
 
   /** Connections the publisher is framing for. Telemetry and tests. */

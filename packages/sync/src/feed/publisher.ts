@@ -66,6 +66,7 @@
  * by ONE pending frame per connection, and cannot overflow anything.
  */
 
+import { type Principal, principalRoutingId } from '@podium/protocol'
 import type { ScopedChange } from '../authority/change-lifecycle'
 import type { ScopedDelivery } from '../authority/scoping'
 import type {
@@ -78,7 +79,6 @@ import type {
 } from '../replica/types'
 import type { FeedIdentity, FeedIdentityRegistry } from './identity'
 import { BoundedSendQueue, type SendQueueConfig } from './send-queue'
-import { type Principal, principalRoutingId } from '@podium/protocol'
 
 /**
  * The retention floor, read live (ADR 2 D5).
@@ -89,8 +89,13 @@ import { type Principal, principalRoutingId } from '@podium/protocol'
  * not get. Reading it per frame is the only shape that cannot go stale.
  */
 export interface FeedRetentionPort {
-  /** Lowest RETAINED seq, or `null` when the log is empty. */
-  minAvailableSeq(): number | null | Promise<number | null>
+  /**
+   * The lowest seq the log can still deliver. TOTAL (POD-7593): a fully pruned
+   * log answers `head + 1`, never null or 0, because the age budget can empty
+   * the log and an empty log has lost everything before its head. Wire it to
+   * `minAvailableSeq(store)` from `change-log.ts`.
+   */
+  minAvailableSeq(): number | Promise<number>
 }
 
 export interface FeedPublisherDeps {
@@ -388,16 +393,16 @@ export class FeedPublisher {
   }
 
   /**
-   * ADR 2 D5's floor as published on the wire.
+   * ADR 2 D5's floor as published on the wire, exactly as the port reads it.
    *
-   * `null` — an empty log — publishes 0, and that is correct rather than a
-   * fallback: an empty log has pruned nothing, so no cursor is below it. This is
-   * the one place a 0 is legitimate, which is exactly why the FIELD is required
-   * (see `DeltaFrame.minAvailableSeq`): the value 0 must mean "nothing pruned"
-   * and never "nobody published it".
+   * POD-7593: an empty log used to publish 0, read as "nothing pruned". The age
+   * budget empties the log of a workspace with no recent writes, and that log
+   * has pruned EVERYTHING before its head, so 0 advertised a range nobody could
+   * serve. The port is total now (`head + 1` for an empty log), and nothing here
+   * substitutes a value for it.
    */
   private async retentionFloor(): Promise<number> {
-    return (await this.deps.retention.minAvailableSeq()) ?? 0
+    return await this.deps.retention.minAvailableSeq()
   }
 
   private identity(): ReturnType<FeedIdentityRegistry['current']> {

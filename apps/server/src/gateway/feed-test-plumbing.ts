@@ -23,6 +23,7 @@ import {
   FeedIdentityRegistry,
   type FeedRetentionPort,
   type FeedVisibilityPolicy,
+  minAvailableSeq,
   type PostCommitFollowUpPort,
   type VisibilityAnchorPort,
 } from '@podium/sync'
@@ -116,7 +117,7 @@ export async function feedTestPlumbing(
         return `id-${minted}`
       },
     ),
-    retention: opts.retention ?? { minAvailableSeq: async () => await store.sync.minChangeSeq() },
+    retention: opts.retention ?? { minAvailableSeq: async () => await minAvailableSeq(store.sync) },
     accessMoves: store.sync,
     subscriptions,
     ...(opts.onVisibilityChanged ? { onVisibilityChanged: opts.onVisibilityChanged } : {}),

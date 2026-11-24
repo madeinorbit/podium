@@ -73,6 +73,7 @@ import {
   Ledger,
   type LedgerWriter,
   MutationLedger,
+  minAvailableSeq,
   NoDelegationsGranted,
   type WriteScope,
 } from '@podium/sync'
@@ -1668,7 +1669,7 @@ export class SessionRegistry {
         // decimal integer at this boundary.
         () => randomUUID(),
       ),
-      retention: { minAvailableSeq: async () => await this.store.sync.minChangeSeq() },
+      retention: { minAvailableSeq: async () => await minAvailableSeq(this.store.sync) },
       accessMoves: this.store.sync,
       subscriptions,
       // Rooms and topics are re-checked on the same trigger as the feed (D24).
