@@ -39,7 +39,8 @@
  *   (`device:shared-instance-password`, design gap 7).
  * - `daemonFrames(machineId)` lists every control frame the server sent that
  *   machine's fake daemon. The fake daemons answer file, transcript, usage and
- *   quota reads (naming the path, session or machine in the reply), so a test
+ *   quota reads and repo ops on a folder a caller named (naming the path,
+ *   session or machine in the reply), so a test
  *   can show an owner's read reached the machine and a refused one never did.
  *
  * Use one instance per test file (`beforeAll`/`afterAll`): booting a server
@@ -257,6 +258,16 @@ function fakeDaemonAnswer(
       requestId: msg.requestId,
       hostname: machineId,
       agents: quota.get(machineId) ?? [],
+    }
+  }
+  // A repo op on a folder a caller named (it carries `repoRoot`) answers with the
+  // machine, op and folder; ops on server records stay unanswered as before.
+  if (msg.type === 'repoOpRequest' && msg.repoRoot !== undefined) {
+    return {
+      type: 'repoOpResult',
+      requestId: msg.requestId,
+      ok: true,
+      output: `${machineId} ${msg.op} ${msg.cwd}`,
     }
   }
   if (msg.type === 'transcriptRead') {

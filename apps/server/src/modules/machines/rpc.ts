@@ -20,7 +20,13 @@ import type {
   UsageBucketWire,
   UsageSourceWire,
 } from '@podium/model'
-import { asMachineId, resolveMachinePath } from '@podium/model'
+import {
+  asMachineId,
+  machinePathSegments,
+  machinePathSeparator,
+  machinePathsEqual,
+  resolveMachinePath,
+} from '@podium/model'
 import type {
   AccessField,
   BrowseDirsResultMessage,
@@ -101,6 +107,7 @@ import { TRPCError } from '@trpc/server'
 import { knownPathsFor } from '../../file-relay-policy'
 import type { RpcDaemonFrame, RpcDaemonFrameType } from '../../gateway/daemon-frame-routing'
 import { inferRepoFromRoots } from '../../repo-registry'
+import { normalizeRepoPath } from '../../store/repos'
 import {
   DaemonRequestBroker,
   type DaemonRequestKind,
@@ -255,6 +262,12 @@ interface DaemonRpcDeps {
    *  or repo-op request carries the one its root is under, for the daemon's
    *  realpath check; absent, every root-addressed request is refused. */
   repoPaths?(machineId: MachineId): Promise<string[]>
+  /** The linked worktrees of the registered repositories on a machine, as its
+   *  last scan found them (the `checkout` records, POD-6644). A repo op may name
+   *  one that lives outside its repository, such as the sibling the assistant's
+   *  `create_worktree` makes (POD-7505); the daemon then checks that git's data
+   *  there is the repository's own. */
+  worktreeCheckouts?(machineId: MachineId): Promise<ReadonlyArray<{ path: string; root: string }>>
 }
 
 /** A daemon reply's payload: the message minus its wire plumbing. */
@@ -988,6 +1001,11 @@ export class DaemonRpcService {
    * a symlink inside a repository cannot point git at another checkout. Server
    * records (issue worktrees, registered repositories, session folders) keep
    * {@link repoOp}: a worktree may live outside every registered repository.
+   *
+   * A folder under no registered repository may still be one of a repository's
+   * linked worktrees on record (POD-7505): the request then names both, and the
+   * daemon refuses unless the folder is in that worktree and git's data there is
+   * the repository's.
    */
   async rootRepoOp(
     op: RepoOp,
@@ -1003,14 +1021,16 @@ export class DaemonRpcService {
         refuse: (error) => ({ ok: false, output: error }),
         root,
         machineId: asMachineId(machineId ?? (await this.deps.resolveMachine(undefined, root))),
+        worktrees: true,
       },
-      (requestId, repoRoot) => ({
+      (requestId, repoRoot, worktreeRoot) => ({
         type: 'repoOpRequest',
         requestId,
         op,
         cwd: root,
         ...(args ? { args } : {}),
         repoRoot,
+        ...(worktreeRoot !== undefined ? { worktreeRoot } : {}),
       }),
     )
   }
@@ -2123,11 +2143,21 @@ export class DaemonRpcService {
       refuse: (error: string) => T
       root: string
       machineId: MachineId
+      /** Also match the repositories' linked worktrees on record. Repo ops only:
+       *  only the daemon's git check can tell a worktree's data is the repo's. */
+      worktrees?: boolean
     },
-    build: (requestId: string, repoRoot: string) => ControlMessage,
+    build: (requestId: string, repoRoot: string, worktreeRoot?: string) => ControlMessage,
   ): Promise<T> {
     const { machineId } = spec
-    const repoRoot = inferRepoFromRoots((await this.deps.repoPaths?.(machineId)) ?? [], spec.root)
+    const roots = (await this.deps.repoPaths?.(machineId)) ?? []
+    let repoRoot = inferRepoFromRoots(roots, spec.root)
+    let worktreeRoot: string | undefined
+    if (repoRoot === undefined && spec.worktrees) {
+      const worktree = await this.worktreeOnRecord(machineId, roots, spec.root)
+      repoRoot = worktree?.root
+      worktreeRoot = worktree?.path
+    }
     if (repoRoot === undefined) return spec.refuse(UNKNOWN_ROOT)
     if (
       this.deps.hasDaemon(machineId) &&
@@ -2139,13 +2169,36 @@ export class DaemonRpcService {
         spec.kind,
         spec.timeoutMs,
         spec.onTimeout,
-        (requestId) => build(requestId, repoRoot),
+        (requestId) => build(requestId, repoRoot, worktreeRoot),
         machineId,
       )
     } catch (error) {
       if (isRefusedSend(error)) return spec.refuse(error.message)
       throw error
     }
+  }
+
+  /** The innermost linked worktree on record that holds `root`, with the
+   *  registered repository it belongs to; undefined when that repository is no
+   *  longer registered on the machine. */
+  private async worktreeOnRecord(
+    machineId: MachineId,
+    registered: readonly string[],
+    root: string,
+  ): Promise<{ path: string; root: string } | undefined> {
+    const worktrees = (await this.deps.worktreeCheckouts?.(machineId)) ?? []
+    const path = inferRepoFromRoots(
+      worktrees.map((w) => w.path),
+      root,
+    )
+    if (path === undefined) return undefined
+    const worktree = worktrees.find((w) => machinePathsEqual(normalizeRepoPath(w.path), path))
+    const repo =
+      worktree &&
+      registered.find((r) =>
+        machinePathsEqual(normalizeRepoPath(r), normalizeRepoPath(worktree.root)),
+      )
+    return repo !== undefined && worktree ? { path, root: repo } : undefined
   }
 
   /** The machine a root-addressed file request goes to, named or the default. */
@@ -2306,6 +2359,7 @@ export class DaemonRpcService {
         session.machineId,
       )
     }
+    if (writesIntoGitDir(input.root, input.path)) return { ok: false, error: GIT_DIR_WRITE }
     return await this.rootRequest(
       {
         kind: FILE_WRITE,
@@ -2699,4 +2753,29 @@ export class DaemonRpcService {
     const settle = RPC_REPLY_SETTLERS[msg.type] as ReplySettler<SettledFrameType>
     settle(this.broker, machineId, msg)
   }
+}
+
+/** What a root-addressed save into a `.git` folder answers, here and on the daemon. */
+const GIT_DIR_WRITE = 'refusing to write inside .git'
+
+/**
+ * A ROOT-ADDRESSED SAVE INTO A `.git` FOLDER (POD-7505), judged on the text.
+ *
+ * Git takes instructions from there: `.git/config` (`core.fsmonitor` runs a
+ * program on the next `git status`, `core.worktree` moves the working tree),
+ * `.git/hooks`, and a `.git` file in a subfolder points git at another
+ * repository. A save from the app has no business there. The daemon judges the
+ * resolved path again (a symlink can hide the segment from this text); this
+ * refusal only keeps the request from leaving. Compared as Windows compares
+ * names: case-insensitively, without trailing dots and spaces, and with the
+ * 8.3 short name `GIT~1` on a Windows root.
+ */
+export function writesIntoGitDir(root: string, path: string): boolean {
+  // Every segment, the root's too: a root may itself name `<repo>/.git`. No
+  // repository is registered under a folder named `.git`.
+  const windows = machinePathSeparator(root) === '\\'
+  return machinePathSegments(resolveMachinePath(root, path), root).some((segment) => {
+    const name = segment.toLowerCase().replace(/[. ]+$/u, '')
+    return name === '.git' || (windows && /^git~\d+$/u.test(name))
+  })
 }

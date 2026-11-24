@@ -1751,6 +1751,8 @@ export class SessionRegistry {
       onlineMachineIds: () => machines.onlineMachineIds(),
       portableStateFence,
       repoPaths: async (machineId) => await this.store.repos.listRepoPaths(machineId),
+      worktreeCheckouts: async (machineId) =>
+        (await this.store.checkouts.ofMachine(machineId)).filter((row) => row.kind === 'worktree'),
       // A parked session is restored from its row for the read (POD-6160 D2f);
       // the view closes over the object, which stays readable if it is evicted.
       getSession: async (sessionId) => {

@@ -33,7 +33,8 @@ import {
   subscriptionRowIdOf,
 } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { writesIntoGitDir } from './modules/machines/rpc'
 import { buildSuperagentTools } from './modules/superagent/tools'
 import { fileApproval } from './test-support/approvals'
 import {
@@ -400,6 +401,178 @@ describe('MU-08: superagent session tools reach only the thread owner’s sessio
     expect(
       await alice('rename_session', { sessionId: f.sessions.alice, name: 'alice renamed' }),
     ).toBe('renamed')
+  })
+})
+
+/**
+ * POD-7505: the assistant's `git` and `create_worktree` tools name a folder by
+ * text. The machine is decided once, among the machines the thread's owner may
+ * run on, and that same machine runs the op: before, `git` checked the DEFAULT
+ * machine and then ran wherever the folder was registered, and `create_worktree`
+ * checked nothing, so Bob's thread could read and branch Alice's checkout.
+ */
+describe('POD-7505: the superagent git tools run only on the thread owner’s machines', () => {
+  const ALICE_ONLY = '/alice-only-checkout-7505'
+  const BOB_ONLY = '/bob-only-checkout-7505'
+  beforeAll(async () => {
+    await store().repos.addRepo(ALICE_ONLY, f.machines.alice)
+    await store().repos.addRepo(BOB_ONLY, f.machines.bob)
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  const toolsFor = async (owner: MemberName) => {
+    const threadId = `thr_fixture_7505_${owner}`
+    await store().superagent.upsertSuperagentThread({
+      id: threadId,
+      ownerUserId: MEMBERS[owner].id,
+      kind: 'btw',
+    })
+    const tools = await buildSuperagentTools(
+      {
+        modules: registry().modules,
+        repos: { list: async () => [REPO_PATH] },
+        store: store(),
+        waitPollMs: 10,
+      },
+      '',
+      threadId as never,
+    )
+    return async (name: string, args: Record<string, unknown>) => {
+      const tool = tools.find((candidate) => candidate.spec.name === name)
+      if (!tool) throw new Error(`no tool ${name}`)
+      return await tool.run(args as never)
+    }
+  }
+  /** The repo ops each machine's daemon was asked, as `op cwd`. */
+  const repoOps = (machine: 'alice' | 'bob') =>
+    f
+      .daemonFrames(f.machines[machine])
+      .flatMap((frame) => (frame.type === 'repoOpRequest' ? [frame] : []))
+  const opsSince = (machine: 'alice' | 'bob', from: number) =>
+    repoOps(machine)
+      .slice(from)
+      .map((frame) => `${frame.op} ${frame.cwd}`)
+  /** The machine's scan reports `root` with `worktrees`, as the daemon would after
+   *  a `git worktree add`. */
+  const scanFinds = (machine: 'alice' | 'bob', root: string, worktrees: string[]) =>
+    vi.spyOn(registry().modules.rpc, 'scanRepos').mockImplementation(async (_roots, _o, id) => ({
+      repositories:
+        id === f.machines[machine]
+          ? [
+              {
+                path: root,
+                kind: 'repository' as const,
+                branch: 'main',
+                worktrees: worktrees.map((path) => ({ path, branch: 'feat' })),
+              },
+            ]
+          : [],
+      diagnostics: [],
+    }))
+
+  it('Bob’s thread can neither read nor branch a checkout only Alice’s machine holds', async () => {
+    const bob = await toolsFor('bob')
+    const alice = await toolsFor('alice')
+    const [aliceFrom, bobFrom] = [repoOps('alice').length, repoOps('bob').length]
+    for (const op of ['status', 'log', 'branches']) {
+      expect(await bob('git', { op, cwd: ALICE_ONLY }), op).toBe('failed: no such checkout')
+    }
+    expect(await bob('create_worktree', { repoPath: ALICE_ONLY, branch: 'steal' })).toBe(
+      'failed: no such checkout',
+    )
+    // Naming her machine does not help: he may not run there.
+    expect(await bob('git', { op: 'status', cwd: ALICE_ONLY, machineId: f.machines.alice })).toBe(
+      'failed: no such checkout',
+    )
+    expect(opsSince('alice', aliceFrom)).toEqual([])
+    expect(opsSince('bob', bobFrom)).toEqual([])
+    // Control: Alice's own thread reads it, on her machine.
+    expect(await alice('git', { op: 'log', cwd: ALICE_ONLY })).toBe(
+      `${f.machines.alice} log ${ALICE_ONLY}`,
+    )
+    expect(opsSince('alice', aliceFrom)).toEqual([`log ${ALICE_ONLY}`])
+  })
+
+  it('a folder both machines hold runs on the owner’s machine, not the first one online', async () => {
+    const bob = await toolsFor('bob')
+    const alice = await toolsFor('alice')
+    const [aliceFrom, bobFrom] = [repoOps('alice').length, repoOps('bob').length]
+    expect(await bob('git', { op: 'status', cwd: REPO_PATH })).toBe(
+      `${f.machines.bob} status ${REPO_PATH}`,
+    )
+    expect(await alice('git', { op: 'status', cwd: REPO_PATH })).toBe(
+      `${f.machines.alice} status ${REPO_PATH}`,
+    )
+    expect(opsSince('bob', bobFrom)).toEqual([`status ${REPO_PATH}`])
+    expect(opsSince('alice', aliceFrom)).toEqual([`status ${REPO_PATH}`])
+  })
+
+  it('create_worktree runs on the owner’s machine, and git then works in the new worktree', async () => {
+    const bob = await toolsFor('bob')
+    const alice = await toolsFor('alice')
+    const worktree = `${BOB_ONLY}-feat-login`
+    const scan = scanFinds('bob', BOB_ONLY, [worktree])
+    const [aliceFrom, bobFrom] = [repoOps('alice').length, repoOps('bob').length]
+    expect(
+      JSON.parse(await bob('create_worktree', { repoPath: BOB_ONLY, branch: 'feat/login' })),
+    ).toEqual({ worktreePath: worktree, branch: 'feat/login' })
+    const [add] = repoOps('bob').slice(bobFrom)
+    expect(add).toMatchObject({
+      op: 'worktreeAdd',
+      cwd: BOB_ONLY,
+      repoRoot: BOB_ONLY,
+      args: { path: worktree, branch: 'feat/login' },
+    })
+    // The scan that records the worktree ran on his machine before the tool answered.
+    expect(scan).toHaveBeenCalledWith(expect.anything(), expect.anything(), f.machines.bob)
+    // The new worktree lives outside its repository: the request names both, and
+    // the daemon checks that git's data there is the repository's.
+    expect(await bob('git', { op: 'status', cwd: worktree })).toBe(
+      `${f.machines.bob} status ${worktree}`,
+    )
+    expect(repoOps('bob').at(-1)).toMatchObject({
+      op: 'status',
+      cwd: worktree,
+      repoRoot: BOB_ONLY,
+      worktreeRoot: worktree,
+    })
+    // It is Bob's checkout: Alice's thread does not reach it.
+    expect(await alice('git', { op: 'status', cwd: worktree })).toBe('failed: no such checkout')
+    expect(opsSince('alice', aliceFrom)).toEqual([])
+  })
+})
+
+describe('POD-7505: a root-addressed save never goes into .git', () => {
+  it.each([
+    ['/repo', '/repo/.git/config', true],
+    ['/repo', '.git/hooks/pre-commit', true],
+    ['/repo', '/repo/sub/.git', true],
+    ['/repo/.git', 'config', true],
+    [String.raw`C:\repo`, String.raw`C:\repo\.GIT.\config`, true],
+    [String.raw`C:\repo`, String.raw`C:\repo\GIT~1\config`, true],
+    ['/repo', '/repo/.gitignore', false],
+    ['/repo', '/repo/.github/workflows/ci.yml', false],
+    ['/repo', '/repo/git~1', false],
+  ] as const)('root %s, path %s → refused %s', (root, path, refused) => {
+    expect(writesIntoGitDir(root, path)).toBe(refused)
+  })
+
+  it('the request never reaches the machine', async () => {
+    const before = f.daemonFrames(f.machines.alice).length
+    expect(
+      await registry().modules.rpc.writeFile({
+        machineId: f.machines.alice,
+        root: REPO_PATH,
+        path: `${REPO_PATH}/.git/config`,
+        content: '[core]\n\tfsmonitor = touch /tmp/pwned\n',
+      }),
+    ).toEqual({ ok: false, error: 'refusing to write inside .git' })
+    expect(
+      f
+        .daemonFrames(f.machines.alice)
+        .slice(before)
+        .filter((frame) => frame.type === 'fileWriteRequest'),
+    ).toEqual([])
   })
 })
 

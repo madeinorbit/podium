@@ -26,6 +26,7 @@ import type { McpToolProvider } from '../../mcp-route'
 import { spawnPromptMessageId } from '../../message-ids'
 import { privateResourceAccess } from '../../private-resources'
 import type { RegistryModules } from '../../relay'
+import { inferRepoFromRoots } from '../../repo-registry'
 import type { SessionStore } from '../../store'
 import { agentCommandPrincipal } from '../effects/writer'
 import { answerThroughEffect, settledResult } from '../interactions/answer-effect'
@@ -151,6 +152,40 @@ export async function buildSuperagentTools(
     (await ownerAccess.ownsSession(id as SessionId))
       ? await sessions.sessionById(id as SessionId)
       : undefined
+  /**
+   * THE MACHINE A FOLDER THE ASSISTANT NAMES IS ON, decided once (POD-7505).
+   *
+   * Only machines the thread's owner may run on are candidates (`use`, the same
+   * rule as the git panel), and of those the online ones that hold the folder:
+   * under a registered repository, or in one of its linked worktrees on record.
+   * The answer is then passed to the daemon request as is, so the machine that
+   * was checked is the machine that runs git. Somebody else's checkout answers
+   * like a missing one. A folder held by several of the owner's machines needs
+   * `machineId`.
+   */
+  const checkoutMachine = async (
+    path: string,
+    requested: string | undefined,
+  ): Promise<{ machineId: MachineId } | { refusal: string }> => {
+    const holding: MachineId[] = []
+    for (const machineId of (await ownerAccess.machineStanding()).keys()) {
+      if (requested !== undefined && machineId !== requested) continue
+      if (!modules.machines.hasDaemon(machineId)) continue
+      const worktrees = (await store.checkouts.ofMachine(machineId))
+        .filter((row) => row.kind === 'worktree')
+        .map((row) => row.path)
+      if (
+        inferRepoFromRoots(await store.repos.listRepoPaths(machineId), path) !== undefined ||
+        inferRepoFromRoots(worktrees, path) !== undefined
+      )
+        holding.push(machineId)
+    }
+    if (holding.length === 1) return { machineId: holding[0] as MachineId }
+    if (holding.length === 0) return { refusal: 'failed: no such checkout' }
+    return {
+      refusal: `failed: ${path} is on several of your machines; pass machineId (${holding.join(', ')})`,
+    }
+  }
   /** `'unknown session'` unless the thread owner owns it — the one refusal. */
   const unknownUnlessOwned = async (id: string): Promise<'unknown session' | undefined> =>
     (await getSession(id)) ? undefined : 'unknown session'
@@ -879,6 +914,10 @@ export async function buildSuperagentTools(
           properties: {
             op: { type: 'string', enum: ['status', 'log', 'branches'] },
             cwd: { type: 'string' },
+            machineId: {
+              type: 'string',
+              description: 'only when the folder is on several of your machines',
+            },
           },
           required: ['op', 'cwd'],
         },
@@ -886,9 +925,13 @@ export async function buildSuperagentTools(
       run: async (args) => {
         const op = str(args.op)
         if (op !== 'status' && op !== 'log' && op !== 'branches') return 'invalid op'
-        // The default machine's checkouts are its users' (POD-6284).
-        if (!(await ownerAccess.mayReadMachineFiles())) return 'failed: no such checkout'
-        const r = await rpc.rootRepoOp(op, str(args.cwd) ?? '')
+        const cwd = str(args.cwd)
+        if (!cwd) return 'missing cwd'
+        // A checkout is its machine's users' (POD-6284), checked on the machine
+        // that runs the op (POD-7505).
+        const target = await checkoutMachine(cwd, str(args.machineId))
+        if ('refusal' in target) return target.refusal
+        const r = await rpc.rootRepoOp(op, cwd, undefined, target.machineId)
         return r.ok ? r.output || '(clean)' : `failed: ${r.output}`
       },
     },
@@ -901,6 +944,10 @@ export async function buildSuperagentTools(
           properties: {
             repoPath: { type: 'string' },
             branch: { type: 'string', description: 'new branch name, e.g. feat/login' },
+            machineId: {
+              type: 'string',
+              description: 'only when the repo is on several of your machines',
+            },
           },
           required: ['repoPath', 'branch'],
         },
@@ -909,19 +956,21 @@ export async function buildSuperagentTools(
         const repoPath = str(args.repoPath)
         const branch = str(args.branch)
         if (!repoPath || !branch) return 'missing repoPath/branch'
+        // Creating a branch and a folder is running on the machine: `use` there,
+        // checked on the machine that does it (POD-7505).
+        const target = await checkoutMachine(repoPath, str(args.machineId))
+        if ('refusal' in target) return target.refusal
         const safe = branch.replace(/[^a-zA-Z0-9._-]+/g, '-')
         const path = `${repoPath}-${safe}`
-        const r = await rpc.rootRepoOp('worktreeAdd', repoPath, { path, branch })
-        if (r.ok) {
-          // A worktree created behind the apps' backs is a change of the machine's
-          // checkouts: it is scanned, and the new `checkout` record reaches every
-          // device (POD-6644; the same rescan issues.start() asks for).
-          void modules.machines
-            .defaultMachine()
-            .then((machineId) => modules.checkouts.rescanSoon(machineId))
-            .catch(() => {})
-        }
-        return r.ok ? JSON.stringify({ worktreePath: path, branch }) : `failed: ${r.output}`
+        const r = await rpc.rootRepoOp('worktreeAdd', repoPath, { path, branch }, target.machineId)
+        if (!r.ok) return `failed: ${r.output}`
+        // A worktree created behind the apps' backs is a change of the machine's
+        // checkouts: it is scanned, and the new `checkout` record reaches every
+        // device (POD-6644; the same rescan issues.start() asks for). Awaited: the
+        // record is what lets the `git` tool find the new worktree, which lives
+        // outside its repository (POD-7505).
+        await modules.checkouts.rescan(target.machineId).catch(() => [])
+        return JSON.stringify({ worktreePath: path, branch })
       },
     },
   ]
