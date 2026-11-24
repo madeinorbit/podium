@@ -10,6 +10,7 @@ import {
   readSessionTarget,
 } from './ref-miniview-readers'
 import { readRefMiniview } from './ref-miniview-readers.before.test.fixture'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 
 // POD-5831: the card's "Go to session" target, parent label and working label
 // now come from the shared issue/session models. The old catalog answers stay
@@ -35,7 +36,7 @@ const seat = (sessionId: string, issueId: string | undefined, patch: Row = {}): 
 }
 
 function poolOf(issues: Row[], sessions: Row[]) {
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp(0)) })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp(0)) }))
   pool.apply({
     type: 'replace',
     rows: [

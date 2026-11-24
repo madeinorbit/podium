@@ -7,6 +7,7 @@ import {
   type ProposalPlacement,
   sessionNeedsHuman,
 } from '@podium/client-core/values'
+import { LOADING } from '@podium/client-graph/loading'
 import type { SessionModel } from '@podium/client-graph/models'
 import {
   asIssueId,
@@ -68,6 +69,7 @@ const PoolSessionContextMenu = lazy(() =>
 )
 
 const isSystemOwnedIssueStage = (stage: IssueStage): boolean => stage === 'shipping'
+const NO_SESSIONS: SessionView[] = []
 
 /**
  * The dock's reading scale (POD-725 §7). Written out rather than taken from
@@ -380,6 +382,7 @@ export const IssueDecisionBand = observer(function IssueDecisionBand({
   const { trpc } = { trpc: useRequestClient<Trpc>() }
   const sessions = useIssuePageSessions()
   const page = useIssuePageContext()
+  if (sessions === LOADING) throw LOADING
   const active = page ? sessions : issueSessions(issue, sessions).filter(isOpenSession)
   if (!issueNeedsHuman(issue, active)) return null
 
@@ -552,7 +555,9 @@ export const IssueCompactControls = observer(function IssueCompactControls({
   }
   const machines = usePoolMachines()
   const resolve = useIssueEdgeResolver()
-  const sessions = useIssuePageSessions()
+  const pageSessions = useIssuePageSessions()
+  // Read as empty until every hook below has run; LOADING is thrown after them.
+  const sessions = pageSessions === LOADING ? NO_SESSIONS : pageSessions
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const menuIssues = useIssuePageCatalog(Boolean(menu))
   // The status menu, the Done button and the context menu all close through the
@@ -581,6 +586,7 @@ export const IssueCompactControls = observer(function IssueCompactControls({
     const source = edgeIssue(resolve(origin))
     return discoveredPlacement(issue, source ? new Map([[source.id, source]]) : undefined)
   }, [action?.kind, issue, resolve])
+  if (pageSessions === LOADING) throw LOADING
 
   if (isSystemOwnedIssueStage(issue.stage)) {
     return (

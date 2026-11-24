@@ -20,6 +20,7 @@ import {
   type ScreenWorkCell,
 } from './screen-work-ratios'
 import { insideArm, insideReader, measureWork, type WorkCounts } from './work-meter'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 
 const now = Date.parse('2026-10-03T12:00:00Z'),
   old = '2020-01-01T00:00:00Z'
@@ -111,11 +112,11 @@ function fixture(scale: number) {
     },
   })
   const values = new Map(rows.map((row) => [`${row.kind}:${row.id}`, row.value]))
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
+  const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
     load: (entity, id) => values.get(`${entity}:${id}`),
     worklist: 'demand',
     schedule: () => () => {},
-  })
+  }))
   pool.apply({ type: 'replace', rows })
   const patch = (kind: 'issue' | 'session', id: string, value: object) => {
     values.set(`${kind}:${id}`, value as RowRecord['value'])

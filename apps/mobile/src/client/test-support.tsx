@@ -29,6 +29,7 @@ import type { IssueViewModel, Replica } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { ClientRuntime, VisibilitySource } from '@podium/client-core/runtime-root'
 import { machineAndRepoRecords } from '@podium/client-core/test-support/machine-records'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import type { MobxPool } from '@podium/client-graph/pool'
 import {
   asUserId,
@@ -66,6 +67,13 @@ export interface MobileStoreFixture {
   replica?: Replica
   /** Exercise an app's real pool attachment on the provider-owned runtime. */
   attachRuntime?: (runtime: ClientRuntime<MobileTrpc>) => () => void
+  /**
+   * The fixture supplies every record a screen reads, so the pool answers its
+   * collections complete (`fullDevice`). The issue page's rosters and
+   * sub-issues read through holding reads (POD-7579), which a pool without a
+   * collection loader answers LOADING otherwise.
+   */
+  fullDevice?: boolean
   sessions?: SessionMeta[]
   sessionUserStates?: SessionUserStateWire[]
   machineProjections?: MachineProjection[]
@@ -208,10 +216,15 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
   const api = stubApi(fixture)
   let hub: { emit(event: string, ...payload: unknown[]): void } | null = null
   let pool: MobxPool | null = null
+  const declared = new WeakSet<MobxPool>()
   let ready = false
   let runtimeHandle: ClientRuntime<MobileTrpc> | undefined
   function PoolReady() {
     pool = useMobilePool()
+    if (fixture.fullDevice && pool && !declared.has(pool)) {
+      declared.add(pool)
+      fullDevice(pool)
+    }
     // The host publishes the pool before its lazy screen sources finish attaching.
     // A fixture is ready only when the actual readers and launch facts are present.
     ready = useMobilePoolProjection(readReady, false)

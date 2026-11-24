@@ -9,6 +9,7 @@ import { lazyKeptCount } from '@podium/mobx-helpers'
 import { createPoolProjection } from './runtime-pool'
 import type { RowRecord } from './shared/source'
 import { LOADING, type Loaded } from './worklist/rollup'
+import { fullDevice } from './full-device-fixture'
 
 const old = '2020-01-01T00:00:00Z'
 const issue = (id: string, patch: object = {}): RowRecord =>
@@ -55,7 +56,7 @@ const seat = (id: string, patch: object = {}): RowRecord =>
  * still trip the meter even when the returned display facts never change. */
 it('rejects hidden neighbour history and planted catalogs on open and heartbeat', async () => {
   async function capture(scale: 1 | 4, planted = false) {
-    const pool = new MobxPool({ selectedIssueId: 'child', coarseNow: Date.parse(old) })
+    const pool = fullDevice(new MobxPool({ selectedIssueId: 'child', coarseNow: Date.parse(old) }))
     pool.apply({
       type: 'replace',
       rows: [
@@ -154,7 +155,7 @@ it('keeps identities, raw members and continuation witnesses live without neighb
   const history = Array.from({ length: 48 }, (_, n) =>
     seat(`history-${String(n).padStart(3, '0')}`),
   )
-  const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(old) })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(old) }))
   pool.sources.register(['issueExit'], { read: () => ({ kind: undefined }), dispose() {} })
   pool.apply({
     type: 'replace',
@@ -245,7 +246,7 @@ it('keeps identities, raw members and continuation witnesses live without neighb
 })
 
 it('isolates scalar, body, child and roster observers and releases watched fields', async () => {
-  const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(old) })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(old) }))
   const root = issue('root', { stage: 'planning' }),
     child = issue('child', { parentId: 'root' })
   pool.apply({
@@ -315,7 +316,7 @@ it('keeps named and draft detail independent of unrelated worktree choices at 1x
       name: ' Chosen agent ',
       cwd: '/repo/owned',
     })
-    const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(old) })
+    const pool = fullDevice(new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(old) }))
     pool.apply({
       type: 'replace',
       rows: [
@@ -399,7 +400,7 @@ it('keeps named and draft detail independent of unrelated worktree choices at 1x
 })
 
 it('keeps document, relation, readiness, close and exit questions live on the shared issue', () => {
-  const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(old) })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(old) }))
   const exits = observable.map<string, 'evicted' | 'removed'>()
   pool.sources.register(['issueExit'], {
     read: (_entity, id) => ({ kind: exits.get(id) }),

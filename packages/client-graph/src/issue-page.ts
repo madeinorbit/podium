@@ -18,6 +18,8 @@ import { missionView } from './mission-view'
 import type { ModelOf, SessionModel } from './models'
 import type { MobxPool } from './pool'
 import { createQueryResult } from './query-result'
+import { holdingInstanceOf } from './shared/holding-relations'
+import { SCHEMA } from './shared/schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 /** The same pooled issue object, with the page schema's stored-field types.
@@ -30,7 +32,7 @@ export type DetailSession = SessionModel & SessionView
 /** These are data-layer query results of model identities. Display-only field
  * changes are read by the row observers and do not replace a roster. */
 function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
-  const child = createQueryResult<PageIssue>({
+  const childList = createQueryResult<PageIssue>({
     name: `IssueDetail@children:${issue.id}`,
     ids: () => pool.graph.many('issue', issue.id, 'treeChildren'),
     has: (id) => pool.queries.hasMember('issue', issue.id, 'treeChildren', id),
@@ -51,14 +53,21 @@ function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
     },
     subscribe: (changed) => pool.queries.onMembers('issue', issue.id, 'treeChildren', changed),
   })
+  // No collection is keyed by parentId (POD-7582): the issue's tree, held
+  // like the flight deck holds it, brings every sub-issue (POD-7579).
+  const child = {
+    get: (): Loaded<PageIssue[]> =>
+      pool.collections.treeHeld(issue.id) ? childList.get() : LOADING,
+    dispose: () => childList.dispose(),
+  }
   const seats = (
     name: string,
     relation: 'pageSessions' | 'missionSessions' | 'bornSessions',
     archived: boolean | undefined,
     keep: (session: SessionModel) => boolean,
     order?: (session: SessionModel) => string,
-  ) =>
-    createQueryResult<DetailSession>({
+  ) => {
+    const list = createQueryResult<DetailSession>({
       name: `IssueDetail@${name}:${issue.id}`,
       ids: () =>
         archived === false && relation !== 'bornSessions'
@@ -116,6 +125,12 @@ function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
         }
       },
     })
+    return {
+      get: (): Loaded<DetailSession[]> =>
+        sessionsHeld(pool, issue.id, relation) ? list.get() : LOADING,
+      dispose: () => list.dispose(),
+    }
+  }
   const members = seats('members', 'pageSessions', undefined, () => true)
   const liveMembers = seats('live-members', 'pageSessions', false, () => true)
   const active = seats(
@@ -192,6 +207,32 @@ function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
         list.dispose()
     },
   }
+}
+
+/** The instance each session relation's holding read holds, from the declarations. */
+const SESSION_HOLDS = {
+  pageSessions: holdingInstanceOf(SCHEMA, 'issue', 'pageSessions'),
+  missionSessions: holdingInstanceOf(SCHEMA, 'issue', 'missionSessions'),
+  bornSessions: holdingInstanceOf(SCHEMA, 'issue', 'bornSessions'),
+}
+
+/**
+ * The holding read of an issue's session relation (POD-7579): it holds the
+ * relation's collection instance (`session.ofIssue`) for the issue while it
+ * is observed and answers false until the device holds it complete, so a
+ * roster never shows only the sessions that happen to be in memory (a closed
+ * issue's live session without its history). One marker read, not a walk of
+ * the members: the rosters below keep their own incremental membership.
+ * `bornSessions` has no keyed collection to hold (POD-7582) and reads what is
+ * in memory.
+ */
+function sessionsHeld(
+  pool: MobxPool,
+  issueId: string,
+  relation: keyof typeof SESSION_HOLDS,
+): boolean {
+  const instance = SESSION_HOLDS[relation]
+  return instance === undefined || pool.collections.held(instance(issueId))
 }
 
 const EMPTY_CHILDREN: PageIssue[] = []
@@ -318,12 +359,15 @@ export class IssuePageRow {
   get inspectorSessions() {
     return this.lists.inspector.get() ?? EMPTY_DETAIL_SESSIONS
   }
-  /** The displayed roster collapses resume twins; raw action membership does not. */
-  get rosterCount(): number {
+  /** The displayed roster collapses resume twins; raw action membership does not.
+   *  Every agent session over history, through the holding read (POD-7579). */
+  get rosterCount(): Loaded<number> {
+    if (!sessionsHeld(this.pool, this.issue.id, 'missionSessions')) return LOADING
     return this.pool.graph.subsetSize('issue', this.issue.id, 'missionSessions', 'agents')
   }
-  /** A closed retired fold reads IDs plus live exited seats, never archived payloads. */
-  get retiredCount(): number {
+  /** Every retired explicit session, shells included, behind the holding read. */
+  get retiredCount(): Loaded<number> {
+    if (!sessionsHeld(this.pool, this.issue.id, 'missionSessions')) return LOADING
     return this.pool.graph.subsetSize('issue', this.issue.id, 'missionSessions', 'retired')
   }
   dispose() {
@@ -358,11 +402,11 @@ export function createIssuePageViews(pool: MobxPool) {
     return row && row !== LOADING ? { ...row } : row
   }
   function attachedSessions(id: string): Loaded<SessionView[]> {
-    if (disposed) return LOADING
+    if (disposed || !sessionsHeld(pool, id, 'missionSessions')) return LOADING
     return roster(id, 'missionSessions').get()
   }
   function memberSessions(id: string): Loaded<SessionView[]> {
-    if (disposed) return LOADING
+    if (disposed || !sessionsHeld(pool, id, 'pageSessions')) return LOADING
     return roster(id, 'pageSessions').get()
   }
   function roster(

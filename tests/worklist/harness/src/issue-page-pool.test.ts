@@ -32,6 +32,7 @@ import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice
 import { diffRelations } from './adapters/mobx-rebuild'
 import { tracked } from './adapters/mobx-pool'
 import { installMobxWarnTrap } from './mobx-trap'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 
 installMobxWarnTrap({ errors: true })
 const NOW = Date.parse('2026-10-01T12:00:00Z'),
@@ -106,10 +107,15 @@ function open(issues: PageInput[], seats: SliceSession[] = [], lazy = false) {
     ...seats.map((row) => [`session:${row.sessionId}`, row] as const),
   ])
   const load = vi.fn((kind: string, id: string) => input.get(`${kind}:${id}`))
-  const pool = new MobxPool(
-    { selectedIssueId: null, coarseNow: NOW },
-    undefined,
-    lazy ? { load, schedule: () => () => {} } : undefined,
+  // The harness traps reads outside a reaction; declaring the fixture reads one.
+  const pool = runInAction(() =>
+    fullDevice(
+      new MobxPool(
+        { selectedIssueId: null, coarseNow: NOW },
+        undefined,
+        lazy ? { load, schedule: () => () => {} } : undefined,
+      ),
+    ),
   )
   pools.push(pool)
   pool.apply({
@@ -525,7 +531,7 @@ describe('declared issue page', () => {
       ],
     })
     expect(tracked(() => [...links.issue.pageDependents.ids('a')])).toEqual(['owner'])
-    expect(() => ctx.pool.graph.one('issue', 'owner', 'pageDependencies')).toThrow(
+    expect(() => runInAction(() => ctx.pool.graph.one('issue', 'owner', 'pageDependencies'))).toThrow(
       /is a collection/,
     )
   })

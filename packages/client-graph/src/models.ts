@@ -755,12 +755,16 @@ export class IssueModel extends EntityModel {
   /** This task's own visible live seat, in the dock roster's contract order:
    * the coordinator when it is one of them, else the most recently active
    * (ties keep the collapse order). Headless seats cannot be opened; a seat
-   * still loading is skipped until it lands. Undefined without a visible seat. */
+   * still loading is skipped until it lands. Undefined without a visible seat.
+   * Reads the unarchived seats through the holding read: LOADING until the
+   * device holds the issue's sessions (POD-7579). */
   @lazy
   get liveSeatId(): string | undefined {
     const coordinator = this.storedField('coordinatorSessionId')
+    const seats = this.pageSessions.unarchived.members
+    if (seats === LOADING) throw LOADING
     let best: { id: string; at: string } | null = null
-    for (const id of this.host.relations.subset('issue', this.id, 'pageSessions', 'unarchived')) {
+    for (const { id } of seats) {
       if (this.host.queries.collapsed(id)) continue
       const session = this.host.sessionObject(id)
       let at: string

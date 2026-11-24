@@ -1943,9 +1943,10 @@ export class MissionViewReader {
     })
   }
   continuation(issue: IssueNavigationModel, local = false): IssueContinuation | null {
-    const targetId = issue.supersededBy
-      ? (this.pool.graph.one('issue', issue.id, 'supersedingIssue') ?? issue.supersededBy)
-      : (this.pool.graph.one('issue', issue.id, 'canonicalIssue') ?? issue.duplicateOf)
+    // The successor is named by the stored field; the catalog read below looks
+    // it up and loads it when absent (POD-7579). A raw relation read answered
+    // only a successor in memory, and fell back to this same id.
+    const targetId = issue.supersededBy || issue.duplicateOf
     if (targetId) {
       const target = requireLoaded(this.catalogIssue(targetId)),
         ref = target ? issueDisplayRef(target) : 'another task'

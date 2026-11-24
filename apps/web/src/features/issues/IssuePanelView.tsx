@@ -288,6 +288,7 @@ function initials(name: string): string {
 
 /** How many comments the column shows before folding the older ones. */
 const COMMENTS_SHOWN = 3
+const NO_CHILDREN: readonly PageIssue[] = []
 
 /**
  * The thread, oldest first, then the field to add to it. Comment bodies are
@@ -898,8 +899,11 @@ export const IssuePanelBody = observer(function IssuePanelBody({
     [onNavigate, markIssueRead, showInDeck],
   )
 
-  const children = detail.children
-  if (children === LOADING) throw LOADING
+  // The sub-issues come with the issue's tree, held while this reads it
+  // (POD-7579). Until it is here (or offline) the panel draws without the
+  // subtasks line rather than blanking whole.
+  const heldChildren = detail.children
+  const children = heldChildren === LOADING ? NO_CHILDREN : heldChildren
   const continuation = issue ? detail.continuation : null
   const relations = issue.relationGroups
 

@@ -15,7 +15,7 @@ import {
   useState,
 } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
-import { type IssueViewModel } from '@/app/store'
+import type { IssueViewModel } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { poolMissionContains, poolMissionRoot } from '@/features/worklist/use-pool-unified-work'
 
@@ -57,16 +57,11 @@ export function poolDockIssueTarget(
   if (root === LOADING) return LOADING
   if (!root || root.archived || root.deletedAt) return null
   if (root.isDraftVessel && !root.worktreePath && !pool.issueObject(root.id).headlessOccupied) {
-    let occupied = false
-    for (const id of pool.graph.many('issue', root.id, 'sessions')) {
-      const session = omitGone(pool.row('session', id))
-      if (session === LOADING) return LOADING
-      if (session && (session as { archived?: boolean }).archived !== true) {
-        occupied = true
-        break
-      }
-    }
-    if (!occupied) return null
+    // The holding read: the draft's sessions are on the device, or LOADING
+    // (POD-7579). A raw id read saw only the sessions already in memory.
+    const sessions = pool.issueObject(root.id).sessions.members
+    if (sessions === LOADING) return LOADING
+    if (!sessions.some((session) => session.archived !== true)) return null
   }
   if (!focusedId) return root.id
   const focused = omitGone(pool.row('issue', focusedId))

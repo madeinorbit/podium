@@ -6,6 +6,7 @@ import { issuePages, type PageIssue } from './issue-page'
 import { MobxPool } from './pool'
 import type { RowRecord } from './shared/source'
 import { LOADING } from './worklist/rollup'
+import { fullDevice } from './full-device-fixture'
 
 /** Run the same fixture at the pilot and candidate SHA. Public helper counters
  * report watched fields; forced JSC collection reports retained heap, separate
@@ -70,7 +71,7 @@ it('reports detail watched fields and retained heap at 4x and after release', as
     ),
     ...Array.from({ length: 128 * scale }, (_, at) => task(`outside-${at}`)),
   ]
-  const pool = new MobxPool({ selectedIssueId: 'child', coarseNow: Date.parse(stamp) })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: 'child', coarseNow: Date.parse(stamp) }))
   pool.apply({ type: 'replace', rows })
   const models = rows.map((row) =>
     row.kind === 'issue' ? pool.issueObject(row.id) : pool.sessionObject(row.id),

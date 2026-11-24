@@ -64,9 +64,15 @@ export function readSessionTarget(
   pool: MobxPool,
   issueId: string,
 ): { viaId: string; sessionId: SessionId } | null {
-  const viaId = pool.issueObject(issueId).seatHolderId
-  const sessionId = viaId ? pool.issueObject(viaId).liveSeatId : null
-  return viaId && sessionId ? { viaId, sessionId: sessionId as SessionId } : null
+  try {
+    const viaId = pool.issueObject(issueId).seatHolderId
+    const sessionId = viaId ? pool.issueObject(viaId).liveSeatId : null
+    return viaId && sessionId ? { viaId, sessionId: sessionId as SessionId } : null
+  } catch (error) {
+    // The seats are on their way: no target until they land.
+    if (error === LOADING) return null
+    throw error
+  }
 }
 
 /** The session's permanent birth ref; empty while its row is loading. */

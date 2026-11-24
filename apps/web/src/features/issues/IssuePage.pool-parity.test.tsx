@@ -32,6 +32,7 @@ import { dedupeSessions } from '../../../../../tests/worklist/diagnostics/refere
 import { IssuePage } from './IssuePage'
 import { IssuePanelView } from './IssuePanelView'
 import { PoolIssuePage } from './pool-issue-page'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 
 let forbidden = true,
   legacyReads = 0
@@ -319,7 +320,7 @@ function seed(
     id: row.id,
   }))
   visibleSessions = dedupeSessions(seats)
-  pool = new MobxPool({ selectedIssueId: 'root', coarseNow: NOW })
+  pool = fullDevice(new MobxPool({ selectedIssueId: 'root', coarseNow: NOW }))
   pool.sources.register(ISSUE_BOARD_ENTITIES, createIssueBoardSource(pool))
   pool.apply({
     type: 'replace',

@@ -110,6 +110,7 @@ describe('task page keyboard avoidance', () => {
     const start = vi.fn(async () => {})
     const addSession = vi.fn(async () => {})
     await renderWithMobileStore(<IssueScreen />, {
+      fullDevice: true,
       issues: [issue({ stage: 'backlog' })],
       api: { issues: { start: { mutate: start }, addSession: { mutate: addSession } } },
     })
@@ -122,6 +123,7 @@ describe('task page keyboard avoidance', () => {
   it('opens a live session in chat with this detail as its return route', async () => {
     const stamp = new Date().toISOString()
     await renderWithMobileStore(<IssueScreen />, {
+      fullDevice: true,
       issues: [issue()],
       sessions: [
         {
@@ -144,7 +146,7 @@ describe('task page keyboard avoidance', () => {
     })
   })
   it('keeps the task header and back button outside the loading overlay', async () => {
-    await renderWithMobileStore(<IssueScreen />, { issues: [] })
+    await renderWithMobileStore(<IssueScreen />, { fullDevice: true, issues: [] })
 
     const placeholder = await screen.findByTestId('bootstrap-placeholder')
     expect(screen.getByLabelText('Loading task detail')).toBeTruthy()
@@ -153,7 +155,7 @@ describe('task page keyboard avoidance', () => {
   })
 
   it('keeps the page inside the keyboard-avoiding view, with no docked composer', async () => {
-    await renderWithMobileStore(<IssueScreen />, { issues: [issue()] })
+    await renderWithMobileStore(<IssueScreen />, { fullDevice: true, issues: [issue()] })
 
     const avoider = await screen.findByTestId('issue-keyboard-avoider')
     expect(avoider.contains(await screen.findByText('A task'))).toBe(true)

@@ -3013,14 +3013,14 @@
     },
     {
       "file": "apps/web/src/features/issues/IssueCompactControls.tsx",
-      "holder": "IssueCompactControls/IssueCompactControls/sessions",
+      "holder": "IssueCompactControls/IssueCompactControls/pageSessions",
       "rule": "reader-summary",
-      "tokens": "631350552ada553ec79898130a989ffc9b1ffc58f25a81788d74771761d333fc",
+      "tokens": "1096ab40978dac72e672aaa0d73eff94e38916455f3084578a35e990e80ca63d",
       "gate": [],
       "origin": [
         "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92"
       ],
-      "fingerprint": "9169d3e282866a5a1002ac758db4d6a09e7510996de0e3f9bd2aeae02b2dbfcd",
+      "fingerprint": "1cf4d9977c6f15bf7ff123df87b0569b87ba60008628365bfb1a6b439fedb522",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3035,12 +3035,13 @@
       "rule": "helper-consumer",
       "tokens": "b54cf049794a5532feb4ad67ca76402246863a835e9ff4f9918b58f52cd02640",
       "gate": [
-        "exit:then:5961ab3f21f15d525e29ace91a12d2406c352cc33eb153a4033b58c32d62ef51"
+        "exit:then:5961ab3f21f15d525e29ace91a12d2406c352cc33eb153a4033b58c32d62ef51",
+        "exit:then:dae7f5efa9a5ea03d6dcef84cd9fffd40dda04f8dfa5f1856874a136d90ca8d8"
       ],
       "origin": [
         "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92"
       ],
-      "fingerprint": "090af4dd88a25787d5606b0dad57deca3db14025d87fb5cc3b8fa8d6c0865cd4",
+      "fingerprint": "81ea2a57ce989f178b884205ba1cd338aa518b0ee3cac3b1b213a523e2fbe92d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3054,11 +3055,13 @@
       "holder": "IssueDecisionBand/IssueDecisionBand",
       "rule": "helper-consumer",
       "tokens": "314f2728879503778886148fe884a049304ee4e8b6f7d33d574028fa271a32eb",
-      "gate": [],
+      "gate": [
+        "exit:then:dae7f5efa9a5ea03d6dcef84cd9fffd40dda04f8dfa5f1856874a136d90ca8d8"
+      ],
       "origin": [
         "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92"
       ],
-      "fingerprint": "d9b475703d7e76afd42b66baa33a0467db2b3b1c10ed41a8e0d55d94a6a03579",
+      "fingerprint": "f6199f3e1700aedb91f9973b28af065b7f1fa0e4891eda4df61ac58e97ca17b7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3073,12 +3076,13 @@
       "rule": "consume:filter",
       "tokens": "307dc1e3839cec5ae5b72008147e95b7d0f152487ae37d8713a30294b5714115",
       "gate": [
+        "exit:then:dae7f5efa9a5ea03d6dcef84cd9fffd40dda04f8dfa5f1856874a136d90ca8d8",
         "else:5b97a631531e909235ff7efc7e0c7b6115ae9bf2fb740edffcba522bbe1781f8"
       ],
       "origin": [
         "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92"
       ],
-      "fingerprint": "03748b09ace206b1cbd465d76fa07f7606bff0402808022463c2ec6ade3b2792",
+      "fingerprint": "dcb6b67f2cf5ac6a5a3c148ed3e403047f1f9bb29d26b7dc18f53c11ccd5eb2a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3093,12 +3097,13 @@
       "rule": "helper-consumer",
       "tokens": "18bcea51b8a28187223e183041796cbe96ee9c0e6808f8e0b8771a570117015c",
       "gate": [
+        "exit:then:dae7f5efa9a5ea03d6dcef84cd9fffd40dda04f8dfa5f1856874a136d90ca8d8",
         "else:5b97a631531e909235ff7efc7e0c7b6115ae9bf2fb740edffcba522bbe1781f8"
       ],
       "origin": [
         "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92"
       ],
-      "fingerprint": "6ce1c688157d8a9d0765d0fdce52d902bf8dd9f66fe1031e012de430de220149",
+      "fingerprint": "c04594488c7086a6387706393aa85cfd34d6371a7e2dc07bedcbf60d011f11a4",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3113,12 +3118,13 @@
       "rule": "reader-summary",
       "tokens": "d08f8b863b45e5dbd3f640197dcbc920f73dd60c585d816e995d44e6e83be34d",
       "gate": [
+        "exit:then:dae7f5efa9a5ea03d6dcef84cd9fffd40dda04f8dfa5f1856874a136d90ca8d8",
         "else:5b97a631531e909235ff7efc7e0c7b6115ae9bf2fb740edffcba522bbe1781f8"
       ],
       "origin": [
         "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92"
       ],
-      "fingerprint": "c26ac06beee944847164906cd91c585aec87253931d3036c1c954dacccb3fbd5",
+      "fingerprint": "f39754be1333c431e45d1efe366f00b6ff88e097698683f3735c7209f7f8ebf9",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3131,12 +3137,12 @@
       "file": "apps/web/src/features/issues/IssueCompactControls.tsx",
       "holder": "IssueDecisionBand/IssueDecisionBand/sessions",
       "rule": "reader-summary",
-      "tokens": "631350552ada553ec79898130a989ffc9b1ffc58f25a81788d74771761d333fc",
+      "tokens": "1096ab40978dac72e672aaa0d73eff94e38916455f3084578a35e990e80ca63d",
       "gate": [],
       "origin": [
         "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92"
       ],
-      "fingerprint": "4acac521e19707ce4db9186078f7f5094b93b32dbc6641bdbe7ec9c5a6cff0bf",
+      "fingerprint": "c3020a82e089f013f23444b3b93b507cb43172e2309fee2b53c3572a2bd9062b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -37631,12 +37637,13 @@
       "tokens": "f62a8b088e30caa75ab21797ad0c416f41fa155fd2c51fec13a1f89898d31336",
       "gate": [
         "exit:then:072be4420e192d0a320f4e7e5811c7b9bd6d7627bf4c35afb2d63ed1e067e844",
+        "exit:then:f42ba97118c3c03e5f21f99814bcf8972cd62fbae28a4165638b2442dae04864",
         "else:58c4f9c55bcf8de16eda50f1488ca43f56b8c92c318f615130906679aeb828cc"
       ],
       "origin": [
         "780457955c73ea86ccc5f913c34b10b4f905e13804c306828aff76071d12d292"
       ],
-      "fingerprint": "7dc9db804b5bf850f25ca8fb725755b84ee5a72ac540034e3fd4be8aeec326af",
+      "fingerprint": "3c51b84a4f25d2ab37a6b74b406a7798eca06904e10cfc879318a72f38d76e5c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-6707",
@@ -42302,6 +42309,125 @@
       "bound": "The fixed body record declarations and their collection definitions; independent of the number of issues or rows on the device.",
       "reason": "Development-only mapping of each declared body kind to its fixed collection definitions; work is bounded by schema size, not issue history.",
       "guard": "NODE_ENV excludes BodyReadWarnings from production; read-warnings.test.ts checks production code elimination and absence of diagnostic fields. Exact fingerprints and multiplicity remain enforced."
+    },
+    {
+      "file": "apps/web/src/features/issues/dock-issue.tsx",
+      "holder": "poolDockIssueTarget",
+      "rule": "consume:some",
+      "tokens": "80f8220d1f6ea557a3a64b9ca62dd016953612e393cfaafe42c74323d10025b6",
+      "gate": [
+        "exit:then:262abce382461bcb0e3aed3c74f027fcdb41e6d560369e624f0814ddfec07f20",
+        "exit:then:a40595926f26015ec76a380ca72291ee4ffaccb09a846e105e663b550d3777a1",
+        "then:1fcbe5bc31c49730da067607de12ea9a65eb14c747e29803c628b456d6ba6460",
+        "exit:then:dae7f5efa9a5ea03d6dcef84cd9fffd40dda04f8dfa5f1856874a136d90ca8d8"
+      ],
+      "origin": [
+        "a8511042278b9f57869ffd4bae7cfa652b63f1a6ad52f9e76440df2130d6615f"
+      ],
+      "fingerprint": "7f2c658a225e696945b875768298444e4a076f422ddb082d0ebd47a7b16f5ec2",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7579",
+      "trigger": "The dock resolves its target for a selected draft that has no checkout.",
+      "bound": "One draft's sessions, held through session.ofIssue for that issue only.",
+      "reason": "Answers whether the selected draft is occupied from its held sessions.",
+      "guard": "dock-issue.empty-device.test.ts proves the request for session.ofIssue and the answer."
+    },
+    {
+      "file": "packages/client-graph/src/issue-page.ts",
+      "holder": "createIssueDetailLists/seats/callback/get/callback",
+      "rule": "reader-summary",
+      "tokens": "0afc08c71a46f4b8b6e674ef04081f30c0013b6f0298aa3b1951f49e4152046c",
+      "gate": [
+        "then:0afc08c71a46f4b8b6e674ef04081f30c0013b6f0298aa3b1951f49e4152046c"
+      ],
+      "origin": [
+        "4252701295497ab65051dfd82348582253fddf0cf3c6be016e1519295e813efa"
+      ],
+      "fingerprint": "8d4998fd8cf31f7683048c8f5d62a78ff3d906f90e92bec8454eafd49ccdf26b",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7579",
+      "trigger": "The issue page or dock reads one issue's roster or roster count.",
+      "bound": "One issue's sessions, behind the held marker of session.ofIssue for that issue; counts are declared subset sizes.",
+      "reason": "The roster answers LOADING until the issue sessions are held complete, then reads its incremental query result.",
+      "guard": "issue-page-relation-reads.test.ts proves the request, the held instance and the release on close."
+    },
+    {
+      "file": "packages/client-graph/src/issue-page.ts",
+      "holder": "createIssuePageViews/attachedSessions",
+      "rule": "reader-summary",
+      "tokens": "0caf61057c863779693582645429e415c815a34713e90d899548561a045682eb",
+      "gate": [
+        "||:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8"
+      ],
+      "origin": [
+        "4252701295497ab65051dfd82348582253fddf0cf3c6be016e1519295e813efa"
+      ],
+      "fingerprint": "d22820cb2feff12a4df51732f5e09c8c21f961261720e22014904fbbdd394693",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7579",
+      "trigger": "The issue page or dock reads one issue's roster or roster count.",
+      "bound": "One issue's sessions, behind the held marker of session.ofIssue for that issue; counts are declared subset sizes.",
+      "reason": "The roster answers LOADING until the issue sessions are held complete, then reads its incremental query result.",
+      "guard": "issue-page-relation-reads.test.ts proves the request, the held instance and the release on close."
+    },
+    {
+      "file": "packages/client-graph/src/issue-page.ts",
+      "holder": "createIssuePageViews/memberSessions",
+      "rule": "reader-summary",
+      "tokens": "02fdcbc65cdbc97352652bf6cac45f695aac1a69ebf7fe8c0ff881aa394e83b5",
+      "gate": [
+        "||:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8"
+      ],
+      "origin": [
+        "4252701295497ab65051dfd82348582253fddf0cf3c6be016e1519295e813efa"
+      ],
+      "fingerprint": "6cff2e20a35f4523d4862fbefdefe84066013dbfb9d6b1ce2013fcc9e4ccab73",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7579",
+      "trigger": "The issue page or dock reads one issue's roster or roster count.",
+      "bound": "One issue's sessions, behind the held marker of session.ofIssue for that issue; counts are declared subset sizes.",
+      "reason": "The roster answers LOADING until the issue sessions are held complete, then reads its incremental query result.",
+      "guard": "issue-page-relation-reads.test.ts proves the request, the held instance and the release on close."
+    },
+    {
+      "file": "packages/client-graph/src/issue-page.ts",
+      "holder": "IssuePageRow/retiredCount",
+      "rule": "reader-summary",
+      "tokens": "47a27e4a199eaf9b533a101827b2c076707ad2728a3745f2eb8bef72e78c91a7",
+      "gate": [],
+      "origin": [
+        "4252701295497ab65051dfd82348582253fddf0cf3c6be016e1519295e813efa"
+      ],
+      "fingerprint": "dca9bd44014574c3e4b4790dad3759884463dd7176e8582ae4e078c3c60f2364",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7579",
+      "trigger": "The issue page or dock reads one issue's roster or roster count.",
+      "bound": "One issue's sessions, behind the held marker of session.ofIssue for that issue; counts are declared subset sizes.",
+      "reason": "The roster answers LOADING until the issue sessions are held complete, then reads its incremental query result.",
+      "guard": "issue-page-relation-reads.test.ts proves the request, the held instance and the release on close."
+    },
+    {
+      "file": "packages/client-graph/src/issue-page.ts",
+      "holder": "IssuePageRow/rosterCount",
+      "rule": "reader-summary",
+      "tokens": "47a27e4a199eaf9b533a101827b2c076707ad2728a3745f2eb8bef72e78c91a7",
+      "gate": [],
+      "origin": [
+        "4252701295497ab65051dfd82348582253fddf0cf3c6be016e1519295e813efa"
+      ],
+      "fingerprint": "e81b120f5dfe9a3da61155c51e1186a9cccedc8af65b7dbe1d7d7b55a9f700f9",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7579",
+      "trigger": "The issue page or dock reads one issue's roster or roster count.",
+      "bound": "One issue's sessions, behind the held marker of session.ofIssue for that issue; counts are declared subset sizes.",
+      "reason": "The roster answers LOADING until the issue sessions are held complete, then reads its incremental query result.",
+      "guard": "issue-page-relation-reads.test.ts proves the request, the held instance and the release on close."
     }
   ]
 }

@@ -58,6 +58,7 @@ export const IssueNow = observer(function IssueNow({
   const sessions = suppliedSessions ?? page?.views.row(issue.id).lists.liveMembers.get() ?? []
   if (typeof sessions === 'symbol') throw sessions
   const total = suppliedSessions ? suppliedSessions.length : page?.views.row(issue.id).rosterCount ?? 0
+  if (typeof total === 'symbol') throw total
   if (total === 0) return null
 
   const ranked = [...sessions]

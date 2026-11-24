@@ -39,12 +39,15 @@ export function useIssuePageCatalog(
   const value = useWorklistPoolProjection(read, EMPTY_ISSUES)
   return value && typeof value !== 'symbol' ? value : EMPTY_ISSUES
 }
-export function useIssuePageSessions(): SessionView[] {
+/** The page issue's active sessions, or LOADING while the device fetches
+ *  them (POD-7579). A hook, so it answers rather than throws: the caller
+ *  throws LOADING after its own hooks, keeping their order the same on every
+ *  render inside an `issueObserver` section. */
+export function useIssuePageSessions(): SessionView[] | typeof LOADING {
   const page = useIssuePageContext()
   const world = useContext(IssuePageWorldContext)
   // Outside an issue page there is no issue whose sessions to read; a test
   // world supplies its own. No reader walks every session (POD-7088).
   const sessions = page ? page.views.row(page.issue.id).activeSessions : world?.sessions
-  if (sessions === LOADING) throw LOADING
-  return sessions ?? EMPTY_SESSIONS
+  return sessions === LOADING ? LOADING : (sessions ?? EMPTY_SESSIONS)
 }

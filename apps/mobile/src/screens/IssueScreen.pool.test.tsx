@@ -53,15 +53,22 @@ const state = vi.hoisted(() => ({
   navigationState: null as StackNavigationState<ParamListBase> | null,
   router: { push: vi.fn(), back: vi.fn(), replace: vi.fn(), canGoBack: () => false },
 }))
-vi.mock('../client/mobile-pool', async (original) => ({
-  ...(await original<typeof import('../client/mobile-pool')>()),
-  useMobilePool: () => {
-    state.pool = state.host!.host.usePool()
-    return state.pool
-  },
-  useMobilePoolProjection: (read: never, empty: never) =>
-    state.host!.host.usePoolProjection(read, empty),
-}))
+vi.mock('../client/mobile-pool', async (original) => {
+  const { fullDevice } = await import('@podium/client-graph/full-device-fixture')
+  return {
+    ...(await original<typeof import('../client/mobile-pool')>()),
+    useMobilePool: () => {
+      const pool = state.host!.host.usePool()
+      // The fixture supplies every record the page reads: its rosters and
+      // sub-issues read through holding reads (POD-7579).
+      if (pool && pool !== state.pool && !pool.collections.available) fullDevice(pool)
+      state.pool = pool
+      return state.pool
+    },
+    useMobilePoolProjection: (read: never, empty: never) =>
+      state.host!.host.usePoolProjection(read, empty),
+  }
+})
 // Preserve the relative-time output captured by the accepted control.
 beforeEach(() => {
   vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-03T19:30:00Z'))
