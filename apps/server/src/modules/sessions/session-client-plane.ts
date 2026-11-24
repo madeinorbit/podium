@@ -18,6 +18,7 @@ import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine-access'
+import type { ObservationLeaseRecord } from '../../store/types'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService } from '../machines/service'
 import { authorReattachBinding } from './binding-mint'
@@ -39,7 +40,7 @@ export interface SessionClientPlanePorts {
   repository: any
   rpc: Pick<DaemonRpcService, 'transcriptPathHint'>
   state: any
-  terminalProof: Pick<SessionTerminalProof, 'fence'>
+  terminalProof: Pick<SessionTerminalProof, 'fence' | 'fenceMany'>
 }
 
 export class SessionClientPlane {
@@ -65,6 +66,58 @@ export class SessionClientPlane {
    */
   async reattachMessageFor(session: Session, machineId: MachineId): Promise<ControlMessage> {
     const observationLease = await this.ports.terminalProof.fence(session)
+    return await this.reattachMessageOf(
+      session,
+      machineId,
+      observationLease,
+      await this.recoveryMachineAccess(machineId),
+    )
+  }
+
+  /**
+   * {@link reattachMessageFor} for a set of one machine's survivors (POD-7574):
+   * their fences in one transaction and the machine's ownership read once, where
+   * one at a time each probe was a fence commit and a read of every machine and
+   * its grants.
+   */
+  async reattachMessagesFor(
+    sessions: readonly Session[],
+    machineId: MachineId,
+  ): Promise<ReadonlyMap<Session['sessionId'], ControlMessage>> {
+    const leases = await this.ports.terminalProof.fenceMany(sessions)
+    const machineAccess = await this.recoveryMachineAccess(machineId)
+    const messages = new Map<Session['sessionId'], ControlMessage>()
+    for (const session of sessions) {
+      messages.set(
+        session.sessionId,
+        await this.reattachMessageOf(
+          session,
+          machineId,
+          leases.get(session.sessionId),
+          machineAccess,
+        ),
+      )
+    }
+    return messages
+  }
+
+  /** Whether the system's rebind may use this machine, from its ownership now. */
+  private async recoveryMachineAccess(machineId: MachineId): Promise<'allowed' | 'denied'> {
+    return machineUseDecision(
+      systemPrincipal(this.ports.workspaceId, 'session-rebind'),
+      machineId,
+      await ownershipSnapshotFromMachines(this.ports.machines),
+    ) === 'granted'
+      ? 'allowed'
+      : 'denied'
+  }
+
+  private async reattachMessageOf(
+    session: Session,
+    machineId: MachineId,
+    observationLease: ObservationLeaseRecord | undefined,
+    recoveryMachineAccess: 'allowed' | 'denied',
+  ): Promise<ControlMessage> {
     const transcriptHint = await this.ports.rpc.transcriptPathHint(
       { kind: 'system', id: 'session-attach' },
       {
@@ -74,14 +127,6 @@ export class SessionClientPlane {
       },
     )
 
-    const recoveryMachineAccess =
-      machineUseDecision(
-        systemPrincipal(this.ports.workspaceId, 'session-rebind'),
-        machineId,
-        await ownershipSnapshotFromMachines(this.ports.machines),
-      ) === 'granted'
-        ? 'allowed'
-        : 'denied'
     const requestedGeneration = observationLease?.observationGeneration ?? 1
     const driverRequest = session.reattachDriverRequest()
     return {

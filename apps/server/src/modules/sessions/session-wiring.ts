@@ -202,6 +202,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     retireArchivedSurvivor: (sessionId) => bag.retireArchivedSurvivor(sessionId),
     reattachMessage: (session, machineId) =>
       sessionClientPlane.reattachMessageFor(session, machineId),
+    reattachMessages: (sessions, machineId) =>
+      sessionClientPlane.reattachMessagesFor(sessions, machineId),
     // The survivor's credential, resolved again for its owner now (a grant
     // may have ended while the daemon was away) and attached for the daemon
     // that just connected (credential management §8).

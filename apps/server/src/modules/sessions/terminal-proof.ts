@@ -29,9 +29,9 @@
  * proof is refused.
  */
 
+import type { SessionId } from '@podium/model'
 import { isSpawnedBy } from '@podium/model'
 import { harnessObservationProvider } from '../../harness-manifest'
-import type { SessionId } from '@podium/model'
 import type { ObservationCheckpointsRepository } from '../../store/observation-checkpoints'
 import type {
   ObservationLeaseRecord,
@@ -52,7 +52,12 @@ import type { Session, SessionDurableFields } from './session'
  */
 export type TerminalProofCheckpoints = Pick<
   ObservationCheckpointsRepository,
-  'get' | 'getTerminalCandidate' | 'advanceGeneration' | 'leasesOf' | 'terminalCandidatesOf'
+  | 'get'
+  | 'getTerminalCandidate'
+  | 'advanceGeneration'
+  | 'advanceGenerations'
+  | 'leasesOf'
+  | 'terminalCandidatesOf'
 >
 
 /** One message still addressed to a session at proof time. */
@@ -109,6 +114,29 @@ export class SessionTerminalProof {
       provider,
       session.resume?.value ?? null,
     )
+  }
+
+  /**
+   * {@link fence} for a set of sessions, in one transaction (POD-7574): a daemon
+   * attach fences every survivor it probes. A session whose harness has no
+   * observation provider is absent, as `fence` returns nothing for it.
+   */
+  async fenceMany(
+    sessions: readonly Session[],
+  ): Promise<ReadonlyMap<SessionId, ObservationLeaseRecord>> {
+    const entries = sessions.flatMap((session) => {
+      const provider = harnessObservationProvider(session.agentKind)
+      return provider
+        ? [
+            {
+              sessionId: session.sessionId,
+              provider,
+              providerSessionId: session.resume?.value ?? null,
+            },
+          ]
+        : []
+    })
+    return await this.ports.checkpoints.advanceGenerations(entries)
   }
 
   /**
@@ -172,8 +200,7 @@ export class SessionTerminalProof {
       .filter(
         (child) =>
           isSpawnedBy(child.spawnedBy, { kind: 'session', id: session.sessionId }) &&
-          (child.status === 'starting' ||
-            child.status === 'live'),
+          (child.status === 'starting' || child.status === 'live'),
       )
       .map((child) => ({
         sessionId: child.sessionId,
@@ -236,7 +263,11 @@ export class SessionTerminalProof {
     if (facts.pendingMessages.length !== 0) return 'pending_messages'
     if (facts.autoContinueActive) return 'auto_continue_active'
     const active = facts.activeWork
-    if (active.nativeSubagentCount !== 0 || active.nativeSubagentIds.length !== 0 || active.awaitingSubagents)
+    if (
+      active.nativeSubagentCount !== 0 ||
+      active.nativeSubagentIds.length !== 0 ||
+      active.awaitingSubagents
+    )
       return 'native_subagents'
     if (active.childSessions.length !== 0) return 'child_sessions'
     if (active.queueDrainActive) return 'queue_drain_active'
@@ -256,8 +287,7 @@ export class SessionTerminalProof {
   async proofStatus(sessionId: SessionId): Promise<TerminalProofStatus> {
     const session = this.ports.session(sessionId)
     if (!session) return { reason: 'unknown_session' }
-    if (session.status !== 'live')
-      return { reason: 'not_running' }
+    if (session.status !== 'live') return { reason: 'not_running' }
     const lease = await this.ports.checkpoints.get(sessionId)
     if (!lease) return { reason: 'no_lease' }
     const fence = lease.checkpoint?.terminalFence
@@ -358,7 +388,7 @@ export class SessionTerminalProof {
     const lease = await this.ports.checkpoints.get(sessionId)
     return (
       lease?.checkpoint?.terminalFence == null ||
-      await this.ports.checkpoints.getTerminalCandidate(sessionId) == null
+      (await this.ports.checkpoints.getTerminalCandidate(sessionId)) == null
     )
   }
 }

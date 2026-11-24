@@ -98,6 +98,15 @@ export interface MachineReconcilerPorts {
   /** Build the reattach control message for one survivor. */
   reattachMessage(session: Session, machineId: MachineId): Promise<ControlMessage>
   /**
+   * {@link reattachMessage} for a set of survivors at once: their fences in one
+   * transaction, the machine's ownership read once (POD-7574). Absent (unit
+   * fixtures): each message is built on its own.
+   */
+  reattachMessages?(
+    sessions: readonly Session[],
+    machineId: MachineId,
+  ): Promise<ReadonlyMap<Session['sessionId'], ControlMessage>>
+  /**
    * The survivor's credential again (credential management §8): a restarted
    * daemon holds none, so a session on a vault credential gets
    * `sessionAccessRefresh` just before its reattach, on the same ordered
@@ -148,6 +157,13 @@ export interface MachineReconcilerPorts {
  * one window's restore is a short slice of the event loop.
  */
 export const REATTACH_PROBE_WINDOW = 128
+
+/**
+ * How many probes' reattach messages are built together (POD-7574): one fence
+ * transaction and one ownership read for each. Small enough that building them
+ * stays a short slice of the event loop.
+ */
+export const REATTACH_MESSAGE_CHUNK = 16
 
 export class SessionMachineReconciler {
   /**
@@ -261,7 +277,7 @@ export class SessionMachineReconciler {
           ? await this.ports.acquireMany(parked, 'reattachProbe')
           : new Map<Session['sessionId'], Session>()
       try {
-        await this.probeEach(window, machineId)
+        await this.probeEach(window, machineId, held)
       } finally {
         for (const sessionId of held.keys()) this.ports.release?.(sessionId)
       }
@@ -379,18 +395,41 @@ export class SessionMachineReconciler {
   }
 
   /** Send ordered probes in time slices, keeping each audited refresh and reattach together. */
-  private async probeEach(probes: readonly ParkedOnMachine[], machineId: MachineId): Promise<void> {
+  private async probeEach(
+    probes: readonly ParkedOnMachine[],
+    machineId: MachineId,
+    held: ReadonlyMap<Session['sessionId'], Session>,
+  ): Promise<void> {
+    const probedOn = (s: Session) =>
+      s.machineId === machineId && !s.archived && (awaitsRebind(s) || s.status === 'exited')
     let index = 0
+    // THE NEXT CHUNK'S MESSAGES ARE BUILT TOGETHER (POD-7574), as their own slice:
+    // one fence transaction and one ownership read where each probe paid a fence
+    // commit and a read of every machine and its grants. Each probe still goes out
+    // in its own slice, judged again at the send; a fenced session that no longer
+    // qualifies by then is skipped, as a probe skipped after its own fence was.
+    let built = new Map<Session['sessionId'], ControlMessage>()
+    let builtUpTo = 0
     await runTimeBudgetedJob(async () => {
+      if (this.ports.reattachMessages && index >= builtUpTo && index < probes.length) {
+        builtUpTo = index + REATTACH_MESSAGE_CHUNK
+        const resident = new Map([...this.ports.sessions()].map((s) => [s.sessionId, s]))
+        const chunk = probes
+          .slice(index, builtUpTo)
+          .map((p) => resident.get(p.sessionId) ?? held.get(p.sessionId))
+          .filter((s): s is Session => s !== undefined && probedOn(s))
+        built = new Map(chunk.length > 0 ? await this.ports.reattachMessages(chunk, machineId) : [])
+        return 'continue'
+      }
       const candidate = probes[index++]
       if (!candidate) return 'done'
       // Yield only BETWEEN probes: resolve access (including revocations) and
       // commit its delivery audit before releasing the credential to the daemon.
       await this.withSession(candidate.sessionId, 'reattachProbe', async (s) => {
         if (!s) return
-        const message = await this.ports.reattachMessage(s, machineId)
-        const probed = () =>
-          s.machineId === machineId && !s.archived && (awaitsRebind(s) || s.status === 'exited')
+        const message = built.get(s.sessionId) ?? (await this.ports.reattachMessage(s, machineId))
+        built.delete(s.sessionId)
+        const probed = () => probedOn(s)
         // AN EXITED ROW'S PROBE CARRIES NO CREDENTIAL (POD-7574). Almost every one
         // is dead and answers `reattachFailed`; a refresh for it read a secret and
         // committed a delivery audit for a process that does not exist, about 21 ms

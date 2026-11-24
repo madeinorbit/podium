@@ -4,6 +4,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   type MachineReconcilerPorts,
+  REATTACH_MESSAGE_CHUNK,
   REATTACH_PROBE_WINDOW,
   SessionMachineReconciler,
 } from './machine-reconciler'
@@ -269,5 +270,71 @@ describe("an exited session's credential on reattach", () => {
     // Their refresh is already delivered: a bind owes nothing more.
     await f.reconciler.onBound(server, machine)
     expect(f.order).toHaveLength(7)
+  })
+})
+
+// POD-7574: a chunk's reattach messages are built together (one fence
+// transaction, one ownership read), and each probe still goes out on its own.
+describe('reattach messages built a chunk at a time', () => {
+  function chunked(count: number, status: 'survivor' | 'exited') {
+    const f = fixture(count, status)
+    const chunks: string[][] = []
+    f.ports.reattachMessages = async (sessions) => {
+      chunks.push(sessions.map((s) => s.sessionId))
+      f.order.push(`built:${sessions.length}`)
+      return new Map(
+        sessions.map((s) => [
+          s.sessionId,
+          { type: 'reattach', sessionId: s.sessionId } as ControlMessage,
+        ]),
+      )
+    }
+    f.ports.reattachMessage = vi.fn(f.ports.reattachMessage)
+    return { ...f, chunks }
+  }
+
+  it('builds each chunk once, in probe order, and sends every probe from it', async () => {
+    const count = REATTACH_MESSAGE_CHUNK * 2 + 3
+    const f = chunked(count, 'exited')
+    await f.reconciler.onAttached(principal)
+    expect(f.chunks.map((chunk) => chunk.length)).toEqual([
+      REATTACH_MESSAGE_CHUNK,
+      REATTACH_MESSAGE_CHUNK,
+      3,
+    ])
+    const probeOrder = f.order.filter((entry) => entry.startsWith('reattach:'))
+    expect(probeOrder).toEqual(f.chunks.flat().map((id) => `reattach:${id}`))
+    expect(f.order[0]).toBe(`built:${REATTACH_MESSAGE_CHUNK}`)
+    expect(f.ports.reattachMessage).not.toHaveBeenCalled()
+  })
+
+  it('keeps each survivor audited refresh before its own reattach', async () => {
+    const f = chunked(3, 'survivor')
+    await f.reconciler.onAttached(principal)
+    expect(f.order).toEqual([
+      'built:3',
+      ...[2, 1, 0].flatMap((index) => {
+        const id = f.sessions[index]!.sessionId
+        return [`audit:${id}`, `sessionAccessRefresh:${id}`, `reattach:${id}`]
+      }),
+    ])
+  })
+
+  it('builds nothing for a session that no longer qualifies, and still checks at the send', async () => {
+    const f = chunked(3, 'exited')
+    f.sessions[1]!.archived = true
+    const late = f.sessions[0]!
+    const built = f.ports.reattachMessages!
+    f.ports.reattachMessages = async (sessions, machineId) => {
+      const messages = await built(sessions, machineId)
+      // Archived after its message was built: the probe is not sent.
+      late.archived = true
+      return messages
+    }
+    await f.reconciler.onAttached(principal)
+    expect(f.chunks).toEqual([[f.sessions[2]!.sessionId, late.sessionId]])
+    expect(f.order.filter((entry) => entry.startsWith('reattach:'))).toEqual([
+      `reattach:${f.sessions[2]!.sessionId}`,
+    ])
   })
 })
