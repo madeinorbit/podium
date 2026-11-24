@@ -786,7 +786,10 @@ describe('runLockCli', () => {
   })
 
   it('unknown command and missing args throw (exit 1 in main)', async () => {
-    const client = { lock: {} } as never
+    const client = {
+      repos: { inferFromPath: { query: async () => ({ repoPath: '/r' }) } },
+      lock: {},
+    } as never
     await expect(runLockCli(['nope'], client)).rejects.toThrow(/unknown command/)
     await expect(runLockCli(['acquire'], client)).rejects.toThrow(/invalid args/)
   })
