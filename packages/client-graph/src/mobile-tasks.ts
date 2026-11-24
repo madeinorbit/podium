@@ -23,7 +23,7 @@ import { boardRefreshing } from './issue-board-layout'
 import type { BoardListRow, BoardQuery } from './issue-board-schema'
 import { omitGone } from './lookup'
 import { MOBILE_TASK_STAGES, type MobileTasksOptions } from './mobile-screens-schema'
-import { ProposalQueue } from './mobile-triage'
+import { ProposalQueue, screeningTotal } from './mobile-triage'
 import type { IssueModel, ModelOf } from './models'
 import type { MobxPool } from './pool'
 import { createQueryResult, mapQueryResult } from './query-result'
@@ -38,7 +38,9 @@ export type MobileTaskIssue = ModelOf['issue'] &
 export interface MobileTaskIds {
   readonly stage: (typeof MOBILE_TASK_STAGES)[number]
   readonly title: string
-  readonly total: number
+  /** The lane's tasks over all history, as the desktop column counts them;
+   *  null while that count is on its way (stubs or the stage page). */
+  readonly total: number | null
   readonly rows: readonly BoardListRow[]
 }
 type Stage = MobileTaskIds['stage']
@@ -359,11 +361,32 @@ class BoardLane {
     return rows
   }
 
+  /** The desktop column's count for this lane (POD-7088): exact from stubs or
+   *  a whole held page, else LOADING. Reading it holds the stage page while
+   *  the count needs it, as the desktop board's column header does. */
+  @lazy get count(): number | typeof LOADING {
+    const count = omitGone(
+      this.board.pool.row(
+        'issueBoardColumnCount',
+        JSON.stringify({
+          filter: this.board.searchFilter,
+          ordering: this.board.ordering,
+          showAgentTasks: this.board.showAgentTasks,
+          stage: this.stage,
+        }),
+      ),
+    )
+    if (count === LOADING) return LOADING
+    // No board source (a standalone fixture pool): the rows here are all there is.
+    return count ? count.count : this.rootIds.length
+  }
+
   @lazy({ equals: compareShallow }) get value(): MobileTaskIds {
+    const count = this.count
     return {
       stage: this.stage,
       title: ISSUE_STATUS_LABELS[this.stage],
-      total: this.rootIds.length,
+      total: count === LOADING ? null : count,
       rows: this.rows,
     }
   }
@@ -687,7 +710,11 @@ export class MobileTasksBoard {
     | typeof LOADING {
     try {
       const counts = {} as Record<Stage, number>
-      for (const lane of this.lanes) counts[lane.stage] = lane.rootIds.length
+      for (const lane of this.lanes) {
+        const count = lane.count
+        if (count === LOADING) return LOADING
+        counts[lane.stage] = count
+      }
       return counts
     } catch (error) {
       if (error === LOADING) return LOADING
@@ -703,7 +730,11 @@ export class MobileTasksBoard {
     return this.screening.queue
   }
 
+  /** Proposals waiting for screening over all history: the stub count the
+   *  deck uses, not the cards this device holds. A search narrows it to the
+   *  matching cards, whose search answer is the selection. */
   @lazy get proposals(): number | typeof LOADING {
+    if (!this.searchFilter.text?.trim()) return screeningTotal(this.pool)
     const ids = this.screeningIds
     return ids === LOADING ? LOADING : (ids?.length ?? 0)
   }

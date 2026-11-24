@@ -1,5 +1,6 @@
 import type { ParsedEnvelope } from '@podium/client-core/values'
 import { MessageLedgerWire } from '@podium/model/browser'
+import { SideMap } from '@podium/sync/side-state'
 import { actionBound, observable, observableRef, runInAction } from 'mobx'
 import { here } from './lookup'
 import {
@@ -41,7 +42,8 @@ export class MailReply {
   @observable accessor sending = false
   @observable accessor error: string | null = null
   private generation = 0
-  private readonly reads = new Map<string, Promise<void>>()
+  /** In-flight message reads, so a second open of one message shares the first. */
+  private readonly reads = new SideMap<string, Promise<void>>('mailReply.reads')
   constructor(
     readonly pool: MobxPool,
     readonly api: MailReplyApi,

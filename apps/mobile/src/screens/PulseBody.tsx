@@ -446,7 +446,20 @@ const LiveTaskRow = observer(function LiveTaskRow({
 }: TaskRowProps & { pool: MobxPool | null }) {
   const issue = pool?.model('issue', props.issueId) ?? LOADING
   if (isGone(issue)) return <TaskRow {...props} title="Task unavailable" displayRef="" disabled />
-  if (issue === LOADING) return <TaskRow {...props} title="Loading task…" displayRef="" disabled />
+  if (issue === LOADING)
+    return (
+      <TaskRow
+        {...props}
+        // Offline nothing can load it: say so rather than loading forever.
+        title={
+          pool?.collections.reading(issue) === 'offline'
+            ? 'Task not available offline'
+            : 'Loading task…'
+        }
+        displayRef=""
+        disabled
+      />
+    )
   return <TaskRow {...props} title={issue.title} displayRef={issue.displayRef} />
 })
 

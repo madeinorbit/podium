@@ -37,7 +37,8 @@ export function NativeGroupHeader({
   inlineTrailing = false,
 }: {
   title: string
-  count: number
+  /** Null while the count over all history is on its way. */
+  count: number | null
   folded: boolean
   onToggle: () => void
   trailing?: ReactNode
@@ -61,7 +62,9 @@ export function NativeGroupHeader({
           buttonStyle('plain'),
           frame({ maxWidth: Infinity, alignment: 'leading' }),
           accessibilityLabel(title),
-          accessibilityValue(`${folded ? 'Collapsed' : 'Expanded'}, ${count} tasks`),
+          accessibilityValue(
+            `${folded ? 'Collapsed' : 'Expanded'}, ${count === null ? 'counting' : count} tasks`,
+          ),
           accessibilityHint(folded ? 'Shows this group.' : 'Folds this group away.'),
           accessibilityAddTraits(['isHeader']),
         ]}
@@ -106,7 +109,7 @@ export function NativeGroupHeader({
               monospacedDigit(),
             ]}
           >
-            {String(count)}
+            {count === null ? '…' : String(count)}
           </Text>
           <Spacer />
         </HStack>

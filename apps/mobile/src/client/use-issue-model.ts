@@ -16,6 +16,21 @@ export function useIssueModel(id: string | undefined) {
   return typeof issue === 'symbol' ? undefined : issue
 }
 
+/**
+ * Where the issue's lookup stands, as the desktop's three answers: here, on
+ * its way (`loading`, or `offline` when no load can start), or gone (deleted
+ * or not visible). Reading it holds and loads the record like the model read.
+ */
+export type IssueReading = 'here' | 'refreshing' | 'loading' | 'offline' | 'gone'
+export function useIssueReading(id: string | undefined): IssueReading {
+  const read = useCallback(
+    (pool: MobxPool): IssueReading =>
+      id ? pool.collections.reading(pool.row('issue', id)) : 'gone',
+    [id],
+  )
+  return useMobilePoolProjection(read, 'loading')
+}
+
 /** The overflow needs only existence. Target payloads are read when a target
  * picker actually opens, using the already declared repository question. */
 export function useHasIssueMates(issue: IssueViewModel, enabled: boolean) {

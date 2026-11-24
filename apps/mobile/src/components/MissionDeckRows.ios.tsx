@@ -24,7 +24,7 @@ import {
   shapes,
 } from '@expo/ui/swift-ui/modifiers'
 import { settled } from '@podium/client-graph/mission-view'
-import type { SessionModel } from '@podium/client-graph/models'
+import { here } from '@podium/client-graph/lookup'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { type IssueStatus, issueStatusOf } from '@podium/model'
 import { SESSION_WORD_LABEL, type SessionWord, TASK_WORD_LABEL } from '@podium/model/browser'
@@ -237,12 +237,15 @@ export const DeckAgentRow = observer(function DeckAgentRow({
   current,
   onPress,
 }: DeckAgentRowProps) {
-  const session = task.deck.screen.pool.sessionObject(sessionId) as SessionModel
+  const type = useRowType()
+  // A seat the device no longer holds leaves the deck rather than throwing
+  // LOADING into React; Gone seats are omitted the same way.
+  const session = here(task.deck.screen.pool.model('session', sessionId))
+  if (!session) return null
   const name = seatName(task, sessionId, session)
   const model = sessionModelLabel(session)
   const word = session.word
   const step = (Math.min(indent, MAX_INDENT) + 1) * INDENT
-  const type = useRowType()
   return (
     <HStack
       alignment="top"
@@ -291,11 +294,14 @@ export const DeckSeatRow = observer(function DeckSeatRow({
   current,
   onPress,
 }: DeckSeatRowProps) {
-  const session = task.deck.screen.pool.sessionObject(sessionId) as SessionModel
+  const type = useRowType()
+  // A seat the device no longer holds leaves the deck rather than throwing
+  // LOADING into React; Gone seats are omitted the same way.
+  const session = here(task.deck.screen.pool.model('session', sessionId))
+  if (!session) return null
   const name = seatName(task, sessionId, session)
   const word = session.word
   const model = sessionModelLabel(session)
-  const type = useRowType()
   return (
     <HStack
       alignment="top"

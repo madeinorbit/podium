@@ -17,7 +17,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams } from 'expo-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
-import { useConnected, useTrpc } from '../client/hooks'
+import { useTrpc } from '../client/hooks'
 import { issueObserver as observer } from '../client/issue-observer'
 import { IssueOpening, useIssueOpening } from '../client/issue-opening'
 import { useMobileMemberRoster } from '../client/member-roster'
@@ -29,6 +29,7 @@ import {
   resolveEdgeFromPool,
   useHasIssueMates,
   useIssueModel,
+  useIssueReading,
   useIssueTargets,
 } from '../client/use-issue-model'
 import { useSessionContextBooting as useBooting } from '../client/use-session-context'
@@ -110,9 +111,9 @@ const IssueScreenBody = observer(function IssueScreenBody({
   )
   const router = useRootScreenRouter()
   const issue = useIssueModel(issueId)
+  const reading = useIssueReading(issueId)
   useScreenReadFocus(issue?.id)
   const booting = useBooting()
-  const connected = useConnected()
 
   /**
    * Back, with somewhere to go [POD-402, the trap in POD-358].
@@ -128,12 +129,13 @@ const IssueScreenBody = observer(function IssueScreenBody({
     else router.replace('/issues')
   }, [router])
 
-  // POD-541: "Task not found" is a claim about existence. Offline, a missing
-  // row more often means "the cache does not have it" than "it does not exist"
-  // — keep the page-shaped skeleton rather than a false deletion. Only claim
-  // absence once we are connected and no longer booting.
-  const certainAbsence = issue === undefined && !booting && connected
-  const resolved = issue !== undefined || certainAbsence
+  // POD-541: "Task not found" is a claim about existence, made only for the
+  // lookup's Gone answer (a server's verdict) once booted. A task the device does not
+  // hold yet loads under the skeleton; offline it says this phone has not
+  // loaded it, never that it was deleted (the desktop's three answers).
+  const certainAbsence = issue === undefined && reading === 'gone' && !booting
+  const unavailableOffline = issue === undefined && reading === 'offline' && !booting
+  const resolved = issue !== undefined || certainAbsence || unavailableOffline
 
   return issue ? (
     <IssueContent issue={issue} onBack={goBack} dismiss={dismiss} />
@@ -147,7 +149,15 @@ const IssueScreenBody = observer(function IssueScreenBody({
       backLabel={dismiss ? 'Done' : undefined}
     >
       <BootstrapCrossfade resolved={resolved} placeholder={<DetailSkeleton />}>
-        {certainAbsence ? <EmptyState title="Task not found." fill /> : null}
+        {certainAbsence ? (
+          <EmptyState title="Task not found." fill />
+        ) : unavailableOffline ? (
+          <EmptyState
+            title="Not available offline"
+            body="This phone has not loaded this task yet. It opens once the connection is back."
+            fill
+          />
+        ) : null}
       </BootstrapCrossfade>
     </Screen>
   )

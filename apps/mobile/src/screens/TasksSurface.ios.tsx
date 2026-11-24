@@ -306,7 +306,9 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
                               buttonStyle('borderless'),
                               accessibilityLabel('Screen proposals'),
                               accessibilityHint(
-                                `Decide on ${section.total} proposals one at a time.`,
+                                section.total === null
+                                  ? 'Decide on proposals one at a time.'
+                                  : `Decide on ${section.total} proposals one at a time.`,
                               ),
                             ]}
                           >

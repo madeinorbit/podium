@@ -40,8 +40,8 @@ interface Section {
   key: IssueBoardStage
   stage: IssueBoardStage
   title: string
-  /** How many TASKS this group holds — its roots, not its rendered rows. */
-  total: number
+  /** How many TASKS this group holds over all history; null while counting. */
+  total: number | null
   folded: boolean
   data: readonly BoardListRow[]
 }
@@ -259,7 +259,8 @@ function GroupHeader({
   onScreen,
 }: {
   title: string
-  count: number
+  /** Null while the count over all history is on its way. */
+  count: number | null
   collapsed: boolean
   onToggle: () => void
   onScreen?: () => void
@@ -272,7 +273,9 @@ function GroupHeader({
         // only the former. [POD-1664]
         accessibilityState={{ expanded: !collapsed }}
         aria-expanded={!collapsed}
-        accessibilityLabel={`${title}, ${count} task${count === 1 ? '' : 's'}`}
+        accessibilityLabel={
+          count === null ? `${title}, counting tasks` : `${title}, ${count} task${count === 1 ? '' : 's'}`
+        }
         accessibilityHint={collapsed ? 'Show this group' : 'Fold this group away'}
         onPress={onToggle}
         hitSlop={8}
@@ -281,13 +284,17 @@ function GroupHeader({
       >
         <Icon as={collapsed ? ChevronRight : ChevronDown} size={14} color={color.textFaint} />
         <Text style={styles.headerTitle}>{title}</Text>
-        <Text style={styles.headerCount}>{count}</Text>
+        <Text style={styles.headerCount}>{count ?? '…'}</Text>
       </PressableScale>
       {onScreen ? (
         <PressableScale
           accessibilityRole="button"
           accessibilityLabel="Screen proposed"
-          accessibilityHint={`Decide on ${count} proposal${count === 1 ? '' : 's'} one at a time`}
+          accessibilityHint={
+            count === null
+              ? 'Decide on proposals one at a time'
+              : `Decide on ${count} proposal${count === 1 ? '' : 's'} one at a time`
+          }
           onPress={onScreen}
           hitSlop={8}
           style={styles.screen}
