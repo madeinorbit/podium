@@ -1227,9 +1227,9 @@ describe('after the daemon reconnects (Task 5)', () => {
       expect(await statusOf(store, alices)).toBe('live')
     })
 
-    // POD-7594, review F2: a member who leaves stops using the keys others
-    // shared with them, at once, whoever ends their membership.
-    it("disabling a member lets their running turn finish, then stops their sessions on a shared key; the owner's runs on", async () => {
+    // POD-7594: a member who leaves stops every running session they own, by
+    // whatever path their membership ends.
+    it("disabling a member lets their running turn finish, then stops their sessions; the owner's runs on", async () => {
       const { store, alice, reg, daemon, as, bobsSession, alicesSession, phase } =
         await twoMembers()
       const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
@@ -1255,15 +1255,14 @@ describe('after the daemon reconnects (Task 5)', () => {
       await vi.waitFor(() => expect(stopRequests(daemon, busy)).toHaveLength(1))
       for (const sessionId of [idle, busy]) {
         expect(await statusOf(store, sessionId)).not.toBe('live')
-        expect(await flags(store, sessionId, 'anthropic.api-key')).toHaveLength(1)
-        expect(await refuses(store, sessionId)).toHaveLength(1)
+        expect(await flags(store, sessionId, 'was disabled')).toHaveLength(1)
       }
       expect(stopRequests(daemon, alices)).toHaveLength(0)
       expect(await statusOf(store, alices)).toBe('live')
     })
 
-    it('removing a member stops their session on an all-members key, and no refresh resolves for them', async () => {
-      const { store, alice, daemon, host, as, bobsSession } = await twoMembers()
+    it('removing a member stops their sessions, removes their own keys everywhere, and no refresh resolves for them', async () => {
+      const { store, reg, alice, daemon, host, as, bobsSession } = await twoMembers()
       const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
       await withPlainCommand('credentials.share', async () => {
         await CREDENTIAL_COMMANDS_TRPC.share.handler(as(alice), {
@@ -1273,10 +1272,46 @@ describe('after the daemon reconnects (Task 5)', () => {
           acknowledgeDisclosure: true,
         })
       })
+      const bobsKey = await credential(store, {
+        type: 'openai.api-key',
+        secret: FAKE_B,
+        owner: BOB,
+      })
       const bobs = await bobsSession(id)
+      // A shell runs on no credential at all; it stops too (security review F1).
+      const { sessionId: shell } = await reg.modules.sessions.createSession({
+        agentKind: 'shell',
+        cwd: '/p',
+        ownerUserId: BOB,
+      })
+      await reg.gateway.routeDaemonFrame(host, {
+        type: 'bind',
+        sessionId: shell,
+        cmd: 'bash',
+        cwd: '/p',
+        agentKind: 'shell',
+        geometry: { cols: 80, rows: 24 },
+      })
+      expect(await statusOf(store, shell)).toBe('live')
+      // Not the People page: the membership change itself (security review F2).
       await memberFacts(store).removeMember(BOB, alice)
       await vi.waitFor(() => expect(stopRequests(daemon, bobs)).toHaveLength(1), { timeout: 5000 })
+      await vi.waitFor(async () => expect(await statusOf(store, shell)).not.toBe('live'), {
+        timeout: 5000,
+      })
       expect(await statusOf(store, bobs)).not.toBe('live')
+      expect(await flags(store, bobs, 'was removed')).toHaveLength(1)
+      // Bob's own key is removed everywhere, as the system's act.
+      await vi.waitFor(async () =>
+        expect((await store.credentials.get(bobsKey))?.status).toBe('revoked'),
+      )
+      expect(await store.credentials.latestSecret(bobsKey)).toBeNull()
+      const removal = (await store.settingsAudit.list(200)).find(
+        (row) =>
+          row.command === 'credentials.remove' &&
+          (row.detail as { credentialId?: string } | null)?.credentialId === bobsKey,
+      )
+      expect(removal).toMatchObject({ actorKind: 'system', onBehalfOf: null })
       // The all-members grant stays for everyone else; Bob gets no refresh from it.
       expect(
         await resolveSessionAccess(store, {
@@ -1289,6 +1324,130 @@ describe('after the daemon reconnects (Task 5)', () => {
       expect(JSON.stringify(daemon.filter((m) => m.type === 'sessionAccessRefresh'))).not.toContain(
         FAKE_A,
       )
+    })
+
+    // Security review F4: the stop a disable left waiting will not happen.
+    it('enabling a member again lifts the stop their disable left waiting', async () => {
+      const { store, alice, reg, daemon, as, bobsSession, phase } = await twoMembers()
+      const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
+      await withPlainCommand('credentials.share', async () => {
+        await CREDENTIAL_COMMANDS_TRPC.share.handler(as(alice), {
+          credentialId: id,
+          grantee: { userId: BOB },
+          verb: 'use',
+          acknowledgeDisclosure: true,
+        })
+      })
+      const busy = await bobsSession(id)
+      await phase(busy, 'working', '2999-01-01T00:00:00.000Z')
+      await memberFacts(store).disable(BOB, AT, alice)
+      await vi.waitFor(() => expect(reg.modules.credentialHealth.holdsInput(busy, id)).toBe(true), {
+        timeout: 5000,
+      })
+      await vi.waitFor(async () => expect(await flags(store, busy, 'was disabled')).toHaveLength(1))
+      await memberFacts(store).enable(BOB, AT, alice)
+      await vi.waitFor(
+        () => expect(reg.modules.credentialHealth.holdsInput(busy, id)).toBe(false),
+        {
+          timeout: 5000,
+        },
+      )
+      await vi.waitFor(async () => expect(await flags(store, busy, 'was disabled')).toHaveLength(0))
+      await phase(busy, 'idle', '2999-01-01T00:00:01.000Z')
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(stopRequests(daemon, busy)).toHaveLength(0)
+      expect(await statusOf(store, busy)).toBe('live')
+    })
+
+    // The final review's note on a manager's disable: a disable is temporary.
+    // What the person shared stays usable; only their own sessions stop.
+    it("disabling the member who shared a key stops only that member's sessions", async () => {
+      const { store, reg, daemon, host, as, bobsSession } = await twoMembers()
+      const CAROL = asUserId('user:spawn-credential-withdrawn-carol')
+      await memberFacts(store).create(
+        {
+          id: CAROL,
+          displayName: 'Carol',
+          email: null,
+          role: 'member',
+          createdAt: AT,
+          disabledAt: null,
+        },
+        'not-a-real-hash',
+      )
+      // Carol's own key, sent by her to the host, shared with Bob.
+      const id = await credential(store, {
+        type: 'anthropic.api-key',
+        secret: FAKE_A,
+        owner: CAROL,
+      })
+      await store.credentials.allowMachine(id, host, CAROL)
+      await withPlainCommand('credentials.share', async () => {
+        await CREDENTIAL_COMMANDS_TRPC.share.handler(as(CAROL), {
+          credentialId: id,
+          grantee: { userId: BOB },
+          verb: 'use',
+          acknowledgeDisclosure: true,
+        })
+      })
+      const bobs = await bobsSession(id)
+      const { sessionId: carols } = await reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/p',
+        credentialId: id,
+        ownerUserId: CAROL,
+      })
+      await reg.gateway.routeDaemonFrame(host, {
+        type: 'bind',
+        sessionId: carols,
+        cmd: 'claude',
+        cwd: '/p',
+        agentKind: 'claude-code',
+        geometry: { cols: 80, rows: 24 },
+      })
+      await memberFacts(store).disable(CAROL, AT, BOB)
+      await vi.waitFor(() => expect(stopRequests(daemon, carols)).toHaveLength(1), {
+        timeout: 5000,
+      })
+      expect(stopRequests(daemon, bobs)).toHaveLength(0)
+      expect(await statusOf(store, bobs)).toBe('live')
+      expect(await refuses(store, bobs)).toHaveLength(0)
+    })
+
+    // Security review F6: a launch whose access was resolved before the removal
+    // committed sends no secret.
+    it('a launch in flight across the removal sends no secret', async () => {
+      const { store, alice, reg, daemon, as } = await twoMembers()
+      const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
+      await withPlainCommand('credentials.share', async () => {
+        await CREDENTIAL_COMMANDS_TRPC.share.handler(as(alice), {
+          credentialId: id,
+          grantee: 'all-members',
+          verb: 'use',
+          acknowledgeDisclosure: true,
+        })
+      })
+      // The removal commits while the launch reads the secret, after its access
+      // was resolved and before the row is registered.
+      const latestSecret = store.credentials.latestSecret.bind(store.credentials)
+      let removed = false
+      store.credentials.latestSecret = async (credentialId) => {
+        if (!removed) {
+          removed = true
+          await memberFacts(store).removeMember(BOB, alice)
+        }
+        return await latestSecret(credentialId)
+      }
+      await expect(
+        reg.modules.sessions.createSession({
+          agentKind: 'claude-code',
+          cwd: '/p',
+          credentialId: id,
+          ownerUserId: BOB,
+        }),
+      ).rejects.toThrow(ACCESS_REFUSAL_MESSAGES['not-yours'])
+      expect(removed).toBe(true)
+      expect(JSON.stringify(daemon)).not.toContain(FAKE_A)
     })
 
     // POD-7594, review F5: a headless session keeps its credential in its account.

@@ -434,9 +434,12 @@ access at the provider: the vendor's sign-out for a home, OpenAI's revocation ca
 ChatGPT plan. An API key or a Claude token stays valid at the provider until the person revokes
 it there, and the dialog says so.
 
-When a member is removed from the instance, their credentials are removed everywhere and the
-access they shared ends with them. A person who was removed or disabled may use no credential,
-their own included: the resolver refuses them with `not-yours` (POD-7594).
+When a member is removed from the instance, by any path (the People page, the control plane,
+single sign-on), their credentials are removed everywhere, recorded as the system's act, and
+the access they shared on those credentials ends with them. A person who was removed or
+disabled may use no credential, their own included: the resolver refuses them with
+`not-yours` (POD-7594). A disable is temporary: what the person shared stays usable by the
+people they shared it with, and comes back with them on a re-enable.
 
 **Access withdrawn from a running session** (POD-7591) is judged at four points:
 
@@ -444,11 +447,17 @@ their own included: the resolver refuses them with `not-yours` (POD-7594).
   running session on that credential;
 - when a daemon reattaches a process, for the refresh it is owed;
 - when a credential is removed, for every session on it;
-- when a member is removed or disabled, by any path (POD-7594): for each of their running
-  sessions, and for each running session on a credential its owner did not make, since the
-  member may own that credential or have given its grant. A removal stops a withdrawn session
-  at once. A disable lets its current turn finish, its input held, and then stops it, as the
-  members' policy for running agents says (`let-finish`).
+- when a member is removed or disabled, by any path (POD-7594): for each running session on a
+  credential its owner did not make, since the member may own that credential or have given
+  its grant.
+
+**A member who leaves stops every running session they own** (POD-7594), whatever it runs
+on: a credential, a machine's own login, a shell. A removal is about the workspace, not only
+the secret. A removal stops them at once. A disable lets each one finish its current turn,
+its input held, and then stops it, as the members' policy for running agents says
+(`let-finish`). A re-enable before then lifts the stops that wait, and withdraws their flags.
+A launch whose access was resolved before the change sends no secret: membership is read
+again right before the row is registered.
 
 A headless session keeps its credential as its account, and is found by it. Its turn is cut
 and its next turn is refused; the row stays with its thread. A session from before

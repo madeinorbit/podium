@@ -365,6 +365,11 @@ export interface MemberAccessChange {
 
 export type MemberAccessListener = (change: MemberAccessChange) => void
 
+/** What the account read holds per member row: the account when it may act. */
+interface MemberRowRead {
+  account?: UserAccountRow
+}
+
 export class UsersRepository {
   readonly committed: CommittedRows<typeof users.$inferSelect>
 
@@ -479,18 +484,23 @@ export class UsersRepository {
    * gets its own object per call; "no account" is memoised too, because it is
    * the verdict every caller acts on.
    */
-  private readonly accounts = operationLoader<string, UserAccountRow>(
+  private readonly accounts = operationLoader<string, MemberRowRead>(
     async (ids) => {
       const size = inListSize(ids.length)
       const rows = await accountsByIds(this.db, size).all(inListValues(ids, size))
-      const found = new Map<string, UserAccountRow>()
+      const found = new Map<string, MemberRowRead>()
       for (const row of rows) {
+        // A row with no readable role is no member at all.
+        if (parseRole(row.role) === undefined) continue
         const account = userFromRow(row)
-        if (account) found.set(row.id, account)
+        found.set(row.id, account ? { account } : {})
       }
       return found
     },
-    { copy: (row) => ({ ...row }), perOperation: true },
+    {
+      copy: (read) => (read.account ? { account: { ...read.account } } : {}),
+      perOperation: true,
+    },
   )
 
   /**
@@ -500,7 +510,19 @@ export class UsersRepository {
    * to get wrong is how one of them ends up permissive.
    */
   async get(userId: UserId): Promise<UserAccountRow | undefined> {
-    return await this.accounts.load(userId)
+    return (await this.accounts.load(userId))?.account
+  }
+
+  /**
+   * Whether this person still has a member row, able to act or not: active,
+   * disabled, or removed (a removed member is a disabled row; only the
+   * membership tells the two apart). NOT an answer to "may they act": that is
+   * {@link get}. It answers whether grants they gave still stand (credential
+   * management §12, POD-7594): a disable is temporary, and a removal deletes
+   * the credentials they own. The same read as {@link get}, batched with it.
+   */
+  async hasMemberRow(userId: UserId): Promise<boolean> {
+    return (await this.accounts.load(userId)) !== undefined
   }
 
   /**
@@ -545,7 +567,7 @@ export class UsersRepository {
     const account = await this.earliestAdminOfOperation.load(EARLIEST_ADMIN)
     // The caller usually asks for this member by id next (its role, its
     // principal): hand the row to the account loader unless a write came between.
-    if (account) this.accounts.prime(account.id, { ...account }, readAt)
+    if (account) this.accounts.prime(account.id, { account: { ...account } }, readAt)
     return account
   }
 
@@ -599,7 +621,7 @@ export class UsersRepository {
     const rows = await userIdsByCreation(this.db).all()
     const accounts = await this.accounts.loadMany(rows.map((row) => row.id))
     return rows.flatMap((row) => {
-      const account = accounts.get(row.id)
+      const account = accounts.get(row.id)?.account
       return account ? [account] : []
     })
   }

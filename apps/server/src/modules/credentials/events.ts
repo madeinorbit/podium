@@ -24,10 +24,21 @@ export const CREDENTIAL_EVENT_KINDS = [
 ] as const
 export type CredentialEventKind = (typeof CREDENTIAL_EVENT_KINDS)[number]
 
+/**
+ * The server acting on its own, with no person behind the act: a member's
+ * credentials removed because the member was removed, by whatever path
+ * (POD-7594). Recorded as a system actor with no one on whose behalf.
+ */
+export interface SystemCredentialActor {
+  system: 'membership'
+}
+
+export const MEMBERSHIP_ACTOR: SystemCredentialActor = { system: 'membership' }
+
 export interface CredentialEvent {
   kind: CredentialEventKind
   credentialId: CredentialId | null
-  actorUserId: UserId
+  actorUserId: UserId | SystemCredentialActor
   sessionId?: SessionId
   machineId?: MachineId
   /** A short reason a person can read, e.g. a refusal code. Never a secret. */
@@ -45,9 +56,9 @@ export async function recordCredentialEvent(
   await deps.settingsAudit.append({
     command: `credentials.${i.kind}`,
     outcome: i.kind === 'refuse' ? 'refused' : 'applied',
-    actorKind: 'user',
-    actorId: i.actorUserId,
-    onBehalfOf: i.actorUserId,
+    ...(typeof i.actorUserId === 'string'
+      ? { actorKind: 'user' as const, actorId: i.actorUserId, onBehalfOf: i.actorUserId }
+      : { actorKind: 'system' as const, actorId: i.actorUserId.system, onBehalfOf: null }),
     detail: {
       credentialId: i.credentialId,
       ...(i.sessionId === undefined ? {} : { sessionId: i.sessionId }),

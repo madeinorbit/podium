@@ -2037,9 +2037,6 @@ export async function startServer(
     appUrl: () =>
       resolveAppUrl(loadConfig(), process.env) || resolvePublicUrl(loadConfig(), process.env),
     allowedOrigins,
-    // Their credentials are removed everywhere, and sessions on them flagged (§8).
-    afterMemberRemoved: async (memberId, actor) =>
-      await registry.modules.credentialHealth.removeMemberCredentials(memberId, actor),
   })
   // The admin area's viewer, Access and Audit reads (POD-6299).
   registerAdminRoutes(app, {

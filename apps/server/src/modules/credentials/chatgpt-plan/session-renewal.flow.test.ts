@@ -140,7 +140,7 @@ async function world() {
     now: () => now,
     sessions: {
       liveSessionIds: async () => [...sessions.keys()],
-      runningOnCredentials: async () => [],
+      runningSessions: () => [],
       standing: async (id) => sessions.get(id)?.standing ?? 'not-running',
       restartWithResume: async (id) => {
         if (sessions.get(id)?.standing === 'in-turn') return { ok: false, reason: 'in a turn' }
@@ -150,6 +150,9 @@ async function world() {
       stop: async () => {},
       flagWithdrawn: async () => {},
       accessOf: async () => ({ ok: true }),
+      flagOwnerLeft: async () => {},
+      unflag: async () => {},
+      inputReleased: () => {},
     },
   })
   const settle = async () => {

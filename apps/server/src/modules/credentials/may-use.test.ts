@@ -102,19 +102,23 @@ describe('mayUse', () => {
     expect(await mayUse(store, CAROL, credential)).toBeNull()
   })
 
-  it('a grant from a member who was disabled no longer counts', async () => {
+  // POD-7594: a disable is temporary. What the person shared stays shared;
+  // only they themselves may use nothing until they are enabled again.
+  it('a grant from a member who was disabled still counts; the disabled manager uses nothing', async () => {
     await grant(MANAGER, 'manage', OWNER)
     await grant(CAROL, 'use', MANAGER)
     expect(await mayUse(store, CAROL, credential)).toBe('use')
     await memberFacts(store).disable(MANAGER, new Date().toISOString())
-    expect(await mayUse(store, CAROL, credential)).toBeNull()
+    expect(await mayUse(store, CAROL, credential)).toBe('use')
+    expect(await mayUse(store, MANAGER, credential)).toBeNull()
   })
 
-  it("nobody else may use a disabled owner's credential", async () => {
+  it("a disabled owner's shared credential stays usable by the people it was shared with", async () => {
     await grant(ALL_MEMBERS_GRANTEE, 'use', OWNER)
     expect(await mayUse(store, BOB, credential)).toBe('use')
     await memberFacts(store).disable(OWNER, new Date().toISOString())
-    expect(await mayUse(store, BOB, credential)).toBeNull()
+    expect(await mayUse(store, BOB, credential)).toBe('use')
+    expect(await mayUse(store, OWNER, credential)).toBeNull()
   })
 
   it('removing a member leaves the all-members grant in place', async () => {

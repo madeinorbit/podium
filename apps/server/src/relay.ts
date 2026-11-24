@@ -3078,6 +3078,40 @@ export class SessionRegistry {
     const credentialRestarts = new LifecyclePort<Pick<CredentialSwitcher, 'restartWithResume'>>(
       'credential restart workflow',
     )
+    // THE FLAG ON A SESSION THAT IS BEING STOPPED (POD-7591, POD-7594): a
+    // recovery interaction its watchers read. A headless session has no
+    // terminal to recover in: its cut turn and its next turn's refusal say why.
+    const STOP_NOW_SENTENCE =
+      'The session was stopped, its current turn cut short; its conversation and worktree are kept.'
+    const STOP_AT_END_SENTENCE = `The session stops at the end of its current turn, and in ${Math.round(TURN_STOP_CEILING_MS / 60_000)} minutes at the latest.`
+    const STOP_SENTENCES = [STOP_NOW_SENTENCE, STOP_AT_END_SENTENCE]
+    const stopSentence = (stops: 'now' | 'at-turn-end') =>
+      stops === 'now' ? STOP_NOW_SENTENCE : STOP_AT_END_SENTENCE
+    const raiseStopFlag = async (sessionId: SessionId, prompt: string): Promise<void> => {
+      if ((await sessionsSvc.sessionById(sessionId))?.headless) return
+      const spec = {
+        kind: 'recovery' as const,
+        payload: {
+          v: 1 as const,
+          reason: 'unknown' as const,
+          prompt,
+          offered: ['abandon' as const],
+        },
+      }
+      await asSystemWrite(
+        async () =>
+          await interactionsRef?.ask({
+            interaction: {
+              ...spec,
+              sessionId,
+              source: 'protocol',
+              answerable: 'keystroke-emulated',
+              askedAt: new Date(this.now()).toISOString(),
+              fingerprint: interactionFingerprint(sessionId, spec),
+            },
+          }),
+      )
+    }
     const credentialHealth = new CredentialHealth({
       store: this.store,
       placements: credentialPlacements,
@@ -3106,20 +3140,14 @@ export class SessionRegistry {
           }
           return [...ids].sort()
         },
-        // The running sessions are resident: what a member's removal judges
-        // again (POD-7594) is read from memory, not from the table.
-        runningOnCredentials: async () =>
-          sessionsSvc.runningSessionFacts().flatMap((facts) => {
-            const credentialId = credentialNamedBy(facts)
-            const legacy =
-              credentialId === null &&
-              facts.accountId !== undefined &&
-              facts.accountId !== '' &&
-              !facts.accountId.startsWith('native:')
-            return credentialId !== null || legacy
-              ? [{ sessionId: facts.sessionId, ownerUserId: facts.ownerUserId, credentialId }]
-              : []
-          }),
+        // The running sessions are resident: what a member's leaving judges and
+        // stops (POD-7594) is read from memory, with no await, not from the table.
+        runningSessions: () =>
+          sessionsSvc.runningSessionFacts().map((facts) => ({
+            sessionId: facts.sessionId,
+            ownerUserId: facts.ownerUserId,
+            credentialId: credentialNamedBy(facts),
+          })),
         standing: async (sessionId) => {
           const session = await sessionsSvc.sessionById(sessionId)
           if (!session || session.status === 'hibernated' || session.status === 'exited') {
@@ -3200,35 +3228,42 @@ export class SessionRegistry {
             : { ok: false, refusal: access.refusal, credentialId: stored.credentialId }
         },
         flagWithdrawn: async (sessionId, credential, refusal, stops) => {
-          // A headless session has no terminal to recover in: its cut turn and
-          // its next turn's refusal say why.
-          if ((await sessionsSvc.sessionById(sessionId))?.headless) return
           const why =
             refusal === 'revoked'
               ? `The credential "${credential.label}" this session runs on was removed.`
               : `This session may no longer use the credential "${credential.label}": ${ACCESS_REFUSAL_MESSAGES[refusal]}`
-          const spec = {
-            kind: 'recovery' as const,
-            payload: {
-              v: 1 as const,
-              reason: 'unknown' as const,
-              prompt: `${why} ${stops === 'now' ? 'The session was stopped, its current turn cut short; its conversation and worktree are kept.' : `The session stops at the end of its current turn, and in ${Math.round(TURN_STOP_CEILING_MS / 60_000)} minutes at the latest.`} Choose another credential to continue.`,
-              offered: ['abandon' as const],
-            },
-          }
-          await asSystemWrite(
-            async () =>
-              await interactionsRef?.ask({
-                interaction: {
-                  ...spec,
-                  sessionId,
-                  source: 'protocol',
-                  answerable: 'keystroke-emulated',
-                  askedAt: new Date(this.now()).toISOString(),
-                  fingerprint: interactionFingerprint(sessionId, spec),
-                },
-              }),
+          await raiseStopFlag(
+            sessionId,
+            `${why} ${stopSentence(stops)} Choose another credential to continue.`,
           )
+        },
+        flagOwnerLeft: async (sessionId, change, stops) => {
+          const why =
+            change === 'removed'
+              ? 'The person this session runs for was removed from the workspace.'
+              : 'The person this session runs for was disabled.'
+          await raiseStopFlag(sessionId, `${why} ${stopSentence(stops)}`)
+        },
+        // A re-enable lifted the stop (POD-7594, review F4): the flags that
+        // announced it are withdrawn.
+        unflag: async (sessionId) => {
+          const open = await this.store.interactions.listOpen(sessionId)
+          const at = new Date(this.now()).toISOString()
+          for (const row of open) {
+            const prompt = (row.payload as { prompt?: unknown } | null)?.prompt
+            if (row.kind !== 'recovery' || typeof prompt !== 'string') continue
+            if (!STOP_SENTENCES.some((sentence) => prompt.includes(sentence))) continue
+            await asSystemWrite(
+              async () => await this.store.interactions.close(row.id, 'superseded', at),
+            )
+          }
+        },
+        // A hold that ended without a stop: what it kept queued goes out now,
+        // not at the next sweep.
+        inputReleased: (sessionId) => {
+          void sessionsSvc.inbox.drain(sessionId).catch((err: unknown) => {
+            log.warn('could not deliver held input', { sessionId, err })
+          })
         },
       },
     })
@@ -5884,17 +5919,37 @@ export class SessionRegistry {
       this.store.users.onAccessChange((change) => {
         this.clientGateway.applyAccessChange(change)
       }),
-      // A member removed or disabled, by any path (the People page, the
-      // control plane): the running sessions whose credential hangs on them are
-      // judged again and stopped, at once on a removal and at the end of the
-      // current turn on a disable (POD-7594). Never throws.
+      // A member removed, disabled or enabled again, by any path (the People
+      // page, the control plane, single sign-on), POD-7594: a removal removes
+      // their credentials everywhere; a removal or disable stops every session
+      // they own (at once, or at the end of its turn) and judges the sessions
+      // on keys whose grant could hang on them; a re-enable lifts the stops a
+      // disable left waiting. Never throws.
       this.store.users.onAccessChange((change) => {
-        if (change.reason !== 'removed' && change.reason !== 'disabled') return
-        const left = change.reason
+        if (change.reason === 'role') return
+        const { memberId, reason } = change
         // At the root: this listener runs as the commit's own application, and
         // work it leaves running must not inherit that finished transaction's
         // scope (as the bus dispatches its listeners).
-        void runAtRoot(async () => await credentialHealth.afterMemberLeft(change.memberId, left))
+        void runAtRoot(async () => {
+          if (reason === 'enabled') {
+            await credentialHealth.afterMemberReturned(memberId)
+            return
+          }
+          // Removed: their credentials go first, on every removal path
+          // (security review F2), so a session on one stops as removed.
+          if (reason === 'removed') {
+            try {
+              await credentialHealth.removeMemberCredentials(memberId)
+            } catch (err) {
+              log.warn('could not remove the credentials of a removed member', {
+                memberId,
+                err,
+              })
+            }
+          }
+          await credentialHealth.afterMemberLeft(memberId, reason)
+        })
       }),
     ]
     this.unsubscribeAccessChanges = () => {

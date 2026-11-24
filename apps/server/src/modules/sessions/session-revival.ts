@@ -45,6 +45,7 @@ import type { AutoContinueController } from '../../auto-continue'
 import { type ResolvedLaunchSelection, resolveLaunchSelection } from '../../model-validation'
 import { soleMemberFor } from '../../sole-member'
 import type { SessionStore } from '../../store'
+import { ACCESS_REFUSAL_MESSAGES } from '../credentials/access'
 import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
@@ -652,6 +653,14 @@ export class SessionRevival {
       ...(session.agentProfileId ? { agentProfileId: session.agentProfileId } : {}),
       existingOnly: true,
     })
+    // A revival in flight across its owner's leaving (POD-7594, security review
+    // F6): its access may have been resolved before a removal or a disable
+    // committed. Read again right before the row becomes `starting`, from which
+    // on that change stops it; nothing is sent for someone who is no longer a
+    // member, and nothing is left to undo.
+    if (access.access && !(await this.ports.store.users.get(session.ownerUserId))) {
+      return { ok: false, reason: ACCESS_REFUSAL_MESSAGES['not-yours'] }
+    }
     await this.ports.repository.write(this.ports.writer, session, (draft) => {
       draft.cwd = cwd
       draft.status = 'starting'

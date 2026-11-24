@@ -67,12 +67,6 @@ export function registerMemberRoutes(
       memberId: string,
       change: 'remove' | 'disable' | 'enable' | 'role',
     ) => void
-    /**
-     * After a removal commits: what else leaves with the member. Today their
-     * credentials, removed everywhere (credential management §8). A failure is
-     * logged by its owner; the removal itself stands.
-     */
-    afterMemberRemoved?: (memberId: UserId, actor: UserId) => Promise<void>
   },
 ) {
   const { users, identity } = options
@@ -222,13 +216,6 @@ export function registerMemberRoutes(
       const change = await confirmedAdmin(c)
       if ('refusal' in change) return change.refusal
       await memberships[action]({ actor: change.actor, memberId: change.target })
-      // Their credentials leave with a removed member, everywhere (§8).
-      if (action === 'remove') {
-        await options.afterMemberRemoved?.(
-          asUserId(change.target),
-          asUserId(change.actor.memberId),
-        )
-      }
       options.onMembershipChanged?.(change.target, action)
       return c.json({ ok: true })
     })

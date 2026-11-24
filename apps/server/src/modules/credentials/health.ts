@@ -58,7 +58,7 @@ import {
 import type { SessionStore } from '../../store'
 import type { CredentialRecord } from '../../store/credentials'
 import { type AccessRefusal, STOPS_AT_ONCE, WITHDRAWS_ACCESS } from './access'
-import { recordCredentialEvent } from './events'
+import { MEMBERSHIP_ACTOR, recordCredentialEvent, type SystemCredentialActor } from './events'
 import { CREDENTIAL_RESOURCE_KIND } from './may-use'
 import type { Placements } from './placements'
 
@@ -134,14 +134,13 @@ export interface CredentialSessionPort {
    */
   liveSessionIds(credentialId: CredentialId): Promise<SessionId[]>
   /**
-   * The running sessions that may run on a credential (POD-7594): each with its
-   * owner and its credential, `null` for an account from before credentials
-   * that only the resolver can read. A session on a machine's own login is not
-   * listed: Podium put no secret into it.
+   * Every running session, read from memory with no await (POD-7594): each with
+   * its owner and the credential its row names, `null` for none (a machine's own
+   * login, a shell) or for an account from before credentials that only the
+   * resolver can read. Synchronous, so a member's sessions are held before
+   * anything awaits (review F5).
    */
-  runningOnCredentials(): Promise<
-    { sessionId: SessionId; ownerUserId: UserId; credentialId: CredentialId | null }[]
-  >
+  runningSessions(): RunningSession[]
   standing(sessionId: SessionId): Promise<SessionStanding>
   /** Stop the harness and start it again with resume, under the same session. */
   restartWithResume(sessionId: SessionId): Promise<{ ok: boolean; reason?: string }>
@@ -150,7 +149,8 @@ export interface CredentialSessionPort {
    * Tell the people watching the session that it may no longer use its
    * credential: `revoked` when it was removed, otherwise the withdrawal the
    * resolver refused with (POD-7591). `stops` says whether it stops now, its
-   * turn cut, or at the end of its current turn.
+   * turn cut, or at the end of its current turn. A second flag for the same
+   * stop follows only when it moved from the turn's end to now (POD-7594).
    */
   flagWithdrawn(
     sessionId: SessionId,
@@ -168,16 +168,39 @@ export interface CredentialSessionPort {
   accessOf(
     sessionId: SessionId,
   ): Promise<{ ok: true } | { ok: false; refusal: AccessRefusal; credentialId: CredentialId }>
+  /**
+   * Tell the people watching the session that the person it runs for was
+   * removed or disabled (POD-7594): it stops now, or at the end of its turn.
+   */
+  flagOwnerLeft(
+    sessionId: SessionId,
+    change: 'removed' | 'disabled',
+    stops: 'now' | 'at-turn-end',
+  ): Promise<void>
+  /** Withdraw the flags above: the stop they announced will not happen (a re-enable). */
+  unflag(sessionId: SessionId): Promise<void>
+  /** The session's input hold ended without a stop: deliver what waited for it. */
+  inputReleased(sessionId: SessionId): void
+}
+
+/** One running session, as {@link CredentialSessionPort.runningSessions} lists it. */
+export interface RunningSession {
+  sessionId: SessionId
+  ownerUserId: UserId
+  credentialId: CredentialId | null
 }
 
 export const NO_SESSIONS: CredentialSessionPort = {
   liveSessionIds: async () => [],
-  runningOnCredentials: async () => [],
+  runningSessions: () => [],
   standing: async () => 'not-running',
   restartWithResume: async () => ({ ok: false, reason: 'no session runtime' }),
   stop: async () => {},
   flagWithdrawn: async () => {},
   accessOf: async () => ({ ok: true }),
+  flagOwnerLeft: async () => {},
+  unflag: async () => {},
+  inputReleased: () => {},
 }
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
@@ -383,7 +406,32 @@ export function httpStatusOf(err: unknown): number | undefined {
 export const attentionNoticeKey = (id: CredentialId): string => `credential-attention:${id}`
 export const expiringNoticeKey = (id: CredentialId): string => `credential-expiring:${id}`
 
-type PendingAction = { kind: 'restart' } | { kind: 'stop'; credential: { id: CredentialId } }
+/**
+ * What a waiting stop and its input hold are for (POD-7594): the credential that
+ * was withdrawn, or the person who left. A credential's stop is the session's
+ * only while it still runs on that credential (review F1 of POD-7591); a
+ * person's holds whatever the session runs on, until it ran or they return.
+ */
+type StopKey = CredentialId | `member:${string}`
+const memberKey = (id: UserId): StopKey => `member:${id}`
+const isMemberKey = (key: StopKey): boolean => key.startsWith('member:')
+
+type StopMode = 'now' | 'at-turn-end'
+type PendingAction = { kind: 'restart' } | { kind: 'stop'; key: StopKey; mode: StopMode }
+
+/** How many sessions a member's leaving judges or stops at the same time (review F5). */
+const MEMBER_STOP_PARALLELISM = 8
+
+async function inParallel(tasks: (() => Promise<void>)[], width: number): Promise<void> {
+  let next = 0
+  const lane = async () => {
+    while (next < tasks.length) {
+      const task = tasks[next++]
+      if (task) await task()
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(width, tasks.length) }, lane))
+}
 
 export class CredentialHealth {
   private readonly store: HealthStore
@@ -402,9 +450,9 @@ export class CredentialHealth {
    * succeeds, when the session is found not running (a stop whose kill was not
    * confirmed still parked the row), or when a refusal at the probe is dropped.
    */
-  private readonly holding = new Map<SessionId, CredentialId>()
+  private readonly holding = new Map<SessionId, StopKey>()
   /** The ceiling of each stop that waits (POD-7594), by session. */
-  private readonly ceilings = new Map<SessionId, { credentialId: CredentialId; cancel(): void }>()
+  private readonly ceilings = new Map<SessionId, { key: StopKey; cancel(): void }>()
   private readonly schedule: NonNullable<CredentialHealthDeps['schedule']>
   private readonly turnStopCeilingMs: number
 
@@ -539,7 +587,10 @@ export class CredentialHealth {
    * gone, every placement removed or left `removal-pending`, every running
    * session flagged and stopped at once, its turn cut (POD-7591), and the event.
    */
-  async removeEverywhere(credentialId: CredentialId, actorUserId: UserId): Promise<void> {
+  async removeEverywhere(
+    credentialId: CredentialId,
+    actorUserId: UserId | SystemCredentialActor,
+  ): Promise<void> {
     const record = await this.store.credentials.get(credentialId)
     if (!record || record.status === 'revoked') return
     await this.store.credentials.remove(credentialId)
@@ -581,51 +632,139 @@ export class CredentialHealth {
   }
 
   /**
-   * A member was removed or disabled (POD-7594, review F2). Each running session
-   * whose right to its credential could hang on that person is judged again, as
-   * {@link afterWithdraw} judges a credential's: the member's own sessions (a
-   * person who is no longer a member may use nothing), and every session on a
-   * credential its owner did not make, since the member may own that credential
-   * or have given its grant as a manager.
+   * A member was removed or disabled (POD-7594).
    *
-   * A removal stops a withdrawn session at once (`not-yours`), its turn cut. A
-   * disable keeps the members' policy of letting running agents finish
-   * (`runningAgentPolicy: 'let-finish'`, coordinator decision): the session
-   * finishes its current turn and then stops, its input held meanwhile and the
-   * stop bounded by {@link TURN_STOP_CEILING_MS}; no new turn and no refresh is
-   * allowed, since the resolver refuses the member.
+   * EVERY RUNNING SESSION THE MEMBER OWNS STOPS, whatever it runs on: a
+   * credential, a machine's own login, a shell (security review F1). A removal
+   * is about the workspace, not only the secret: such a process keeps the
+   * machine's login, the worktree and whatever the machine can push to. A
+   * removal stops it at once, its turn cut; a disable keeps the members' policy
+   * of letting running agents finish (`runningAgentPolicy: 'let-finish'`): it
+   * finishes its current turn and then stops, bounded by
+   * {@link TURN_STOP_CEILING_MS}. Its input is held from now on in both cases.
    *
-   * Runs after the membership change commits. Never throws: a session that
-   * cannot be judged is logged and left, and its next revival or refresh is
-   * judged.
+   * Every session on a credential its owner did not make is judged again for
+   * its own owner (review F2 of POD-7591): the member may own that credential or
+   * have given its grant as a manager. A withdrawal stops it as a withdrawn
+   * credential does.
+   *
+   * Every affected session is held before the first await, and they are stopped
+   * and judged side by side, so one slow daemon does not leave the rest taking
+   * input (review F5). A launch that registered while this ran is found by a
+   * second look at the running sessions at the end (review F6).
+   *
+   * Runs after the membership change commits. Never throws.
    */
   async afterMemberLeft(memberId: UserId, change: 'removed' | 'disabled'): Promise<void> {
-    const stops = change === 'disabled' ? 'at-turn-end' : undefined
-    let running: Awaited<ReturnType<CredentialSessionPort['runningOnCredentials']>>
-    let owners: Map<CredentialId, UserId>
+    const key = memberKey(memberId)
+    let running: RunningSession[]
     try {
-      running = await this.sessions.runningOnCredentials()
-      const ids = [...new Set(running.flatMap((r) => (r.credentialId ? [r.credentialId] : [])))]
-      // Removed credentials are left out: such a session is judged, and refused.
-      owners = new Map(
-        (await this.store.credentials.getMany(ids)).map((c) => [c.id, c.ownerUserId]),
-      )
+      running = this.sessions.runningSessions()
     } catch (err) {
       log.warn('could not list the running sessions after a member left', { err, memberId })
       return
     }
-    for (const r of running) {
-      const owner = r.credentialId ? owners.get(r.credentialId) : undefined
-      // The member's own session, or one on a key its owner did not make (the
-      // member may own it or have given its grant), or on a removed key.
-      const mayHangOnMember =
-        r.ownerUserId === memberId || (r.credentialId !== null && owner !== r.ownerUserId)
-      if (!mayHangOnMember) continue
-      await this.judgeRunning(
-        r.sessionId,
-        r.credentialId ? { id: r.credentialId } : undefined,
-        stops,
+    const owned = running.filter((r) => r.ownerUserId === memberId)
+    for (const r of owned) this.holding.set(r.sessionId, key)
+    const onOthersKeys = running.filter(
+      (r): r is RunningSession & { credentialId: CredentialId } =>
+        r.ownerUserId !== memberId && r.credentialId !== null,
+    )
+    let judged: (RunningSession & { credentialId: CredentialId })[] = []
+    try {
+      const ids = [...new Set(onOthersKeys.map((r) => r.credentialId))]
+      // Removed credentials are left out: such a session is judged, and refused.
+      const owners = new Map(
+        (await this.store.credentials.getMany(ids)).map((c) => [c.id, c.ownerUserId]),
       )
+      judged = onOthersKeys.filter((r) => owners.get(r.credentialId) !== r.ownerUserId)
+    } catch (err) {
+      log.warn('could not read the credentials of the sessions a member may have shared', {
+        err,
+        memberId,
+      })
+    }
+    const heldHere = new Set<SessionId>()
+    for (const r of judged) {
+      if (this.holding.has(r.sessionId)) continue
+      this.holding.set(r.sessionId, r.credentialId)
+      heldHere.add(r.sessionId)
+    }
+    const stopped = new Set(owned.map((r) => r.sessionId))
+    await inParallel(
+      [
+        ...owned.map((r) => async () => await this.stopForOwner(r.sessionId, memberId, change)),
+        ...judged.map(
+          (r) => async () =>
+            await this.judgeRunning(r.sessionId, { id: r.credentialId }, undefined, {
+              preHeld: heldHere.has(r.sessionId),
+            }),
+        ),
+      ],
+      MEMBER_STOP_PARALLELISM,
+    )
+    // A launch that resolved its access before the change and registered while
+    // the above ran (review F6).
+    for (const r of this.sessions.runningSessions()) {
+      if (r.ownerUserId !== memberId || stopped.has(r.sessionId)) continue
+      this.holding.set(r.sessionId, key)
+      await this.stopForOwner(r.sessionId, memberId, change)
+    }
+  }
+
+  /**
+   * A member was enabled again (POD-7594, review F4): the stops their disable
+   * left waiting will not happen. Each one is dropped, its input released and
+   * its flag withdrawn; so is a credential's stop on one of their sessions, or
+   * on a key its owner did not make, that the resolver now allows.
+   */
+  async afterMemberReturned(memberId: UserId): Promise<void> {
+    const key = memberKey(memberId)
+    let running: RunningSession[]
+    try {
+      running = this.sessions.runningSessions()
+    } catch (err) {
+      log.warn('could not list the running sessions after a member returned', { err, memberId })
+      return
+    }
+    for (const r of running) {
+      const action = this.pending.get(r.sessionId)
+      if (action?.kind !== 'stop') {
+        if (this.holding.get(r.sessionId) === key) this.unhold(r.sessionId)
+        continue
+      }
+      try {
+        if (action.key === key) {
+          this.dropStop(r.sessionId, key)
+          await this.sessions.unflag(r.sessionId)
+          continue
+        }
+        if (isMemberKey(action.key) || action.mode === 'now') continue
+        const access = await this.sessions.accessOf(r.sessionId)
+        if (!access.ok) continue
+        this.dropStop(r.sessionId, action.key)
+        await this.sessions.unflag(r.sessionId)
+      } catch (err) {
+        log.warn('could not lift a stop after a member returned', {
+          err,
+          sessionId: r.sessionId,
+        })
+      }
+    }
+  }
+
+  /** Stop a session because the person it runs for left (POD-7594, review F1). */
+  private async stopForOwner(
+    sessionId: SessionId,
+    memberId: UserId,
+    change: 'removed' | 'disabled',
+  ): Promise<void> {
+    try {
+      await this.stopFor(sessionId, memberKey(memberId), change === 'removed', async (stops) => {
+        await this.sessions.flagOwnerLeft(sessionId, change, stops)
+      })
+    } catch (err) {
+      log.warn('could not stop a session after its owner left', { err, sessionId })
     }
   }
 
@@ -641,9 +780,12 @@ export class CredentialHealth {
     expected?: Pick<CredentialRecord, 'id'> & Partial<Pick<CredentialRecord, 'label'>>,
     /** `at-turn-end`: let the current turn finish even for an at-once refusal. */
     stops?: 'at-turn-end',
+    /** The caller already held it for this judgement (review F5). */
+    opts: { preHeld?: boolean } = {},
   ): Promise<void> {
-    const heldHere = expected !== undefined && this.holding.get(sessionId) !== expected.id
-    if (heldHere) this.holding.set(sessionId, expected.id)
+    const heldHere =
+      opts.preHeld === true || (expected !== undefined && !this.holding.has(sessionId))
+    if (heldHere && expected) this.holding.set(sessionId, expected.id)
     try {
       if ((await this.sessions.standing(sessionId)) === 'not-running') return
       const access = await this.sessions.accessOf(sessionId)
@@ -691,8 +833,16 @@ export class CredentialHealth {
     await this.flagAndStop(sessionId, { id: credentialId, label }, refusal)
   }
 
-  /** A member was removed: each of their credentials is removed everywhere. */
-  async removeMemberCredentials(memberId: UserId, actorUserId: UserId): Promise<void> {
+  /**
+   * A member was removed: each of their credentials is removed everywhere. Run
+   * from the membership change itself, so a removal by the control plane or by
+   * single sign-on deletes the secrets and the home placements too (POD-7594,
+   * security review F2), recorded as the system's act.
+   */
+  async removeMemberCredentials(
+    memberId: UserId,
+    actorUserId: UserId | SystemCredentialActor = MEMBERSHIP_ACTOR,
+  ): Promise<void> {
     for (const record of await this.store.credentials.listVisibleTo(memberId)) {
       await this.removeEverywhere(record.id, actorUserId)
     }
@@ -735,10 +885,10 @@ export class CredentialHealth {
    */
   async onTurnBoundary(sessionId: SessionId, credentialId: CredentialId | null): Promise<void> {
     const action = this.pending.get(sessionId)
-    if (action?.kind === 'stop' && action.credential.id !== credentialId) {
+    if (action?.kind === 'stop' && !isMemberKey(action.key) && action.key !== credentialId) {
       // The session moved to another credential: that stop is not its own any
       // more, and a revival never inherits it (review F1).
-      this.dropStop(sessionId, action.credential.id)
+      this.dropStop(sessionId, action.key)
     } else if (action) {
       await this.run(sessionId, action)
       return
@@ -746,7 +896,7 @@ export class CredentialHealth {
     if (credentialId === null) return
     const record = await this.store.credentials.get(credentialId)
     if (record?.status === 'revoked')
-      await this.run(sessionId, { kind: 'stop', credential: record })
+      await this.run(sessionId, { kind: 'stop', key: record.id, mode: 'now' })
   }
 
   /**
@@ -769,11 +919,13 @@ export class CredentialHealth {
 
   /**
    * Whether the session must take no input: its credential was withdrawn or
-   * removed and its stop has not run yet (POD-7591). The inbox keeps its queued
-   * rows queued (review F6).
+   * removed, or the person it runs for left (POD-7594), and its stop has not
+   * run yet (POD-7591). The inbox keeps its queued rows queued (review F6).
    */
   holdsInput(sessionId: SessionId, credentialId: CredentialId | null): boolean {
-    return credentialId !== null && this.holding.get(sessionId) === credentialId
+    const held = this.holding.get(sessionId)
+    if (held === undefined) return false
+    return isMemberKey(held) || held === credentialId
   }
 
   /**
@@ -787,24 +939,33 @@ export class CredentialHealth {
 
   /** Hold the session's input while its credential is judged again (review F3). */
   hold(sessionId: SessionId, credentialId: CredentialId): void {
+    if (this.holding.has(sessionId)) return
     this.holding.set(sessionId, credentialId)
   }
 
   /** A hold above ended without a withdrawal (a dropped refusal, a judgement that passed): release it, not a stop's. */
   releaseHold(sessionId: SessionId, credentialId: CredentialId): void {
     const action = this.pending.get(sessionId)
-    if (action?.kind === 'stop' && action.credential.id === credentialId) return
-    if (this.holding.get(sessionId) === credentialId) this.holding.delete(sessionId)
+    if (action?.kind === 'stop' && action.key === credentialId) return
+    if (this.holding.get(sessionId) === credentialId) this.unhold(sessionId)
   }
 
-  private dropStop(sessionId: SessionId, credentialId: CredentialId): void {
-    const action = this.pending.get(sessionId)
-    if (action?.kind === 'stop' && action.credential.id === credentialId) {
-      this.pending.delete(sessionId)
+  /** End a hold, and let what waited for it go out (POD-7594). */
+  private unhold(sessionId: SessionId): void {
+    this.holding.delete(sessionId)
+    try {
+      this.sessions.inputReleased(sessionId)
+    } catch (err) {
+      log.warn('could not deliver the input a hold kept', { err, sessionId })
     }
-    if (this.holding.get(sessionId) === credentialId) this.holding.delete(sessionId)
+  }
+
+  private dropStop(sessionId: SessionId, key: StopKey): void {
+    const action = this.pending.get(sessionId)
+    if (action?.kind === 'stop' && action.key === key) this.pending.delete(sessionId)
+    if (this.holding.get(sessionId) === key) this.unhold(sessionId)
     const ceiling = this.ceilings.get(sessionId)
-    if (ceiling?.credentialId === credentialId) {
+    if (ceiling?.key === key) {
       ceiling.cancel()
       this.ceilings.delete(sessionId)
     }
@@ -812,25 +973,23 @@ export class CredentialHealth {
 
   /**
    * Bound the wait of a stop for a turn boundary (POD-7594, review F9): after
-   * {@link TURN_STOP_CEILING_MS} a stop still waiting for this credential runs,
-   * and cuts the turn. One ceiling per session; a stop that ran cancels it.
+   * {@link TURN_STOP_CEILING_MS} a stop still waiting for this key runs, and
+   * cuts the turn. One ceiling per session; a stop that ran cancels it.
    */
-  private armCeiling(sessionId: SessionId, credentialId: CredentialId): void {
+  private armCeiling(sessionId: SessionId, key: StopKey): void {
     const armed = this.ceilings.get(sessionId)
-    if (armed?.credentialId === credentialId) return
+    if (armed?.key === key) return
     armed?.cancel()
     const timer = this.schedule(this.turnStopCeilingMs, () => {
-      if (this.ceilings.get(sessionId)?.credentialId === credentialId) {
-        this.ceilings.delete(sessionId)
-      }
+      if (this.ceilings.get(sessionId)?.key === key) this.ceilings.delete(sessionId)
       const action = this.pending.get(sessionId)
-      if (action?.kind !== 'stop' || action.credential.id !== credentialId) return
+      if (action?.kind !== 'stop' || action.key !== key) return
       log.warn('a stop waited too long for a turn boundary; the turn is cut', { sessionId })
       void this.run(sessionId, action).catch((err: unknown) => {
         log.warn('the ceiling stop of a session failed', { err, sessionId })
       })
     })
-    this.ceilings.set(sessionId, { credentialId, cancel: () => timer.cancel() })
+    this.ceilings.set(sessionId, { key, cancel: () => timer.cancel() })
   }
 
   private async flagAndStop(
@@ -839,39 +998,60 @@ export class CredentialHealth {
     refusal: AccessRefusal,
     stops?: 'at-turn-end',
   ): Promise<void> {
-    const now = stops !== 'at-turn-end' && STOPS_AT_ONCE.has(refusal)
-    const waiting = this.pending.get(sessionId)
-    // Flagged once per session and credential (review F8): a reconnect that is
-    // refused again while the stop waits raises no second flag.
-    const repeat = waiting?.kind === 'stop' && waiting.credential.id === credential.id
-    // Held before any await (review F3).
-    this.pending.set(sessionId, { kind: 'stop', credential: { id: credential.id } })
-    this.holding.set(sessionId, credential.id)
-    const standing = await this.sessions.standing(sessionId)
-    if (standing === 'not-running') {
-      // Parked: nothing holds the secret, and its next revival is judged. No
-      // flag that would tell it a turn was cut (review F8).
-      this.dropStop(sessionId, credential.id)
-      return
-    }
-    if (!repeat) {
-      try {
+    await this.stopFor(
+      sessionId,
+      credential.id,
+      stops !== 'at-turn-end' && STOPS_AT_ONCE.has(refusal),
+      async (mode) => {
         await this.sessions.flagWithdrawn(
           sessionId,
           { id: credential.id, label: credential.label },
           refusal,
-          now ? 'now' : 'at-turn-end',
+          mode,
         )
-      } catch (err) {
-        log.warn('could not flag a session on a withdrawn credential', { err, sessionId })
-      }
-    }
-    if (now) {
-      // Removed, or the grant taken back: the turn in flight is cut (POD-7591).
-      await this.run(sessionId, { kind: 'stop', credential: { id: credential.id } })
+      },
+    )
+  }
+
+  /**
+   * Flag a session and stop it for `key`: now, its turn cut, or at its next
+   * turn boundary. Held before any await (review F3). Flagged once per session
+   * and key (review F8), and again only when a stop that waited for the turn's
+   * end must now run at once, so the flag never says the turn will finish when
+   * it was cut (POD-7594, review F7). A stop that waits never weakens one that
+   * was to run now.
+   */
+  private async stopFor(
+    sessionId: SessionId,
+    key: StopKey,
+    now: boolean,
+    flag: (mode: StopMode) => Promise<void>,
+  ): Promise<void> {
+    const waiting = this.pending.get(sessionId)
+    const same = waiting?.kind === 'stop' && waiting.key === key
+    const mode: StopMode = now || (same && waiting.mode === 'now') ? 'now' : 'at-turn-end'
+    const flagged = same && (waiting.mode === 'now' || mode === 'at-turn-end')
+    this.pending.set(sessionId, { kind: 'stop', key, mode })
+    this.holding.set(sessionId, key)
+    const standing = await this.sessions.standing(sessionId)
+    if (standing === 'not-running') {
+      // Parked: nothing holds the secret, and its next revival is judged. No
+      // flag that would tell it a turn was cut (review F8).
+      this.dropStop(sessionId, key)
       return
     }
-    this.armCeiling(sessionId, credential.id)
+    if (!flagged) {
+      try {
+        await flag(mode)
+      } catch (err) {
+        log.warn('could not flag a session that is being stopped', { err, sessionId })
+      }
+    }
+    if (mode === 'now') {
+      await this.run(sessionId, { kind: 'stop', key, mode })
+      return
+    }
+    this.armCeiling(sessionId, key)
     await this.actIfBetweenTurns(sessionId)
   }
 
@@ -883,7 +1063,7 @@ export class CredentialHealth {
     if (standing === 'not-running') {
       // Nothing holds the old secret; the next revival resolves afresh.
       this.pending.delete(sessionId)
-      if (action.kind === 'stop') this.dropStop(sessionId, action.credential.id)
+      if (action.kind === 'stop') this.dropStop(sessionId, action.key)
       return
     }
     await this.run(sessionId, action)
@@ -894,15 +1074,15 @@ export class CredentialHealth {
     if (action.kind === 'stop') {
       try {
         await this.sessions.stop(sessionId)
-        this.dropStop(sessionId, action.credential.id)
+        this.dropStop(sessionId, action.key)
       } catch (err) {
-        log.warn('a session on a withdrawn credential did not stop', { err, sessionId })
+        log.warn('a session that is being stopped did not stop', { err, sessionId })
         // A stop whose kill was not confirmed has still parked the row and queued
         // the kill: nothing waits for a turn boundary that will not come (review
         // F1). A restart's probe or the census judges any survivor again.
         const standing = await this.sessions.standing(sessionId).catch(() => 'in-turn' as const)
         if (standing === 'not-running') {
-          this.dropStop(sessionId, action.credential.id)
+          this.dropStop(sessionId, action.key)
           return
         }
         // Still running: fail closed. The input stays held and the stop is tried
@@ -910,7 +1090,7 @@ export class CredentialHealth {
         // comes (POD-7594), unless another action took its place.
         if (!this.pending.has(sessionId)) {
           this.pending.set(sessionId, action)
-          this.armCeiling(sessionId, action.credential.id)
+          this.armCeiling(sessionId, action.key)
         }
       }
       return

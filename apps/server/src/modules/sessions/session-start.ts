@@ -70,6 +70,7 @@ import { harnessSupportsEffort, harnessSupportsInitialPrompt } from '../../harne
 import { type ResolvedLaunchSelection, resolveLaunchSelection } from '../../model-validation'
 import { soleMemberFor } from '../../sole-member'
 import type { SessionStore } from '../../store'
+import { ACCESS_REFUSAL_MESSAGES } from '../credentials/access'
 import type { MachineUseResolver } from '../machines/service'
 import type { MessageWriter } from '../messages/writer'
 import { authorSpawnBinding } from './binding-mint'
@@ -771,6 +772,13 @@ export class SessionStart {
       ...(input.nameSource ? { nameSource: input.nameSource } : {}),
       ...(requestedDriverId ? { requestedDriverId } : {}),
     })
+    // A LAUNCH IN FLIGHT ACROSS A MEMBER'S LEAVING (POD-7594, security review
+    // F6). The access above may have been resolved before a removal or a
+    // disable committed; that change stops what is registered, so a secret goes
+    // out only while its owner is still a member, read right before the row is.
+    if (access.access && !(await this.ports.store.users.get(ownerUserId))) {
+      throw new CredentialRefusal('not-yours', ACCESS_REFUSAL_MESSAGES['not-yours'])
+    }
     this.ports.registerSession(session)
     // Naming point (#474): input.issueId is the resolved birth issue (or absent
     // for a genuinely issueless spawn) — allocate the permanent ref now, and let

@@ -4,13 +4,17 @@
  * Its owner; a person holding a `manage` grant; and a person holding a `use`
  * grant, to them or to all members. A grant counts only while its granter still
  * may give it: the owner, or someone who holds `manage` through a chain that
- * starts at the owner, and who is still a member. Every answer is read from the
- * grant table at the call: take a grant away, or remove the person who gave it,
- * and the next call says no. Being an admin gives nothing.
+ * starts at the owner, and who still has a member row. Every answer is read
+ * from the grant table at the call: take a grant away and the next call says
+ * no. Being an admin gives nothing.
  *
- * Only a member may use anything (POD-7594): a person removed or disabled is
- * refused every credential, their own included, so a refresh or a re-judge of a
- * running session they own says no.
+ * Only a member who may act uses anything (POD-7594): a person removed or
+ * disabled is refused every credential, their own included, so a refresh or a
+ * re-judge of a running session they own says no. What they shared stays
+ * shared while they are disabled, which is temporary: the owner and the
+ * granters count while their member row exists. A removal deletes the
+ * credentials they own everywhere; the grants they gave as a manager on
+ * someone else's key stand for now (see the open conflict at the check below).
  */
 
 import { ALL_MEMBERS_GRANTEE, type CredentialId, type UserId } from '@podium/model'
@@ -44,16 +48,26 @@ export async function accessFrom(
   credential: { id: CredentialId; ownerUserId: UserId },
   edges: readonly GrantRow[],
 ): Promise<CredentialAccessLevel | null> {
-  const people = [
-    ...new Set([userId, credential.ownerUserId, ...edges.map((edge) => edge.owner as UserId)]),
+  const givers = [
+    ...new Set([credential.ownerUserId, ...edges.map((edge) => edge.owner as UserId)]),
   ] as UserId[]
-  // `users.get` answers undefined for a removed or a disabled account.
-  const accounts = await Promise.all(people.map((id) => deps.users.get(id)))
-  const live = new Set(people.filter((_, i) => accounts[i] !== undefined))
-  // Someone who is no longer a member may use nothing, their own included.
-  if (!live.has(userId)) return null
+  // One batched account read: `users.get` answers undefined for a removed or a
+  // disabled account; `hasMemberRow` is true for both.
+  const [acting, ...rows] = await Promise.all([
+    deps.users.get(userId),
+    ...givers.map((id) => deps.users.hasMemberRow(id)),
+  ])
+  // Someone who may not act uses nothing, their own included.
+  if (acting === undefined) return null
   if (userId === credential.ownerUserId) return 'owner'
-  // Nobody else may use the credential of an owner who is no longer a member.
+  // OPEN CONFLICT (POD-7594, for the operator): spec §12 says removing the
+  // person who gave a grant ends it ("the next call says no"); users.ts keeps
+  // the shares a removed member granted. A removed member is a disabled row
+  // here, so this counts a removed manager's grants on someone else's key as it
+  // counts a disabled one's (option a). Their own credentials are removed
+  // everywhere on removal. If §12 wins, the grants they gave go at removal.
+  const live = new Set(givers.filter((_, i) => rows[i] === true))
+  // Nobody else may use the credential of an owner with no member row.
   if (!live.has(credential.ownerUserId)) return null
 
   // Who may give grants: the owner, then whoever a live manager gave `manage`.
