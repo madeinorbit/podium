@@ -656,6 +656,10 @@ export class SessionRevival {
       draft.cwd = cwd
       draft.status = 'starting'
       draft.exitCode = undefined
+      // A session from before credentials revives on the credential its old
+      // account reads as now; the row names it from here on, so a removal, an
+      // unshare or a member leaving finds this process by it (POD-7594, F5).
+      if (!draft.credentialId && access.credentialId) draft.credentialId = access.credentialId
       if (selection) session.setRequestedModel(selection, draft)
       // Waking a session resets its hibernation idle timer — otherwise a stale
       // lastActiveAt makes it immediately eligible to be parked again.

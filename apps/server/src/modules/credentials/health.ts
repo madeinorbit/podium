@@ -37,10 +37,12 @@
  *
  *  - WITHDRAWN: a grant that ends or a machine withdrawn re-judges each running
  *    session on the credential; a refresh refused for a running process does the
- *    same. A withdrawal (`WITHDRAWS_ACCESS`) flags and stops it: at once, its
- *    turn cut, when the credential is gone or its grant was taken back
- *    (`STOPS_AT_ONCE`); otherwise at its next turn boundary. Until the stop has
- *    run, no queued input reaches it.
+ *    same, and so does a member removed or disabled (POD-7594). A withdrawal
+ *    (`WITHDRAWS_ACCESS`) flags and stops it: at once, its turn cut, when the
+ *    credential is gone or its grant was taken back (`STOPS_AT_ONCE`); otherwise
+ *    at its next turn boundary, and at the latest after
+ *    {@link TURN_STOP_CEILING_MS} (POD-7594). Until the stop has run, no queued
+ *    input reaches it.
  */
 
 import { createLogger, describeError } from '@podium/logger'
@@ -83,6 +85,13 @@ export const CREDENTIAL_TURN_BOUNDARY: ReadonlySet<string> = new Set([
 ])
 /** A reason is cut to this length before it is stored or shown. */
 const REASON_MAX = 300
+/**
+ * The longest a stop waits for a turn boundary (POD-7594). A turn that never
+ * ends (a hung tool, a harness that never reports `idle`) is cut then, so "at its
+ * next turn boundary" has a worst case. A failed stop is tried again after the
+ * same time.
+ */
+export const TURN_STOP_CEILING_MS = 30 * 60_000
 
 // ---------------------------------------------------------------------------
 // Ports
@@ -119,8 +128,20 @@ export type SessionStanding = 'in-turn' | 'between-turns' | 'not-running'
 
 /** What this module asks of the running sessions. Bound by the composition root. */
 export interface CredentialSessionPort {
-  /** The live sessions that run on this credential. */
+  /**
+   * The live sessions that run on this credential: by the session's credential,
+   * and the headless sessions that name it as their account (POD-7594, F5).
+   */
   liveSessionIds(credentialId: CredentialId): Promise<SessionId[]>
+  /**
+   * The running sessions that may run on a credential (POD-7594): each with its
+   * owner and its credential, `null` for an account from before credentials
+   * that only the resolver can read. A session on a machine's own login is not
+   * listed: Podium put no secret into it.
+   */
+  runningOnCredentials(): Promise<
+    { sessionId: SessionId; ownerUserId: UserId; credentialId: CredentialId | null }[]
+  >
   standing(sessionId: SessionId): Promise<SessionStanding>
   /** Stop the harness and start it again with resume, under the same session. */
   restartWithResume(sessionId: SessionId): Promise<{ ok: boolean; reason?: string }>
@@ -140,13 +161,18 @@ export interface CredentialSessionPort {
   /**
    * Judge a running session's credential again for its owner and machine, as a
    * launch would: no secret is read and nothing is delivered. A refusal is
-   * recorded on the trail by the resolver.
+   * recorded on the trail by the resolver, and names the credential the session
+   * runs on, read as a revival reads it (its account for a headless session or
+   * one from before credentials, POD-7594). A session on no credential is `ok`.
    */
-  accessOf(sessionId: SessionId): Promise<{ ok: true } | { ok: false; refusal: AccessRefusal }>
+  accessOf(
+    sessionId: SessionId,
+  ): Promise<{ ok: true } | { ok: false; refusal: AccessRefusal; credentialId: CredentialId }>
 }
 
 export const NO_SESSIONS: CredentialSessionPort = {
   liveSessionIds: async () => [],
+  runningOnCredentials: async () => [],
   standing: async () => 'not-running',
   restartWithResume: async () => ({ ok: false, reason: 'no session runtime' }),
   stop: async () => {},
@@ -166,6 +192,16 @@ export interface CredentialHealthDeps {
   /** The provider calls of verification. Defaults to the global `fetch`. */
   fetch?: FetchLike
   now?: () => number
+  /** Runs `run` after `ms`; the default is an unref'd timer. Tests drive it. */
+  schedule?: (ms: number, run: () => void) => { cancel(): void }
+  /** Defaults to {@link TURN_STOP_CEILING_MS}. */
+  turnStopCeilingMs?: number
+}
+
+const scheduleTimer = (ms: number, run: () => void): { cancel(): void } => {
+  const timer = setTimeout(run, ms)
+  timer.unref?.()
+  return { cancel: () => clearTimeout(timer) }
 }
 
 // ---------------------------------------------------------------------------
@@ -367,11 +403,17 @@ export class CredentialHealth {
    * confirmed still parked the row), or when a refusal at the probe is dropped.
    */
   private readonly holding = new Map<SessionId, CredentialId>()
+  /** The ceiling of each stop that waits (POD-7594), by session. */
+  private readonly ceilings = new Map<SessionId, { credentialId: CredentialId; cancel(): void }>()
+  private readonly schedule: NonNullable<CredentialHealthDeps['schedule']>
+  private readonly turnStopCeilingMs: number
 
   constructor(deps: CredentialHealthDeps) {
     this.store = deps.store
     this.fetchImpl = deps.fetch ?? ((input, init) => fetch(input, init))
     this.now = deps.now ?? Date.now
+    this.schedule = deps.schedule ?? scheduleTimer
+    this.turnStopCeilingMs = deps.turnStopCeilingMs ?? TURN_STOP_CEILING_MS
     this.notices = deps.notices ?? NO_NOTICES
     this.sessions = deps.sessions ?? NO_SESSIONS
     this.placements = deps.placements
@@ -534,17 +576,99 @@ export class CredentialHealth {
    */
   async afterWithdraw(record: Pick<CredentialRecord, 'id' | 'label'>): Promise<void> {
     for (const sessionId of await this.sessions.liveSessionIds(record.id)) {
-      try {
-        if ((await this.sessions.standing(sessionId)) === 'not-running') continue
-        const access = await this.sessions.accessOf(sessionId)
-        if (access.ok || !WITHDRAWS_ACCESS.has(access.refusal)) continue
-        await this.flagAndStop(sessionId, record, access.refusal)
-      } catch (err) {
-        log.warn('could not judge a running session after its access was withdrawn', {
-          err,
-          sessionId,
-        })
-      }
+      await this.judgeRunning(sessionId, record)
+    }
+  }
+
+  /**
+   * A member was removed or disabled (POD-7594, review F2). Each running session
+   * whose right to its credential could hang on that person is judged again, as
+   * {@link afterWithdraw} judges a credential's: the member's own sessions (a
+   * person who is no longer a member may use nothing), and every session on a
+   * credential its owner did not make, since the member may own that credential
+   * or have given its grant as a manager.
+   *
+   * A removal stops a withdrawn session at once (`not-yours`), its turn cut. A
+   * disable keeps the members' policy of letting running agents finish
+   * (`runningAgentPolicy: 'let-finish'`, coordinator decision): the session
+   * finishes its current turn and then stops, its input held meanwhile and the
+   * stop bounded by {@link TURN_STOP_CEILING_MS}; no new turn and no refresh is
+   * allowed, since the resolver refuses the member.
+   *
+   * Runs after the membership change commits. Never throws: a session that
+   * cannot be judged is logged and left, and its next revival or refresh is
+   * judged.
+   */
+  async afterMemberLeft(memberId: UserId, change: 'removed' | 'disabled'): Promise<void> {
+    const stops = change === 'disabled' ? 'at-turn-end' : undefined
+    let running: Awaited<ReturnType<CredentialSessionPort['runningOnCredentials']>>
+    let owners: Map<CredentialId, UserId>
+    try {
+      running = await this.sessions.runningOnCredentials()
+      const ids = [...new Set(running.flatMap((r) => (r.credentialId ? [r.credentialId] : [])))]
+      // Removed credentials are left out: such a session is judged, and refused.
+      owners = new Map(
+        (await this.store.credentials.getMany(ids)).map((c) => [c.id, c.ownerUserId]),
+      )
+    } catch (err) {
+      log.warn('could not list the running sessions after a member left', { err, memberId })
+      return
+    }
+    for (const r of running) {
+      const owner = r.credentialId ? owners.get(r.credentialId) : undefined
+      // The member's own session, or one on a key its owner did not make (the
+      // member may own it or have given its grant), or on a removed key.
+      const mayHangOnMember =
+        r.ownerUserId === memberId || (r.credentialId !== null && owner !== r.ownerUserId)
+      if (!mayHangOnMember) continue
+      await this.judgeRunning(
+        r.sessionId,
+        r.credentialId ? { id: r.credentialId } : undefined,
+        stops,
+      )
+    }
+  }
+
+  /**
+   * Judge one running session's credential again and stop it on a withdrawal.
+   * When the credential is known, the session is held from before the first
+   * await (review N-b), and the hold is released when the judgement passes,
+   * unless a stop now waits or someone else held it first. A thrown error is
+   * logged and leaves the process (fail-open: its next revival is judged).
+   */
+  private async judgeRunning(
+    sessionId: SessionId,
+    expected?: Pick<CredentialRecord, 'id'> & Partial<Pick<CredentialRecord, 'label'>>,
+    /** `at-turn-end`: let the current turn finish even for an at-once refusal. */
+    stops?: 'at-turn-end',
+  ): Promise<void> {
+    const heldHere = expected !== undefined && this.holding.get(sessionId) !== expected.id
+    if (heldHere) this.holding.set(sessionId, expected.id)
+    try {
+      if ((await this.sessions.standing(sessionId)) === 'not-running') return
+      const access = await this.sessions.accessOf(sessionId)
+      if (access.ok || !WITHDRAWS_ACCESS.has(access.refusal)) return
+      const label =
+        (access.credentialId === expected?.id ? expected.label : undefined) ??
+        (await this.labelOf(access.credentialId))
+      await this.flagAndStop(sessionId, { id: access.credentialId, label }, access.refusal, stops)
+    } catch (err) {
+      log.warn('could not judge a running session after its access was withdrawn', {
+        err,
+        sessionId,
+      })
+    } finally {
+      if (heldHere && expected) this.releaseHold(sessionId, expected.id)
+    }
+  }
+
+  /** The credential's label for a flag; a read that fails names it plainly (review N-a). */
+  private async labelOf(credentialId: CredentialId): Promise<string> {
+    try {
+      return (await this.store.credentials.get(credentialId))?.label ?? 'its credential'
+    } catch (err) {
+      log.warn('could not read a withdrawn credential for its label', { err, credentialId })
+      return 'its credential'
     }
   }
 
@@ -560,14 +684,11 @@ export class CredentialHealth {
     refusal: AccessRefusal,
   ): Promise<void> {
     if (!WITHDRAWS_ACCESS.has(refusal)) return
-    // Held before the label is read (review F3).
+    // Held before the label is read (review F3). A read that fails still stops
+    // the session, under a plain name (review N-a).
     this.holding.set(sessionId, credentialId)
-    const record = await this.store.credentials.get(credentialId)
-    await this.flagAndStop(
-      sessionId,
-      { id: credentialId, label: record?.label ?? 'its credential' },
-      refusal,
-    )
+    const label = await this.labelOf(credentialId)
+    await this.flagAndStop(sessionId, { id: credentialId, label }, refusal)
   }
 
   /** A member was removed: each of their credentials is removed everywhere. */
@@ -682,14 +803,43 @@ export class CredentialHealth {
       this.pending.delete(sessionId)
     }
     if (this.holding.get(sessionId) === credentialId) this.holding.delete(sessionId)
+    const ceiling = this.ceilings.get(sessionId)
+    if (ceiling?.credentialId === credentialId) {
+      ceiling.cancel()
+      this.ceilings.delete(sessionId)
+    }
+  }
+
+  /**
+   * Bound the wait of a stop for a turn boundary (POD-7594, review F9): after
+   * {@link TURN_STOP_CEILING_MS} a stop still waiting for this credential runs,
+   * and cuts the turn. One ceiling per session; a stop that ran cancels it.
+   */
+  private armCeiling(sessionId: SessionId, credentialId: CredentialId): void {
+    const armed = this.ceilings.get(sessionId)
+    if (armed?.credentialId === credentialId) return
+    armed?.cancel()
+    const timer = this.schedule(this.turnStopCeilingMs, () => {
+      if (this.ceilings.get(sessionId)?.credentialId === credentialId) {
+        this.ceilings.delete(sessionId)
+      }
+      const action = this.pending.get(sessionId)
+      if (action?.kind !== 'stop' || action.credential.id !== credentialId) return
+      log.warn('a stop waited too long for a turn boundary; the turn is cut', { sessionId })
+      void this.run(sessionId, action).catch((err: unknown) => {
+        log.warn('the ceiling stop of a session failed', { err, sessionId })
+      })
+    })
+    this.ceilings.set(sessionId, { credentialId, cancel: () => timer.cancel() })
   }
 
   private async flagAndStop(
     sessionId: SessionId,
     credential: Pick<CredentialRecord, 'id' | 'label'>,
     refusal: AccessRefusal,
+    stops?: 'at-turn-end',
   ): Promise<void> {
-    const now = STOPS_AT_ONCE.has(refusal)
+    const now = stops !== 'at-turn-end' && STOPS_AT_ONCE.has(refusal)
     const waiting = this.pending.get(sessionId)
     // Flagged once per session and credential (review F8): a reconnect that is
     // refused again while the stop waits raises no second flag.
@@ -721,6 +871,7 @@ export class CredentialHealth {
       await this.run(sessionId, { kind: 'stop', credential: { id: credential.id } })
       return
     }
+    this.armCeiling(sessionId, credential.id)
     await this.actIfBetweenTurns(sessionId)
   }
 
@@ -755,8 +906,12 @@ export class CredentialHealth {
           return
         }
         // Still running: fail closed. The input stays held and the stop is tried
-        // again at the next turn boundary, unless another action took its place.
-        if (!this.pending.has(sessionId)) this.pending.set(sessionId, action)
+        // again at the next turn boundary, or after the ceiling if no boundary
+        // comes (POD-7594), unless another action took its place.
+        if (!this.pending.has(sessionId)) {
+          this.pending.set(sessionId, action)
+          this.armCeiling(sessionId, action.credential.id)
+        }
       }
       return
     }

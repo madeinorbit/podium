@@ -55,7 +55,7 @@ import {
   SessionInbox,
   SYSTEM_INBOX_PRINCIPAL,
 } from './inbox'
-import { SessionLaunchConfig } from './launch-config'
+import { credentialNamedBy, SessionLaunchConfig } from './launch-config'
 import type { SessionLifecycle, SessionLifecycleDeps } from './lifecycle'
 import type { Session, SessionDurableState } from './session'
 
@@ -219,6 +219,21 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       })
       if (!stored.ok) return { refused: stored.refusal, credentialId: null }
       if (stored.credentialId === null) return undefined
+      // LEGACY(remove-after: 2027-02): names the credential an old account reads as on its row; removing it drops the write-back for sessions from before credentials
+      // The process holds this credential's secret from here on, so the row
+      // names it: a removal, an unshare or a member leaving finds the session by
+      // it, and its input hold is keyed by it (POD-7594, F5). A headless row
+      // keeps its account; it is found by that.
+      if (!session.credentialId && !session.headless) {
+        const credentialId = stored.credentialId
+        await bag.repository.write(
+          bag.deps.writers.daemon,
+          session,
+          (draft: SessionDurableState) => {
+            if (!draft.credentialId) draft.credentialId = credentialId
+          },
+        )
+      }
       const resolved = await bag.launchConfig.access({
         harness: session.agentKind,
         ...(session.lifecycleDriverRequest() ? { driverId: session.lifecycleDriverRequest() } : {}),
@@ -561,7 +576,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     getSession: (sessionId) => bag.sessions.get(sessionId),
     // Rows to a session whose credential was withdrawn stay queued (POD-7591).
     inputHeld: (session) =>
-      deps.credentialInputHeld?.(session.sessionId, session.credentialId ?? null) ?? false,
+      deps.credentialInputHeld?.(session.sessionId, credentialNamedBy(session)) ?? false,
     queue: {
       enqueue: (row) => {
         const actor = inboxActorColumns(row.principal.attribution.actor)

@@ -39,6 +39,7 @@ import {
   expiringNoticeKey,
   httpStatusOf,
   type SessionStanding,
+  TURN_STOP_CEILING_MS,
 } from './health'
 import { Placements } from './placements'
 import { withSecret } from './vault'
@@ -82,8 +83,19 @@ function fakeSessions(on: Record<string, SessionId[]> = {}) {
   /** What judging each session again answers; absent: still allowed. */
   const access = new Map<SessionId, AccessRefusal>()
   const judged: SessionId[] = []
+  /** The running sessions on a credential, for a member who left (POD-7594). */
+  const running: {
+    sessionId: SessionId
+    ownerUserId: UserId
+    credentialId: CredentialId | null
+  }[] = []
+  const credentialOf = (id: SessionId): CredentialId =>
+    (running.find((r) => r.sessionId === id)?.credentialId ??
+      (Object.entries(on).find(([, ids]) => ids.includes(id))?.[0] as CredentialId | undefined) ??
+      asCredentialId('cred_unknown')) as CredentialId
   const port: CredentialSessionPort = {
     liveSessionIds: async (id) => on[id] ?? [],
+    runningOnCredentials: async () => running,
     standing: async (id) => standing.get(id) ?? 'not-running',
     restartWithResume: async (id) => {
       if (standing.get(id) === 'in-turn') return { ok: false, reason: 'agent is working' }
@@ -100,10 +112,33 @@ function fakeSessions(on: Record<string, SessionId[]> = {}) {
     accessOf: async (id) => {
       judged.push(id)
       const refusal = access.get(id)
-      return refusal ? { ok: false, refusal } : { ok: true }
+      return refusal ? { ok: false, refusal, credentialId: credentialOf(id) } : { ok: true }
     },
   }
-  return { port, standing, restarted, stopped, flagged, on, access, judged }
+  return { port, standing, restarted, stopped, flagged, on, access, judged, running }
+}
+
+/** Timers the test fires by hand (the stop ceiling, POD-7594). */
+function manualTimers() {
+  const armed: { ms: number; run: () => void; cancelled: boolean }[] = []
+  return {
+    armed,
+    schedule: (ms: number, run: () => void) => {
+      const timer = { ms, run, cancelled: false }
+      armed.push(timer)
+      return {
+        cancel: () => {
+          timer.cancelled = true
+        },
+      }
+    },
+    /** Fire every live timer, then let what it started settle. */
+    fire: async () => {
+      for (const timer of armed.splice(0)) if (!timer.cancelled) timer.run()
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    },
+    live: () => armed.filter((t) => !t.cancelled),
+  }
 }
 
 const dirs: string[] = []
@@ -141,12 +176,14 @@ async function setup(opts: { now?: number } = {}) {
   const provider = fakeProvider({ reject: [BAD], limit: [BUSY], reason: PROVIDER_REASON })
   const notices = recordingNotices()
   const sessions = fakeSessions()
+  const timers = manualTimers()
   const health = new CredentialHealth({
     store,
     notices: notices.port,
     sessions: sessions.port,
     fetch: provider.fetch,
     now: () => now,
+    schedule: timers.schedule,
   })
   const state = (callerUserId: UserId = OWNER): CredentialsState => ({
     store,
@@ -168,6 +205,7 @@ async function setup(opts: { now?: number } = {}) {
     provider,
     notices,
     sessions,
+    timers,
     state,
     handlers,
     add,
@@ -796,6 +834,243 @@ describe('a withdrawn credential stops the sessions that run on it', () => {
       { sessionId: busy, label: 'Work key', refusal: 'machine-not-allowed' },
     ])
     expect(f.health.holdsInput(parked, credentialId)).toBe(false)
+  })
+})
+
+// POD-7594, review F9 and the final review's nits: a stop that waits for a turn
+// boundary has a worst case, and a judgement holds input from its first await.
+describe('a stop waiting for a turn boundary has a ceiling', () => {
+  it('a turn that never ends is cut after the ceiling', async () => {
+    const f = await setup()
+    const { credentialId } = await f.add(GOOD)
+    const hung = asSessionId('ses_ceiling_hung')
+    f.sessions.standing.set(hung, 'in-turn')
+    await f.health.accessWithdrawn(hung, credentialId, 'machine-not-allowed')
+    expect(f.sessions.stopped).toEqual([])
+    expect(f.timers.live().map((t) => t.ms)).toEqual([TURN_STOP_CEILING_MS])
+    // Still in its turn when the ceiling comes: the turn is cut.
+    await f.timers.fire()
+    expect(f.sessions.stopped).toEqual([hung])
+    expect(f.health.waitingFor(hung)).toBeUndefined()
+    expect(f.health.holdsInput(hung, credentialId)).toBe(false)
+  })
+
+  it('a stop that ran at the turn boundary cancels its ceiling', async () => {
+    const f = await setup()
+    const { credentialId } = await f.add(GOOD)
+    const busy = asSessionId('ses_ceiling_boundary')
+    f.sessions.standing.set(busy, 'in-turn')
+    await f.health.accessWithdrawn(busy, credentialId, 'machine-not-allowed')
+    f.sessions.standing.set(busy, 'between-turns')
+    await f.health.onTurnBoundary(busy, credentialId)
+    expect(f.sessions.stopped).toEqual([busy])
+    expect(f.timers.live()).toEqual([])
+    await f.timers.fire()
+    expect(f.sessions.stopped).toEqual([busy])
+  })
+
+  it('a stop at once that fails in a turn that never ends is tried again after the ceiling', async () => {
+    const f = await setup()
+    const { credentialId } = await f.add(GOOD)
+    const stuck = asSessionId('ses_ceiling_retry')
+    f.sessions.standing.set(stuck, 'in-turn')
+    const stop = f.sessions.port.stop
+    f.sessions.port.stop = async () => {
+      throw new Error('daemon did not answer')
+    }
+    await f.health.accessWithdrawn(stuck, credentialId, 'not-yours')
+    expect(f.health.holdsInput(stuck, credentialId)).toBe(true)
+    expect(f.timers.live()).toHaveLength(1)
+    f.sessions.port.stop = stop
+    await f.timers.fire()
+    expect(f.sessions.stopped).toEqual([stuck])
+    expect(f.health.holdsInput(stuck, credentialId)).toBe(false)
+  })
+
+  it('a ceiling left from a stop that was dropped stops nothing', async () => {
+    const f = await setup()
+    const { credentialId } = await f.add(GOOD)
+    const { credentialId: other } = await f.add(RENEWED, 'anthropic.api-key', 'Other key')
+    const moved = asSessionId('ses_ceiling_moved')
+    f.sessions.standing.set(moved, 'in-turn')
+    await f.health.accessWithdrawn(moved, credentialId, 'machine-not-allowed')
+    // Switched to another credential: its stop and its ceiling go.
+    await f.health.onTurnBoundary(moved, other)
+    expect(f.timers.live()).toEqual([])
+    await f.timers.fire()
+    expect(f.sessions.stopped).toEqual([])
+  })
+})
+
+describe('the judgement of a running session (POD-7591 final review nits)', () => {
+  it('a credential read that fails still flags and stops the session (N-a)', async () => {
+    const f = await setup()
+    const { credentialId } = await f.add(GOOD)
+    const idle = asSessionId('ses_label_read_fails')
+    f.sessions.standing.set(idle, 'between-turns')
+    const get = f.store.credentials.get.bind(f.store.credentials)
+    f.store.credentials.get = async () => {
+      throw new Error('store unavailable')
+    }
+    try {
+      await f.health.accessWithdrawn(idle, credentialId, 'not-yours')
+    } finally {
+      f.store.credentials.get = get
+    }
+    expect(f.sessions.flagged).toEqual([
+      { sessionId: idle, label: 'its credential', refusal: 'not-yours' },
+    ])
+    expect(f.sessions.stopped).toEqual([idle])
+    expect(f.health.holdsInput(idle, credentialId)).toBe(false)
+  })
+
+  it('afterWithdraw holds the session from before its first await, and releases a passed one (N-b)', async () => {
+    const f = await setup()
+    const { credentialId } = await f.add(GOOD)
+    const passes = asSessionId('ses_judged_passes')
+    const refused = asSessionId('ses_judged_refused')
+    const probed = asSessionId('ses_judged_probed')
+    f.sessions.on[credentialId] = [passes, refused, probed]
+    for (const id of [passes, refused, probed]) f.sessions.standing.set(id, 'in-turn')
+    f.sessions.access.set(refused, 'machine-not-allowed')
+    // A hold someone else set (a reattach probe's refusal) is not lifted here.
+    f.health.holdFor(probed, credentialId, 'machine-not-allowed')
+    const heldWhileJudged = new Map<SessionId, boolean>()
+    const standing = f.sessions.port.standing
+    f.sessions.port.standing = async (id) => {
+      if (!heldWhileJudged.has(id)) heldWhileJudged.set(id, f.health.holdsInput(id, credentialId))
+      return await standing(id)
+    }
+    await f.health.afterWithdraw({ id: credentialId, label: 'Work key' })
+    expect(heldWhileJudged).toEqual(
+      new Map([
+        [passes, true],
+        [refused, true],
+        [probed, true],
+      ]),
+    )
+    expect(f.health.holdsInput(passes, credentialId)).toBe(false)
+    expect(f.health.holdsInput(refused, credentialId)).toBe(true)
+    expect(f.health.waitingFor(refused)).toBe('stop')
+    expect(f.health.holdsInput(probed, credentialId)).toBe(true)
+  })
+
+  it('a judgement that throws releases its own hold (fail-open, as before)', async () => {
+    const f = await setup()
+    const { credentialId } = await f.add(GOOD)
+    const broken = asSessionId('ses_judged_throws')
+    f.sessions.on[credentialId] = [broken]
+    f.sessions.standing.set(broken, 'between-turns')
+    f.sessions.port.accessOf = async () => {
+      throw new Error('resolver failed')
+    }
+    await f.health.afterWithdraw({ id: credentialId, label: 'Work key' })
+    expect(f.health.holdsInput(broken, credentialId)).toBe(false)
+    expect(f.sessions.stopped).toEqual([])
+  })
+})
+
+// POD-7594, review F2: removing or disabling a member judges again every
+// running session whose right to its credential could hang on them.
+describe('a member removed or disabled', () => {
+  it('stops their sessions on a key shared with them at once, and judges only the sessions that may hang on them', async () => {
+    const f = await setup()
+    const { credentialId: shared } = await f.add(GOOD)
+    const { credentialId: othersOwn } = await f.add(RENEWED, 'anthropic.api-key', 'Own key')
+    const onShared = asSessionId('ses_left_on_shared')
+    const busyOnShared = asSessionId('ses_left_busy_on_shared')
+    const parked = asSessionId('ses_left_parked')
+    const legacy = asSessionId('ses_left_legacy')
+    const ownersOwn = asSessionId('ses_left_owner_on_own')
+    const adminsShared = asSessionId('ses_left_admin_on_shared')
+    const unrelatedOwn = asSessionId('ses_left_unrelated_own')
+    f.sessions.running.push(
+      { sessionId: onShared, ownerUserId: OTHER, credentialId: shared },
+      { sessionId: busyOnShared, ownerUserId: OTHER, credentialId: shared },
+      { sessionId: parked, ownerUserId: OTHER, credentialId: shared },
+      // An old account id only the resolver reads: still the member's own.
+      { sessionId: legacy, ownerUserId: OTHER, credentialId: null },
+      // The owner's session on the owner's key does not hang on Otto.
+      { sessionId: ownersOwn, ownerUserId: OWNER, credentialId: shared },
+      // Another member on a key someone else made: Otto may have given the grant.
+      { sessionId: adminsShared, ownerUserId: ADMIN_ACTOR, credentialId: shared },
+      { sessionId: unrelatedOwn, ownerUserId: OWNER, credentialId: othersOwn },
+    )
+    f.sessions.standing.set(onShared, 'between-turns')
+    f.sessions.standing.set(busyOnShared, 'in-turn')
+    f.sessions.standing.set(legacy, 'between-turns')
+    f.sessions.standing.set(ownersOwn, 'between-turns')
+    f.sessions.standing.set(adminsShared, 'in-turn')
+    f.sessions.standing.set(unrelatedOwn, 'between-turns')
+    for (const id of [onShared, busyOnShared, parked]) f.sessions.access.set(id, 'not-yours')
+    await f.health.afterMemberLeft(OTHER, 'removed')
+    // A parked session holds no secret: its revival is judged.
+    expect(f.sessions.judged).toEqual([onShared, busyOnShared, legacy, adminsShared])
+    expect(f.sessions.flagged).toEqual([
+      { sessionId: onShared, label: 'Work key', refusal: 'not-yours' },
+      { sessionId: busyOnShared, label: 'Work key', refusal: 'not-yours' },
+    ])
+    // Taken back: the running turn is cut too.
+    expect(f.sessions.stopped).toEqual([onShared, busyOnShared])
+    expect(f.health.holdsInput(adminsShared, shared)).toBe(false)
+  })
+
+  it("stops another member's session on the leaving member's own key", async () => {
+    const f = await setup()
+    // Olive made this key and leaves; Otto runs a session on it.
+    const { credentialId: olives } = await f.add(GOOD)
+    const onLeaversKey = asSessionId('ses_left_on_members_key')
+    f.sessions.running.push({ sessionId: onLeaversKey, ownerUserId: OTHER, credentialId: olives })
+    f.sessions.standing.set(onLeaversKey, 'between-turns')
+    f.sessions.access.set(onLeaversKey, 'not-yours')
+    await f.health.afterMemberLeft(OWNER, 'removed')
+    expect(f.sessions.judged).toEqual([onLeaversKey])
+    expect(f.sessions.stopped).toEqual([onLeaversKey])
+  })
+
+  it('a disable lets the running turn finish, its input held, then stops it (let-finish)', async () => {
+    const f = await setup()
+    const { credentialId: shared } = await f.add(GOOD)
+    const idle = asSessionId('ses_disabled_idle')
+    const busy = asSessionId('ses_disabled_busy')
+    f.sessions.running.push(
+      { sessionId: idle, ownerUserId: OTHER, credentialId: shared },
+      { sessionId: busy, ownerUserId: OTHER, credentialId: shared },
+    )
+    f.sessions.standing.set(idle, 'between-turns')
+    f.sessions.standing.set(busy, 'in-turn')
+    for (const id of [idle, busy]) f.sessions.access.set(id, 'not-yours')
+    await f.health.afterMemberLeft(OTHER, 'disabled')
+    // Between turns: nothing to finish. In a turn: it finishes, taking no input.
+    expect(f.sessions.stopped).toEqual([idle])
+    expect(f.health.waitingFor(busy)).toBe('stop')
+    expect(f.health.holdsInput(busy, shared)).toBe(true)
+    expect(f.timers.live().map((t) => t.ms)).toEqual([TURN_STOP_CEILING_MS])
+    f.sessions.standing.set(busy, 'between-turns')
+    await f.health.onTurnBoundary(busy, shared)
+    expect(f.sessions.stopped).toEqual([idle, busy])
+    expect(f.health.holdsInput(busy, shared)).toBe(false)
+  })
+
+  it('a session on a removed credential is judged and stopped too', async () => {
+    const f = await setup()
+    const { credentialId } = await f.add(GOOD)
+    await f.store.credentials.remove(credentialId)
+    const left = asSessionId('ses_left_on_removed')
+    f.sessions.running.push({ sessionId: left, ownerUserId: OWNER, credentialId })
+    f.sessions.standing.set(left, 'between-turns')
+    f.sessions.access.set(left, 'revoked')
+    await f.health.afterMemberLeft(OTHER, 'removed')
+    expect(f.sessions.stopped).toEqual([left])
+  })
+
+  it('a listing that fails changes nothing and does not throw', async () => {
+    const f = await setup()
+    f.sessions.port.runningOnCredentials = async () => {
+      throw new Error('no session runtime')
+    }
+    await expect(f.health.afterMemberLeft(OTHER, 'removed')).resolves.toBeUndefined()
+    expect(f.sessions.stopped).toEqual([])
   })
 })
 

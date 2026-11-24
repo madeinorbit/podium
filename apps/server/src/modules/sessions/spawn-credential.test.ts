@@ -16,6 +16,7 @@ import { harnessAccepts } from '@podium/harness/metadata'
 import {
   type AgentKind,
   asAccountId,
+  asThreadId,
   asUserId,
   CREDENTIAL_TYPES,
   type CredentialId,
@@ -29,6 +30,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type DaemonLink, daemonLinkFactsOf } from '../../gateway/daemon-link-kind'
+import { failureNoticeId, spawnPromptMessageId } from '../../message-ids'
 import { withPlainCommand } from '../../plain-command-scope'
 import { SessionRegistry } from '../../relay'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
@@ -38,8 +40,9 @@ import { memberFacts } from '../../store/fixtures/test-support'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 import { seedLegacyKeyCredential } from '../../test-support/legacy-key-credential'
 import { openTestStore } from '../../test-support/open-test-store'
+import { seedMessage } from '../../test-support/seed-message'
 import { seedRows } from '../../test-support/seed-rows'
-import { ACCESS_REFUSAL_MESSAGES } from '../credentials/access'
+import { ACCESS_REFUSAL_MESSAGES, resolveSessionAccess } from '../credentials/access'
 import type { ChatgptTokenSet } from '../credentials/chatgpt-plan/openai'
 import { CREDENTIAL_COMMANDS_TRPC } from '../credentials/commands'
 import { CREDENTIAL_RESOURCE_KIND, mayUse } from '../credentials/may-use'
@@ -717,6 +720,18 @@ describe('an old account id and a key another member shared', () => {
       expect(JSON.stringify(daemon)).not.toContain(FAKE_A)
     })
 
+    // POD-7594, review F5: from its revival on, the row names what it runs on,
+    // so a removal, an unshare or Bob leaving finds the process by it.
+    it('names the key it revived on in its row', async () => {
+      const { store, reg, daemon, aliceKey, sessionId } = await upgraded(true)
+      if (!sessionId) throw new Error('no session')
+      expect(await store.sessions.liveSessionIdsOnCredential(aliceKey)).toEqual([])
+      const { result } = await wake(reg, daemon, sessionId)
+      expect(result).toEqual({ ok: true })
+      expect((await store.sessions.getSession(sessionId))?.credentialId).toBe(aliceKey)
+      expect(await store.sessions.liveSessionIdsOnCredential(aliceKey)).toEqual([sessionId])
+    })
+
     it("revives on Bob's own key once he connects one, though Alice's is still shared", async () => {
       const { store, reg, daemon, sessionId } = await upgraded(true)
       if (!sessionId) throw new Error('no session')
@@ -1210,6 +1225,173 @@ describe('after the daemon reconnects (Task 5)', () => {
       }
       expect(stopRequests(daemon, alices)).toHaveLength(0)
       expect(await statusOf(store, alices)).toBe('live')
+    })
+
+    // POD-7594, review F2: a member who leaves stops using the keys others
+    // shared with them, at once, whoever ends their membership.
+    it("disabling a member lets their running turn finish, then stops their sessions on a shared key; the owner's runs on", async () => {
+      const { store, alice, reg, daemon, as, bobsSession, alicesSession, phase } =
+        await twoMembers()
+      const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
+      await withPlainCommand('credentials.share', async () => {
+        await CREDENTIAL_COMMANDS_TRPC.share.handler(as(alice), {
+          credentialId: id,
+          grantee: { userId: BOB },
+          verb: 'use',
+          acknowledgeDisclosure: true,
+        })
+      })
+      const idle = await bobsSession(id)
+      const busy = await bobsSession(id)
+      await phase(busy, 'working', '2999-01-01T00:00:00.000Z')
+      const alices = await alicesSession(id)
+      await memberFacts(store).disable(BOB, AT, alice)
+      // Between turns: stopped now. In a turn: it finishes first (let-finish),
+      // taking no input meanwhile.
+      await vi.waitFor(() => expect(stopRequests(daemon, idle)).toHaveLength(1), { timeout: 5000 })
+      await vi.waitFor(() => expect(reg.modules.credentialHealth.holdsInput(busy, id)).toBe(true))
+      expect(stopRequests(daemon, busy)).toHaveLength(0)
+      await phase(busy, 'idle', '2999-01-01T00:00:01.000Z')
+      await vi.waitFor(() => expect(stopRequests(daemon, busy)).toHaveLength(1))
+      for (const sessionId of [idle, busy]) {
+        expect(await statusOf(store, sessionId)).not.toBe('live')
+        expect(await flags(store, sessionId, 'anthropic.api-key')).toHaveLength(1)
+        expect(await refuses(store, sessionId)).toHaveLength(1)
+      }
+      expect(stopRequests(daemon, alices)).toHaveLength(0)
+      expect(await statusOf(store, alices)).toBe('live')
+    })
+
+    it('removing a member stops their session on an all-members key, and no refresh resolves for them', async () => {
+      const { store, alice, daemon, host, as, bobsSession } = await twoMembers()
+      const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
+      await withPlainCommand('credentials.share', async () => {
+        await CREDENTIAL_COMMANDS_TRPC.share.handler(as(alice), {
+          credentialId: id,
+          grantee: 'all-members',
+          verb: 'use',
+          acknowledgeDisclosure: true,
+        })
+      })
+      const bobs = await bobsSession(id)
+      await memberFacts(store).removeMember(BOB, alice)
+      await vi.waitFor(() => expect(stopRequests(daemon, bobs)).toHaveLength(1), { timeout: 5000 })
+      expect(await statusOf(store, bobs)).not.toBe('live')
+      // The all-members grant stays for everyone else; Bob gets no refresh from it.
+      expect(
+        await resolveSessionAccess(store, {
+          harness: 'claude-code',
+          credentialId: id,
+          actingUserId: BOB,
+          machineId: host,
+        }),
+      ).toMatchObject({ ok: false, refusal: 'not-yours' })
+      expect(JSON.stringify(daemon.filter((m) => m.type === 'sessionAccessRefresh'))).not.toContain(
+        FAKE_A,
+      )
+    })
+
+    // POD-7594, review F5: a headless session keeps its credential in its account.
+    it('unshare cuts the turn of a headless session that runs on the key as its account', async () => {
+      const { store, alice, reg, daemon, as } = await twoMembers()
+      const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
+      await withPlainCommand('credentials.share', async () => {
+        await CREDENTIAL_COMMANDS_TRPC.share.handler(as(alice), {
+          credentialId: id,
+          grantee: { userId: BOB },
+          verb: 'use',
+          acknowledgeDisclosure: true,
+        })
+      })
+      const { sessionId } = await reg.modules.sessions.headless.createHeadlessSession(
+        reg.modules.superagentTurnsWriter,
+        { ownerUserId: BOB, agentKind: 'claude-code', cwd: '/p', accountId: asAccountId(id) },
+      )
+      expect((await store.sessions.getSession(sessionId))?.credentialId).toBeUndefined()
+      const interrupt = vi.spyOn(reg.modules.sessions.headless, 'headlessInterrupt')
+      await withPlainCommand('credentials.unshare', async () => {
+        await CREDENTIAL_COMMANDS_TRPC.unshare.handler(as(alice), {
+          credentialId: id,
+          grantee: { userId: BOB },
+          verb: 'use',
+        })
+      })
+      // The turn in flight is cut; the row lives on with its thread, and its next
+      // turn is judged and refused.
+      expect(interrupt).toHaveBeenCalledWith(sessionId)
+      expect(stopRequests(daemon, sessionId)).toHaveLength(0)
+      expect(await refuses(store, sessionId)).toHaveLength(1)
+      expect(reg.modules.credentialHealth.holdsInput(sessionId, id)).toBe(false)
+    })
+
+    // The final review's nit: the owner's own task, still queued when a stop
+    // that was not theirs parks the session for good, fails with a notice.
+    it("the owner's queued task fails with a notice to them when the stop parks the session for good", async () => {
+      const { store, alice, reg, host, as } = await twoMembers()
+      const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
+      await withPlainCommand('credentials.share', async () => {
+        await CREDENTIAL_COMMANDS_TRPC.share.handler(as(alice), {
+          credentialId: id,
+          grantee: { userId: BOB },
+          verb: 'use',
+          acknowledgeDisclosure: true,
+        })
+      })
+      // It reported no resume ref, so a stop parks it as exited, and the task
+      // Bob started it with is still waiting for it.
+      const { sessionId } = await reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/p',
+        credentialId: id,
+        ownerUserId: BOB,
+      })
+      await reg.gateway.routeDaemonFrame(host, {
+        type: 'bind',
+        sessionId,
+        cmd: 'claude',
+        cwd: '/p',
+        agentKind: 'claude-code',
+        geometry: { cols: 80, rows: 24 },
+      })
+      await seedMessage(store.messages, {
+        id: spawnPromptMessageId(sessionId),
+        threadId: asThreadId(spawnPromptMessageId(sessionId)),
+        inReplyTo: null,
+        fromKind: 'operator',
+        fromSession: null,
+        fromIssue: null,
+        toKind: 'session',
+        toId: sessionId,
+        kind: 'message',
+        urgency: 'next-turn',
+        lifecycle: 'wait',
+        body: 'the task Bob started it with',
+        expiresAt: null,
+        createdAt: AT,
+        deliveryStatus: 'stored',
+        deliveredAt: null,
+        deliveredTo: null,
+        ackedBy: null,
+        hop: 0,
+        clampedFrom: null,
+        remindedAt: null,
+      })
+      const prompt = spawnPromptMessageId(sessionId)
+      await withPlainCommand('credentials.unshare', async () => {
+        await CREDENTIAL_COMMANDS_TRPC.unshare.handler(as(alice), {
+          credentialId: id,
+          grantee: { userId: BOB },
+          verb: 'use',
+        })
+      })
+      await vi.waitFor(async () =>
+        expect((await store.messages.getMessage(prompt))?.deliveryStatus).toBe('failed'),
+      )
+      // The text stays in the ledger, and the owner is told.
+      expect((await store.messages.getMessage(prompt))?.body).toBe('the task Bob started it with')
+      const notice = await store.messages.getMessage(failureNoticeId(prompt))
+      expect(notice).toMatchObject({ fromKind: 'system', toKind: 'operator' })
+      expect(notice?.body).toContain('was not delivered')
     })
 
     it('a machine withdrawn lets the running turn end, takes no input meanwhile, then stops', async () => {

@@ -87,6 +87,74 @@ export async function legacyRoleDefault(
 /** The credential a launch chose, or why it cannot run. */
 export type CredentialChoice = { ok: true; credentialId: CredentialId | null } | AccessRefused
 
+/**
+ * The Podium credential a session's row names without a read (POD-7594): its
+ * `credentialId`, else an account id that is itself a credential id (a headless
+ * turn's fence id). `null` for none, and for an account id from before
+ * credentials, which only {@link storedCredentialOf} can read.
+ */
+export function credentialNamedBy(session: {
+  credentialId?: CredentialId | undefined
+  accountId?: string | undefined
+}): CredentialId | null {
+  if (session.credentialId) return session.credentialId
+  return session.accountId?.startsWith(CREDENTIAL_ID_PREFIX)
+    ? (session.accountId as CredentialId)
+    : null
+}
+
+// LEGACY(remove-after: 2027-02): reads account ids written before credentials existed; removing it stops old spellings from resolving
+async function legacyChoiceOf(
+  store: LegacyIdDeps & Pick<SessionStore, 'settingsAudit'>,
+  harness: AgentKind,
+  accountId: string,
+  owner: UserId,
+  machineId: MachineId,
+  sessionId?: SessionId,
+): Promise<CredentialChoice> {
+  const id = await legacyRoleDefault(store, harness, accountId, owner)
+  if (id !== 'missing') return { ok: true, credentialId: id }
+  return await refuse(store, 'not-found', {
+    credentialId: null,
+    actingUserId: owner,
+    machineId,
+    ...(sessionId ? { sessionId } : {}),
+  })
+}
+
+// LEGACY(remove-after: 2027-02): reads account ids written before credentials existed; removing it stops old spellings from resolving
+/**
+ * The credential a stored session runs on: its `credentialId`, else the
+ * account id it was launched with before credentials existed. That id was
+ * copied from the role shared by every harness, so it reads as the role did
+ * (`legacyRoleDefault`): one this harness cannot take means none, as it did
+ * when the session last ran. A credential id in that field passes through
+ * (a headless turn's fence id), and the resolver says whether it fits.
+ */
+export async function storedCredentialOf(
+  store: LegacyIdDeps & Pick<SessionStore, 'settingsAudit'>,
+  session: {
+    harness: AgentKind
+    credentialId?: CredentialId | undefined
+    accountId?: string | undefined
+    ownerUserId: UserId
+    machineId: MachineId
+    sessionId?: SessionId
+  },
+): Promise<CredentialChoice> {
+  const named = credentialNamedBy(session)
+  if (named) return { ok: true, credentialId: named }
+  if (!session.accountId) return { ok: true, credentialId: null }
+  return await legacyChoiceOf(
+    store,
+    session.harness,
+    session.accountId,
+    session.ownerUserId,
+    session.machineId,
+    session.sessionId,
+  )
+}
+
 export class SessionLaunchConfig {
   constructor(private readonly ports: LaunchConfigPorts) {}
 
@@ -122,7 +190,8 @@ export class SessionLaunchConfig {
     const settings = await this.ports.store.settings.getSettingsFor(i.owner)
     const chosen = settings.credentialDefaults[i.harness]
     if (chosen) return { ok: true, credentialId: chosen }
-    return await this.legacyChoice(
+    return await legacyChoiceOf(
+      this.ports.store,
       i.harness,
       resolveRole(settings, 'coding').accountId,
       i.owner,
@@ -130,53 +199,11 @@ export class SessionLaunchConfig {
     )
   }
 
-  // LEGACY(remove-after: 2027-02): reads account ids written before credentials existed; removing it stops old spellings from resolving
-  private async legacyChoice(
-    harness: AgentKind,
-    accountId: string,
-    owner: UserId,
-    machineId: MachineId,
-    sessionId?: SessionId,
+  /** {@link storedCredentialOf} over this launch's store. */
+  async storedCredential(
+    session: Parameters<typeof storedCredentialOf>[1],
   ): Promise<CredentialChoice> {
-    const id = await legacyRoleDefault(this.ports.store, harness, accountId, owner)
-    if (id !== 'missing') return { ok: true, credentialId: id }
-    return await refuse(this.ports.store, 'not-found', {
-      credentialId: null,
-      actingUserId: owner,
-      machineId,
-      ...(sessionId ? { sessionId } : {}),
-    })
-  }
-
-  // LEGACY(remove-after: 2027-02): reads account ids written before credentials existed; removing it stops old spellings from resolving
-  /**
-   * The credential a stored session runs on: its `credentialId`, else the
-   * account id it was launched with before credentials existed. That id was
-   * copied from the role shared by every harness, so it reads as the role did
-   * (`legacyRoleDefault`): one this harness cannot take means none, as it did
-   * when the session last ran. A credential id in that field passes through
-   * (a headless turn's fence id), and the resolver says whether it fits.
-   */
-  async storedCredential(session: {
-    harness: AgentKind
-    credentialId?: CredentialId | undefined
-    accountId?: string | undefined
-    ownerUserId: UserId
-    machineId: MachineId
-    sessionId?: SessionId
-  }): Promise<CredentialChoice> {
-    if (session.credentialId) return { ok: true, credentialId: session.credentialId }
-    if (!session.accountId) return { ok: true, credentialId: null }
-    if (session.accountId.startsWith(CREDENTIAL_ID_PREFIX)) {
-      return { ok: true, credentialId: session.accountId as CredentialId }
-    }
-    return await this.legacyChoice(
-      session.harness,
-      session.accountId,
-      session.ownerUserId,
-      session.machineId,
-      session.sessionId,
-    )
+    return await storedCredentialOf(this.ports.store, session)
   }
 
   /**

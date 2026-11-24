@@ -144,6 +144,7 @@ import {
   type FetchLike as CredentialFetch,
   CredentialHealth,
   classifyCredentialFailure,
+  TURN_STOP_CEILING_MS,
 } from './modules/credentials/health'
 import { placementRemovers } from './modules/credentials/home-removers'
 import { NativeLoginService } from './modules/credentials/native-login'
@@ -254,6 +255,7 @@ import { sourceTransferFence } from './modules/server-transfer/source-fence'
 import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
 import { QUEUED_INPUT_SWEEP_MS, SYSTEM_INBOX_PRINCIPAL } from './modules/sessions/inbox'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
+import { credentialNamedBy, storedCredentialOf } from './modules/sessions/launch-config'
 import { SessionLifecycle } from './modules/sessions/lifecycle'
 import { SessionLifecycleController } from './modules/sessions/lifecycle-controller'
 import type { SessionLiveKind, SessionLiveTopics } from './modules/sessions/live-topics'
@@ -317,6 +319,7 @@ import { readUsageSummary } from './modules/usage-summary'
 import { WorkflowService } from './modules/workflows/service'
 import { asSystemWrite, syncedWriteProvenance } from './plain-command-scope'
 import { privateResourceAccess } from './private-resources'
+import { runAtRoot } from './publication-scope'
 import { MachineRepoDiscovery } from './repo-discovery'
 import { inferRepoFromRoots, RepoRegistry } from './repo-registry'
 import { SELF_HOSTED_CAPABILITIES, type ServerCapabilities } from './server-mode'
@@ -3087,8 +3090,36 @@ export class SessionRegistry {
       now: () => this.now(),
       ...(options.credentialProviderFetch ? { fetch: options.credentialProviderFetch } : {}),
       sessions: {
-        liveSessionIds: async (credentialId) =>
-          await this.store.sessions.liveSessionIdsOnCredential(credentialId),
+        // By the session's credential, and the headless sessions that name it as
+        // their account (POD-7594, F5): those are resident while their row
+        // exists, so the running facts hold every one, with no read.
+        liveSessionIds: async (credentialId) => {
+          const ids = new Set(await this.store.sessions.liveSessionIdsOnCredential(credentialId))
+          for (const facts of sessionsSvc.runningSessionFacts()) {
+            if (
+              facts.headless &&
+              !facts.credentialId &&
+              credentialNamedBy(facts) === credentialId
+            ) {
+              ids.add(facts.sessionId)
+            }
+          }
+          return [...ids].sort()
+        },
+        // The running sessions are resident: what a member's removal judges
+        // again (POD-7594) is read from memory, not from the table.
+        runningOnCredentials: async () =>
+          sessionsSvc.runningSessionFacts().flatMap((facts) => {
+            const credentialId = credentialNamedBy(facts)
+            const legacy =
+              credentialId === null &&
+              facts.accountId !== undefined &&
+              facts.accountId !== '' &&
+              !facts.accountId.startsWith('native:')
+            return credentialId !== null || legacy
+              ? [{ sessionId: facts.sessionId, ownerUserId: facts.ownerUserId, credentialId }]
+              : []
+          }),
         standing: async (sessionId) => {
           const session = await sessionsSvc.sessionById(sessionId)
           if (!session || session.status === 'hibernated' || session.status === 'exited') {
@@ -3114,6 +3145,15 @@ export class SessionRegistry {
         // that did not happen throws, so the session's input stays held and the
         // stop is tried again at its next turn boundary (POD-7591).
         stop: async (sessionId) => {
+          // A headless session runs a process per turn and its row lives as long
+          // as its thread: the turn in flight is cut, and the next one is judged
+          // and refused with the reason (POD-7594, F5).
+          // The interrupt is not awaited: its turn's own end reports the outcome,
+          // and a judgement of many sessions does not wait on each daemon.
+          if ((await sessionsSvc.sessionById(sessionId))?.headless) {
+            void sessionsSvc.headless.headlessInterrupt(sessionId)
+            return
+          }
           const stopped = await asSystemWrite(
             async () =>
               await issueSessionLifecycle.stopSession({
@@ -3125,25 +3165,44 @@ export class SessionRegistry {
           if (!stopped.ok) throw new Error(stopped.reason ?? 'the session did not stop')
         },
         // Judged as a launch is, from the durable row: no secret is read
-        // (POD-7591). The driver is the one a revival would ask for.
+        // (POD-7591). The credential is the one a revival reads, a headless
+        // session's or an old account's included (POD-7594, F5); the driver is
+        // the one a revival would ask for, and none for a headless turn.
         accessOf: async (sessionId) => {
           const row = await this.store.sessions.getSession(sessionId)
-          if (!row?.credentialId || !row.ownerUserId) return { ok: true }
+          if (!row?.ownerUserId) return { ok: true }
+          const harness = row.agentKind as AgentKind
+          const stored = await storedCredentialOf(this.store, {
+            harness,
+            ...(row.credentialId ? { credentialId: row.credentialId } : {}),
+            ...(row.accountId ? { accountId: row.accountId } : {}),
+            ownerUserId: row.ownerUserId,
+            machineId: row.machineId,
+            sessionId,
+          })
+          // An old account whose key is gone names no credential to stop it by.
+          if (!stored.ok || stored.credentialId === null) return { ok: true }
           const selected = row.selectedDriverId ?? undefined
-          const driverId =
-            row.requestedDriverId ??
-            (selected && driverFamilyForId(selected) === 'server' ? selected : undefined)
+          const driverId = row.headless
+            ? undefined
+            : (row.requestedDriverId ??
+              (selected && driverFamilyForId(selected) === 'server' ? selected : undefined))
           const access = await resolveSessionAccess(this.store, {
-            harness: row.agentKind as AgentKind,
+            harness,
             ...(driverId ? { driverId } : {}),
-            credentialId: row.credentialId,
+            credentialId: stored.credentialId,
             actingUserId: row.ownerUserId,
             machineId: row.machineId,
             sessionId,
           })
-          return access.ok ? { ok: true } : { ok: false, refusal: access.refusal }
+          return access.ok
+            ? { ok: true }
+            : { ok: false, refusal: access.refusal, credentialId: stored.credentialId }
         },
         flagWithdrawn: async (sessionId, credential, refusal, stops) => {
+          // A headless session has no terminal to recover in: its cut turn and
+          // its next turn's refusal say why.
+          if ((await sessionsSvc.sessionById(sessionId))?.headless) return
           const why =
             refusal === 'revoked'
               ? `The credential "${credential.label}" this session runs on was removed.`
@@ -3153,7 +3212,7 @@ export class SessionRegistry {
             payload: {
               v: 1 as const,
               reason: 'unknown' as const,
-              prompt: `${why} ${stops === 'now' ? 'The session was stopped, its current turn cut short; its conversation and worktree are kept.' : 'The session stops at the end of its current turn.'} Choose another credential to continue.`,
+              prompt: `${why} ${stops === 'now' ? 'The session was stopped, its current turn cut short; its conversation and worktree are kept.' : `The session stops at the end of its current turn, and in ${Math.round(TURN_STOP_CEILING_MS / 60_000)} minutes at the latest.`} Choose another credential to continue.`,
               offered: ['abandon' as const],
             },
           }
@@ -5266,7 +5325,9 @@ export class SessionRegistry {
         return
       }
       void (async () => {
-        const credentialId = (await sessionsSvc.sessionById(sessionId))?.credentialId ?? null
+        const session = await sessionsSvc.sessionById(sessionId)
+        // A headless session's credential is its account (POD-7594, F5).
+        const credentialId = session ? credentialNamedBy(session) : null
         if (enteredError && next.error && credentialId) {
           const failure = classifyCredentialFailure({ errorClass: next.error.class })
           if (failure !== 'other') {
@@ -5822,6 +5883,18 @@ export class SessionRegistry {
     const accessChangeSubscriptions = [
       this.store.users.onAccessChange((change) => {
         this.clientGateway.applyAccessChange(change)
+      }),
+      // A member removed or disabled, by any path (the People page, the
+      // control plane): the running sessions whose credential hangs on them are
+      // judged again and stopped, at once on a removal and at the end of the
+      // current turn on a disable (POD-7594). Never throws.
+      this.store.users.onAccessChange((change) => {
+        if (change.reason !== 'removed' && change.reason !== 'disabled') return
+        const left = change.reason
+        // At the root: this listener runs as the commit's own application, and
+        // work it leaves running must not inherit that finished transaction's
+        // scope (as the bus dispatches its listeners).
+        void runAtRoot(async () => await credentialHealth.afterMemberLeft(change.memberId, left))
       }),
     ]
     this.unsubscribeAccessChanges = () => {

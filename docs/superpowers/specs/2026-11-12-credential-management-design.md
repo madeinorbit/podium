@@ -426,7 +426,7 @@ user. So where a credential goes decides who can obtain it.
 - the stored secret is deleted;
 - every machine with a placement is told to remove it, and a machine that is offline keeps the
   placement as "removal pending", visibly, until it confirms;
-- sessions still running on it are flagged and stopped at their next turn boundary;
+- sessions still running on it are flagged and stopped at once, their current turn cut;
 - who did it is written to the event log.
 
 **Removing is not always revoking.** Where the provider offers it, removal also withdraws the
@@ -435,14 +435,25 @@ ChatGPT plan. An API key or a Claude token stays valid at the provider until the
 it there, and the dialog says so.
 
 When a member is removed from the instance, their credentials are removed everywhere and the
-access they shared ends with them.
+access they shared ends with them. A person who was removed or disabled may use no credential,
+their own included: the resolver refuses them with `not-yours` (POD-7594).
 
-**Access withdrawn from a running session** (POD-7591) is judged at three points:
+**Access withdrawn from a running session** (POD-7591) is judged at four points:
 
 - when a grant ends (`unshare`) or a machine is withdrawn (`disallowMachine`), for each
   running session on that credential;
 - when a daemon reattaches a process, for the refresh it is owed;
-- when a credential is removed, for every session on it.
+- when a credential is removed, for every session on it;
+- when a member is removed or disabled, by any path (POD-7594): for each of their running
+  sessions, and for each running session on a credential its owner did not make, since the
+  member may own that credential or have given its grant. A removal stops a withdrawn session
+  at once. A disable lets its current turn finish, its input held, and then stops it, as the
+  members' policy for running agents says (`let-finish`).
+
+A headless session keeps its credential as its account, and is found by it. Its turn is cut
+and its next turn is refused; the row stays with its thread. A session from before
+credentials names the credential its old account reads as on its row from its next revival
+or reattach on, and is found by it from then.
 
 A refusal that withdraws the session's right flags the session with the reason and stops it:
 
@@ -451,9 +462,14 @@ A refusal that withdraws the session's right flags the session with the reason a
   not stay in use that long.
 - **At its next turn boundary:** `machine-not-allowed`, `wrong-type` and
   `own-credential-required`. Until then the session takes no queued input; its rows stay
-  queued and are delivered once it runs again on a credential it may use.
+  queued and are delivered once it runs again on a credential it may use. A turn that never
+  ends is cut after 30 minutes, and a stop that failed is tried again after the same time
+  (POD-7594).
 
-The stop ends the process and parks the row. The transcript and the worktree are kept.
+The stop ends the process and parks the row. The transcript and the worktree are kept. A
+session that never reported a resume ref parks for good, and its queued rows fail with a
+notice to their senders; the task its owner started it with included, since the stop was not
+the owner's doing.
 
 A delivery condition leaves the process running: `needs-attention`, `not-on-this-machine`,
 `daemon-too-old`, `connection-not-encrypted` and `machine-offline`. `not-on-this-machine`

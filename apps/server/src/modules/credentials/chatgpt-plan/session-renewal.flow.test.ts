@@ -140,6 +140,7 @@ async function world() {
     now: () => now,
     sessions: {
       liveSessionIds: async () => [...sessions.keys()],
+      runningOnCredentials: async () => [],
       standing: async (id) => sessions.get(id)?.standing ?? 'not-running',
       restartWithResume: async (id) => {
         if (sessions.get(id)?.standing === 'in-turn') return { ok: false, reason: 'in a turn' }
