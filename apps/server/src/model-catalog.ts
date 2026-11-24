@@ -41,6 +41,12 @@ export interface ModelCatalogSnapshot {
  *  probe only ever sees the agent CLIs installed on the host it executes on. */
 export type ModelProbe = (machineId: MachineId) => Promise<Record<string, ModelChoiceWire[]>>
 
+/** How long a failed probe holds off the next BACKGROUND probe for that
+ *  machine. A failure stamps nothing, so the snapshot stays stale and every
+ *  `get()` would otherwise start another probe. An explicit `refresh()` (a
+ *  client asking) is not held off. */
+export const FAILED_PROBE_RETRY_MS = 30_000
+
 function emptySnapshot(machineId: MachineId): ModelCatalogSnapshot {
   return { machineId, byAgent: {}, fetchedAt: 0 }
 }
@@ -56,6 +62,8 @@ export class ModelCatalog {
   private readonly snapshots = new Map<string, ModelCatalogSnapshot>()
   private readonly inflight = new Map<string, Promise<void>>()
   private readonly hydrated = new Set<string>()
+  /** When each machine's last probe failed; cleared by a successful one. */
+  private readonly failedAt = new Map<string, number>()
 
   // Default probe is an empty no-op so `SessionRegistry.create()` (every test) never
   // reaches for a daemon; the real one (a `modelProbeRequest` to the named
@@ -100,8 +108,15 @@ export class ModelCatalog {
    *  refreshing in the background when it's empty or stale. Never blocks. */
   get(machineId: MachineId): ModelCatalogSnapshot {
     const snapshot = this.ensure(machineId)
-    if (this.isStale(snapshot)) void this.refreshInBackground(machineId, snapshot)
+    if (this.isStale(snapshot) && !this.inFailureBackoff(machineId)) {
+      void this.refreshInBackground(machineId, snapshot)
+    }
     return snapshot
+  }
+
+  private inFailureBackoff(machineId: MachineId): boolean {
+    const failedAt = this.failedAt.get(machineId)
+    return failedAt !== undefined && this.now() - failedAt < FAILED_PROBE_RETRY_MS
   }
 
   /** Hydrate once on first use, then probe only when the hydrated value is stale.
@@ -159,6 +174,16 @@ export class ModelCatalog {
   private async probeInto(machineId: MachineId): Promise<void> {
     try {
       const byAgent = await this.probe(machineId)
+      // A probe that names no harness at all is not a report. A daemon that
+      // answered lists every CLI-probed harness, even as []; `{}` is what a
+      // timeout, an unreachable machine or a daemon-side failure answers with.
+      // Stamping it would serve "no models" as fresh for a whole TTL (and
+      // persist it), so it is a failure: the last good snapshot stays, still
+      // stale, and the next read past the backoff probes again.
+      if (Object.keys(byAgent).length === 0) {
+        this.failedAt.set(machineId, this.now())
+        return
+      }
       const snapshot: ModelCatalogSnapshot = {
         machineId,
         // A partial probe can omit a harness when its lookup fails. Preserve that
@@ -168,9 +193,11 @@ export class ModelCatalog {
         version: MODEL_CATALOG_VERSION,
       }
       this.snapshots.set(machineId, snapshot)
+      this.failedAt.delete(machineId)
       await this.opts.save?.(snapshot)
     } catch {
-      // keep last-good; isStale() retries on the next get() past the TTL
+      // Keep last-good; the next get() past the backoff retries.
+      this.failedAt.set(machineId, this.now())
     }
   }
 }
