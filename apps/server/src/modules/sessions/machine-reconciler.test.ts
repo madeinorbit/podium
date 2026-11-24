@@ -2,7 +2,11 @@ import { asMachineId, asSessionId, asUserId } from '@podium/model'
 import { asCapabilityRef, asDeviceId, type MachinePrincipal } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { type MachineReconcilerPorts, SessionMachineReconciler } from './machine-reconciler'
+import {
+  type MachineReconcilerPorts,
+  REATTACH_PROBE_WINDOW,
+  SessionMachineReconciler,
+} from './machine-reconciler'
 import { Session } from './session'
 
 const machine = asMachineId('reconnect-machine')
@@ -135,5 +139,32 @@ describe('time-sliced reattach probes', () => {
     )
     expect(f.ports.release).toHaveBeenCalledTimes(4)
     for (const id of held.keys()) expect(f.ports.release).toHaveBeenCalledWith(id)
+  })
+
+  it('restores parked survivors a window at a time, never all of them at once', async () => {
+    const count = REATTACH_PROBE_WINDOW * 2 + 44
+    const f = fixture(count)
+    const parked = new Map(f.sessions.map((s) => [s.sessionId, s]))
+    const held = new Set<string>()
+    let mostHeld = 0
+    const windows: number[] = []
+    f.ports.sessions = () => []
+    f.ports.parkedOn = async () => f.sessions
+    f.ports.acquireMany = vi.fn(async (ids: readonly Session['sessionId'][]) => {
+      windows.push(ids.length)
+      for (const id of ids) held.add(id)
+      mostHeld = Math.max(mostHeld, held.size)
+      return new Map<Session['sessionId'], Session>(ids.map((id) => [id, parked.get(id)!]))
+    })
+    f.ports.withSession = async (id, _reason, fn) =>
+      await fn(held.has(id) ? parked.get(id) : undefined)
+    f.ports.release = vi.fn((id: Session['sessionId']) => {
+      held.delete(id)
+    })
+    await f.reconciler.onAttached(principal)
+    expect(windows).toEqual([REATTACH_PROBE_WINDOW, REATTACH_PROBE_WINDOW, 44])
+    expect(mostHeld).toBe(REATTACH_PROBE_WINDOW)
+    expect(held.size).toBe(0)
+    expect(f.order.filter((entry) => entry.startsWith('reattach:'))).toHaveLength(count)
   })
 })

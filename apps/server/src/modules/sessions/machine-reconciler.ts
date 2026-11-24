@@ -127,6 +127,13 @@ export interface MachineReconcilerPorts {
   broadcastSessions(): void
 }
 
+/**
+ * How many reattach probes are restored and held at once (POD-7541). Large enough
+ * that a window's satellite reads stay a handful of statements, small enough that
+ * one window's restore is a short slice of the event loop.
+ */
+export const REATTACH_PROBE_WINDOW = 128
+
 export class SessionMachineReconciler {
   constructor(private readonly ports: MachineReconcilerPorts) {}
 
@@ -214,20 +221,25 @@ export class SessionMachineReconciler {
         (viewTiers.get(a.sessionId) ?? 3) - (viewTiers.get(b.sessionId) ?? 3) ||
         (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''),
     )
-    // THE PARKED PROBES ARE RESTORED TOGETHER (POD-7036): their rows and
-    // satellites in one read per table, held for the loop below, which then
-    // finds each resident. One at a time, each was its own row read and five
-    // single-id satellite reads.
+    // THE PARKED PROBES ARE RESTORED TOGETHER (POD-7036), A WINDOW AT A TIME
+    // (POD-7541): each window's rows and satellites in one read per table, held
+    // while its probes go out, then let go. One at a time, each was its own row
+    // read and five single-id satellite reads; all at once, a machine with
+    // thousands of exited sessions read every checkpoint in one event-loop tick
+    // and held every session resident through the whole probe pass.
     const resident = new Set([...this.ports.sessions()].map((s) => s.sessionId))
-    const parkedProbes = probes.filter((s) => !resident.has(s.sessionId)).map((s) => s.sessionId)
-    const heldProbes =
-      parkedProbes.length > 1 && this.ports.acquireMany && this.ports.release
-        ? await this.ports.acquireMany(parkedProbes, 'reattachProbe')
-        : new Map<Session['sessionId'], Session>()
-    try {
-      await this.probeEach(probes, machineId)
-    } finally {
-      for (const sessionId of heldProbes.keys()) this.ports.release?.(sessionId)
+    for (let at = 0; at < probes.length; at += REATTACH_PROBE_WINDOW) {
+      const window = probes.slice(at, at + REATTACH_PROBE_WINDOW)
+      const parked = window.filter((s) => !resident.has(s.sessionId)).map((s) => s.sessionId)
+      const held =
+        parked.length > 1 && this.ports.acquireMany && this.ports.release
+          ? await this.ports.acquireMany(parked, 'reattachProbe')
+          : new Map<Session['sessionId'], Session>()
+      try {
+        await this.probeEach(window, machineId)
+      } finally {
+        for (const sessionId of held.keys()) this.ports.release?.(sessionId)
+      }
     }
 
     // Headless sessions have no PTY to reattach. Bound ones (the harness
