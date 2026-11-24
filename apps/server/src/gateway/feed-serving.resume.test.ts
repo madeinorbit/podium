@@ -199,9 +199,11 @@ describe('a cursor the log cannot serve is refused, and the refusal requests HTT
   })
 
   it('refuses an old cursor once the log is FULLY pruned, and resumes only the head', async () => {
-    // POD-7593: the age budget empties the log of a workspace with no recent
-    // writes. `minChangeSeq` is then null, and a floor read as `null ?? 0` let
-    // every cursor resume over rows nobody can serve. The floor is `head + 1`.
+    // POD-7593: the age budget emptied the log of a workspace with no recent
+    // writes (the planners now keep the head row; logs emptied before stay so
+    // until their next write). `minChangeSeq` is then null, and a floor read as
+    // `null ?? 0` let every cursor resume over rows nobody can serve. The floor is
+    // `head + 1`. The reload this refusal starts is `bootstrap-worker.bun.test.ts`.
     const ctx = await servedOnce()
     for (let i = 3; i <= 5; i += 1) await commit(ctx.p, `s${i}`)
     const head = await ctx.p.authority.cursor()

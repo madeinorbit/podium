@@ -1228,9 +1228,9 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
     // which generation it landed on.
     const registry = await makeRegistry()
     // One append first, exactly as the two cases below do. `minAvailableSeq` is
-    // the FIRST SERVABLE SEQ, so on an empty log it is honestly 0 and the `>= 1`
-    // check would be asserting that the log is non-empty rather than that the
-    // floor is published. Seeding makes the floor a real one.
+    // the FIRST SERVABLE SEQ: 1 on a log never written, `head + 1` on one pruned
+    // to empty (POD-7593), so the `>= 1` check alone would hold without a
+    // published floor. Seeding makes the floor a row the log really holds.
     await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     const boot = await authoritySnapshot(registry)
     expect(boot.feedId).toBeTruthy()

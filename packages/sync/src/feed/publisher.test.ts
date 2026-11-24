@@ -213,6 +213,15 @@ describe('minAvailableSeq — D5 floor, read LIVE on every frame', () => {
 
     expect(deltas(await connection.drain()).map((f) => f.minAvailableSeq)).toEqual([0, 4])
   })
+
+  it("publishes a fully pruned log's floor exactly as the port reads it", async () => {
+    // POD-7593: a log pruned to empty at head 5 reads floor 6 (`head + 1`), and the
+    // commit that follows is seq 6. No `?? 0` and no substitute value in between.
+    const feed = publisher({ retention: retention(6) })
+    const connection = feed.connect('c1', 5, ALICE)
+    await emit(feed, [change(6, 'a')])
+    expect(deltas(await connection.drain())[0]).toMatchObject({ seq: 6, minAvailableSeq: 6 })
+  })
 })
 
 describe('backpressure — D9 demotion, and what it does to the connection position', () => {
