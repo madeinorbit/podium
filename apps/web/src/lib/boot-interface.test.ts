@@ -8,9 +8,11 @@ const seam = vi.hoisted(() => ({
   native: vi.fn(() => undefined),
   iteration: vi.fn(() => false),
   listen: vi.fn(),
+  hold: vi.fn(() => false),
 }))
 vi.mock('./force-reload', () => ({ forceReload: seam.reload }))
 vi.mock('./reload-preparation', () => ({ prepareForReload: seam.save }))
+vi.mock('./update-takeover', () => ({ holdTakeoverWhileInUse: seam.hold }))
 vi.mock('./logging/build-version', () => ({
   pageBundleVersion: seam.bundle,
   pageBuildDigest: seam.digest,
@@ -32,6 +34,7 @@ beforeEach(() => {
   seam.bundle.mockReturnValue('bundle+old')
   seam.digest.mockReturnValue('1111111')
   seam.save.mockResolvedValue(undefined)
+  seam.hold.mockReturnValue(false)
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => served()),
@@ -134,4 +137,21 @@ it('lets the activated worker identify a current page and respects refused edit 
   })
   await vi.advanceTimersByTimeAsync(0)
   expect(postMessage).toHaveBeenLastCalledWith({ bundle: 'bundle+old', mayReload: false })
+})
+
+it('keeps a screen in use from being navigated by the activated worker', async () => {
+  const { installInterfaceIdentityResponder } = await import('./boot-interface')
+  installInterfaceIdentityResponder()
+  const handler = seam.listen.mock.calls[0]![1] as (event: unknown) => void
+  const postMessage = vi.fn()
+  seam.hold.mockReturnValue(true)
+  handler({
+    data: { type: 'podium:interface-build', target: 'bundle+new' },
+    ports: [{ postMessage }],
+  })
+  await vi.advanceTimersByTimeAsync(0)
+  // The page reloads itself once hidden; the worker leaves this window alone.
+  expect(seam.hold).toHaveBeenCalledWith('interface-build')
+  expect(postMessage).toHaveBeenLastCalledWith({ bundle: 'bundle+old', mayReload: false })
+  expect(seam.save).not.toHaveBeenCalled()
 })

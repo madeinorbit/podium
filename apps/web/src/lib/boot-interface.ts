@@ -9,13 +9,20 @@ import { nativeDesktopBridge } from './nativeDesktop'
 import { prepareForReload } from './reload-preparation'
 import { servedWebsiteForPage } from './served-website'
 import { readServedWorkerIdentity } from './sw-identity'
+import { holdTakeoverWhileInUse } from './update-takeover'
 import { workspaceFetch } from './workspace-request'
 
 const log = createLogger('web:boot-interface')
 export const INTERFACE_REPAIR_KEY = INTERFACE_REPAIR_TARGET_KEY
 export const INTERFACE_CHECK_MS = 3000
 
-/** Installed before sign-in, so a newly activated worker can identify this page. */
+/**
+ * Installed before sign-in, so a newly activated worker can identify this page.
+ *
+ * `mayReload: false` keeps the worker from navigating this window. A page on an
+ * older build answers it while its screen is in use and reloads itself once it
+ * is hidden (POD-7539, `update-takeover.ts`), or when an edit could not be saved.
+ */
 export function installInterfaceIdentityResponder(): void {
   serviceWorkerContainer()?.addEventListener('message', (event) => {
     if (event.data?.type !== 'podium:interface-build' || !event.ports[0]) return
@@ -23,7 +30,13 @@ export function installInterfaceIdentityResponder(): void {
     const bundle = pageBundleVersion()
     void (async () => {
       try {
-        if (bundle !== event.data.target) await prepareForReload()
+        if (bundle !== event.data.target) {
+          if (holdTakeoverWhileInUse('interface-build')) {
+            port.postMessage({ bundle, mayReload: false })
+            return
+          }
+          await prepareForReload()
+        }
         port.postMessage({ bundle, mayReload: true })
       } catch {
         port.postMessage({ bundle, mayReload: false })

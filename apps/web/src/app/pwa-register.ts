@@ -1,11 +1,9 @@
 import { useRegisterSW as useRegisterSWVirtual } from 'virtual:pwa-register/react'
 import { serviceWorkerContainer } from '@podium/client-core/service-worker'
-import { toast } from 'sonner'
 import type { RegisterSWOptions } from 'vite-plugin-pwa/types'
 import { swLog } from '@/lib/logging/update-logs'
-import { navigateReload } from '@/lib/navigate'
-import { withReloadPreparation } from '@/lib/reload-preparation'
 import { observeServiceWorker, workerFacts } from '@/lib/sw-observer'
+import { followNewWorker } from '@/lib/update-takeover'
 
 /**
  * Keep the Vite virtual module behind a local seam for app code and tests —
@@ -27,8 +25,9 @@ import { observeServiceWorker, workerFacts } from '@/lib/sw-observer'
  *    events after registration a place to go.
  *  - `onNeedRefresh` — the latch that feeds the panel, with which worker set it.
  *  - `onNeedReload` — the library's OWN reload. Supplying this callback replaces
- *    the `window.location.reload()` the library would otherwise call, with a
- *    call that first preserves local drafts and queue commits. The library and
+ *    the `window.location.reload()` the library would otherwise call. A screen
+ *    in use defers it until the page is hidden (`update-takeover.ts`); any
+ *    reload first preserves local drafts and queue commits. The library and
  *    the panel share a latch so takeover cannot navigate twice.
  *  - `onOfflineReady` — a first install rather than an update, which is the
  *    thing most easily mistaken for one.
@@ -82,16 +81,11 @@ export function useRegisterSW(options?: RegisterSWOptions) {
         options.onNeedReload()
         return
       }
-      // Exactly what the library does when this callback is absent — see the
-      // `controlling` listener in vite-plugin-pwa's `register.ts` — with a line
-      // in front of it. This is the second navigation actor the audit could
-      // never see fire.
-      void withReloadPreparation(() =>
-        navigateReload('workbox-controlling', 'a new worker took control of this page'),
-      ).catch((error) => {
-        swLog.warn('reload paused to preserve local changes', { err: error })
-        toast.error(error instanceof Error ? error.message : 'Save your changes before reloading.')
-      })
+      // The library would call `location.reload()` here, in front of whatever
+      // the page shows. A screen in use keeps its document until it is hidden
+      // (POD-7539); a hidden page or one with no signed-in screen reloads now,
+      // after preserving drafts and queue commits.
+      followNewWorker('workbox-controlling')
     },
   })
 }

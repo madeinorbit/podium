@@ -19,6 +19,11 @@ function checkReloadGuards(): void {
   }
 }
 
+/** A signed-in runtime is mounted: there is an open screen and text it owns. */
+export function hasReloadPreparation(): boolean {
+  return prepare !== undefined
+}
+
 export function registerReloadPreparation(callback: () => Promise<void>): () => void {
   prepare = callback
   pending = undefined

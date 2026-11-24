@@ -30,6 +30,9 @@ vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
 
 const { registeredOptions: captured } = await import('./pwa-register-virtual.vitest')
 const { useRegisterSW } = await import('./pwa-register')
+const { resetTakeoverForTests } = await import('@/lib/update-takeover')
+
+let visibility: DocumentVisibilityState = 'hidden'
 
 let logged: LogRecord[]
 
@@ -42,10 +45,19 @@ beforeEach(() => {
   navigateReload.mockClear()
   vi.mocked(toast.error).mockClear()
   registerReloadPreparation(async () => {})
+  resetTakeoverForTests()
+  // Nobody is looking at the page unless a test says so (POD-7539).
+  visibility = 'hidden'
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    get: () => visibility,
+  })
 })
 
 afterEach(() => {
   resetLogging()
+  resetTakeoverForTests()
+  Reflect.deleteProperty(document, 'visibilityState')
 })
 
 /** A registration the wrapper can describe and observe without a real browser. */
@@ -123,6 +135,20 @@ describe('the pwa-register wrapper', () => {
     captured.current?.onNeedReload?.()
     await withReloadPreparation(vi.fn())
     expect(navigateReload).toHaveBeenCalledOnce()
+  })
+
+  it('keeps a visible signed-in screen until the page is hidden (POD-7539)', async () => {
+    visibility = 'visible'
+    useRegisterSW()
+
+    captured.current?.onNeedReload?.()
+    await Promise.resolve()
+    expect(navigateReload).not.toHaveBeenCalled()
+
+    visibility = 'hidden'
+    document.dispatchEvent(new Event('visibilitychange'))
+    await vi.waitFor(() => expect(navigateReload).toHaveBeenCalledOnce())
+    expect(navigateReload.mock.calls[0]?.[0]).toBe('workbox-controlling')
   })
 
   it('defers to a caller that supplies its own onNeedReload, and navigates nothing', () => {
