@@ -55,7 +55,7 @@ export interface HandoffHistoryRetirement {
   /** A pending server acknowledgement, terminal proof watch or spooled receipt. */
   heldForEvidence: number
   heldForProcess: number
-  /** The record changed since inventory (a later transfer or a return adoption). */
+  /** The record or its classification changed since inventory (a later transfer or a return). */
   heldForChange: number
   /** This connect's server facts did not authorize retirement. */
   notAuthorized: number
@@ -165,10 +165,11 @@ export interface BindingTransfer {
   /** State restored when a claim aborts. `null` means no row predated import. */
   priorState: BindingState | null
   /**
-   * The committed source transfer a return adoption claimed over (POD-7534).
-   * An abort of that claim restores it, so the record is history again.
+   * The whole committed source record a return adoption claimed over
+   * (POD-7534). An abort of that claim restores it exactly (only the transition
+   * receipts carry forward), so the record is that handoff history again.
    */
-  priorTransfer?: BindingTransfer | null
+  priorBinding?: SessionBindingRecord
 }
 export interface BindingTransitionReceipt {
   transitionId: string
@@ -1120,17 +1121,33 @@ export class BindingStore {
   }
 
   /**
-   * Whether a target claim could pass the history gate, checked before an import
-   * lands any files. True for an id this store does not fence at all; the write
-   * chain still runs every check again when the claim arrives.
+   * Whether a target claim would pass BOTH history gates now: addressing, and the
+   * record, evidence, spool and live-process checks. The import runs this before
+   * it touches any file, because unpacking resets the retained worktree and
+   * overwrites the transcript. True for an id this store does not fence at all;
+   * the write chain runs every check again when the claim itself arrives.
    */
-  admitsTargetClaim(input: SessionBindingTransition): boolean {
-    return !this.isQuarantined(input.sessionId) || this.returnAdoptionGate(input) !== undefined
+  async admitsTargetClaim(input: SessionBindingTransition): Promise<boolean> {
+    if (!this.isQuarantined(input.sessionId)) return true
+    const gate = this.returnAdoptionGate(input)
+    if (!gate) return false
+    return this.serialized(input.sessionId, async () => {
+      try {
+        return await this.returnAdoptionAdmitted(input, gate, await this.read(input.sessionId))
+      } catch {
+        return false
+      }
+    })
   }
 
-  /** A history id whose return-handoff import frames may reach the claim gate. */
+  /** A history id for which a return is plausible, so its import frames may reach the gates. */
   retainsHandoffHistory(sessionId: SessionId): boolean {
-    return this.recovery.get(sessionId) === 'retained-handoff-history'
+    return (
+      this.recovery.get(sessionId) === 'retained-handoff-history' &&
+      this.historyPlacements.has(sessionId) &&
+      this.receiptDir !== undefined &&
+      this.sourceProcessProbe !== undefined
+    )
   }
   private malformedBindings = new Set<SessionId>()
 
@@ -1396,12 +1413,13 @@ export class BindingStore {
         result.notAuthorized += 1
         continue
       }
+      // A reconnect ends the pass; this one id losing its authorization (a return
+      // claimed it while the pass was queued) skips only that id.
       const stillAuthorized = () =>
-        generation === this.recoveryGeneration &&
-        this.recovery.get(id) === 'retained-handoff-history' &&
-        this.retirementAuthorized.has(id)
+        this.recovery.get(id) === 'retained-handoff-history' && this.retirementAuthorized.has(id)
       const outcome = await this.serialized(id, async () => {
-        if (!stillAuthorized()) return 'aborted' as const
+        if (generation !== this.recoveryGeneration) return 'aborted' as const
+        if (!stillAuthorized()) return 'heldForChange' as const
         let current: SessionBindingRecord | null
         try {
           current = await this.read(id)
@@ -1428,7 +1446,8 @@ export class BindingStore {
           return 'heldForRetention' as const
         if (await hasProcess(id)) return 'heldForProcess' as const
         // The probe is asynchronous: a reconnect may have re-inventoried meanwhile.
-        if (!stillAuthorized()) return 'aborted' as const
+        if (generation !== this.recoveryGeneration) return 'aborted' as const
+        if (!stillAuthorized()) return 'heldForChange' as const
         await rm(this.pathFor(id), { force: true })
         this.retirementAuthorized.delete(id)
         this.inventoriedExports.delete(id)
@@ -2229,7 +2248,7 @@ export class BindingStore {
                 claimedAt: input.at,
                 settledAt: null,
                 priorState: current?.state ?? null,
-                ...(overHistory && current?.transfer ? { priorTransfer: current.transfer } : {}),
+                ...(overHistory && current ? { priorBinding: current } : {}),
               },
               state: 'adopting',
               createdAt: current?.createdAt ?? input.at,
@@ -2260,17 +2279,20 @@ export class BindingStore {
               if (current.transfer.phase !== 'claimed') {
                 return transitionRejected(input.event, 'transfer-conflict')
               }
-              changed = {
-                ...current,
-                state: current.transfer.priorState ?? 'retired',
-                retiredAt: current.transfer.priorState === null ? input.at : current.retiredAt,
-                // An aborted return adoption leaves the source history it claimed over.
-                transfer: current.transfer.priorTransfer ?? {
-                  ...current.transfer,
-                  phase: 'aborted',
-                  settledAt: input.at,
-                },
-              }
+              const priorBinding = current.transfer.priorBinding
+              // An aborted return adoption restores the source history it claimed over.
+              changed = priorBinding
+                ? { ...priorBinding, transitionHistory: current.transitionHistory }
+                : {
+                    ...current,
+                    state: current.transfer.priorState ?? 'retired',
+                    retiredAt: current.transfer.priorState === null ? input.at : current.retiredAt,
+                    transfer: {
+                      ...current.transfer,
+                      phase: 'aborted',
+                      settledAt: input.at,
+                    },
+                  }
             } else {
               if (
                 current.transfer.phase !== 'committed' ||

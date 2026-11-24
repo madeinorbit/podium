@@ -271,6 +271,8 @@ describe('customer upgrade fixture: daemon', () => {
     })
     await store.reapQuarantined(alive, receiptDir)
     expect(await store.read(asSessionId('session-moved-peer-a'))).not.toBeNull()
+    // Closed but still alive: kept, and now counted as unresolved.
+    expect(store.quarantinedCount).toBe(UNRESOLVED.length + 1)
     // Process gone: cleaned up. The other strays and the receipt are untouched.
     await store.reapQuarantined(async () => false, receiptDir)
     expect(await store.read(asSessionId('session-moved-peer-a'))).toBeNull()

@@ -256,9 +256,11 @@ async function importPackage(
       at: new Date().toISOString(),
     }
     // A fenced id (handoff history) is refused before any file lands unless the
-    // return could replace that history (POD-7534); the claim re-checks it all.
+    // return passes every check that would let it replace that history: the
+    // unpack below resets the retained worktree and overwrites the transcript
+    // (POD-7534). The claim re-checks it all inside the write chain.
     if (
-      !ctx.bindingStore.admitsTargetClaim({
+      !(await ctx.bindingStore.admitsTargetClaim({
         ...claimInput,
         adoption: {
           agentKind: transfer.agentKind,
@@ -267,7 +269,7 @@ async function importPackage(
           serverDelegation: transfer.serverDelegation,
           observations: [],
         },
-      })
+      }))
     ) {
       ctx.send({
         type: 'handoffImportResult',

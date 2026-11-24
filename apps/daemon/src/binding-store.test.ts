@@ -1600,11 +1600,11 @@ describe('return handoff over handoff history (POD-7534)', () => {
     delegation: serverDelegation(moved, alice),
   }
 
-  async function exportedStore() {
+  async function exportedStore(now = soon, fact: Record<string, unknown> = placement) {
     const root = await tempRoot()
     const receipts = join(root, 'receipts')
     await mkdir(receipts)
-    const store = await BindingStore.open({ dir: root, now: () => soon })
+    const store = await BindingStore.open({ dir: root, now: () => now })
     await store.ensureBinding({
       sessionId: moved,
       agentKind: 'codex',
@@ -1613,7 +1613,7 @@ describe('return handoff over handoff history (POD-7534)', () => {
     })
     await sourceTransfer(store, 'outbound', machine, destination)
     await store.inventory(receipts)
-    store.confirmInventory(machine, { [moved]: placement })
+    store.confirmInventory(machine, { [moved]: fact as never })
     expect(store.isQuarantined(moved)).toBe(true)
     expect(store.quarantinedCount).toBe(0)
     store.setSourceProcessProbe(async () => false)
@@ -1704,12 +1704,19 @@ describe('return handoff over handoff history (POD-7534)', () => {
 
   it('restores the history and its fence when the return claim aborts', async () => {
     const { store } = await exportedStore()
+    const before = requiredBinding(await store.read(moved))
     expect(await store.transition(returnClaim())).toMatchObject({ status: 'applied' })
     expect(await store.transition(targetStep('abort'))).toMatchObject({ status: 'applied' })
-    expect(await store.read(moved)).toMatchObject({
-      state: 'exported',
-      transfer: { side: 'source', phase: 'committed', transferId: 'outbound' },
-    })
+    // The exact pre-claim record: delegation, observations, kind and generation
+    // included. Only the transition receipts carry forward.
+    const { transitionHistory, ...restored } = requiredBinding(await store.read(moved))
+    const { transitionHistory: priorHistory, ...prior } = before
+    expect(restored).toEqual(prior)
+    expect(transitionHistory.map((entry) => entry.transitionId)).toEqual([
+      ...priorHistory.map((entry) => entry.transitionId),
+      'return:target-claim',
+      'return:target-abort',
+    ])
     expect(store.isQuarantined(moved)).toBe(true)
     expect(store.quarantinedCount).toBe(0)
     // The restored history admits a later, fresh return.
@@ -1757,6 +1764,34 @@ describe('return handoff over handoff history (POD-7534)', () => {
       {},
     ],
     [
+      'with a pending server acknowledgement outstanding',
+      async ({ store }) => {
+        const current = requiredBinding(await store.read(moved))
+        await writeFile(
+          store.pathFor(moved),
+          JSON.stringify({
+            ...current,
+            observations: [
+              ...current.observations,
+              {
+                observationId: 'pending',
+                channel: 'resume-ref',
+                value: 'source-thread',
+                nativeKind: 'codex-thread',
+                confidence: 'exact',
+                source: 'native-hook',
+                observedAt: settledAt,
+                recordedAt: settledAt,
+                supersedes: null,
+                pendingServerAck: { nativeKind: 'codex-thread', value: 'source-thread' },
+              },
+            ],
+          }),
+        )
+      },
+      {},
+    ],
+    [
       'with a spooled receipt outstanding',
       async ({ receipts }) =>
         writeFile(join(receipts, `${moved}.json`), JSON.stringify({ session_id: 'thread' })),
@@ -1801,6 +1836,8 @@ describe('return handoff over handoff history (POD-7534)', () => {
     const ctx = await exportedStore()
     await arrange(ctx)
     const before = await readFile(ctx.store.pathFor(moved), 'utf8')
+    // The pre-unpack check the import runs gives the same answer as the claim.
+    expect(await ctx.store.admitsTargetClaim(returnClaim(overrides))).toBe(false)
     expect(await ctx.store.transition(returnClaim(overrides))).toMatchObject({
       status: 'rejected',
       reason: 'binding-missing',
@@ -1835,5 +1872,65 @@ describe('return handoff over handoff history (POD-7534)', () => {
     await store.inventory(receipts)
     store.confirmInventory(machine, { [moved]: placement })
     expect(await store.transition(returnClaim())).toMatchObject({ status: 'rejected' })
+  })
+
+  it('admits the import pre-check only for a return the claim would accept', async () => {
+    const { store } = await exportedStore()
+    expect(await store.admitsTargetClaim(returnClaim())).toBe(true)
+    expect(store.retainsHandoffHistory(moved)).toBe(true)
+    // A non-fenced id is not this gate's business.
+    expect(
+      await store.admitsTargetClaim(returnClaim({ sessionId: asSessionId('not-fenced') })),
+    ).toBe(true)
+    // The pre-check changes nothing: the real claim still applies afterwards.
+    expect(await store.transition(returnClaim())).toMatchObject({ status: 'applied' })
+  })
+
+  it('serializes a real return claim and a retirement pass on the same record', async () => {
+    const late = new Date(Date.parse(settledAt) + HANDOFF_HISTORY_RETENTION_MS).toISOString()
+    const authorized = { ...placement, retireHandoffHistory: true as const }
+
+    // Claim first: retirement waits behind it and then skips that id.
+    const first = await exportedStore(late, authorized)
+    const claim = first.store.transition(returnClaim({ at: late }))
+    const pass = first.store.retireHandoffHistory(async () => false, first.receipts)
+    expect(await claim).toMatchObject({ status: 'applied' })
+    expect(await pass).toMatchObject({ retired: 0, heldForChange: 1 })
+    expect(await first.store.read(moved)).toMatchObject({
+      state: 'adopting',
+      transfer: { side: 'target', transferId: 'return' },
+    })
+    expect(await first.store.transition(targetStep('commit'))).toMatchObject({
+      status: 'applied',
+    })
+
+    // Retirement first: the claim then finds no history and fails safe.
+    const second = await exportedStore(late, authorized)
+    const retire = second.store.retireHandoffHistory(async () => false, second.receipts)
+    const late2 = second.store.transition(returnClaim({ at: late }))
+    expect(await retire).toMatchObject({ retired: 1 })
+    expect(await late2).toMatchObject({ status: 'rejected', reason: 'binding-missing' })
+    expect(await second.store.read(moved)).toBeNull()
+    // The server's retry adopts a fresh row.
+    expect(
+      await second.store.transition(returnClaim({ transitionId: 'retry:claim', at: late })),
+    ).toMatchObject({ status: 'applied' })
+  })
+
+  it('pins a reconnect in the middle of a return: the claimed row is unresolved', async () => {
+    const { store, receipts } = await exportedStore()
+    expect(await store.transition(returnClaim())).toMatchObject({ status: 'applied' })
+    // The placement is still the source machine's until the server commits.
+    await store.inventory(receipts)
+    store.confirmInventory(machine, { [moved]: placement })
+    expect(store.quarantinedCount).toBe(1)
+    expect(store.isQuarantined(moved)).toBe(true)
+    for (const phase of ['commit', 'abort'] as const) {
+      expect(await store.transition(targetStep(phase))).toMatchObject({
+        status: 'rejected',
+        reason: 'binding-missing',
+      })
+    }
+    expect(await store.read(moved)).toMatchObject({ state: 'adopting' })
   })
 })

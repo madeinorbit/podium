@@ -206,15 +206,34 @@ it('lets only a return handoff import reach the claim gate for handoff history (
         data: '',
       }),
     )
+  const importRequest = (sessionId: string) =>
+    Buffer.from(
+      JSON.stringify({
+        type: 'handoffImportRequest',
+        requestId: `import-${sessionId}`,
+        sessionId,
+        repoPath: '/must-not-be-read',
+        worktreeName: 'must-not-be-read',
+      }),
+    )
   guard.receive(chunk('unresolved'))
+  guard.receive(importRequest('unresolved'))
   guard.receive(Buffer.from(JSON.stringify({ type: 'kill', sessionId: 'history' })))
   guard.receive(chunk('history'))
-  await vi.waitFor(() =>
+  guard.receive(importRequest('history'))
+  await vi.waitFor(() => {
     expect(ctx.send).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'handoffImportChunkResult', requestId: 'history' }),
-    ),
-  )
+    )
+    // Dispatched to the import handler, which refuses it (no server binding).
+    expect(ctx.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'handoffImportResult', requestId: 'import-history' }),
+    )
+  })
   expect(ctx.send).not.toHaveBeenCalledWith(expect.objectContaining({ requestId: 'unresolved' }))
+  expect(ctx.send).not.toHaveBeenCalledWith(
+    expect.objectContaining({ requestId: 'import-unresolved' }),
+  )
 })
 
 /**

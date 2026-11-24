@@ -1732,9 +1732,6 @@ const upsertDraftDoc = prepared((db, t) =>
   ).prepare(),
 )
 
-/** Run a session-row write as a change-log commit: a liveness change moves
- *  the session's confirmed message window, and the commit drains the
- *  database's change capture in the same transaction (POD-6920). */
 /**
  * The raw placement facts of named sessions. `handoffInFlight` is server-only
  * input to the connect disclosure (`disclosedBindingFacts`): it never travels as
@@ -1745,6 +1742,9 @@ export type RawBindingConfirmations = Record<
   import('@podium/protocol').BindingConfirmation & { handoffInFlight?: true }
 >
 
+/** Run a session-row write as a change-log commit: a liveness change moves
+ *  the session's confirmed message window, and the commit drains the
+ *  database's change capture in the same transaction (POD-6920). */
 export type SessionMessageWindowWrite = (write: () => Promise<void>) => Promise<void>
 
 export class SessionsRepository {
