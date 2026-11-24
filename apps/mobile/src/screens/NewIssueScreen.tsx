@@ -73,6 +73,9 @@ import { useTrpc, useUiState } from '../client/hooks'
 import { useMobilePool, useMobilePoolProjection } from '../client/mobile-pool'
 import { useMyCodingHarness } from '../client/my-preferences'
 import type { MobileTrpc } from '../client/trpc'
+import { useAgentSetupPicker } from '../client/use-agent-setup-picker'
+import { installingAgentsHint } from '../components/AgentSetupPickerEntry'
+import { PhoneAgentSetupSheet } from '../components/AgentSetupSheet'
 import { ComposeBody, ComposeFieldRow } from '../components/compose/ComposeBody'
 import type { ComposeMenuItem } from '../components/compose/ComposeMenu'
 import { ComposeSheetHeader } from '../components/compose/ComposeSheetHeader'
@@ -166,6 +169,10 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   const signInFirst = !shell && ready && readiness.state === 'logged-out'
   const catalog = useModelCatalog<MobileTrpc>(machine?.id)
   const { served } = useHarnessDescriptors<MobileTrpc>(machine?.id)
+  // Set up agents (dev/mw's phone setup sheets): install or sign in a harness
+  // on the chosen machine without leaving New Task.
+  const [settingUp, setSettingUp] = useState(false)
+  const setupHint = installingAgentsHint(useAgentSetupPicker(machine ? [machine.id] : []))
   const reported = catalog[agent]
   const [uploadScope] = useState(() => asSessionId(`coldstart-${randomUUID()}`))
   const attachments = useComposerAttachments(uploadScope, {
@@ -435,6 +442,14 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
         ...(unavailableAgents.length
           ? [{ id: 'unavailable', label: 'Unavailable agents', items: unavailableAgents }]
           : []),
+        {
+          id: 'set-up-agents',
+          label: 'Set up agents…',
+          symbol: 'wrench.and.screwdriver',
+          ...(setupHint ? { subtitle: setupHint } : {}),
+          disabled: !machine || machineDenied,
+          onPress: () => setSettingUp(true),
+        },
       ],
     },
     {
@@ -554,6 +569,17 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
         onCamera={shell ? undefined : () => attachments.fromSource(takePhoto)}
         onFiles={shell ? undefined : () => attachments.fromSource(pickDocuments)}
       />
+      {settingUp && machine ? (
+        <PhoneAgentSetupSheet
+          machineId={machine.id}
+          origin="menu"
+          onClose={() => setSettingUp(false)}
+          onStart={(harness) => {
+            const kind = issueAgentKind(harness)
+            if (kind) write({ agent: kind, model: AUTO, effort: AUTO, launchPickTouched: false })
+          }}
+        />
+      ) : null}
     </View>
   )
 })
