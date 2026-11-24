@@ -112,6 +112,17 @@ A **view** is a feature the user sees: the worklist, mission, issue detail, laun
 - **Create a record:** the form fields are UI state, and submitting calls the create command.
 - **Edit a record with several fields:** call `const d = draftOf(issue)` when the form opens (import it from `@podium/client-graph/write/draft-of`; it is kept out of the package index so it stays out of the startup bundle). Inputs read and write `d.title` and `d.stage`; untouched fields keep following the live record. Use `d.isDirty` and `d.reset()`; `d.submit()` sends one combined edit. For another kind of record, write its `draftOf` with `draft(record, { fields, save })`. A single inline field keeps its text in its component.
 
+## Testing a screen on an empty device
+
+The older web fixtures put every row into a pool that has no loader, and such a pool answers every collection "held" (`PoolCollections.held`). A screen that never asks for its data passes there and shows nothing in the app. The empty-device harness closes that gap: the real `MobxPool`, `CollectionLoader` and kernel Replica, a device that starts with only the policy collections of a real start, and a fake server that holds every record but answers only the instances the device asked for, recording each request.
+
+Use it when a screen test checks data that is not guaranteed to be on the device: an issue's body (description, brief, todos, artifacts, deferred items, state line), any other record of group `body`, `windowed` or `byRule`, a closed or old record, or a record a view looks up by id. Use it too when the test is about what a screen asks the server for, or how it behaves offline. A test of layout or interaction over data the device always holds may keep the plain pool fixture.
+
+- Screen tests: `mountOnEmptyDevice(element, { world })` from `apps/web/src/test-support/empty-device.ts`. Its header shows the three mocks that bind the app's pool and client-core hooks to the device. `untilIdle()` runs the device until the loader has nothing due; `requested()` and `requestedKeys()` list what was asked for; `offline()` and `online()` switch the connection; `commands` and `requests` record what the screen sent; `hold(instance)` holds an instance by hand, as a control.
+- View-model tests: `openEmptyDevice({ world })` from `packages/client-graph/src/test-support/empty-device.test.fixture.ts`, and `observe(make, read)` to open a view model as a screen would.
+- Write the world as the server syncs it: `putIssueWithBodies(server, id)` writes the issue record without its body fields and each body as its own record.
+- Assert what the screen shows, and, where it matters, what it asked for. A known defect is an `it.fails` with a comment naming the task that fixes it, next to a passing test that mounts the same screen, so the expected failure cannot hide a screen that did not mount.
+
 ## What a change must show
 
 - Before deleting old code: a test comparing old and new answers on the same fixtures, shown to fail when the new answer is wrong.
