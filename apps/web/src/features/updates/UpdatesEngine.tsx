@@ -38,6 +38,7 @@ import { swLog, updatesLog } from '@/lib/logging/update-logs'
 import { navigateReload } from '@/lib/navigate'
 import { RELOAD_COMMIT_GRACE_MS, withReloadPreparation } from '@/lib/reload-preparation'
 import { updateStatus } from '@/lib/update-status'
+import { onTakeoverDeferred, takeoverDeferred } from '@/lib/update-takeover'
 import { registerUpdatePanelOpener } from './open-panel'
 import { DONE_COLLAPSE_MS } from './operation-view'
 import { ReleaseProposalCard } from './ReleaseProposalCard'
@@ -143,8 +144,12 @@ export const UpdatesEngine = observer(function UpdatesEngine({
   const notReloadedTimer = useRef<number | undefined>(undefined)
   useEffect(() => () => window.clearTimeout(notReloadedTimer.current), [])
   const reload = useCallback(async () => {
-    const serviceWorker = serviceWorkerContainer()
-    const currentRegistration = registration
+    // A deferred takeover (POD-7539) means the new build already controls this
+    // page: there is no worker left to hand over, and a handshake would find no
+    // replacement and take the recovery path. Reload directly instead.
+    const controlledByNewBuild = takeoverDeferred()
+    const serviceWorker = controlledByNewBuild ? undefined : serviceWorkerContainer()
+    const currentRegistration = controlledByNewBuild ? null : registration
     window.clearTimeout(notReloadedTimer.current)
     const outcome = await startReloadHandshake({
       serviceWorker,
@@ -154,7 +159,13 @@ export const UpdatesEngine = observer(function UpdatesEngine({
       onStatus: setReloadStatus,
       // Through the one navigation seam, so a click that ends in a reload and a
       // click that ends anywhere else are the same file's two possible endings.
-      reload: () => withReloadPreparation(() => navigateReload('handshake', 'replacement-ready')),
+      reload: () =>
+        withReloadPreparation(() =>
+          navigateReload(
+            'handshake',
+            controlledByNewBuild ? 'replacement-controls-page' : 'replacement-ready',
+          ),
+        ),
       recover: () => forceReload('service-worker-handoff-incomplete', false),
     })
     // A started navigation that has not replaced this document within the grace
@@ -189,6 +200,11 @@ export const UpdatesEngine = observer(function UpdatesEngine({
   })
 
   refreshRef.current = refreshState
+
+  // A new build that took control while this screen is in use waits for the
+  // page to be hidden (POD-7539). Read the server now, so the panel asks for the
+  // reload ("Reload to finish") instead of waiting for its next poll.
+  useEffect(() => onTakeoverDeferred(() => refreshRef.current()), [])
 
   /**
    * The ONLY piece of panel state, and it is per-tab UI state: has the user

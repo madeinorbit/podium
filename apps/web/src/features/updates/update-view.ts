@@ -234,7 +234,7 @@ function appPlace(input: UpdateInput): Place {
   return {
     kind: 'this-app',
     label: input.surface === 'desktop-remote' ? 'This app' : 'This tab',
-    effect: 'Reloads when the update is done',
+    effect: 'Asks to reload when the update is done',
     impact: 'interrupts',
   }
 }
@@ -258,7 +258,7 @@ function placesFor(input: UpdateInput): Place[] {
       effect:
         input.skew === 'schema-skew'
           ? 'Need matching builds and a restart'
-          : 'Server rebuilds and restarts. This tab reloads afterwards',
+          : 'Server rebuilds and restarts. This tab asks to reload afterwards',
       impact: 'interrupts',
     })
   }

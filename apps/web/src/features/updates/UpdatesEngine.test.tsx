@@ -38,7 +38,8 @@ vi.mock('@/app/trpc', () => ({
   makeTrpc: () => ({ updates: { checkSpace: { query: mocks.checkSpace } } }),
 }))
 
-import { RELOAD_COMMIT_GRACE_MS } from '@/lib/reload-preparation'
+import { RELOAD_COMMIT_GRACE_MS, registerReloadPreparation } from '@/lib/reload-preparation'
+import { holdTakeoverWhileInUse, resetTakeoverForTests } from '@/lib/update-takeover'
 import { openUpdatePanel } from './open-panel'
 import { UpdatesEngine } from './UpdatesEngine'
 import { resetUpdates, useUpdates } from './updates-panel-context'
@@ -348,6 +349,42 @@ describe('UpdatesEngine', () => {
         await vi.advanceTimersByTimeAsync(RELOAD_COMMIT_GRACE_MS)
       })
     } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('asks the server at once when a new build waits for this screen, and Reload goes straight there', async () => {
+    vi.useFakeTimers()
+    const detach = registerReloadPreparation(async () => {})
+    try {
+      mount({
+        ...OFFER,
+        state: 'waiting-you',
+        title: 'Reload to finish',
+        primary: { kind: 'reload', label: 'Reload', pendingLabel: 'Reloading…' },
+      })
+      mocks.refreshState.mockClear()
+      // The new build took control of this visible, signed-in page (POD-7539).
+      act(() => {
+        expect(holdTakeoverWhileInUse('workbox-controlling')).toBe(true)
+      })
+      expect(mocks.refreshState).toHaveBeenCalledOnce()
+      const options = mocks.useUpdateState.mock.calls.at(-1)?.[0] as {
+        reload: () => Promise<void>
+      }
+      await act(async () => {
+        await options.reload()
+      })
+      expect(mocks.navigateReload).toHaveBeenCalledExactlyOnceWith(
+        'handshake',
+        'replacement-controls-page',
+      )
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(RELOAD_COMMIT_GRACE_MS)
+      })
+    } finally {
+      detach()
+      resetTakeoverForTests()
       vi.useRealTimers()
     }
   })
