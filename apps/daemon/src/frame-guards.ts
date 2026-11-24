@@ -198,7 +198,13 @@ export function createFrameGuard(
       if (
         'sessionId' in msg &&
         typeof msg.sessionId === 'string' &&
-        ctx.bindingStore.isQuarantined(msg.sessionId)
+        ctx.bindingStore.isQuarantined(msg.sessionId) &&
+        // A return handoff's import reaches the binding store's claim gate, which
+        // alone decides whether it may replace handoff history (POD-7534).
+        !(
+          (msg.type === 'handoffImportRequest' || msg.type === 'handoffImportChunk') &&
+          ctx.bindingStore.retainsHandoffHistory(msg.sessionId)
+        )
       ) {
         finish(msg.type)
         return

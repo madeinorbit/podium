@@ -67,6 +67,15 @@ interface InventoriedExport {
   transferId: string
 }
 
+/** What a return adoption over handoff history was admitted with (POD-7534). */
+interface ReturnAdoptionGate {
+  generation: number
+  seen: InventoriedExport
+  placement: MachineId
+  receiptDir: string
+  probe: (id: SessionId) => Promise<boolean>
+}
+
 /**
  * `exporting` and `adopting` are deliberately NON-LIVE ownership states.
  * During a handoff there may be a durable row on both machines, but never two
@@ -155,6 +164,11 @@ export interface BindingTransfer {
   settledAt: string | null
   /** State restored when a claim aborts. `null` means no row predated import. */
   priorState: BindingState | null
+  /**
+   * The committed source transfer a return adoption claimed over (POD-7534).
+   * An abort of that claim restores it, so the record is history again.
+   */
+  priorTransfer?: BindingTransfer | null
 }
 export interface BindingTransitionReceipt {
   transitionId: string
@@ -1090,6 +1104,34 @@ export class BindingStore {
   private inventoriedExports = new Map<SessionId, InventoriedExport>()
   /** History ids this connect's server facts authorized for retirement (POD-7534). */
   private retirementAuthorized = new Set<SessionId>()
+  /** The placement this connect's server facts disclosed for each history id. */
+  private historyPlacements = new Map<SessionId, MachineId>()
+  /** Return adoptions claimed over history, until they commit or abort. */
+  private returnAdoptions = new Map<SessionId, { seen: InventoriedExport; placement: MachineId }>()
+  private receiptDir: string | undefined
+  private sourceProcessProbe: ((id: SessionId) => Promise<boolean>) | undefined
+
+  /**
+   * The host's live-process probe, required before a return adoption may claim
+   * over handoff history. Without one, returns keep the history refusal.
+   */
+  setSourceProcessProbe(probe: (id: SessionId) => Promise<boolean>): void {
+    this.sourceProcessProbe = probe
+  }
+
+  /**
+   * Whether a target claim could pass the history gate, checked before an import
+   * lands any files. True for an id this store does not fence at all; the write
+   * chain still runs every check again when the claim arrives.
+   */
+  admitsTargetClaim(input: SessionBindingTransition): boolean {
+    return !this.isQuarantined(input.sessionId) || this.returnAdoptionGate(input) !== undefined
+  }
+
+  /** A history id whose return-handoff import frames may reach the claim gate. */
+  retainsHandoffHistory(sessionId: SessionId): boolean {
+    return this.recovery.get(sessionId) === 'retained-handoff-history'
+  }
   private malformedBindings = new Set<SessionId>()
 
   /** History keeps the same execution fence as unresolved recovery. */
@@ -1148,6 +1190,9 @@ export class BindingStore {
     if (generation !== this.recoveryGeneration) return [...ids].sort()
     this.inventoriedExports = committedExports
     this.retirementAuthorized.clear()
+    this.historyPlacements.clear()
+    this.returnAdoptions.clear()
+    this.receiptDir = codexReceiptDir
     this.malformedBindings = malformed
     this.recovery = new Map([...ids].map((id) => [id, 'quarantined']))
     for (const id of this.recoveryReasons.keys()) {
@@ -1161,6 +1206,7 @@ export class BindingStore {
     this.confirmedMachineId = facts === undefined ? undefined : machineId
     // A missing field means an old server: skip recovery, preserving its behavior.
     this.retirementAuthorized.clear()
+    this.historyPlacements.clear()
     if (facts === undefined) {
       for (const id of this.recovery.keys())
         this.setRecovery(id, undefined, 'confirmation unavailable')
@@ -1193,6 +1239,7 @@ export class BindingStore {
       }
       if (this.inventoriedExports.get(id)?.machineId === machineId) {
         this.setRecovery(id, 'retained-handoff-history', 'retained handoff history')
+        this.historyPlacements.set(id, fact.machineId as MachineId)
         if (fact.retireHandoffHistory === true) this.retirementAuthorized.add(id)
       } else {
         this.setRecovery(id, 'quarantined', 'placement mismatch')
@@ -1223,6 +1270,89 @@ export class BindingStore {
       this.setRecovery(id, undefined, 'deletion confirmed')
       this.closedBindings.delete(id)
     }
+  }
+
+  /**
+   * RETURN ADOPTION OVER HISTORY (POD-7534), first gate, before the write chain.
+   * Only a server-authorized target CLAIM of a return handoff to this machine,
+   * from the placement this connect's server facts disclosed, for a transfer
+   * other than the one that took the session away. Anything else keeps the
+   * history refusal.
+   */
+  private returnAdoptionGate(input: SessionBindingTransition): ReturnAdoptionGate | undefined {
+    if (input.event !== 'adopt' || input.role !== 'target' || input.phase !== 'claim') return
+    if (input.machineAccess !== 'allowed' || !input.adoption?.serverDelegation) return
+    if (this.recovery.get(input.sessionId) !== 'retained-handoff-history') return
+    const machineId = this.confirmedMachineId
+    const seen = this.inventoriedExports.get(input.sessionId)
+    const placement = this.historyPlacements.get(input.sessionId)
+    const receiptDir = this.receiptDir
+    const probe = this.sourceProcessProbe
+    if (!machineId || !seen || !placement || receiptDir === undefined || !probe) return
+    if (input.toMachineId !== machineId || seen.machineId !== machineId) return
+    if (input.fromMachineId === machineId || input.fromMachineId !== placement) return
+    if (input.transferId.length === 0 || input.transferId === seen.transferId) return
+    return { generation: this.recoveryGeneration, seen, placement, receiptDir, probe }
+  }
+
+  /** Second gate, inside the write chain: the same re-read checks as retirement, minus retention. */
+  private async returnAdoptionAdmitted(
+    input: SessionBindingTransition,
+    gate: ReturnAdoptionGate,
+    current: SessionBindingRecord | null,
+  ): Promise<boolean> {
+    const stillHistory = () =>
+      gate.generation === this.recoveryGeneration &&
+      this.recovery.get(input.sessionId) === 'retained-handoff-history' &&
+      this.historyPlacements.get(input.sessionId) === gate.placement
+    if (!stillHistory() || !current) return false
+    if (
+      current.sessionId !== input.sessionId ||
+      !committedSourceExport(current) ||
+      current.claimantMachineId !== gate.seen.machineId ||
+      current.transfer?.transferId !== gate.seen.transferId ||
+      current.transitionHistory.some((entry) => entry.transitionId === input.transitionId)
+    )
+      return false
+    if (
+      current.observations.some((entry) => entry.pendingServerAck !== undefined) ||
+      (current.terminalProofWatches?.length ?? 0) > 0 ||
+      (await spooledReceiptNames(gate.receiptDir, input.sessionId)).length > 0
+    )
+      return false
+    if (await gate.probe(input.sessionId)) return false
+    return stillHistory()
+  }
+
+  /** Lift the history fence for an admitted claim; restore it if that claim aborts. */
+  private afterReturnAdoptionStep(
+    input: SessionBindingTransition,
+    gate: ReturnAdoptionGate | undefined,
+    changed: SessionBindingRecord,
+  ): void {
+    const id = input.sessionId
+    if (gate) {
+      this.retirementAuthorized.delete(id)
+      this.inventoriedExports.delete(id)
+      this.historyPlacements.delete(id)
+      this.closedBindings.delete(id)
+      this.returnAdoptions.set(id, { seen: gate.seen, placement: gate.placement })
+      this.setRecovery(id, undefined, 'return adoption')
+      return
+    }
+    const returning = this.returnAdoptions.get(id)
+    if (!returning || input.event !== 'adopt' || input.role !== 'target') return
+    if (input.phase === 'commit') this.returnAdoptions.delete(id)
+    if (input.phase !== 'abort') return
+    this.returnAdoptions.delete(id)
+    if (
+      !committedSourceExport(changed) ||
+      changed.transfer?.transferId !== returning.seen.transferId
+    )
+      return
+    this.inventoriedExports.set(id, returning.seen)
+    this.historyPlacements.set(id, returning.placement)
+    this.setRecovery(id, 'retained-handoff-history', 'retained handoff history')
   }
 
   /**
@@ -1725,7 +1855,10 @@ export class BindingStore {
    * delegation reference and identity evidence.
    */
   async transition(input: SessionBindingTransition): Promise<SessionBindingTransitionOutcome> {
-    if (this.isQuarantined(input.sessionId))
+    const overHistory = this.isQuarantined(input.sessionId)
+      ? this.returnAdoptionGate(input)
+      : undefined
+    if (this.isQuarantined(input.sessionId) && !overHistory)
       return transitionRejected(input.event, 'binding-missing')
     // Authorization runs before arbitration. The lower layer therefore never
     // reads the binding for a caller policy has reduced to `not-found`, and its
@@ -1741,6 +1874,10 @@ export class BindingStore {
     const prior = this.writes.get(input.sessionId) ?? Promise.resolve()
     const next = prior.then(async (): Promise<SessionBindingTransitionOutcome> => {
       const current = await this.read(input.sessionId)
+      // Same refusal as a missing row: a return that fails any re-read check is
+      // indistinguishable from one that reached a machine with no history.
+      if (overHistory && !(await this.returnAdoptionAdmitted(input, overHistory, current)))
+        return transitionRejected(input.event, 'binding-missing')
       if (current?.transitionHistory.some((entry) => entry.transitionId === input.transitionId)) {
         return { status: 'unchanged', event: input.event, binding: current }
       }
@@ -2092,6 +2229,7 @@ export class BindingStore {
                 claimedAt: input.at,
                 settledAt: null,
                 priorState: current?.state ?? null,
+                ...(overHistory && current?.transfer ? { priorTransfer: current.transfer } : {}),
               },
               state: 'adopting',
               createdAt: current?.createdAt ?? input.at,
@@ -2126,7 +2264,8 @@ export class BindingStore {
                 ...current,
                 state: current.transfer.priorState ?? 'retired',
                 retiredAt: current.transfer.priorState === null ? input.at : current.retiredAt,
-                transfer: {
+                // An aborted return adoption leaves the source history it claimed over.
+                transfer: current.transfer.priorTransfer ?? {
                   ...current.transfer,
                   phase: 'aborted',
                   settledAt: input.at,
@@ -2198,6 +2337,7 @@ export class BindingStore {
             : entry)
       }
       await atomicBindingWrite(this.pathFor(input.sessionId), changed)
+      this.afterReturnAdoptionStep(input, overHistory, changed)
       return { status: 'applied', event: input.event, binding: changed }
     })
 

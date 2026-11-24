@@ -64,6 +64,52 @@ describe('handoff ADOPT host refusal', () => {
   })
 })
 
+it('refuses a return the history gate would refuse before any file lands (POD-7534)', async () => {
+  const sent: DaemonMessage[] = []
+  const sessionId = asSessionId('import-history')
+  const asked: unknown[] = []
+  const ctx = {
+    ...refusalContext(sent),
+    bindingStore: {
+      admitsTargetClaim: (input: unknown) => {
+        asked.push(input)
+        return false
+      },
+    },
+  } as unknown as DaemonContext
+  handoffHandlers.handoffImportRequest(ctx, {
+    type: 'handoffImportRequest',
+    requestId: 'request-history',
+    sessionId,
+    repoPath: '/must-not-be-read',
+    worktreeName: 'must-not-be-read',
+    binding: {
+      transitionId: 'adopt:return',
+      machineAccess: 'allowed',
+      transfer: transfer(sessionId),
+    },
+  })
+  await Promise.resolve()
+  expect(asked).toMatchObject([
+    {
+      event: 'adopt',
+      role: 'target',
+      phase: 'claim',
+      sessionId,
+      transferId: 'transfer-denied',
+      fromMachineId: 'source-machine',
+      toMachineId: 'target-machine',
+    },
+  ])
+  expect(sent).toEqual([
+    {
+      type: 'handoffImportResult',
+      requestId: 'request-history',
+      ok: false,
+      error: 'handoff refused',
+    },
+  ])
+})
 
 it.each([
   ['/repo', '/repo/src', '/repository/src'],

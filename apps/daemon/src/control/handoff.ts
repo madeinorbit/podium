@@ -243,6 +243,40 @@ async function importPackage(
       })
       return
     }
+    const claimInput = {
+      event: 'adopt' as const,
+      transitionId: msg.binding.transitionId,
+      sessionId: msg.sessionId,
+      machineAccess: msg.binding.machineAccess,
+      transferId: transfer.transferId,
+      role: 'target' as const,
+      phase: 'claim' as const,
+      fromMachineId: asMachineId(transfer.fromMachineId),
+      toMachineId: asMachineId(transfer.toMachineId),
+      at: new Date().toISOString(),
+    }
+    // A fenced id (handoff history) is refused before any file lands unless the
+    // return could replace that history (POD-7534); the claim re-checks it all.
+    if (
+      !ctx.bindingStore.admitsTargetClaim({
+        ...claimInput,
+        adoption: {
+          agentKind: transfer.agentKind,
+          observationGeneration: transfer.observationGeneration,
+          delegation: transfer.delegation,
+          serverDelegation: transfer.serverDelegation,
+          observations: [],
+        },
+      })
+    ) {
+      ctx.send({
+        type: 'handoffImportResult',
+        requestId: msg.requestId,
+        ok: false,
+        error: 'handoff refused',
+      })
+      return
+    }
     const result = await importHandoffPackage({ ...msg, homeDir: ctx.homeDir })
     if (
       result.manifest.sessionId !== transfer.sessionId ||
@@ -251,16 +285,7 @@ async function importPackage(
       throw new Error('handoff refused')
     }
     const claim = await ctx.sessionBinding.transition({
-      event: 'adopt',
-      transitionId: msg.binding.transitionId,
-      sessionId: msg.sessionId,
-      machineAccess: msg.binding.machineAccess,
-      transferId: transfer.transferId,
-      role: 'target',
-      phase: 'claim',
-      fromMachineId: asMachineId(transfer.fromMachineId),
-      toMachineId: asMachineId(transfer.toMachineId),
-      at: new Date().toISOString(),
+      ...claimInput,
       adoption: {
         agentKind: transfer.agentKind,
         observationGeneration: transfer.observationGeneration,

@@ -9,7 +9,7 @@ import { attachTestTerminal, testSessions } from './session/testing.js'
 const context = (): DaemonContext =>
   ({
     agentRelayHub: { onResult: vi.fn() },
-    bindingStore: { isQuarantined: vi.fn(() => false) },
+    bindingStore: { isQuarantined: vi.fn(() => false), retainsHandoffHistory: vi.fn(() => false) },
     sessions: testSessions(),
     send: vi.fn(),
     access: new SessionAccessStore({ markers: memoryMarkers() }),
@@ -189,6 +189,32 @@ it('isolates a quarantined session from unrelated control frames and binary inpu
     Buffer.from('y'),
   )
   expect(write).toHaveBeenCalledWith(Buffer.from('y'))
+})
+
+it('lets only a return handoff import reach the claim gate for handoff history (POD-7534)', async () => {
+  const ctx = context()
+  ctx.bindingStore.isQuarantined = (id) => id === 'history' || id === 'unresolved'
+  ctx.bindingStore.retainsHandoffHistory = (id) => id === 'history'
+  const guard = createFrameGuard(ctx)
+  const chunk = (sessionId: string) =>
+    Buffer.from(
+      JSON.stringify({
+        type: 'handoffImportChunk',
+        requestId: sessionId,
+        sessionId,
+        offset: 0,
+        data: '',
+      }),
+    )
+  guard.receive(chunk('unresolved'))
+  guard.receive(Buffer.from(JSON.stringify({ type: 'kill', sessionId: 'history' })))
+  guard.receive(chunk('history'))
+  await vi.waitFor(() =>
+    expect(ctx.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'handoffImportChunkResult', requestId: 'history' }),
+    ),
+  )
+  expect(ctx.send).not.toHaveBeenCalledWith(expect.objectContaining({ requestId: 'unresolved' }))
 })
 
 /**

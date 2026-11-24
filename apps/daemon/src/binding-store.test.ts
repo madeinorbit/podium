@@ -1585,3 +1585,254 @@ describe('handoff history retirement (POD-7534)', () => {
     expect(await store.read(moved)).not.toBeNull()
   })
 })
+
+describe('return handoff over handoff history (POD-7534)', () => {
+  const destination = asMachineId('machine-b')
+  const elsewhere = asMachineId('machine-c')
+  const moved = asSessionId('round-trip')
+  const settledAt = '2026-07-31T12:00:00.000Z'
+  // Well inside the retention window: a return must not wait for retirement.
+  const soon = '2026-07-31T13:00:00.000Z'
+  const placement = {
+    owner: alice,
+    machineId: destination,
+    closed: false,
+    delegation: serverDelegation(moved, alice),
+  }
+
+  async function exportedStore() {
+    const root = await tempRoot()
+    const receipts = join(root, 'receipts')
+    await mkdir(receipts)
+    const store = await BindingStore.open({ dir: root, now: () => soon })
+    await store.ensureBinding({
+      sessionId: moved,
+      agentKind: 'codex',
+      claimantMachineId: machine,
+      delegation: serverDelegation(moved, alice),
+    })
+    await sourceTransfer(store, 'outbound', machine, destination)
+    await store.inventory(receipts)
+    store.confirmInventory(machine, { [moved]: placement })
+    expect(store.isQuarantined(moved)).toBe(true)
+    expect(store.quarantinedCount).toBe(0)
+    store.setSourceProcessProbe(async () => false)
+    return { store, receipts }
+  }
+
+  async function sourceTransfer(
+    store: BindingStore,
+    transferId: string,
+    from: typeof machine,
+    to: typeof machine,
+  ) {
+    for (const phase of ['claim', 'commit'] as const) {
+      expect(
+        await store.transition({
+          event: 'adopt',
+          transitionId: `${transferId}:source-${phase}`,
+          sessionId: moved,
+          machineAccess: 'allowed',
+          transferId,
+          role: 'source',
+          phase,
+          fromMachineId: from,
+          toMachineId: to,
+          at: settledAt,
+        }),
+      ).toMatchObject({ status: 'applied' })
+    }
+  }
+
+  const returnClaim = (overrides: Record<string, unknown> = {}) =>
+    ({
+      event: 'adopt',
+      transitionId: 'return:target-claim',
+      sessionId: moved,
+      machineAccess: 'allowed',
+      transferId: 'return',
+      role: 'target',
+      phase: 'claim',
+      fromMachineId: destination,
+      toMachineId: machine,
+      at: soon,
+      adoption: {
+        serverDelegation: placement.delegation,
+        agentKind: 'codex',
+        observationGeneration: 2,
+        delegation: placement.delegation,
+        observations: [
+          { channel: 'resume-ref', nativeKind: 'codex-thread', value: 'return-thread' },
+        ],
+      },
+      ...overrides,
+    }) as Parameters<BindingStore['transition']>[0]
+
+  const targetStep = (phase: 'commit' | 'abort', transferId = 'return') =>
+    ({
+      event: 'adopt',
+      transitionId: `${transferId}:target-${phase}`,
+      sessionId: moved,
+      machineAccess: 'allowed',
+      transferId,
+      role: 'target',
+      phase,
+      fromMachineId: destination,
+      toMachineId: machine,
+      at: soon,
+    }) as Parameters<BindingStore['transition']>[0]
+
+  it('hands a session back A to B to A, and out again, without a reconnect or retention wait', async () => {
+    const { store } = await exportedStore()
+    expect(await store.transition(returnClaim())).toMatchObject({ status: 'applied' })
+    // The claim lifts the fence, so the finalize and launch frames reach the session.
+    expect(store.isQuarantined(moved)).toBe(false)
+    expect(await store.transition(targetStep('commit'))).toMatchObject({ status: 'applied' })
+    expect(await store.read(moved)).toMatchObject({
+      state: 'bound',
+      claimantMachineId: machine,
+      transfer: { side: 'target', phase: 'committed', transferId: 'return' },
+    })
+    // A second departure is an ordinary source export again.
+    await sourceTransfer(store, 'second', machine, destination)
+    expect(await store.read(moved)).toMatchObject({
+      state: 'exported',
+      transfer: { side: 'source', phase: 'committed', transferId: 'second' },
+    })
+  })
+
+  it('restores the history and its fence when the return claim aborts', async () => {
+    const { store } = await exportedStore()
+    expect(await store.transition(returnClaim())).toMatchObject({ status: 'applied' })
+    expect(await store.transition(targetStep('abort'))).toMatchObject({ status: 'applied' })
+    expect(await store.read(moved)).toMatchObject({
+      state: 'exported',
+      transfer: { side: 'source', phase: 'committed', transferId: 'outbound' },
+    })
+    expect(store.isQuarantined(moved)).toBe(true)
+    expect(store.quarantinedCount).toBe(0)
+    // The restored history admits a later, fresh return.
+    expect(
+      await store.transition(
+        returnClaim({ transitionId: 'again:target-claim', transferId: 'again' }),
+      ),
+    ).toMatchObject({ status: 'applied' })
+  })
+
+  const refused: Array<
+    [
+      string,
+      (ctx: { store: BindingStore; receipts: string }) => Promise<unknown>,
+      Record<string, unknown>,
+    ]
+  > = [
+    [
+      'from a machine other than the disclosed placement (stale)',
+      async () => {},
+      { fromMachineId: elsewhere },
+    ],
+    [
+      'replaying the transfer that took the session away',
+      async () => {},
+      { transferId: 'outbound' },
+    ],
+    [
+      'replaying a recorded transition id',
+      async () => {},
+      { transitionId: 'outbound:source-claim' },
+    ],
+    ['addressed to another machine', async () => {}, { toMachineId: elsewhere }],
+    ['from this machine itself', async () => {}, { fromMachineId: machine }],
+    [
+      'without the server delegation (forged)',
+      async () => {},
+      { adoption: { ...returnClaim().adoption, serverDelegation: undefined } },
+    ],
+    ['without machine access', async () => {}, { machineAccess: 'denied' }],
+    ['as a commit with no claim', async () => {}, { phase: 'commit', adoption: undefined }],
+    [
+      'while a source process is alive',
+      async ({ store }) => store.setSourceProcessProbe(async () => true),
+      {},
+    ],
+    [
+      'with a spooled receipt outstanding',
+      async ({ receipts }) =>
+        writeFile(join(receipts, `${moved}.json`), JSON.stringify({ session_id: 'thread' })),
+      {},
+    ],
+    [
+      'with a terminal proof watch outstanding',
+      async ({ store }) => {
+        const current = requiredBinding(await store.read(moved))
+        await writeFile(
+          store.pathFor(moved),
+          JSON.stringify({
+            ...current,
+            terminalProofWatches: [{ turnId: 't', text: 'x', typingStartedAt: soon }],
+          }),
+        )
+      },
+      {},
+    ],
+    [
+      'when the record changed since inventory',
+      async ({ store }) => {
+        const current = requiredBinding(await store.read(moved))
+        await writeFile(
+          store.pathFor(moved),
+          JSON.stringify({
+            ...current,
+            transfer: { ...requiredBinding(current.transfer), transferId: 'rewritten' },
+          }),
+        )
+      },
+      {},
+    ],
+    [
+      'after a reconnect re-inventoried the store',
+      async ({ store, receipts }) => store.inventory(receipts),
+      {},
+    ],
+  ]
+
+  it.each(refused)('refuses a return %s', async (_name, arrange, overrides) => {
+    const ctx = await exportedStore()
+    await arrange(ctx)
+    const before = await readFile(ctx.store.pathFor(moved), 'utf8')
+    expect(await ctx.store.transition(returnClaim(overrides))).toMatchObject({
+      status: 'rejected',
+      reason: 'binding-missing',
+    })
+    expect(await readFile(ctx.store.pathFor(moved), 'utf8')).toBe(before)
+    expect(ctx.store.isQuarantined(moved)).toBe(true)
+  })
+
+  it('keeps the refusal for a return to an unresolved quarantined row', async () => {
+    const { store, receipts } = await exportedStore()
+    // Undisclosed facts: not history, so no return may replace it.
+    await store.inventory(receipts)
+    store.confirmInventory(machine, { [moved]: { owner: null, machineId: null, closed: false } })
+    expect(store.quarantinedCount).toBe(1)
+    expect(await store.transition(returnClaim())).toMatchObject({
+      status: 'rejected',
+      reason: 'binding-missing',
+    })
+  })
+
+  it('refuses a return when the host never installed a process probe', async () => {
+    const root = await tempRoot()
+    const receipts = join(root, 'receipts')
+    const store = await BindingStore.open({ dir: root, now: () => soon })
+    await store.ensureBinding({
+      sessionId: moved,
+      agentKind: 'codex',
+      claimantMachineId: machine,
+      delegation: serverDelegation(moved, alice),
+    })
+    await sourceTransfer(store, 'outbound', machine, destination)
+    await store.inventory(receipts)
+    store.confirmInventory(machine, { [moved]: placement })
+    expect(await store.transition(returnClaim())).toMatchObject({ status: 'rejected' })
+  })
+})

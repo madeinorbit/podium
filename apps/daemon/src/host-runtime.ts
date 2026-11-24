@@ -2112,6 +2112,7 @@ export async function createDaemonHostRuntime(args: {
     }
     return (await durable?.has(sessions.get(id)?.label ?? ctx.durableLabelFor(id))) ?? false
   }
+  bindingStore.setSourceProcessProbe(sessionProcessAlive)
   const reapBindings = async (): Promise<void> => {
     if (reapingBindings || disposed) return
     reapingBindings = true
@@ -2156,8 +2157,11 @@ export async function createDaemonHostRuntime(args: {
           await reapBindings()
           // Only here, seconds after the server's read: the authorization is this
           // connect's (POD-7534). Metrics-push reaps never retire history.
+          // A failed retirement keeps the record; it never fails recovery.
           if (!disposed)
-            await bindingStore.retireHandoffHistory(sessionProcessAlive, instance.codexReceiptDir)
+            await bindingStore
+              .retireHandoffHistory(sessionProcessAlive, instance.codexReceiptDir)
+              .catch((err) => log.warn('handoff history retirement failed', { err }))
           await dropStaleSessionInstalls()
           pushHostMetrics()
           await replayPendingBindingReceipts()
