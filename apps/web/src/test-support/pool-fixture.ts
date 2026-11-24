@@ -1,4 +1,5 @@
 import { observableFixtureKeys } from '@podium/client-core/test-support/ui'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 // Machines are read as machine models (POD-6644): their classes load with the fixture.
 import '@podium/client-graph/synced-models'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -113,10 +114,12 @@ export function syncPoolFixture(
     state.userPreferences,
   ])
   if (!pool) {
-    pool = new MobxPool({
-      selectedIssueId: state.selectedIssueId ?? null,
-      coarseNow: state.coarseNow ?? Date.now(),
-    })
+    pool = fullDevice(
+      new MobxPool({
+        selectedIssueId: state.selectedIssueId ?? null,
+        coarseNow: state.coarseNow ?? Date.now(),
+      }),
+    )
     seedInstancePreferences(pool)
     const userId = asUserId('fixture-user')
     pool.apply({

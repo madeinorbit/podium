@@ -1,16 +1,17 @@
-import { omitGone } from '@podium/client-graph/lookup'
 /** Literal board and screening fixtures read through the production pool only. */
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
+import { omitGone } from '@podium/client-graph/lookup'
 import { createMobileInboxViews } from '@podium/client-graph/mobile-inbox-views'
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import type { MobileTasksOptions } from '@podium/client-graph/mobile-screens-schema'
 import { MobxPool } from '@podium/client-graph/pool'
-import { readMobileTaskSnapshot } from '../../../tests/worklist/diagnostics/mobile-task-snapshot'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { readMobileTaskSnapshot } from '../../../tests/worklist/diagnostics/mobile-task-snapshot'
 
 const at = '2026-06-01T12:00:00.000Z'
 function fixture(issues: readonly IssueViewModel[], workers: ReadonlyMap<string, number>) {
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(at) })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(at) }))
   const repos = new Map(
     issues.map((issue) => [
       issue.repoPath,

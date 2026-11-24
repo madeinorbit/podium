@@ -485,7 +485,7 @@ export function createBoardLayout(pool: MobxPool) {
       : stagePage(options.stage)
   const columnHeld = keyedComputed('IssueBoard.columnHeld', (key: string): boolean => {
     const options: BoardColumnOptions = JSON.parse(key)
-    if (!pool.collections.available) return true
+    if (!pool.collections.available) return pool.collections.held(pageOf(options))
     // No collection holds archived or deleted issues by stage.
     if (options.filter.archived || options.filter.deleted) return false
     if (

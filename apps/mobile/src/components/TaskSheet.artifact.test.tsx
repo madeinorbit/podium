@@ -1,4 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import { MobxPool } from '@podium/client-graph/pool'
 import type { IssuePanelArtifact } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -97,7 +98,7 @@ const issue = {
 describe('TaskSheet artifacts', () => {
   it('closes the sheet first, then opens the viewer outside it', async () => {
     const onClose = vi.fn()
-    const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+    const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: 0 }))
     // The panel's artifacts are records of their own (POD-6778).
     pool.apply({
       type: 'replace',

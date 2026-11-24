@@ -4,6 +4,7 @@ import { FLIGHT_DECK_FOLDS_KEY } from '@podium/client-core/ui-state'
 import { writeFlightDeckFolds } from '@podium/client-core/values'
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
+import { fullDevice } from './full-device-fixture'
 import { MissionScreen } from './mission-screen'
 import { MobxPool } from './pool'
 import { attachPreferenceSource } from './preference-source'
@@ -20,31 +21,72 @@ function fixture() {
       else values.set(key, value)
       for (const listener of listeners) listener(new Set([key]))
     },
-    subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener) },
+    subscribe: (listener) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
   }
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }))
   // The product's device preferences are observable (UiStore); so is this port.
   attachPreferenceSource(pool, observableFixtureKeys(ui))
   const issue = (id: string, seq: number, parentId: string | null) => ({
-    kind: 'issue' as const, id, value: { id, seq, title: `Task ${id}`, stage: 'in_progress', audience: 'human', parentId,
-      deps: [], repoPath: '/synthetic', createdAt: stamp, updatedAt: stamp, readAt: stamp },
+    kind: 'issue' as const,
+    id,
+    value: {
+      id,
+      seq,
+      title: `Task ${id}`,
+      stage: 'in_progress',
+      audience: 'human',
+      parentId,
+      deps: [],
+      repoPath: '/synthetic',
+      createdAt: stamp,
+      updatedAt: stamp,
+      readAt: stamp,
+    },
   })
   const session = (sessionId: string, issueId: string, archived = false) => ({
-    kind: 'session' as const, id: sessionId, value: { sessionId, issueId, cwd: '/synthetic', title: `Agent ${sessionId}`,
-      name: `Agent ${sessionId}`, agentKind: 'codex', status: archived ? 'exited' : 'running', archived,
-      createdAt: stamp, lastActiveAt: stamp, readAt: stamp, unread: false },
+    kind: 'session' as const,
+    id: sessionId,
+    value: {
+      sessionId,
+      issueId,
+      cwd: '/synthetic',
+      title: `Agent ${sessionId}`,
+      name: `Agent ${sessionId}`,
+      agentKind: 'codex',
+      status: archived ? 'exited' : 'running',
+      archived,
+      createdAt: stamp,
+      lastActiveAt: stamp,
+      readAt: stamp,
+      unread: false,
+    },
   })
-  pool.apply({ type: 'replace', rows: [
-    issue('root', 1, null), issue('shown', 2, 'root'), issue('branch', 3, 'root'),
-    issue('hidden-a', 4, 'branch'), issue('hidden-b', 5, 'branch'),
-    session('s-root', 'root'), session('s-shown', 'shown'), session('s-branch', 'branch'),
-    session('s-hidden-a', 'hidden-a'), session('s-hidden-b', 'hidden-b'),
-    session('s-archived-1', 'root', true), session('s-archived-2', 'shown', true),
-  ] })
+  pool.apply({
+    type: 'replace',
+    rows: [
+      issue('root', 1, null),
+      issue('shown', 2, 'root'),
+      issue('branch', 3, 'root'),
+      issue('hidden-a', 4, 'branch'),
+      issue('hidden-b', 5, 'branch'),
+      session('s-root', 'root'),
+      session('s-shown', 'shown'),
+      session('s-branch', 'branch'),
+      session('s-hidden-a', 'hidden-a'),
+      session('s-hidden-b', 'hidden-b'),
+      session('s-archived-1', 'root', true),
+      session('s-archived-2', 'shown', true),
+    ],
+  })
   return { pool, ui }
 }
 
-const flush = async () => { for (let turn = 0; turn < 5; turn++) await new Promise<void>(resolve => setTimeout(resolve, 0)) }
+const flush = async () => {
+  for (let turn = 0; turn < 5; turn++) await new Promise<void>((resolve) => setTimeout(resolve, 0))
+}
 
 it('folded branches and archived crew get no display fields prepared before they are drawn', async () => {
   const { pool, ui } = fixture()
@@ -60,12 +102,20 @@ it('folded branches and archived crew get no display fields prepared before they
   // crew of every unfolded strip; the archive only as its count.
   const stop = autorun(() => {
     if (!screen.ready) return
-    void screen.rootTitle; void screen.progress; void screen.liveCount; void screen.archivedCount
-    void screen.allFolded; void screen.crewIds
-    drawn = screen.visibleRows.map(row => {
-      void row.title; void row.displayRef; void row.status; void row.presentation
+    void screen.rootTitle
+    void screen.progress
+    void screen.liveCount
+    void screen.archivedCount
+    void screen.allFolded
+    void screen.crewIds
+    drawn = screen.visibleRows.map((row) => {
+      void row.title
+      void row.displayRef
+      void row.status
+      void row.presentation
       void row.unread(row.folded(screen.folds))
-      if (!row.folded(screen.folds)) for (const id of row.sessionIds(screen.mode)) void pool.sessionObject(id).name
+      if (!row.folded(screen.folds))
+        for (const id of row.sessionIds(screen.mode)) void pool.sessionObject(id).name
       return row.id
     })
   })
@@ -73,8 +123,12 @@ it('folded branches and archived crew get no display fields prepared before they
     await flush()
     expect(drawn).toEqual(['shown', 'branch'])
     const hidden = new Set(['hidden-a', 'hidden-b'])
-    expect(presentation.mock.calls.filter(([issue]) => hidden.has(issue.id)).map(([issue]) => issue.id)).toEqual([])
-    expect(title.mock.calls.filter(([issue]) => hidden.has(issue.id)).map(([issue]) => issue.id)).toEqual([])
+    expect(
+      presentation.mock.calls.filter(([issue]) => hidden.has(issue.id)).map(([issue]) => issue.id),
+    ).toEqual([])
+    expect(
+      title.mock.calls.filter(([issue]) => hidden.has(issue.id)).map(([issue]) => issue.id),
+    ).toEqual([])
     // Archived senders are counted from their roster flag: no archived list,
     // archived roster or whole attachment list is built before the archive opens.
     expect(archive).not.toHaveBeenCalled()
@@ -85,6 +139,13 @@ it('folded branches and archived crew get no display fields prepared before they
     screen.fold('branch', false)
     await flush()
     expect(drawn).toEqual(['shown', 'branch', 'hidden-a', 'hidden-b'])
-    expect(presentation.mock.calls.filter(([issue]) => hidden.has(issue.id)).map(([issue]) => issue.id).length).toBeGreaterThan(0)
-  } finally { stop(); screen.close(); pool.dispose() }
+    expect(
+      presentation.mock.calls.filter(([issue]) => hidden.has(issue.id)).map(([issue]) => issue.id)
+        .length,
+    ).toBeGreaterThan(0)
+  } finally {
+    stop()
+    screen.close()
+    pool.dispose()
+  }
 })

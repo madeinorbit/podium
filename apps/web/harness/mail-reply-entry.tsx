@@ -3,6 +3,7 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
 import type { ParsedEnvelope } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import { asSessionId, asThreadId, asUserId } from '@podium/model/browser'
 import { observable } from 'mobx'
 import { useMemo, useRef } from 'react'
@@ -93,7 +94,7 @@ function Harness() {
     surfaceRef = useRef<HTMLDivElement>(null)
   const quoteDraftRef = useRef<((input: QuoteInput) => void) | null>(null)
   const state = useMemo(() => {
-    const pool = new MobxPool({ coarseNow: 0, selectedIssueId: null })
+    const pool = fullDevice(new MobxPool({ coarseNow: 0, selectedIssueId: null }))
     const drafts = observable.map([[id, 'Continue reviewing the branch.']])
     pool.bindSessionDrafts({
       get: (key) => drafts.get(key) ?? '',

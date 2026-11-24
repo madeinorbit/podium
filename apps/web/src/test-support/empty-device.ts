@@ -7,8 +7,8 @@
  * that holds every record and answers only the instances that were asked
  * for). The screen reads the device's pool through the app's pool hooks, so
  * a screen that never asks for its data shows nothing here, as it does in
- * the app. The old fixtures (every row in the pool, no loader) hid that: a
- * pool without a loader answers every collection "held".
+ * the app. Full layout/interaction fixtures now declare `fullDevice(pool)`;
+ * a pool without a loader no longer answers every collection "held".
  *
  * A test file wires the app's hooks to the device with three mocks, then
  * mounts:

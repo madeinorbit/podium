@@ -2,6 +2,7 @@ import { observableFixtureKeys } from '@podium/client-core/test-support/ui'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { autorun, runInAction } from 'mobx'
 import { afterEach, describe, expect, it } from 'vitest'
+import { fullDevice } from './full-device-fixture'
 import { MissionScreen } from './mission-screen'
 import { settled } from './mission-view'
 import { MobxPool } from './pool'
@@ -75,7 +76,7 @@ async function rollupsPerBurst(
       return () => listeners.delete(listener)
     },
   }
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }))
   attachPreferenceSource(pool, observableFixtureKeys(ui))
   const tree = [issue('root', 1, { stage: 'in_progress', parentId: null })]
   for (let n = 0; n < children; n += 1) tree.push(child(n))

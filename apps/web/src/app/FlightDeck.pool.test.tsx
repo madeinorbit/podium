@@ -3,6 +3,7 @@ import { clientRecoveryId } from '@podium/client-core/logging'
 import { SocketHub, type WebSocketLike } from '@podium/client-core/socket-transport'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { isGone, LOADING } from '@podium/client-graph'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import { headerView } from '@podium/client-graph/header-views'
 import { omitGone } from '@podium/client-graph/lookup'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
@@ -178,7 +179,7 @@ beforeEach(() => {
     issues: { events: { query: async () => [] } },
     sessions: { transcriptRead: { query: async () => ({ items: [], hasMore: false }) } },
   }
-  pool = new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow })
+  pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow }))
   attachPreferenceSource(pool, state.uiState as RoutedUiState)
   pool.apply({
     type: 'replace',
@@ -274,7 +275,7 @@ describe('rendered mission pane parity', () => {
     [4, 'i13916'],
     [4, 'i14941'],
   ] as const)(
-    'paints a cold runtime mission at %sx (%s) using the automatic loader',
+    'paints a runtime mission at %sx (%s) on a full fixture device',
     async (scale, id) => {
       const ctx = await startScenarioEngine(scale, { seed: 4443 })
       const handle = createRuntimeWorklistPool(
@@ -282,7 +283,9 @@ describe('rendered mission pane parity', () => {
         screenOptions(poolBackedScreens, ctx.engine),
       )
       pool.dispose()
-      pool = handle.pool
+      // The scenario engine seeds every row; it has no CollectionLoader.
+      // The two device tests below exercise real loading and refreshing.
+      pool = fullDevice(handle.pool)
       state.pool = pool
       state.replica = ctx.engine.replica
       state.selectedIssueId = id

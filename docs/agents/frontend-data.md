@@ -114,9 +114,19 @@ A **view** is a feature the user sees: the worklist, mission, issue detail, laun
 
 ## Testing a screen on an empty device
 
-The older web fixtures put every row into a pool that has no loader, and such a pool answers every collection "held" (`PoolCollections.held`). A screen that never asks for its data passes there and shows nothing in the app. The empty-device harness closes that gap: the real `MobxPool`, `CollectionLoader` and kernel Replica, a device that starts with only the policy collections of a real start, and a fake server that holds every record but answers only the instances the device asked for, recording each request.
+A pool without a loader cannot prove that a collection is complete: `held` and `treeHeld` answer `false`, and `status` and `treeStatus` answer `loading`. Putting rows in the pool does not establish completeness. The empty-device harness uses the real `MobxPool`, `CollectionLoader` and kernel Replica, a device that starts with only the policy collections of a real start, and a fake server that holds every record but answers only the instances the device asked for, recording each request.
 
-Use it when a screen test checks data that is not guaranteed to be on the device: an issue's body (description, brief, todos, artifacts, deferred items, state line), any other record of group `body`, `windowed` or `byRule`, a closed or old record, or a record a view looks up by id. Use it too when the test is about what a screen asks the server for, or how it behaves offline. A test of layout or interaction over data the device always holds may keep the plain pool fixture.
+Use it when a screen test checks data that is not guaranteed to be on the device: an issue's body (description, brief, todos, artifacts, deferred items, state line), any other record of group `body`, `windowed` or `byRule`, a closed or old record, or a record a view looks up by id. Use it too when the test is about what a screen asks the server for, or how it behaves offline.
+
+A layout, Storybook or interaction fixture that intentionally supplies complete data declares that promise at its construction site:
+
+```ts
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
+
+const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: 0 }))
+```
+
+`fullDevice(pool)` explicitly vouches for the fixture's supplied collections, including empty ones: `held` and `treeHeld` answer `true`, and the status readers answer `complete`. It preserves the resident-row reader route, so parity tests still compare that route with the device-store implementation; it invents no loader, markers or stubs. It rejects a pool that already has a loader, and attaching a device store clears the declaration. Use this one helper for full-device fixtures in web, phone and `apps/web/harness`; a plain pool remains appropriate for a test of resident rows that needs no completeness claim. Never use the helper to fix a screen that does not ask for its data. Such a regression belongs on the empty-device harness, with content assertions.
 
 - Screen tests: `mountOnEmptyDevice(element, { world })` from `apps/web/src/test-support/empty-device.ts`. Its header shows the three mocks that bind the app's pool and client-core hooks to the device. `untilIdle()` runs the device until the loader has nothing due; `requested()` and `requestedKeys()` list what was asked for; `offline()` and `online()` switch the connection; `commands` and `requests` record what the screen sent; `hold(instance)` holds an instance by hand, as a control.
 - View-model tests: `openEmptyDevice({ world })` from `packages/client-graph/src/test-support/empty-device.test.fixture.ts`, and `observe(make, read)` to open a view model as a screen would.

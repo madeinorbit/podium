@@ -3,6 +3,7 @@ import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { subscriptionRowId, workflowBindingRowId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { createWorklistPool } from '../create'
+import { fullDevice } from '../full-device-fixture'
 import { requireHere } from '../lookup'
 import { requireLoaded } from '../mission-view'
 import { fixedLocals } from './locals-source'
@@ -100,7 +101,7 @@ function fixture(replace: boolean) {
     feed.flush()
   }
   return {
-    pool: handle.pool,
+    pool: fullDevice(handle.pool),
     dispose() {
       handle.dispose()
       feed.dispose()

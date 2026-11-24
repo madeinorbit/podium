@@ -1,3 +1,4 @@
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 /** Isolated machine records for the shipping first-run screens. No live requests. */
 import '@podium/client-graph/synced-models'
 import { seedFixtureMachines } from '@podium/client-graph/live-fixture'
@@ -14,7 +15,7 @@ import { observable, runInAction } from 'mobx'
 import { useMemo, useSyncExternalStore } from 'react'
 
 const scene = new URLSearchParams(location.search).get('scene') ?? 'missing'
-const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: 0 }))
 const machine = {
   id: asMachineId('setup-machine'),
   name: 'Project server',

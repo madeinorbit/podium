@@ -1,11 +1,12 @@
-import { requireHere } from './lookup'
-import { attachMissionTestPreferences } from './mission-screen.test.fixture'
 import { autorun, observable, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
-import { attachMobileScreens } from './mobile-screens'
-import { MissionScreen, missionRootId } from './mission-screen'
-import { MissionViewReader, settled } from './mission-view'
+import { fullDevice } from './full-device-fixture'
+import { requireHere } from './lookup'
 import { missions } from './mission'
+import { MissionScreen, missionRootId } from './mission-screen'
+import { attachMissionTestPreferences } from './mission-screen.test.fixture'
+import { MissionViewReader, settled } from './mission-view'
+import { attachMobileScreens } from './mobile-screens'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
@@ -35,7 +36,9 @@ const NO_PROGRESS = { total: 0, done: 0, working: 0, waiting: 0, todo: 0 }
  * and `deck` answer what MissionScreen and MissionDeck draw from it. */
 function phone(pool: MobxPool) {
   const screens = new Map<string, MissionScreen>()
-  disposals.push(() => { for (const screen of screens.values()) screen.close() })
+  disposals.push(() => {
+    for (const screen of screens.values()) screen.close()
+  })
   const open = (id: string): MissionScreen | undefined | typeof LOADING => {
     const rootId = missionRootId(pool, id, true)
     if (rootId === LOADING) return LOADING
@@ -49,7 +52,13 @@ function phone(pool: MobxPool) {
     mission(id: string) {
       const screen = open(id)
       if (screen === LOADING) return LOADING
-      if (!screen) return { root: undefined, missionSessions: [], progress: NO_PROGRESS, header: () => undefined }
+      if (!screen)
+        return {
+          root: undefined,
+          missionSessions: [],
+          progress: NO_PROGRESS,
+          header: () => undefined,
+        }
       const root = screen.reader.issue(screen.rootId)
       const rootValue = root === LOADING ? undefined : root
       return {
@@ -58,8 +67,9 @@ function phone(pool: MobxPool) {
         progress: screen.progress,
         /** The header issue for a session: its member issue, else the root. */
         header(issueId: string | undefined) {
-          const issue = issueId && screen.members.has(issueId) ? screen.reader.issue(issueId) : undefined
-          return issue === LOADING ? LOADING : issue ?? rootValue
+          const issue =
+            issueId && screen.members.has(issueId) ? screen.reader.issue(issueId) : undefined
+          return issue === LOADING ? LOADING : (issue ?? rootValue)
         },
       }
     },
@@ -68,7 +78,11 @@ function phone(pool: MobxPool) {
       if (screen === LOADING) return LOADING
       if (!screen) return { root: undefined, rows: [], presence: null }
       const root = screen.reader.issue(screen.rootId)
-      return { root: root === LOADING ? undefined : root, rows: screen.rows, presence: screen.presence }
+      return {
+        root: root === LOADING ? undefined : root,
+        rows: screen.rows,
+        presence: screen.presence,
+      }
     },
   }
 }
@@ -81,10 +95,12 @@ async function setup(
       ? sessions.find((row) => row.sessionId === id)
       : rows.find((row) => row.id === id),
   )
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
-    load,
-    schedule: () => () => {},
-  })
+  const pool = fullDevice(
+    new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
+      load,
+      schedule: () => () => {},
+    }),
+  )
   pool.apply({
     type: 'replace',
     rows: [
@@ -180,18 +196,25 @@ it('an archived root keeps its full header for the current session without prepa
     labels: ['root-label'],
   })
   const current = {
-    sessionId: 'current', issueId: 'cold', cwd: '/fixture',
-    status: 'working', agentKind: 'codex',
+    sessionId: 'current',
+    issueId: 'cold',
+    cwd: '/fixture',
+    status: 'working',
+    agentKind: 'codex',
     lastActiveAt: new Date(now).toISOString(),
   }
   const starter = {
-    sessionId: 'starter', cwd: '/fixture', status: 'exited', archived: true,
-    agentKind: 'codex', lastActiveAt: '2026-01-01T00:00:00Z',
+    sessionId: 'starter',
+    cwd: '/fixture',
+    status: 'exited',
+    archived: true,
+    agentKind: 'codex',
+    lastActiveAt: '2026-01-01T00:00:00Z',
   }
-  const { reader } = await setup([
-    root,
-    issue('hidden-child', { parentId: 'cold', archived: true, stage: 'done' }),
-  ], [current, starter])
+  const { reader } = await setup(
+    [root, issue('hidden-child', { parentId: 'cold', archived: true, stage: 'done' })],
+    [current, starter],
+  )
   const headerReads = vi.spyOn(MissionViewReader.prototype, 'readIssue')
   disposals.push(() => headerReads.mockRestore())
   disposals.push(autorun(() => reader.mission('cold')))
@@ -212,25 +235,50 @@ it('an archived root keeps its full header for the current session without prepa
 })
 it('an archived child keeps its full header when a current mission session belongs to it', async () => {
   const headerIssue = issue('header-child', {
-    parentId: 'root', archived: true, stage: 'done',
-    startedBySession: 'starter', coordinatorSessionId: 'current',
-    activityNotes: 'Child activity', asked: 'Child question',
-    needsHuman: true, closedReason: 'done', defaultAgent: 'codex', labels: ['child-label'],
+    parentId: 'root',
+    archived: true,
+    stage: 'done',
+    startedBySession: 'starter',
+    coordinatorSessionId: 'current',
+    activityNotes: 'Child activity',
+    asked: 'Child question',
+    needsHuman: true,
+    closedReason: 'done',
+    defaultAgent: 'codex',
+    labels: ['child-label'],
   })
   const current = {
-    sessionId: 'current', issueId: 'header-child', cwd: '/fixture', status: 'working',
-    agentKind: 'codex', lastActiveAt: new Date(now).toISOString(),
+    sessionId: 'current',
+    issueId: 'header-child',
+    cwd: '/fixture',
+    status: 'working',
+    agentKind: 'codex',
+    lastActiveAt: new Date(now).toISOString(),
   }
   // Archived children stay in this mission through the declared starter
   // provenance, since their formal parent relation is intentionally hidden.
   const starter = {
-    sessionId: 'starter', issueId: 'root', cwd: '/fixture', status: 'exited', archived: true,
-    agentKind: 'codex', lastActiveAt: '2026-01-01T00:00:00Z',
+    sessionId: 'starter',
+    issueId: 'root',
+    cwd: '/fixture',
+    status: 'exited',
+    archived: true,
+    agentKind: 'codex',
+    lastActiveAt: '2026-01-01T00:00:00Z',
   }
-  const { reader } = await setup([
-    issue('root'), headerIssue,
-    issue('hidden-child', { parentId: 'root', archived: true, stage: 'done', startedBySession: 'starter' }),
-  ], [current, starter])
+  const { reader } = await setup(
+    [
+      issue('root'),
+      headerIssue,
+      issue('hidden-child', {
+        parentId: 'root',
+        archived: true,
+        stage: 'done',
+        startedBySession: 'starter',
+      }),
+    ],
+    [current, starter],
+  )
   const headerReads = vi.spyOn(MissionViewReader.prototype, 'readIssue')
   disposals.push(() => headerReads.mockRestore())
   const shownHeader = () => {
@@ -285,31 +333,56 @@ it('keeps phone mission member visits flat on a seated heartbeat at 1x and 4x', 
   const measurements: { memberVisits: number; memberBuilds: number }[] = []
   for (const scale of [1, 4]) {
     const seat = {
-      sessionId: 'seat', issueId: 'root', cwd: '/fixture', agentKind: 'codex',
-      status: 'running', archived: false, createdAt: '2026-01-01T00:00:00Z',
-      lastActiveAt: '2026-01-01T00:00:00Z', agentState: { phase: 'working' },
+      sessionId: 'seat',
+      issueId: 'root',
+      cwd: '/fixture',
+      agentKind: 'codex',
+      status: 'running',
+      archived: false,
+      createdAt: '2026-01-01T00:00:00Z',
+      lastActiveAt: '2026-01-01T00:00:00Z',
+      agentState: { phase: 'working' },
     }
-    const { pool, reader } = await setup([
-      issue('root'), issue('child', { parentId: 'root' }),
-      ...Array.from({ length: 8 * scale }, (_, index) => issue(`unshown-${index}`)),
-    ], [seat, ...Array.from({ length: 8 * scale }, (_, index) => ({
-      ...seat, sessionId: `history-${index}`, archived: true, status: 'exited',
-    }))])
-    const membership = missions(pool), readMembers = membership.members.bind(membership)
+    const { pool, reader } = await setup(
+      [
+        issue('root'),
+        issue('child', { parentId: 'root' }),
+        ...Array.from({ length: 8 * scale }, (_, index) => issue(`unshown-${index}`)),
+      ],
+      [
+        seat,
+        ...Array.from({ length: 8 * scale }, (_, index) => ({
+          ...seat,
+          sessionId: `history-${index}`,
+          archived: true,
+          status: 'exited',
+        })),
+      ],
+    )
+    const membership = missions(pool),
+      readMembers = membership.members.bind(membership)
     const probes = new WeakMap<ReadonlySet<string>, ReadonlySet<string>>()
     let visits = 0
-    const probe = vi.spyOn(membership, 'members').mockImplementation(id => {
+    const probe = vi.spyOn(membership, 'members').mockImplementation((id) => {
       const ids = readMembers(id)
       if (ids === LOADING) return ids
-      if (!probes.has(ids)) probes.set(ids, new Proxy(ids, {
-        get(target, key) {
-          if (key === Symbol.iterator) return function* () {
-            for (const member of target) { visits++; yield member }
-          }
-          const value = Reflect.get(target, key, target)
-          return typeof value === 'function' ? value.bind(target) : value
-        },
-      }))
+      if (!probes.has(ids))
+        probes.set(
+          ids,
+          new Proxy(ids, {
+            get(target, key) {
+              if (key === Symbol.iterator)
+                return function* () {
+                  for (const member of target) {
+                    visits++
+                    yield member
+                  }
+                }
+              const value = Reflect.get(target, key, target)
+              return typeof value === 'function' ? value.bind(target) : value
+            },
+          }),
+        )
       return probes.get(ids)!
     })
     disposals.push(() => probe.mockRestore())
@@ -317,16 +390,26 @@ it('keeps phone mission member visits flat on a seated heartbeat at 1x and 4x', 
     const stop = autorun(() => {
       const data = reader.mission('root')
       reader.deck('root')
-      if (data !== LOADING) activity = data.missionSessions.find(row => row.sessionId === 'seat')?.lastActiveAt
+      if (data !== LOADING)
+        activity = data.missionSessions.find((row) => row.sessionId === 'seat')?.lastActiveAt
     })
     disposals.push(stop)
     while (pool.hydrate()) {}
     expect(visits).toBeGreaterThan(0)
     const builds = membership.stats.members
     visits = 0
-    runInAction(() => pool.apply({ type: 'update', rows: [{
-      kind: 'session', id: 'seat', value: { ...seat, lastActiveAt: '2026-01-02T00:00:00Z' },
-    }] }))
+    runInAction(() =>
+      pool.apply({
+        type: 'update',
+        rows: [
+          {
+            kind: 'session',
+            id: 'seat',
+            value: { ...seat, lastActiveAt: '2026-01-02T00:00:00Z' },
+          },
+        ],
+      }),
+    )
     expect(activity).toBe('2026-01-02T00:00:00Z')
     expect(membership.stats.members - builds).toBe(0)
     const work = { memberVisits: visits, memberBuilds: membership.stats.members - builds }
@@ -345,7 +428,8 @@ for (const scale of [1, 4] as const)
     ])
     let draws = 0
     const stop = autorun(() => {
-      const mission = reader.mission('root'), deck = reader.deck('root')
+      const mission = reader.mission('root'),
+        deck = reader.deck('root')
       if (mission !== LOADING) void mission.missionSessions
       if (deck !== LOADING) void deck.rows
       draws++
@@ -354,13 +438,23 @@ for (const scale of [1, 4] as const)
     while (pool.hydrate()) {}
     const screen = reader.open('root')
     if (!screen || screen === LOADING) throw new Error('Mission is still loading')
-    const crew = screen.crew, rows = screen.rows
+    const crew = screen.crew,
+      rows = screen.rows
     const before = draws
-    runInAction(() => pool.apply({ type: 'update', rows: [{
-      kind: 'issue', id: 'unshown-0', value: issue('unshown-0', {
-        description: { value: 'Unshown bookkeeping' },
+    runInAction(() =>
+      pool.apply({
+        type: 'update',
+        rows: [
+          {
+            kind: 'issue',
+            id: 'unshown-0',
+            value: issue('unshown-0', {
+              description: { value: 'Unshown bookkeeping' },
+            }),
+          },
+        ],
       }),
-    }] }))
+    )
     expect(draws).toBe(before)
     expect(screen.crew).toBe(crew)
     expect(screen.rows).toBe(rows)

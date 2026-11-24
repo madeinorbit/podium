@@ -2,50 +2,71 @@ import { createKernelReplica, createSideCache, memoryStorage } from '@podium/cli
 import { sessionViews } from '@podium/client-core/session-values'
 import { missionRootFor } from '@podium/client-core/values'
 import { asIssueId } from '@podium/model/browser'
-import { dedupeSessions } from '../../../tests/worklist/diagnostics/reference-state'
-import { allIssueViewModels } from '../../../tests/worklist/diagnostics/reference/issue-view-models'
-import { checkMissionView } from '../../../tests/worklist/diagnostics/mission-view-check'
-import { buildCorpus } from '../../../tests/worklist/harness/src/fixture/corpus'
-import { seedCacheFromCorpus } from '../../../tests/worklist/shared/src/scenarios'
 import { autorun } from 'mobx'
 import { expect, it } from 'vitest'
+import { checkMissionView } from '../../../tests/worklist/diagnostics/mission-view-check'
+import { allIssueViewModels } from '../../../tests/worklist/diagnostics/reference/issue-view-models'
+import { dedupeSessions } from '../../../tests/worklist/diagnostics/reference-state'
+import { buildCorpus } from '../../../tests/worklist/harness/src/fixture/corpus'
+import { seedCacheFromCorpus } from '../../../tests/worklist/shared/src/scenarios'
+import { fullDevice } from './full-device-fixture'
 import { MobxPool } from './pool'
 
-for (const scale of [1, 4] as const) it(`matches the synthetic mission and graft regressions at ${scale}x in every spine mode`, () => {
-  const corpus = buildCorpus(scale)
-  const replica = createKernelReplica({ cache: seedCacheFromCorpus(corpus),
-    side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }) })
-  const issues = allIssueViewModels(replica)
-  const repos = [...replica.rows('repos')], machines = [...replica.rows('machines')]
-  const rawSessions = sessionViews([...replica.rows('sessions')], {
-    userId: 'operator', userStates: [...replica.rows('sessionUserStates')], machines, repos,
-  })
-  const sessions = dedupeSessions(rawSessions)
-  const paths = issues.flatMap(issue => issue.worktreePath ? [issue.worktreePath] : [])
-  const rows = [
-    ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })),
-    ...rawSessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
-    ...repos.map(value => ({ kind: 'repo' as const, id: value.id, value })),
-    ...machines.map(value => ({ kind: 'machine' as const, id: value.id, value })),
-  ]
-  // Direct value parity uses full rows, as the existing rendered-corpus test
-  // does. The separate loading test covers cold rows and ancestor rollups.
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow })
-  pool.apply({ type: 'replace', rows })
-  try {
-    // Render the corpus's large mission, then the addressed graft/resume
-    // regressions. The old reference scans the world for each selected root;
-    // enumerating every unrelated leaf makes this guard quadratic in scale.
-    const selected = (scale === 1 ? ['i0', 'i292', 'i2696'] : ['i0', 'i11616', 'i11834']).map(asIssueId)
-    for (const id of selected) expect(issues.some(issue => issue.id === id), `corpus regression ${id}`).toBe(true)
-    const roots = new Set(selected.map(id => missionRootFor(issues, id)?.id))
-    for (const root of roots) for (const mode of ['full', 'working', 'needs-you'] as const) {
-      let result!: ReturnType<typeof checkMissionView>
-      const stop = autorun(() => { result = checkMissionView(pool, issues, sessions, root ?? null, mode, paths) })
-      try {
-        expect(result.pending, `${root} ${mode}: ${JSON.stringify(result)}`).toBe(0)
-        expect(result.differences, `${root} ${mode}: ${JSON.stringify(result.first)}`).toBe(0)
-      } finally { stop() }
+for (const scale of [1, 4] as const)
+  it(`matches the synthetic mission and graft regressions at ${scale}x in every spine mode`, () => {
+    const corpus = buildCorpus(scale)
+    const replica = createKernelReplica({
+      cache: seedCacheFromCorpus(corpus),
+      side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+    })
+    const issues = allIssueViewModels(replica)
+    const repos = [...replica.rows('repos')],
+      machines = [...replica.rows('machines')]
+    const rawSessions = sessionViews([...replica.rows('sessions')], {
+      userId: 'operator',
+      userStates: [...replica.rows('sessionUserStates')],
+      machines,
+      repos,
+    })
+    const sessions = dedupeSessions(rawSessions)
+    const paths = issues.flatMap((issue) => (issue.worktreePath ? [issue.worktreePath] : []))
+    const rows = [
+      ...issues.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
+      ...rawSessions.map((value) => ({ kind: 'session' as const, id: value.sessionId, value })),
+      ...repos.map((value) => ({ kind: 'repo' as const, id: value.id, value })),
+      ...machines.map((value) => ({ kind: 'machine' as const, id: value.id, value })),
+    ]
+    // Direct value parity uses full rows, as the existing rendered-corpus test
+    // does. The separate loading test covers cold rows and ancestor rollups.
+    const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow }))
+    pool.apply({ type: 'replace', rows })
+    try {
+      // Render the corpus's large mission, then the addressed graft/resume
+      // regressions. The old reference scans the world for each selected root;
+      // enumerating every unrelated leaf makes this guard quadratic in scale.
+      const selected = (scale === 1 ? ['i0', 'i292', 'i2696'] : ['i0', 'i11616', 'i11834']).map(
+        asIssueId,
+      )
+      for (const id of selected)
+        expect(
+          issues.some((issue) => issue.id === id),
+          `corpus regression ${id}`,
+        ).toBe(true)
+      const roots = new Set(selected.map((id) => missionRootFor(issues, id)?.id))
+      for (const root of roots)
+        for (const mode of ['full', 'working', 'needs-you'] as const) {
+          let result!: ReturnType<typeof checkMissionView>
+          const stop = autorun(() => {
+            result = checkMissionView(pool, issues, sessions, root ?? null, mode, paths)
+          })
+          try {
+            expect(result.pending, `${root} ${mode}: ${JSON.stringify(result)}`).toBe(0)
+            expect(result.differences, `${root} ${mode}: ${JSON.stringify(result.first)}`).toBe(0)
+          } finally {
+            stop()
+          }
+        }
+    } finally {
+      pool.dispose()
     }
-  } finally { pool.dispose() }
-}, 120_000)
+  }, 120_000)

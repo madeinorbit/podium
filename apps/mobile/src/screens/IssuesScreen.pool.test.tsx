@@ -1,5 +1,6 @@
 /** Real Tasks screen and observer rows; navigation/transport chrome is stubbed. */
 
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import { MobxPool } from '@podium/client-graph/pool'
 import { refreshingScreenFixture } from '@podium/client-graph/refreshing-screen.test.fixture'
@@ -192,7 +193,7 @@ afterEach(() => {
 })
 
 it('redraws only the changed task row and keeps proposal and expansion behavior', async () => {
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: now }))
   state.pool = pool
   pool.apply({
     type: 'replace',

@@ -20,6 +20,7 @@ import {
   publishDemoSlice,
 } from '@podium/client-core/demo'
 import { asClientPrincipal } from '@podium/client-core/principal'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import type { SessionId } from '@podium/model'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -164,6 +165,8 @@ function DemoSlicePublisher({ replica }: { replica: ReturnType<typeof createDemo
   const published = useRef(false)
   useEffect(() => {
     if (pool !== null && !published.current) {
+      // The demo supplies its whole fixture, including the issue body records.
+      fullDevice(pool)
       published.current = true
       publishDemoSlice(replica)
     }

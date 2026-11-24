@@ -1,3 +1,4 @@
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 /** Isolated fixtures for the shipping settings view. No requests reach a server. */
 
 import '@podium/client-graph/synced-models'
@@ -18,7 +19,7 @@ import { liveFixture } from '../../../packages/client-graph/src/live-fixture'
 const params = new URLSearchParams(location.search)
 export const member = params.get('as') === 'member'
 const selected = observable.map<string, string | null>([['page', params.get('page')]])
-export const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+export const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: 0 }))
 pool.apply({
   type: 'update',
   rows: [

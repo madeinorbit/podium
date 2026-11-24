@@ -1,3 +1,4 @@
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import {
@@ -41,7 +42,8 @@ function seeded(pool: MobxPool): MobxPool {
   return pool
 }
 function pool() {
-  return (current ??= seeded(new MobxPool({ selectedIssueId: null, coarseNow: 0 })))
+  current ??= seeded(fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: 0 })))
+  return current
 }
 // Built before each test, so a test that fakes timers still finds it seeded.
 beforeEach(() => {

@@ -13,6 +13,7 @@ import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { CHAT_CONTEXT_ENTITIES } from '@podium/client-graph/chat-context-schema'
 import { ChatContextSource } from '@podium/client-graph/chat-context-source'
 import { createWorklistPool } from '@podium/client-graph/create'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { liveFixture } from '@podium/client-graph/live-fixture'
 import { NOTICE_ENTITIES } from '@podium/client-graph/notice-schema'
@@ -187,7 +188,7 @@ export function createPanePoolFixture(readInputs: () => PaneInputs) {
         }),
         subscribe: () => () => {},
       })
-      pool = handle.pool
+      pool = fullDevice(handle.pool)
       // These suites control confirmation independently of a network spawn.
       pool.attachTransactions({ mutate: transactions.mutate, spawnPrompts })
       sessionPaneView(pool)

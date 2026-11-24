@@ -1,3 +1,4 @@
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 /** Shipping presence badge and action gate, backed by a real pool and live readings. */
 import '@podium/client-graph/synced-models'
 import { liveFixture } from '@podium/client-graph/live-fixture'
@@ -12,7 +13,7 @@ import '@/index.css'
 import '@/styles.css'
 
 document.documentElement.setAttribute('data-theme', 'podium')
-const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: 0 }))
 pool.apply({
   type: 'update',
   rows: [

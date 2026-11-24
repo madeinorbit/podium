@@ -2,6 +2,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import { autorun, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
+import { fullDevice } from './full-device-fixture'
 import { MissionScreen, missionRootId } from './mission-screen'
 import { attachMissionTestPreferences } from './mission-screen.test.fixture'
 import { missionView, settled } from './mission-view'
@@ -99,10 +100,12 @@ function open(rows: IssueNavigationModel[], seats: SessionView[]) {
     ...seats.map((row) => [`session:${row.sessionId}`, row] as const),
   ])
   const load = vi.fn((entity: string, id: string) => input.get(`${entity}:${id}`))
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
-    load,
-    schedule: () => () => {},
-  })
+  const pool = fullDevice(
+    new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
+      load,
+      schedule: () => () => {},
+    }),
+  )
   attachMissionTestPreferences(pool)
   pools.push(pool)
   pool.apply({

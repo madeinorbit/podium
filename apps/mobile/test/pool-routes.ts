@@ -1,3 +1,4 @@
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 /** Fully resident synthetic address fixtures; route and chip outputs come from the production pool. */
 import { createMobileInboxViews } from '@podium/client-graph/mobile-inbox-views'
 import { MobxPool } from '@podium/client-graph/pool'
@@ -26,7 +27,7 @@ export function poolRouteFixture(input: {
   issues: readonly AddressIssue[]
   sessions: readonly AddressSession[]
 }) {
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: 0 }))
   // Historical route fixtures sometimes supplied displayRef alone. Feed
   // their normalized identity through the same repo composition as production.
   const issues = input.issues.map((row) => {

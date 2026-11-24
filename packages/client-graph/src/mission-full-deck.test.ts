@@ -2,6 +2,7 @@ import { observableFixtureKeys } from '@podium/client-core/test-support/ui'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { autorun } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { fullDevice } from './full-device-fixture'
 import type { FullDeck } from './mission-full-deck'
 import { MissionScreen } from './mission-screen'
 import { attachMissionTestPreferences } from './mission-screen.test.fixture'
@@ -148,10 +149,8 @@ async function open(fixture = mission(), lazy?: PoolLazyOptions) {
       return () => listeners.delete(listener)
     },
   }
-  const pool = new MobxPool(
-    { selectedIssueId: null, coarseNow: Date.parse(stamp) },
-    undefined,
-    lazy,
+  const pool = fullDevice(
+    new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, lazy),
   )
   pools.push(pool)
   // The product's device preferences are observable (UiStore); so is this port.

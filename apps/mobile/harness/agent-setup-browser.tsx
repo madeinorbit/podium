@@ -1,5 +1,7 @@
 /** Native browser, clipboard and PTY boundaries for the phone sign-in screenshot. */
+
 import type { SessionView } from '@podium/client-core/session-values'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import { loadSyncedModels } from '@podium/client-graph/models'
 import { MobxPool } from '@podium/client-graph/pool'
 import { asSessionId } from '@podium/model'
@@ -8,7 +10,7 @@ import { Text, View } from 'react-native'
 import { color, font, mono, space } from '../src/theme/theme'
 
 await loadSyncedModels()
-const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: 0 }))
 export function useMobilePool() {
   return pool
 }

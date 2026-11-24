@@ -1,10 +1,11 @@
-import { referenceView } from '@podium/client-graph/issue-reference'
 /**
  * Issue chip styles over the real Markdown output and per-reference pool
  * subscriptions. The left column shows undecorated Markdown; the right shows
  * live pool values. React mount and mutation routing have focused unit coverage.
  */
 import { MobxPool } from '@podium/client-graph'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
+import { referenceView } from '@podium/client-graph/issue-reference'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import type { IssueStage } from '@podium/model'
 import { bindIssueRefAnchors } from '@/lib/issue-chip-liveness'
@@ -53,10 +54,12 @@ const ISSUES: Issue[] = [
 
 const rows = new Map(ISSUES.map((row) => [row.id, row]))
 const ids = new Map(ISSUES.map((row) => [`POD-${row.seq}`, row.id]))
-const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined, {
-  load: (_entity, id) => rows.get(id as Issue['id']),
-  issueIdByRef: (ref) => ids.get(ref),
-})
+const pool = fullDevice(
+  new MobxPool({ selectedIssueId: null, coarseNow: Date.now() }, undefined, {
+    load: (_entity, id) => rows.get(id as Issue['id']),
+    issueIdByRef: (ref) => ids.get(ref),
+  }),
+)
 pool.apply({
   type: 'replace',
   rows: ISSUES.map((row) => ({ kind: 'issue', id: row.id, value: row as never })),

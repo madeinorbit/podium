@@ -2,6 +2,7 @@
  * Serve with vite.harness.config.ts and open /harness/task-status.html?theme=light. */
 import { issueReferenceModel } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import { referenceView } from '@podium/client-graph/issue-reference'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { SHELL_SUMMARIES } from '@podium/client-graph/shell-schema'
@@ -85,13 +86,11 @@ fixtures.push(
     }),
   },
 )
-const pool = new MobxPool(
-  { selectedIssueId: null, coarseNow: Date.parse('2026-10-20') },
-  undefined,
-  {
+const pool = fullDevice(
+  new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-20') }, undefined, {
     summaries: SHELL_SUMMARIES,
     issueIdByRef: () => undefined,
-  },
+  }),
 )
 pool.apply({
   type: 'replace',

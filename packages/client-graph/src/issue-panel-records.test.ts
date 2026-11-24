@@ -1,5 +1,6 @@
 import { autorun, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
+import { fullDevice } from './full-device-fixture'
 import { requireHere } from './lookup'
 import { requireLoaded } from './mission-view'
 import { MobxPool } from './pool'
@@ -25,7 +26,7 @@ const todo = (id: string, position: number, done = false) => ({
   value: { id, issueId: 'issue', position, text: 'Same', done },
 })
 it('holds one model per item, keeps lists stable on a tick and follows membership and ordering', () => {
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }))
   pool.apply({ type: 'replace', rows: [task, todo('b', 4), todo('a', 0)] })
   const issue = requireHere(pool.model('issue', 'issue'))
   let list = issue.panelTodos,
@@ -66,7 +67,7 @@ it('holds one model per item, keeps lists stable on a tick and follows membershi
   }
 })
 it('reads state and artifacts independently from their own records', () => {
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }))
   pool.apply({
     type: 'replace',
     rows: [

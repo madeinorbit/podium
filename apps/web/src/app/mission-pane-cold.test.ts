@@ -1,4 +1,5 @@
 import { LOADING } from '@podium/client-graph'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import { screenOptions } from '@podium/client-graph/host'
 import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
@@ -9,9 +10,11 @@ import { poolBackedScreens } from './pool-screens'
 
 it.each([
   1, 4,
-] as const)('settles a cold production mission at %sx before its first visible pane', async (scale) => {
+] as const)('settles a full fixture mission at %sx before its first visible pane', async (scale) => {
   const ctx = await startScenarioEngine(scale, { seed: 4443 })
   const handle = createRuntimeWorklistPool(ctx.engine, screenOptions(poolBackedScreens, ctx.engine))
+  // The scenario engine supplies every row, with no CollectionLoader.
+  fullDevice(handle.pool)
   const input = {
     selectedIssueId: scale === 1 ? 'i1766' : 'i13916',
     paneA: 's0',

@@ -18,8 +18,9 @@
  * The fake server answers only the collection instances the device asked for
  * (with what they come with, as the real route does) and the load recorder
  * keeps every request. `requested()` lists them. A screen that never asks for
- * its data reads empty on this device, where the old fixtures (a pool with
- * every row and no loader, which answers every collection "held") showed it.
+ * its data cannot show it on this device. Layout/interaction fixtures that
+ * deliberately supply every row declare `fullDevice(pool)` instead; a pool
+ * without a loader no longer answers every collection "held".
  *
  * Use it from a screen test through the web harness
  * (`apps/web/src/test-support/empty-device.ts`), or directly for a view model:

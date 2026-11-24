@@ -2,6 +2,7 @@
 
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/values'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import { attachMissionTestPreferences } from '@podium/client-graph/mission-screen.test.fixture'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
@@ -70,10 +71,12 @@ async function mount(
     lastActiveAt: stamp,
     agentState: { phase },
   })) as unknown as SessionView[]
-  const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(stamp) }, undefined, {
-    load: () => undefined,
-    worklist: 'demand',
-  })
+  const pool = fullDevice(
+    new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(stamp) }, undefined, {
+      load: () => undefined,
+      worklist: 'demand',
+    }),
+  )
   attachMissionTestPreferences(pool)
   pool.apply({
     type: 'replace',

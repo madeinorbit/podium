@@ -1,11 +1,13 @@
 /**
  * An issue shows its brief and description from their own synced records
  * (POD-6921, design POD-6253 §2): `issueBrief` and `issueDescription`, keyed by
- * the issue id. These pools have no loader, so they hold what they were given
- * (an empty device is `body-relations.test.ts`). No body store.
+ * the issue id. Record-mapping fixtures explicitly declare fullDevice; the
+ * painted-text control stays loaderless and incomplete. Loading is covered
+ * by `body-relations.test.ts`. No body store.
  */
 import { autorun, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
+import { fullDevice } from './full-device-fixture'
 import type { LOADING } from './loading'
 import { requireHere } from './lookup'
 import { MobxPool } from './pool'
@@ -38,7 +40,7 @@ const description = (text: string | undefined) => ({
 })
 
 it('shows the brief and description from their records, and follows each change', () => {
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }))
   pool.apply({
     type: 'replace',
     rows: [task(), brief('Agent brief'), description('Human summary')],
@@ -73,7 +75,7 @@ it('shows the brief and description from their records, and follows each change'
 })
 
 it('has no brief or description when the issue has no body records', () => {
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }))
   pool.apply({ type: 'replace', rows: [task()] })
   const issue = requireHere(pool.model('issue', 'issue'))
   expect(issue.brief).toBeUndefined()
@@ -82,7 +84,7 @@ it('has no brief or description when the issue has no body records', () => {
 })
 
 it('keeps the bodies of one issue off another', () => {
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }))
   const other = { ...task(), id: 'other', value: { ...task().value, id: 'other', seq: 2 } }
   pool.apply({
     type: 'replace',

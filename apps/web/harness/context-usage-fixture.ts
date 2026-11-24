@@ -1,3 +1,4 @@
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 /** Invented normalized observations. No native telemetry or provider calls. */
 import '@podium/client-graph/synced-models'
 import { liveFixture } from '@podium/client-graph/live-fixture'
@@ -249,7 +250,7 @@ export function createContextFixture(
   future = false,
   readonly = false,
 ) {
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(sample.at) })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(sample.at) }))
   const agentKind = HarnessId.parse(future ? 'invented-context-harness' : 'codex')
   const driverId = 'synthetic-context-driver'
   const row = {

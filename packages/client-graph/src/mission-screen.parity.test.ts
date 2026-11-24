@@ -18,6 +18,7 @@ import { dedupeSessions } from '../../../tests/worklist/diagnostics/reference-st
 import { buildCorpus } from '../../../tests/worklist/harness/src/fixture/corpus'
 import { expectPoolOutput } from '../../../tests/worklist/harness/src/oracle/pool-output'
 import { seedCacheFromCorpus } from '../../../tests/worklist/shared/src/scenarios'
+import { fullDevice } from './full-device-fixture'
 import { headerView } from './header-views'
 import { MissionScreen, missionRootId } from './mission-screen'
 import { requireLoaded, settled } from './mission-view'
@@ -146,11 +147,13 @@ function corpusPool(scale: 1 | 4, cold = false) {
     ...rawSessions.map((row) => [`session:${row.sessionId}`, row] as const),
   ])
   const pool = cold
-    ? new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow }, undefined, {
-        load: (entity: string, id: string) => input.get(`${entity}:${id}`),
-        schedule: () => () => {},
-      })
-    : new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow })
+    ? fullDevice(
+        new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow }, undefined, {
+          load: (entity: string, id: string) => input.get(`${entity}:${id}`),
+          schedule: () => () => {},
+        }),
+      )
+    : fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: corpus.fixedNow }))
   const ui = observableFixtureKeys(memoryUi())
   attachPreferenceSource(pool, ui)
   pool.sources.view('test.missionPreferences', () => ui)

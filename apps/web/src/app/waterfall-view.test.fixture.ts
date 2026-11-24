@@ -1,12 +1,13 @@
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import { MissionScreen } from '@podium/client-graph/mission-screen'
-import { MobxPool } from '@podium/client-graph/pool'
 import { attachMissionTestPreferences } from '@podium/client-graph/mission-screen.test.fixture'
+import { MobxPool } from '@podium/client-graph/pool'
 import { autorun } from 'mobx'
 import { WaterfallView } from './waterfall-view'
 
 export const NOW = Date.parse('2026-10-07T12:00:00Z')
 export async function waterfallFixture(count = 12) {
-  const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: NOW })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: 'root', coarseNow: NOW }))
   attachMissionTestPreferences(pool)
   const rows = []
   for (let i = 0; i < count; i++) {

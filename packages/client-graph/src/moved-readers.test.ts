@@ -11,8 +11,10 @@
  * answer the same; a device whose stubs are not complete answers LOADING; a
  * planted wrong stub must show up as a different answer.
  */
-import { afterEach, describe, expect, it } from 'vitest'
+
 import { runInAction } from 'mobx'
+import { afterEach, describe, expect, it } from 'vitest'
+import { fullDevice } from './full-device-fixture'
 import { createIssueBoardSource } from './issue-board-source'
 import { LOADING } from './loading'
 import { childProgressOf } from './lookup'
@@ -22,13 +24,38 @@ import { settingsHasFirstTask } from './settings-views'
 import type { CollectionLoaderPort, LoaderInstance, RowRecord } from './shared/source'
 
 const STAMP = '2026-10-01T12:00:00Z'
-const STUB = ['id', 'repoId', 'seq', 'stage', 'closedReason', 'archived', 'deletedAt', 'isDraftVessel', 'audience', 'parentId'] as const
+const STUB = [
+  'id',
+  'repoId',
+  'seq',
+  'stage',
+  'closedReason',
+  'archived',
+  'deletedAt',
+  'isDraftVessel',
+  'audience',
+  'parentId',
+] as const
 
 type Issue = Record<string, unknown> & { id: string }
 const issue = (id: string, fields: Partial<Issue> = {}): Issue => ({
-  id, title: id, seq: 1, repoId: 'repo-a', repoPath: '/work/a', stage: 'backlog', priority: 2,
-  archived: false, deletedAt: null, parentId: null, deps: [], labels: [], audience: 'human',
-  createdAt: STAMP, updatedAt: STAMP, readAt: STAMP, ...fields,
+  id,
+  title: id,
+  seq: 1,
+  repoId: 'repo-a',
+  repoPath: '/work/a',
+  stage: 'backlog',
+  priority: 2,
+  archived: false,
+  deletedAt: null,
+  parentId: null,
+  deps: [],
+  labels: [],
+  audience: 'human',
+  createdAt: STAMP,
+  updatedAt: STAMP,
+  readAt: STAMP,
+  ...fields,
 })
 /** A tree with closed history under an open root, agent and draft work, and a proposal deck. */
 const ISSUES: Issue[] = [
@@ -36,14 +63,26 @@ const ISSUES: Issue[] = [
   issue('open-child', { seq: 2, parentId: 'root', stage: 'backlog' }),
   issue('done-child', { seq: 3, parentId: 'root', stage: 'done', closedReason: 'done' }),
   issue('cancelled-child', { seq: 4, parentId: 'root', stage: 'done', closedReason: 'cancelled' }),
-  issue('archived-child', { seq: 5, parentId: 'root', stage: 'done', closedReason: 'done', archived: true }),
+  issue('archived-child', {
+    seq: 5,
+    parentId: 'root',
+    stage: 'done',
+    closedReason: 'done',
+    archived: true,
+  }),
   issue('deleted', { seq: 6, stage: 'backlog', deletedAt: STAMP }),
   issue('agent-task', { seq: 7, stage: 'backlog', audience: 'agent' }),
   issue('draft', { seq: 8, stage: 'backlog', isDraftVessel: true }),
   issue('proposal-1', { seq: 9, stage: 'proposed', priority: 1 }),
   issue('proposal-2', { seq: 10, stage: 'proposed' }),
   issue('proposal-child', { seq: 11, stage: 'proposed', parentId: 'proposal-1' }),
-  issue('other-repo', { seq: 1, repoId: 'repo-b', repoPath: '/work/b', stage: 'done', closedReason: 'done' }),
+  issue('other-repo', {
+    seq: 1,
+    repoId: 'repo-b',
+    repoPath: '/work/b',
+    stage: 'done',
+    closedReason: 'done',
+  }),
 ]
 const REPOS = [
   { id: 'repo-a', prefix: 'AAA', repoPath: '/work/a' },
@@ -60,10 +99,18 @@ function rows(issues: readonly Issue[]): RowRecord[] {
 
 /** A device store over `stubs`, holding the named collections complete. */
 function port(stubs: readonly Issue[], complete: ReadonlySet<string>): CollectionLoaderPort {
-  const table = new Map(stubs.map((value) => [value.id, Object.fromEntries(STUB.filter((field) => value[field] !== undefined).map((field) => [field, value[field]]))]))
+  const table = new Map(
+    stubs.map((value) => [
+      value.id,
+      Object.fromEntries(
+        STUB.filter((field) => value[field] !== undefined).map((field) => [field, value[field]]),
+      ),
+    ]),
+  )
   const byParent = new Map<string, string[]>()
   for (const value of stubs)
-    if (typeof value.parentId === 'string') byParent.set(value.parentId, [...(byParent.get(value.parentId) ?? []), value.id])
+    if (typeof value.parentId === 'string')
+      byParent.set(value.parentId, [...(byParent.get(value.parentId) ?? []), value.id])
   const stubRows = [...table].map(([id, stub]) => ({ id, stub }))
   const done = (spec: LoaderInstance) => complete.has(spec.collection) && spec.args === undefined
   return {
@@ -88,6 +135,7 @@ afterEach(() => {
 function pool(issues: readonly Issue[], device?: CollectionLoaderPort): MobxPool {
   const made = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(STAMP) })
   if (device) made.collections.attach(() => device)
+  else fullDevice(made)
   runInAction(() => made.apply({ type: 'replace', rows: rows(issues) }))
   pools.push(made)
   return made
@@ -101,15 +149,28 @@ function answers(p: MobxPool) {
   const board = createIssueBoardSource(p)
   try {
     return {
-      childCounts: Object.fromEntries(['root', 'proposal-1', 'open-child'].map((id) => [id, p.queries.issueChildCounts(id)])),
+      childCounts: Object.fromEntries(
+        ['root', 'proposal-1', 'open-child'].map((id) => [id, p.queries.issueChildCounts(id)]),
+      ),
       modelProgress: childProgressOf(p.issueObject('root')),
       undeleted: p.undeletedIssueCount,
       hasFirstTask: settingsHasFirstTask(p),
       screening: screeningTotal(p),
-      columns: Object.fromEntries((['proposed', 'backlog', 'in_progress', 'done'] as const).map((stage) => [stage, board.columnCount({ ...COLUMN, stage })])),
+      columns: Object.fromEntries(
+        (['proposed', 'backlog', 'in_progress', 'done'] as const).map((stage) => [
+          stage,
+          board.columnCount({ ...COLUMN, stage }),
+        ]),
+      ),
       agentColumns: board.columnCount({ ...COLUMN, showAgentTasks: true, stage: 'backlog' }),
-      projectColumn: board.columnCount({ ...COLUMN, filter: { projectPaths: ['/work/b'] }, stage: 'done' }),
-      scope: Object.fromEntries(['agent-task', 'draft', 'deleted'].map((id) => [id, p.queries.issueScope(id)])),
+      projectColumn: board.columnCount({
+        ...COLUMN,
+        filter: { projectPaths: ['/work/b'] },
+        stage: 'done',
+      }),
+      scope: Object.fromEntries(
+        ['agent-task', 'draft', 'deleted'].map((id) => [id, p.queries.issueScope(id)]),
+      ),
       reference: p.queries.linkedIssueId('BBB-1'),
       prefixLive: p.queries.hasIssuePrefix('BBB'),
     }
@@ -135,7 +196,12 @@ describe('moved readers answer as before (POD-7088)', () => {
 
   it('a device that holds only the sidebar answers the same from its stubs', () => {
     const old = answers(pool(ISSUES))
-    const partial = answers(pool(ISSUES.filter((row) => SIDEBAR.has(row.id)), port(ISSUES, STUBS_DONE)))
+    const partial = answers(
+      pool(
+        ISSUES.filter((row) => SIDEBAR.has(row.id)),
+        port(ISSUES, STUBS_DONE),
+      ),
+    )
     expect(partial.childCounts).toEqual(old.childCounts)
     expect(partial.modelProgress).toEqual(old.modelProgress)
     expect(partial.undeleted).toEqual(old.undeleted)
@@ -149,7 +215,15 @@ describe('moved readers answer as before (POD-7088)', () => {
   })
 
   it('answers LOADING, never a smaller number, while the stubs are not complete', () => {
-    const partial = answers(pool(ISSUES.filter((row) => SIDEBAR.has(row.id)), port(ISSUES.filter((row) => SIDEBAR.has(row.id)), new Set())))
+    const partial = answers(
+      pool(
+        ISSUES.filter((row) => SIDEBAR.has(row.id)),
+        port(
+          ISSUES.filter((row) => SIDEBAR.has(row.id)),
+          new Set(),
+        ),
+      ),
+    )
     expect(partial.childCounts.root).toBe(LOADING)
     expect(partial.modelProgress).toBeUndefined()
     expect(partial.undeleted).toBe(LOADING)
@@ -169,7 +243,12 @@ describe('moved readers answer as before (POD-7088)', () => {
           ? { ...row, seq: 2 }
           : row,
     )
-    const wrong = answers(pool(ISSUES.filter((row) => SIDEBAR.has(row.id)), port(planted, STUBS_DONE)))
+    const wrong = answers(
+      pool(
+        ISSUES.filter((row) => SIDEBAR.has(row.id)),
+        port(planted, STUBS_DONE),
+      ),
+    )
     expect(wrong.childCounts.root).not.toEqual(old.childCounts.root)
     expect(wrong.columns.backlog).not.toEqual(old.columns.backlog)
     expect(wrong.reference).not.toEqual(old.reference)

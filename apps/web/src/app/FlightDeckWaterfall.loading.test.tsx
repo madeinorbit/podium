@@ -2,6 +2,7 @@ import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 // @vitest-environment happy-dom
 
 import { LOADING } from '@podium/client-graph'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import { screenOptions } from '@podium/client-graph/host'
 import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
@@ -47,9 +48,11 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-it('opens a cold production mission in Waterfall without throwing the loading sentinel', async () => {
+it('opens a full fixture mission in Waterfall without throwing the loading sentinel', async () => {
   const ctx = await startScenarioEngine(1, { seed: 4443 })
   const handle = createRuntimeWorklistPool(ctx.engine, screenOptions(poolBackedScreens, ctx.engine))
+  // This scenario seeds every row and has no CollectionLoader.
+  fullDevice(handle.pool)
   const screen = new MissionScreen(handle.pool, 'i1766')
   state.pool = handle.pool
   state.now = ctx.corpus.fixedNow

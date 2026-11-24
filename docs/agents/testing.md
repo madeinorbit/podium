@@ -73,6 +73,14 @@ failure or changing the candidate. Once a candidate is green, don't repeat valid
 a new change, failure or unresolved concern. "More confidence" without a concrete risk is not
 a reason to add a lane.
 
+## Client data fixtures
+
+A pool without a loader is incomplete: collection `held` and `treeHeld` return `false`, and their status readers return `loading`, even if some rows were seeded. A layout or interaction fixture that supplies every row must declare `fullDevice(new MobxPool(...))`, importing the shared helper from `@podium/client-graph/full-device-fixture`. Use the same helper in Storybook and `apps/web/harness`; do not introduce local overrides of collection completeness.
+
+Tests of on-demand data, missing records, offline behavior or the collections a screen requests use the empty-device harness instead: `mountOnEmptyDevice` in `apps/web/src/test-support/empty-device.ts`, or `openEmptyDevice` in `packages/client-graph/src/test-support/empty-device.test.fixture.ts` for a view model. The real pool, loader and Replica start with policy collections only; the fake server supplies only requested instances. Assert content after `untilIdle()` and, when relevant, the instances in `requestedKeys()`. A screen merely stopping loading is insufficient. See [Frontend data: testing a screen on an empty device](frontend-data.md#testing-a-screen-on-an-empty-device) for setup and known-defect `it.fails` tests.
+
+After tightening fixture behavior, classify new failures before adding `fullDevice`: a fixture that intentionally supplies all data needs the declaration; a screen that never reads its holding accessor needs a fix or an expected-failure test on an empty device. A full fixture must never conceal the latter.
+
 ## Disposable VPS lab
 
 For fresh Linux installer, VPS onboarding, machine join, tunnels and upgrade tests, use the

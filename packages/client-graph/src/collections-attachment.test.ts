@@ -1,5 +1,6 @@
 import { autorun } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
+import { fullDevice } from './full-device-fixture'
 import { LOADING } from './loading'
 import { NOT_VISIBLE } from './lookup'
 import { MobxPool } from './pool'
@@ -64,8 +65,8 @@ describe('a collection source attached after the first render', () => {
     }
   })
 
-  it('rechecks an initially complete fixture collection against the attached device', () => {
-    const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  it('rechecks an explicitly full fixture collection against the attached device', () => {
+    const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: 0 }))
     const device = loader(false)
     const spec: LoaderInstance = { collection: 'issueProjection.sidebar', part: 'main' }
     const seen: boolean[] = []
@@ -74,7 +75,13 @@ describe('a collection source attached after the first render', () => {
       expect(seen).toEqual([true])
       pool.collections.attach(() => device)
       expect(seen.at(-1)).toBe(false)
+      expect(pool.collections.treeHeld('i-1')).toBe(false)
+      expect(pool.collections.status(spec)).toBe('loading')
+      expect(() => fullDevice(pool)).toThrow('without a loader')
       expect(device.request).toHaveBeenCalledWith([spec], 'visible')
+      pool.collections.attach(() => undefined)
+      expect(pool.collections.held(spec)).toBe(false)
+      expect(pool.collections.status(spec)).toBe('loading')
     } finally {
       stop()
       pool.dispose()

@@ -1,3 +1,4 @@
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 /**
  * SETTINGS → Projects, REAL, WITH NO SERVER (POD-6267).
  *
@@ -133,7 +134,7 @@ function withScannedWorktrees(roots: GitRepositoryWire[]): GitRepositoryWire[] {
 
 function buildPool(scene: SceneName): MobxPool | null {
   if (scene === 'loading') return null
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: 0 }))
   pool.apply({
     type: 'update',
     rows: [

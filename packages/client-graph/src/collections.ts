@@ -201,6 +201,8 @@ export class PoolCollections {
   private bound: CollectionLoaderPort | undefined
   private off: (() => void) | undefined
   private disposed = false
+  /** Only the shared fullDevice fixture helper opts into the old row-only answers. */
+  private fullDeviceFixture = false
   /** Per stub array the kernel hands out (its own memo): tallies already counted. */
   private readonly tallies = new WeakMap<object, Map<string, ReadonlyMap<unknown, number>>>()
   /** Per stub array: the issue of each repository and number. */
@@ -290,10 +292,12 @@ export class PoolCollections {
 
   /**
    * Read another device store's collections (a pool built from rows, such as
-   * the startup check's states). Every reader hears of it.
+   * the startup check's states). Every reader hears of it. Normal attachment
+   * clears the declaration made by the shared fullDevice fixture helper.
    */
-  @action attach(source: () => CollectionLoaderPort | undefined): void {
+  @action attach(source: () => CollectionLoaderPort | undefined, fixture?: 'full-device'): void {
     this.source = source
+    this.fullDeviceFixture = fixture === 'full-device'
     this.attachment.reportChanged()
     this.markersMoved()
     this.stubsMoved()
@@ -350,7 +354,9 @@ export class PoolCollections {
       this.connection.reportObserved()
       const loader = this.loader()
       if (loader?.isComplete(spec) !== undefined && loader.isStale?.(spec)) return 'refreshing'
-      return loader?.status(spec) ?? 'complete'
+      return (
+        loader?.status(spec) ?? (this.fullDeviceFixture && !this.disposed ? 'complete' : 'loading')
+      )
     })
   }
 
@@ -469,12 +475,12 @@ export class PoolCollections {
   /**
    * TRACKED: whether the device holds the instance complete; if not, ask
    * for it at the front of the queue. The reader holds it while it reads it.
-   * Without a loader the pool holds what it was given: true.
+   * Without a loader, false unless fullDevice explicitly vouches for a fixture.
    */
   held(spec: LoaderInstance): boolean {
     return this.behind(() => {
       const loader = this.loader()
-      if (loader === undefined) return true
+      if (loader === undefined) return this.fullDeviceFixture && !this.disposed
       this.holdWhileRead(spec)
       if (this.complete(spec)) return true
       loader.request([spec], 'visible')
@@ -713,13 +719,13 @@ export class PoolCollections {
    * queue, and answers false: a view that shows a tree (a flight deck) reads
    * its members as LOADING until then. No tree is preloaded (design "No tree
    * preloading"); a reader holds the tree while it reads it, and once no
-   * reader does it is cache, kept while it fits. Without a loader the pool
-   * holds what it was given, so it answers true.
+   * reader does it is cache, kept while it fits. Without a loader it answers
+   * false unless fullDevice explicitly vouches for a fixture.
    */
   treeHeld(id: string): boolean {
     return this.behind(() => {
       const loader = this.loader()
-      if (loader === undefined) return true
+      if (loader === undefined) return this.fullDeviceFixture && !this.disposed
       const own = this.complete(treeOf(id, 'main'))
       const root = own ? id : (this.topOf(id) ?? id)
       this.holdWhileRead(treeOf(root, 'main'))

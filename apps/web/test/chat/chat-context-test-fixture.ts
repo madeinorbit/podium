@@ -1,4 +1,5 @@
 import { disposeFixtureUi } from '@podium/client-core/test-support/ui'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import '@podium/client-graph/synced-models'
 import { DraftStore } from '@podium/client-core/conversation'
 import type { ClientRuntime } from '@podium/client-core/runtime-root'
@@ -269,16 +270,18 @@ export async function createChatContextFixture(resumeTwins = false) {
       for (const fn of listeners) fn()
     },
   } as unknown as Store
-  const pool = new MobxPool(
-    { coarseNow: Date.parse('2026-10-01T13:00:00Z'), selectedIssueId: null },
-    undefined,
-    {
-      load: (entity, id) =>
-        (entity === 'issue' ? issues : rawSessions).find(
-          (row) => ('id' in row ? row.id : row.sessionId) === id,
-        ) as never,
-      schedule: () => () => {},
-    },
+  const pool = fullDevice(
+    new MobxPool(
+      { coarseNow: Date.parse('2026-10-01T13:00:00Z'), selectedIssueId: null },
+      undefined,
+      {
+        load: (entity, id) =>
+          (entity === 'issue' ? issues : rawSessions).find(
+            (row) => ('id' in row ? row.id : row.sessionId) === id,
+          ) as never,
+        schedule: () => () => {},
+      },
+    ),
   )
   pool.apply({
     type: 'replace',

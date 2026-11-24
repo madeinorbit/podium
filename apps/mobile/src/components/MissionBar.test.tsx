@@ -1,3 +1,4 @@
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { attachMissionTestPreferences } from '@podium/client-graph/mission-screen.test.fixture'
 import { MobxPool } from '@podium/client-graph/pool'
@@ -47,7 +48,7 @@ const session = (sessionId: string, issueId: string, phase: string) => ({
 })
 
 function open(issues: Record<string, unknown>[], sessions: Record<string, unknown>[] = []) {
-  const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(stamp) })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(stamp) }))
   attachMissionTestPreferences(pool)
   pool.apply({
     type: 'replace',

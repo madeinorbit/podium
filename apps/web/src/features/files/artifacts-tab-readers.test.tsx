@@ -1,3 +1,4 @@
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import { createIssuePageViews } from '@podium/client-graph/issue-page'
 import { LOADING } from '@podium/client-graph/loading'
 import { MobxPool } from '@podium/client-graph/pool'
@@ -31,7 +32,7 @@ afterEach(() => {
 })
 
 it('reads the same artifact record as the detail page without opening a detail view', () => {
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: 0 }))
   fixture.pool = pool
   const views = createIssuePageViews(pool)
   fixture.views = views
