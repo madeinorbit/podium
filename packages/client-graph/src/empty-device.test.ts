@@ -1,6 +1,6 @@
 /**
  * POD-7544 — the empty device itself, and the flight deck's root body: the
- * description loads on read (POD-7545), the state line by the deck's own hold.
+ * description and state line both load on read through their shared relations.
  * The web screens that do not ask are in `apps/web/src/features/issues/
  * empty-device-bodies.test.tsx`.
  */
@@ -66,9 +66,7 @@ it('starts with the issue but none of its body, and answers only what is asked f
   read.close()
 })
 
-// Test d of POD-7544: the deck reads its root's description through the field
-// (POD-7545) and asks for the state line by hand (`rootStateHeld`), so it
-// shows both on an empty device.
+// Test d of POD-7544: both field reads hold and load their records.
 it("shows the deck root's description and state line on an empty device", async () => {
   const device = await emptyDevice()
   const deck = openDeck(device)
@@ -97,6 +95,8 @@ it('offline, the deck asks for its root body, reaches no server, and says offlin
   expect(deck.model.ready).toBe(false)
   expect(deck.model.root.description).toBe(LOADING)
   expect(device.pool.collections.reading(deck.model.root.description)).toBe('offline')
+  expect(deck.model.rootFindings).toBe(LOADING)
+  expect(device.pool.collections.status(bodyOf('issuePanelState', ROOT))).toBe('offline')
 
   // Back online, the same open deck loads what it asked for.
   device.online()
@@ -104,4 +104,5 @@ it('offline, the deck asks for its root body, reaches no server, and says offlin
   expect(device.holds(description)).toBe(true)
   expect(deck.model.ready).toBe(true)
   expect(deck.model.root.description).toBe(FULL_BODIES.description)
+  expect(deck.model.rootFindings).toBe(FULL_BODIES.stateLine)
 })

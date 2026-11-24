@@ -49,6 +49,9 @@ import {
   type SessionId,
 } from '@podium/model/browser'
 
+/** These are raw fixture rows, before the pool gives body reads a loading answer. */
+type FixtureIssue = Omit<IssueViewModel, keyof IssueBodyValues> & IssueBodyValues
+
 import { noticeFixture } from '../../../../tests/worklist/diagnostics/notice-fixture'
 import { checkChatContext } from './chat-context-check'
 
@@ -134,7 +137,7 @@ export async function createChatContextFixture(resumeTwins = false) {
             ],
           }
         : undefined,
-  })) as unknown as (IssueViewModel & IssueBodyValues)[] // bodies painted on (POD-6767)
+  })) as unknown as FixtureIssue[] // bodies painted on (POD-6767)
   let messages = data.messages,
     interactions = [...data.interactions].reverse()
   let queued = [
@@ -299,7 +302,7 @@ export async function createChatContextFixture(resumeTwins = false) {
       },
     ],
   })
-  const publishArtifacts = (issue: IssueViewModel & IssueBodyValues) => {
+  const publishArtifacts = (issue: FixtureIssue) => {
     pool.apply({
       type: 'update',
       rows: (issue.panel?.artifacts ?? []).map((artifact, position) => {

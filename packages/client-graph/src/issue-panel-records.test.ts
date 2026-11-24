@@ -1,6 +1,7 @@
 import { autorun, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
 import { requireHere } from './lookup'
+import { requireLoaded } from './mission-view'
 import { MobxPool } from './pool'
 
 const stamp = '2026-11-10T00:00:00Z'
@@ -36,16 +37,16 @@ it('holds one model per item, keeps lists stable on a tick and follows membershi
     panels++
   })
   const stopDone = autorun(() => {
-    done = issue.panelTodos[0]?.done ?? false
+    done = requireLoaded(issue.panelTodos)[0]?.done ?? false
   })
   const first = list,
-    firstItem = list[0]
+    firstItem = requireLoaded(list)[0]
   try {
-    expect(list.map((r) => r.id)).toEqual(['a', 'b'])
+    expect(requireLoaded(list).map((r) => r.id)).toEqual(['a', 'b'])
     runInAction(() => pool.apply({ type: 'update', rows: [todo('a', 0, true)] }))
     expect(done).toBe(true)
     expect(list).toBe(first)
-    expect(list[0]).toBe(firstItem)
+    expect(requireLoaded(list)[0]).toBe(firstItem)
     expect(panels).toBe(1)
     expect(requireHere(pool.model('issuePanelTodo', 'a'))).toBe(firstItem)
     runInAction(() =>
@@ -54,10 +55,10 @@ it('holds one model per item, keeps lists stable on a tick and follows membershi
         rows: [{ kind: 'issuePanelTodo', id: 'a', value: undefined }, todo('c', 7)],
       }),
     )
-    expect(list.map((r) => r.id)).toEqual(['b', 'c'])
-    expect(list[0]).toBe(first[1])
+    expect(requireLoaded(list).map((r) => r.id)).toEqual(['b', 'c'])
+    expect(requireLoaded(list)[0]).toBe(requireLoaded(first)[1])
     runInAction(() => pool.apply({ type: 'update', rows: [todo('c', 1)] }))
-    expect(list.map((r) => r.id)).toEqual(['c', 'b'])
+    expect(requireLoaded(list).map((r) => r.id)).toEqual(['c', 'b'])
   } finally {
     stopList()
     stopDone()
@@ -91,6 +92,8 @@ it('reads state and artifacts independently from their own records', () => {
   const issue = requireHere(pool.model('issue', 'issue'))
   expect(issue.activityNotes).toBe('Ready')
   expect(issue.notesUpdatedAt).toBe(stamp)
-  expect(issue.panel.artifacts[0]).toBe(requireHere(pool.model('issuePanelArtifact', 'artifact')))
+  expect(requireLoaded(issue.panel).artifacts[0]).toBe(
+    requireHere(pool.model('issuePanelArtifact', 'artifact')),
+  )
   pool.dispose()
 })

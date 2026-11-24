@@ -1,5 +1,6 @@
 import { artifactUrl } from '@podium/client-core/values'
 import { chatItemAttachments, chatUploadArtifact } from '@podium/client-graph/chat-context'
+import { LOADING } from '@podium/client-graph/loading'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { useCallback } from 'react'
 import { useMobilePoolProjection } from './mobile-pool'
@@ -19,6 +20,7 @@ export function chatUploadUrl(
   workspace?: string,
 ): string | null {
   const found = chatUploadArtifact(pool, sessionId, attachmentId)
+  if (found === LOADING) return null // POD-7555: LOADING reads as empty on the phone
   return found
     ? artifactUrl({
         httpOrigin,

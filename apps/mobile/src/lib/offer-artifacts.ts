@@ -1,4 +1,5 @@
 import type { IssueWithBodies } from '@podium/client-core/replica'
+import { LOADING } from '@podium/client-graph/loading'
 import type { IssuePanelArtifact, SessionOffer } from '@podium/model'
 import { machinePathBasename, machinePathHasSuffix } from '@podium/model'
 import {
@@ -27,7 +28,7 @@ export function resolveOfferArtifacts(args: {
   /** ISO time of the session's last human input (SessionMeta.lastInputAt). */
   lastInputAt?: string
 }): IssuePanelArtifact[] {
-  const published = args.issue?.panel?.artifacts ?? []
+  const published = args.issue?.panel === LOADING ? [] : (args.issue?.panel?.artifacts ?? []) // POD-7555: LOADING reads as empty on the phone
   if (published.length === 0) return []
 
   const curated = args.offer.artifacts ?? []

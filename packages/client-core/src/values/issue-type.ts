@@ -36,9 +36,9 @@ export interface IssueSessionRollups {
 export type IssueViewModel = Omit<SlimIssueProjection, 'worktreePath' | 'branch'> &
   Omit<IssueView, 'id'> &
   Partial<IssueSessionRollups> & {
-    panel?: IssuePanel
-    activityNotes?: string
-    notesUpdatedAt?: string
+    panel?: IssuePanel | typeof LOADING
+    activityNotes?: string | typeof LOADING
+    notesUpdatedAt?: string | typeof LOADING
     worktreePath: string | null
     branch: string | null
     readAt: string | null
@@ -68,16 +68,16 @@ export type IssueBodyValues = {
 /**
  * An issue's bodies as a screen reads them (POD-6921). `IssueModel` answers
  * them from the issue's synced body and panel records, which the device holds
- * only once something reads them (POD-7545): the description and the brief
- * answer `LOADING` until then. A painted row (a fixture, a demo) carries them
+ * only once something reads them (POD-7545): every body field
+ * answers `LOADING` until then. A painted row (a fixture, a demo) carries them
  * itself.
  */
 export type IssueBodyFields = {
   /** The agent brief; absent when there is none; `LOADING` until it is on the device. */
   readonly brief?: string | undefined | typeof LOADING
-  readonly panel?: IssuePanel | undefined
-  readonly activityNotes?: string | undefined
-  readonly notesUpdatedAt?: string | undefined
+  readonly panel?: IssuePanel | undefined | typeof LOADING
+  readonly activityNotes?: string | undefined | typeof LOADING
+  readonly notesUpdatedAt?: string | undefined | typeof LOADING
   /** The human summary's text; empty when there is none; `LOADING` until it is on the device. */
   readonly description: string | typeof LOADING
 }

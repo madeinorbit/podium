@@ -5,9 +5,9 @@ import { useWorklistPool } from '@/app/store-worklist-pool'
 import { cn } from '@/lib/utils'
 
 /**
- * POD-7545 — what a section shows while an issue body field (the description,
- * the brief) answers `LOADING`: its read holds the record and loads it, so
- * the section waits quietly, never "Add a description…" or an empty block.
+ * What a section shows while an issue body field answers `LOADING`: its read
+ * holds the record and loads it, so the section waits quietly, never "Add a
+ * description…" or an empty block (POD-7545, POD-7546).
  * Without a connection the load cannot start: the pool reads that LOADING as
  * `offline` (`pool.collections.reading`), and the section says so; it fills
  * by itself once the connection returns.

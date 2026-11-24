@@ -15,6 +15,8 @@
  * open. Each screen also has its twins from POD-7544: one mounts the screen
  * and finds the task on it, one holds the body by hand.
  */
+
+import { createChatContextReader } from '@podium/client-graph/chat-context'
 import { LOADING } from '@podium/client-graph/loading'
 import type { MemberRosterAnswer } from '@podium/client-graph/member-roster'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -24,6 +26,8 @@ import { DockHeaderSlotProvider } from '@/app/DockHeaderSlot'
 import { OperatorFocusProvider } from '@/app/operator-focus'
 import type { IssueViewModel, IssueWithBodies } from '@/app/store'
 import { RefMiniviewHost } from '@/components/RefMiniview'
+import { ItemAttachments } from '@/features/chat/ChatUploadThumb'
+import { ArtifactsTab } from '@/features/files/ArtifactsTab'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { openMiniview } from '@/lib/ref-activation'
 import {
@@ -147,10 +151,149 @@ describe('the right-dock issue panel', () => {
   it('offline, says the description is not available offline, and shows it once back', async () => {
     const mounted = await mountPanel({ offline: true })
     expect(screen.queryByTestId('dock-description')).toBeNull()
-    expect(screen.getByText('Not available offline')).toBeTruthy()
+    expect(screen.getAllByText('Not available offline').length).toBeGreaterThan(0)
     mounted.online()
     await mounted.untilIdle()
     expect(screen.getByTestId('dock-description').textContent).toBe(FULL_BODIES.description)
+  })
+})
+
+// POD-1163 deliberately keeps agent todos off both human issue screens. The
+// shared panel still loads its todo records; body-relations.test.ts checks
+// their values and lifetime on an empty device.
+describe.each([
+  ['issue panel', mountPanel, 'dock-artifacts', 'dock-deferred', 'dock-current-update-body'],
+  ['issue page', mountPage, 'issue-artifacts', 'issue-deferred', undefined],
+] as const)('remaining bodies on the %s', (_name, mount, artifactsId, deferredId, stateId) => {
+  it('loads artifacts, deferred items and the state line from their own records', async () => {
+    const mounted = await mount()
+    expect(screen.getByTestId(artifactsId).textContent).toContain(FULL_BODIES.artifacts[0]?.title)
+    expect(screen.getByTestId(deferredId).textContent).toContain(FULL_BODIES.deferred[0])
+    expect(
+      stateId
+        ? screen.getByTestId(stateId).textContent
+        : screen.getByText(FULL_BODIES.stateLine).textContent,
+    ).toBe(FULL_BODIES.stateLine)
+    expect(mounted.pool.issueObject(ID).panelTodos).toMatchObject(FULL_BODIES.todos)
+    for (const kind of [
+      'issuePanelTodo',
+      'issuePanelArtifact',
+      'issuePanelDeferred',
+      'issuePanelState',
+    ])
+      expect(mounted.requestedKeys()).toContain(requestKey(bodyOf(kind, ID)))
+  })
+
+  it('offline, shows pending bodies instead of hiding them and fills them when back online', async () => {
+    const mounted = await mount({ offline: true })
+    expect(
+      screen.getByRole('status', {
+        name: 'The issue panel is not available offline',
+      }),
+    ).toBeTruthy()
+    expect(
+      screen.getByRole('status', { name: 'The state line is not available offline' }),
+    ).toBeTruthy()
+    expect(screen.queryByTestId(artifactsId)).toBeNull()
+    expect(screen.queryByTestId(deferredId)).toBeNull()
+    mounted.online()
+    await mounted.untilIdle()
+    expect(screen.getByTestId(artifactsId).textContent).toContain(FULL_BODIES.artifacts[0]?.title)
+    expect(screen.getByTestId(deferredId).textContent).toContain(FULL_BODIES.deferred[0])
+    expect(screen.getByText(FULL_BODIES.stateLine)).toBeTruthy()
+  })
+})
+
+it.each([
+  ['issue panel', <IssuePanelView key="panel" cwd="/synthetic" issueId={ID as never} />],
+  [
+    'issue page',
+    <IssuePage
+      key="page"
+      issue={{ id: ID } as IssueViewModel}
+      orderedIds={[ID as never]}
+      onBack={() => {}}
+      onNavigate={() => {}}
+    />,
+  ],
+] as const)('%s shows quiet loading until the bodies arrive', async (_name, element) => {
+  const mounted = await mountOnEmptyDevice(<div />, { world })
+  act(() => mounted.view.rerender(providers(element)))
+  expect(
+    screen.getByRole('status', { name: 'Loading the issue panel' }).getAttribute('aria-busy'),
+  ).toBe('true')
+  expect(
+    screen.getByRole('status', { name: 'Loading the state line' }).getAttribute('aria-busy'),
+  ).toBe('true')
+  await mounted.untilIdle()
+  expect(screen.queryByRole('status', { name: 'Loading the issue panel' })).toBeNull()
+  expect(screen.getByText(FULL_BODIES.stateLine)).toBeTruthy()
+})
+
+it('the Artifacts tab loads its list and does not show its empty state while offline', async () => {
+  const mounted = await mountOnEmptyDevice(<ArtifactsTab issueId={ID} />, { world, offline: true })
+  expect(
+    screen.getByRole('status', { name: 'The artifact list is not available offline' }),
+  ).toBeTruthy()
+  expect(screen.queryByText(/No artifacts yet/)).toBeNull()
+  mounted.online()
+  await mounted.untilIdle()
+  expect(screen.getByText(FULL_BODIES.artifacts[0]?.title ?? '')).toBeTruthy()
+})
+
+describe('chat upload thumbnails on an empty device', () => {
+  const sessionId = 'chat-session' as never
+  const uploadWorld = (server: CollectionServer) => {
+    world(server)
+    server.put('session', sessionId, {
+      sessionId,
+      issueId: ID,
+      cwd: '/synthetic',
+      status: 'running',
+      archived: false,
+      createdAt: '2026-11-17T12:00:00.000Z',
+      lastActiveAt: '2026-11-17T12:00:00.000Z',
+    })
+    server.put('issuePanelArtifact', 'saved-upload', {
+      id: 'saved-upload',
+      issueId: ID,
+      position: 1,
+      path: 'uploaded.png',
+      addedAt: '2026-11-17T12:00:00.000Z',
+      artifactId: 'artifact-upload',
+      chatUploadId: 'att-1',
+    })
+  }
+
+  it.each([
+    false,
+    true,
+  ])('shows a saved upload thumbnail after its body loads (offline: %s)', async (offline) => {
+    const mounted = await mountOnEmptyDevice(<div />, { world: uploadWorld, offline })
+    const reader = createChatContextReader(mounted.pool)
+    mounted.pool.sources.register(['chatContextReader'], { read: () => reader, dispose() {} })
+    act(() =>
+      mounted.view.rerender(
+        <ItemAttachments
+          sessionId={sessionId}
+          attachments={[{ id: 'att-1', filename: 'uploaded.png', kind: 'image' }]}
+          tags={[]}
+          httpOrigin="http://device.invalid"
+          onOpenImage={() => {}}
+        />,
+      ),
+    )
+    expect(
+      screen.getByRole('status', {
+        name: offline ? 'The chat upload is not available offline' : 'Loading the chat upload',
+      }),
+    ).toBeTruthy()
+    expect(screen.queryByRole('img')).toBeNull()
+    if (offline) mounted.online()
+    await mounted.untilIdle()
+    expect(screen.getByRole('img').getAttribute('src')).toContain('artifact-upload')
+    expect(mounted.requestedKeys()).toContain(requestKey(bodyOf('issuePanelArtifact', ID)))
+    expect(mounted.requestedKeys()).not.toContain(requestKey(bodyOf('issuePanelTodo', ID)))
   })
 })
 

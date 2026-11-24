@@ -2,6 +2,7 @@ import type { FileTab } from '@podium/client-core/values'
 import { artifactKind, basename } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { type PageIssue, readPageIssue } from '@podium/client-graph/issue-page'
+import { LOADING } from '@podium/client-graph/loading'
 import type { Loaded } from '@podium/client-graph/worklist/rollup'
 import type { IssueId, IssuePanelArtifact } from '@podium/model/browser'
 import { useCallback } from 'react'
@@ -63,8 +64,17 @@ export function usePageIssue(issueId: string): PageIssue | null | undefined {
 }
 
 /** The strip's count beside "Artifacts". */
-export function useArtifactCount(issueId: string): number {
-  return usePageIssue(issueId)?.panel?.artifacts.length ?? 0
+export function useArtifactCount(issueId: string): number | typeof LOADING {
+  const read = useCallback(
+    (pool: MobxPool) => {
+      const issue = readPageIssue(pool, issueId)
+      if (issue === LOADING) return LOADING
+      const panel = issue?.panel
+      return panel === LOADING ? LOADING : (panel?.artifacts.length ?? 0)
+    },
+    [issueId],
+  )
+  return useWorklistPoolProjection(read, LOADING)
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
-import { useHttpOrigin } from '@podium/client-core/react'
-import { useUiValue } from '@podium/client-core/react'
+import { useHttpOrigin, useUiValue } from '@podium/client-core/react'
+import { LOADING } from '@podium/client-graph/loading'
 import { resolveMachinePath } from '@podium/model/browser'
 import { issueObserver as observer } from './issue-observer'
 /**
@@ -48,10 +48,11 @@ import type { IssuePanelArtifact } from '@podium/model/browser'
 import { FileText, Play } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { type IssueWithBodies } from '@/app/store'
+import type { IssueWithBodies } from '@/app/store'
 import { ArtifactLightbox, artifactLightboxKey } from '@/components/ArtifactLightbox'
 import { Button } from '@/components/ui/button'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
+import { BodyPending } from '../BodyPending'
 import { SectionHeading } from './chrome'
 import { IssueAge } from './IssueAge'
 
@@ -67,8 +68,10 @@ export const IssueAgentActivity = observer(function IssueAgentActivity({
   }
   const [lightbox, setLightbox] = useState<string | null>(null)
 
-  const artifacts = issue.panel?.artifacts ?? []
-  const deferred = issue.panel?.deferred ?? []
+  const panel = issue.panel
+  if (panel === LOADING) return <BodyPending value={LOADING} what="issue panel" />
+  const artifacts = panel?.artifacts ?? []
+  const deferred = panel?.deferred ?? []
   if (artifacts.length === 0 && deferred.length === 0) return null
 
   // An issue with no dedicated worktree is worked in the repo's primary

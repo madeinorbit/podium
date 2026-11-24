@@ -89,7 +89,7 @@ const trpc = {
     panelApply: { mutate: vi.fn(async () => ({})) },
     addComment: { mutate: vi.fn(async () => ({})) },
   },
-  settings: { get: { query: vi.fn(async () => ({ gitWorkflow: { } })) } },
+  settings: { get: { query: vi.fn(async () => ({ gitWorkflow: {} })) } },
   sessions: { sendText: { mutate: vi.fn(async () => ({})) } },
 }
 const state = {
@@ -181,7 +181,7 @@ const session = (id: string, issueId: string, patch: Record<string, unknown> = {
     ...patch,
   }) as unknown as SessionView
 function seed(
-  patch: Partial<IssueViewModel> = {},
+  patch: Parameters<typeof makeIssue>[0] = {},
   extra: IssueViewModel[] = [],
   roster?: SessionView[],
 ) {

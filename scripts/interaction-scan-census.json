@@ -54,18 +54,18 @@
       "file": "apps/mobile/src/client/issue-fixtures.ts",
       "holder": "seedIssueFixtures",
       "rule": "loop:for-of",
-      "tokens": "24a8c0ead0dee8156eb5ff27d4aff339dc4740ed07a638ff8e6abf8a21ed74b6",
+      "tokens": "040fcf3461e7db7cf28258daec54297a7f6482ef527308c23cfabf39d7bcfff9",
       "gate": [],
       "origin": [
         "b260981f94e757d299cf9a1c01ef0b7a3d9869e9a3d944af8518c85a193743e1"
       ],
-      "fingerprint": "6c17e4770985ee2bf72a986455ff550fca3d94ed29e079b19cfb14d09fac87fc",
+      "fingerprint": "ee59cd72fbbe09c763cca9181b07a6fd61373285acf414f28c1e29be15884731",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of seedIssueFixtures",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-7546: pending body values are omitted only in this phone fixture seeder; the fixture input and its existing classification are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -100,7 +100,7 @@
       "file": "apps/mobile/src/client/test-support.tsx",
       "holder": "renderWithMobileStore",
       "rule": "helper-consumer",
-      "tokens": "031c549f0c4734a3bff57022c63e9cc78c6222cc55899f6cb12c47dd16003711",
+      "tokens": "30cd2a828c69c51c6b1dc7db66338c60a584b05b7e4fbffb8204e6c772b41a01",
       "gate": [
         "then:340050db2368d08922eee549b81b405b8afd7f6857e8dc18875cb9e8e9cd8f23"
       ],
@@ -108,13 +108,13 @@
         "241a0331a71588c9cfd9dee4a0d372658006f11d0778e6476f836b12089cb86f",
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "2ee59270529e363d9866aba69961f3a0505e1abebb46f8248f3731b729a41423",
+      "fingerprint": "34ea86b6c36da68b729605e680057f22832ec2d47c6ad028c08933cb43288284",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of renderWithMobileStore",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-7546: the called fixture seeder now handles pending body values; this caller and its input bound are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -17698,20 +17698,20 @@
     },
     {
       "file": "packages/client-core/src/values/dock-panel.ts",
-      "holder": "subissuesWithPanels",
+      "holder": "subissuesWithPanels/panels",
       "rule": "consume:filter",
-      "tokens": "f1344d69f1079c661a8df314699cb6332b2603642a0b9dca547144d98a90eee9",
+      "tokens": "2973a93edd3acc48a7176bccc323bd9441f00601b16bffb79851a8be61394c16",
       "gate": [],
       "origin": [
         "63745918f8b4ebcb5ef758a755c829d82926d5a6cf789b0d425607fa3ebdbfe1"
       ],
-      "fingerprint": "9a47c4ca2bfb1f9c9d46e56b5902ad062b9560afd6e93a5e5ad0d9d75757eb20",
+      "fingerprint": "c92492ddac9669fe13a77397bc61ce6f5f7e6a3f67d0691137db32baa62fe2da",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of subissuesWithPanels",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7546: one pass propagates pending panel reads instead of returning a partial list; the existing input bound is unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {

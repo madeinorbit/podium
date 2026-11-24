@@ -4,6 +4,7 @@ import {
   isMachinePathWithinRoot,
   normalizeMachinePath,
 } from '@podium/model'
+import { LOADING } from '../loading'
 import { sessionById } from '../session-index'
 import type { SessionView } from '../session-values'
 import type { IssueViewModel } from '../values/issue-type'
@@ -101,7 +102,7 @@ type IssuePanelLike = Pick<
 > & {
   /** The issue's panel, its own records (POD-6778): `IssueModel.panel`
    *  answers it; a plain row carries none. */
-  readonly panel?: IssuePanel | undefined
+  readonly panel?: IssuePanel | undefined | typeof LOADING
 }
 
 export function issueForCwd<T extends IssuePanelLike>(issues: T[], cwd: string): T | null {
@@ -159,15 +160,26 @@ export function issueForPanel<T extends IssuePanelLike>(args: {
 }
 
 /** True when a panel has anything worth rendering. */
-export function panelNonEmpty(issue: Pick<IssuePanelLike, 'panel'>): boolean {
+export function panelNonEmpty(issue: Pick<IssuePanelLike, 'panel'>): boolean | typeof LOADING {
   const p = issue.panel
+  if (p === LOADING) return LOADING
   if (!p) return false
   return p.todos.length > 0 || p.artifacts.length > 0 || p.deferred.length > 0
 }
 
 /** Subissues of `parent` that have published a non-empty panel. */
-export function subissuesWithPanels<T extends IssuePanelLike>(issues: T[], parentId: string): T[] {
-  return issues.filter((i) => i.parentId === parentId && panelNonEmpty(i))
+export function subissuesWithPanels<T extends IssuePanelLike>(
+  issues: T[],
+  parentId: string,
+): T[] | typeof LOADING {
+  let pending = false
+  const panels = issues.filter((issue) => {
+    if (issue.parentId !== parentId) return false
+    const answer = panelNonEmpty(issue)
+    if (answer === LOADING) pending = true
+    return answer === true
+  })
+  return pending ? LOADING : panels
 }
 
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'])

@@ -1,17 +1,26 @@
-import { issueSearch } from './issue-search'
-import { machineFacts } from './machine-facts'
-import type { MessageModel } from './message-models'
-import { omitGone } from './lookup'
-import { headerView } from './header-views'
-import { action, compareStructural, observable, observableRef, observe, runInAction, when } from 'mobx'
-import { headerEntities } from './header-entities'
 import type { IssueViewModel, IssueWithBodies } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
+import { companion, lazy } from '@podium/mobx-helpers'
 import type { IssueId, IssuePanelArtifact, MachineFacts } from '@podium/model'
 import { dedupeSessionsByResume } from '@podium/model'
-import { companion, lazy } from '@podium/mobx-helpers'
 import { issueRefText, type PendingInteractionWire } from '@podium/protocol'
+import {
+  action,
+  compareStructural,
+  observable,
+  observableRef,
+  observe,
+  runInAction,
+  when,
+} from 'mobx'
 import { CHAT_CONTEXT_SUMMARIES } from './chat-context-schema'
+import { headerEntities } from './header-entities'
+import { headerView } from './header-views'
+import { issueSearch } from './issue-search'
+import { LOADING } from './loading'
+import { omitGone } from './lookup'
+import { machineFacts } from './machine-facts'
+import type { MessageModel } from './message-models'
 import type { SessionModel } from './models'
 import type { MobxPool } from './pool'
 import { superagentState } from './superagent'
@@ -46,10 +55,18 @@ export function chatIssue(pool: MobxPool, id: string): Loaded<IssueViewModel> {
   const row = omitGone(pool.row('issue', id)) as Loaded<IssueViewModel>
   if (!row || loading(row)) return row
   const repoId = pool.relations.one('issue', id, 'repo')
-  const repo = repoId ? (omitGone(pool.row('repo', repoId)) as { prefix?: string } | undefined) : undefined
+  const repo = repoId
+    ? (omitGone(pool.row('repo', repoId)) as { prefix?: string } | undefined)
+    : undefined
   return {
-    id: row.id, seq: row.seq, title: row.title, linearIdentifier: row.linearIdentifier,
-    archived: row.archived, deletedAt: row.deletedAt, updatedAt: row.updatedAt, repoId: row.repoId,
+    id: row.id,
+    seq: row.seq,
+    title: row.title,
+    linearIdentifier: row.linearIdentifier,
+    archived: row.archived,
+    deletedAt: row.deletedAt,
+    updatedAt: row.updatedAt,
+    repoId: row.repoId,
     prefix: repo?.prefix,
     displayRef: issueRefText(row.seq, repo?.prefix),
   } as IssueViewModel
@@ -173,7 +190,9 @@ export function chatItemMessage(
   // Observe the shared table, including requested history rows which are not
   // on the live feed's index. The pool owns and disposes this index.
   pool.row('noticeSession', sessionId)
-  return pool.sources.view('chatItemMessages', () => new ChatItemMessageIndex(pool)).message(sessionId, itemId)
+  return pool.sources
+    .view('chatItemMessages', () => new ChatItemMessageIndex(pool))
+    .message(sessionId, itemId)
 }
 export function chatItemAttachments(pool: MobxPool, sessionId: string, itemId: string) {
   return chatItemMessage(pool, sessionId, itemId)?.attachments
@@ -198,20 +217,22 @@ export function chatArtifactIssue(
 }
 /** The stored copy of a file attached in this session's chat (POD-2148), by
  * the attachment id it was staged under, from the session's issue. Undefined
- * while either record is on its way, for a session with no issue, and for an
- * attachment no copy was taken of. */
+ * for a session with no issue, and for an attachment no copy was taken of.
+ * LOADING until the issue's stored uploads are on the device. */
 export function chatUploadArtifact(
   pool: MobxPool,
   sessionId: string,
   attachmentId: string,
-): { issueId: IssueId; artifact: IssuePanelArtifact } | undefined {
+): { issueId: IssueId; artifact: IssuePanelArtifact } | undefined | typeof LOADING {
   const session = omitGone(pool.row('session', sessionId)) as Loaded<SessionView>
-  if (!session || loading(session)) return undefined
+  if (!session || loading(session)) return session
   const issue = chatArtifactIssue(pool, { sessionId: session.sessionId, issueId: session.issueId })
-  if (!issue || loading(issue)) return undefined
+  if (!issue || loading(issue)) return issue
   const model = omitGone(pool.model('issue', issue.id))
-  if (!model || loading(model)) return undefined
-  const artifact = model.chatUploads.get(attachmentId)
+  if (!model || loading(model)) return model
+  const uploads = model.chatUploads
+  if (uploads === LOADING) return LOADING
+  const artifact = uploads.get(attachmentId)
   return artifact ? { issueId: issue.id, artifact } : undefined
 }
 export function chatReferenceSessions(pool: MobxPool, counts = readerCounts(pool)) {
@@ -234,15 +255,18 @@ export function createReferenceSessionProjection(
 }
 
 class ReferenceSessionProjection {
-  private readonly session = companion((model: SessionModel) =>
-    new ReferenceSessionSummary(this.pool, model, this.fields, this.counts),
+  private readonly session = companion(
+    (model: SessionModel) =>
+      new ReferenceSessionSummary(this.pool, model, this.fields, this.counts),
   )
   constructor(
     private readonly pool: MobxPool,
     private readonly fields: readonly (keyof SessionView)[] | undefined,
     private readonly counts: ChatReadCounts | undefined,
   ) {}
-  sessions() { return this.result }
+  sessions() {
+    return this.result
+  }
   @lazy private get result() {
     if (this.counts) this.counts.referenceBuilds++
     const order = omitGone(this.pool.row('chatSessionOrder', 'order'))
@@ -276,8 +300,12 @@ class ReferenceSessionSummary {
     if (!row || loading(row)) return row
     // Reference cards name their fields; the phone roster preserves the
     // richer declared summary and resident metadata it already consumed.
-    const projected = Object.fromEntries((this.fields ?? CHAT_CONTEXT_SUMMARIES.session)
-      .map(key => [key, this.model.storedField(key)])) as unknown as SessionView
+    const projected = Object.fromEntries(
+      (this.fields ?? CHAT_CONTEXT_SUMMARIES.session).map((key) => [
+        key,
+        this.model.storedField(key),
+      ]),
+    ) as unknown as SessionView
     if (projected.resume)
       projected.resume = { kind: projected.resume.kind, value: projected.resume.value }
     return projected

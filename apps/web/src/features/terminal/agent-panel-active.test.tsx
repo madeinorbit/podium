@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { liveFixture } from '@podium/client-graph/live-fixture'
+import { requireLoaded } from '@podium/client-graph/mission-view'
 import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -324,7 +325,9 @@ describe('AgentPanel active wiring', () => {
     await act(async () => root.render(<AgentPanel sessionId={asSessionId('s1')} active />))
     await flush()
     expect(
-      pool.issueObject('iss-evidence').panelArtifacts.map((artifact) => artifact.path),
+      requireLoaded(pool.issueObject('iss-evidence').panelArtifacts).map(
+        (artifact) => artifact.path,
+      ),
     ).toEqual(['first-frame.png'])
     expect(pool.row('session', 's1')).not.toHaveProperty('lastInputAt')
     const dock = container.querySelector('[data-testid="native-offer-dock"]')

@@ -14,6 +14,7 @@ import { runInAction } from 'mobx'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { InstanceRequest } from '../../sync/src/replica/types'
 import { LOADING } from './loading'
+import { requireLoaded } from './mission-view'
 import { holdingInstanceOf } from './shared/holding-relations'
 import { SCHEMA } from './shared/schema'
 import { ISSUE, issueValue } from './test-support/device.test.fixture'
@@ -86,6 +87,106 @@ describe('the declarations', () => {
 })
 
 describe('reading a body field on an empty device', () => {
+  it.each([
+    ['panelTodos', 'issuePanelTodo'],
+    ['panelArtifacts', 'issuePanelArtifact'],
+    ['panelDeferred', 'issuePanelDeferred'],
+    ['activityNotes', 'issuePanelState'],
+    ['notesUpdatedAt', 'issuePanelState'],
+    ['chatUploads', 'issuePanelArtifact'],
+  ] as const)('%s holds only its own body kind and answers LOADING until complete', async (field, kind) => {
+    const device = await emptyDevice()
+    const issue = device.pool.issueObject('i1')
+    const holds = countHolds(device)
+    const instance = bodyOf(kind, issue.id)
+    const read = device.observe(
+      () => issue,
+      (model) => model[field],
+    )
+    expect(issue[field]).toBe(LOADING)
+    expect(holds(instance)).toBe(1)
+    await device.untilIdle()
+    expect(issue[field]).not.toBe(LOADING)
+    expect(device.requestedKeys()).toEqual([requestKey(instance)])
+    if (field === 'panelTodos') expect(issue.panelTodos).toMatchObject(FULL_BODIES.todos)
+    if (field === 'panelArtifacts')
+      expect(issue.panelArtifacts).toMatchObject(FULL_BODIES.artifacts)
+    if (field === 'panelDeferred')
+      expect(issue.panelDeferred).toMatchObject([{ text: FULL_BODIES.deferred[0] }])
+    if (field === 'activityNotes') expect(issue.activityNotes).toBe(FULL_BODIES.stateLine)
+    if (field === 'notesUpdatedAt') expect(issue.notesUpdatedAt).toBe('2026-11-17T12:00:00.000Z')
+    if (field === 'chatUploads') expect(issue.chatUploads).toEqual(new Map())
+    read.close()
+    expect(holds(instance)).toBe(0)
+  })
+
+  it('the panel waits for all three lists and batches them together', async () => {
+    const device = await emptyDevice()
+    const issue = device.pool.issueObject('i1')
+    const before = device.recorder.loads.length
+    const read = device.observe(
+      () => issue,
+      (model) => model.panel,
+    )
+    expect(issue.panel).toBe(LOADING)
+    await device.untilIdle()
+    expect(requireLoaded(issue.panel).todos).toMatchObject(FULL_BODIES.todos)
+    expect(requireLoaded(issue.panel).artifacts).toMatchObject(FULL_BODIES.artifacts)
+    expect(requireLoaded(issue.panel).deferred).toMatchObject([{ text: FULL_BODIES.deferred[0] }])
+    expect(collectionLoads(device, before)).toHaveLength(1)
+    expect([...device.requestedKeys()].sort()).toEqual(
+      ['issuePanelTodo', 'issuePanelArtifact', 'issuePanelDeferred']
+        .map((kind) => requestKey(bodyOf(kind, issue.id)))
+        .sort(),
+    )
+    read.close()
+  })
+
+  it('the remaining body fields stay LOADING offline and fill when the connection returns', async () => {
+    const device = await emptyDevice()
+    device.offline()
+    const issue = device.pool.issueObject('i1')
+    const read = device.observe(
+      () => issue,
+      (model) => [model.panel, model.activityNotes, model.notesUpdatedAt, model.chatUploads],
+    )
+    await device.untilIdle()
+    for (const answer of [
+      issue.panel,
+      issue.activityNotes,
+      issue.notesUpdatedAt,
+      issue.chatUploads,
+    ]) {
+      expect(answer).toBe(LOADING)
+      expect(device.pool.collections.reading(answer)).toBe('offline')
+    }
+    expect(device.requested()).toEqual(device.refused())
+    device.online()
+    await device.untilIdle()
+    expect(requireLoaded(issue.panel).todos).toMatchObject(FULL_BODIES.todos)
+    expect(issue.activityNotes).toBe(FULL_BODIES.stateLine)
+    expect(issue.notesUpdatedAt).toBe('2026-11-17T12:00:00.000Z')
+    expect(issue.chatUploads).toEqual(new Map())
+    read.close()
+  })
+
+  it('a complete empty panel and state differ from bodies never loaded', async () => {
+    const device = await emptyDevice()
+    const issue = device.pool.issueObject('bare')
+    const read = device.observe(
+      () => issue,
+      (model) => [model.panel, model.activityNotes, model.notesUpdatedAt, model.chatUploads],
+    )
+    expect(issue.panel).toBe(LOADING)
+    expect(issue.activityNotes).toBe(LOADING)
+    await device.untilIdle()
+    expect(issue.panel).toEqual({ todos: [], artifacts: [], deferred: [] })
+    expect(issue.activityNotes).toBeUndefined()
+    expect(issue.notesUpdatedAt).toBeUndefined()
+    expect(issue.chatUploads).toEqual(new Map())
+    read.close()
+  })
+
   it('answers LOADING, asks once, then answers the text', async () => {
     const device = await emptyDevice()
     const issue = device.pool.issueObject('i1')

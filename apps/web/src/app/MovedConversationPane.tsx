@@ -1,4 +1,5 @@
 import type { DeckIssueState, IssueContinuation } from '@podium/client-core/values'
+import { LOADING } from '@podium/client-graph/loading'
 import { MissionScreen } from '@podium/client-graph/mission-screen'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { observer } from '@podium/client-graph/react'
@@ -7,6 +8,7 @@ import { ArrowRight, Check } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { BodyPending } from '@/features/issues/BodyPending'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
 import { StageGlyph } from '@/features/issues/issue-glyphs'
 import { cn } from '@/lib/utils'
@@ -88,7 +90,11 @@ const MovedConversation = observer(function MovedConversation({
         <p className="mt-2 text-[13.5px] leading-[1.6] text-pretty text-muted-foreground">
           Your follow-up became its own task and the agent took the chat with it.
         </p>
-        {findings && <Findings text={findings} />}
+        {findings === LOADING ? (
+          <BodyPending value={LOADING} what="state line" />
+        ) : (
+          findings && <Findings text={findings} />
+        )}
         {target && (
           <PaneSection label="Your conversation">
             <button

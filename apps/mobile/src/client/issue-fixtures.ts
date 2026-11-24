@@ -1,8 +1,9 @@
 /** Demo/test scaffolding only. Live mobile reads never adapt a legacy row. */
 import type { IssueViewModel, Replica } from '@podium/client-core/replica'
+import { LOADING } from '@podium/client-graph/loading'
 import {
-  asRepoId,
   asIssuePanelItemId,
+  asRepoId,
   type IssueDepProjection,
   type IssueGitStateProjection,
   IssueProjection,
@@ -31,6 +32,9 @@ export function seedIssueFixtures(
   const repos = new Map<string, RepoProjection>()
   const deps: IssueDepProjection[] = []
   for (const issue of issues) {
+    const panel = issue.panel === LOADING ? undefined : issue.panel // POD-7555: LOADING reads as empty on the phone
+    const activityNotes = issue.activityNotes === LOADING ? undefined : issue.activityNotes // POD-7555: LOADING reads as empty on the phone
+    const notesUpdatedAt = issue.notesUpdatedAt === LOADING ? undefined : issue.notesUpdatedAt // POD-7555: LOADING reads as empty on the phone
     const source = issue as unknown as Record<string, unknown>
     const row: Record<string, unknown> = {}
     for (const key of Object.keys(IssueProjection.shape)) {
@@ -48,11 +52,23 @@ export function seedIssueFixtures(
     delete row.activityNotes
     delete row.notesUpdatedAt
     projections.push(row as unknown as IssueProjection)
-    const identity = (position: number) => ({ id: asIssuePanelItemId(`00000000-0000-4000-8000-${String(++panelId).padStart(12, '0')}`), issueId: issue.id, position })
-    for (const [position, value] of (issue.panel?.todos ?? []).entries()) todos.push({ ...value, ...identity(position) })
-    for (const [position, value] of (issue.panel?.artifacts ?? []).entries()) artifacts.push({ ...value, ...identity(position) })
-    for (const [position, value] of (issue.panel?.deferred ?? []).entries()) deferred.push({ ...value, ...identity(position) })
-    if (issue.activityNotes) states.push({ id: issue.id, text: issue.activityNotes, updatedAt: issue.notesUpdatedAt ?? issue.updatedAt })
+    const identity = (position: number) => ({
+      id: asIssuePanelItemId(`00000000-0000-4000-8000-${String(++panelId).padStart(12, '0')}`),
+      issueId: issue.id,
+      position,
+    })
+    for (const [position, value] of (panel?.todos ?? []).entries())
+      todos.push({ ...value, ...identity(position) })
+    for (const [position, value] of (panel?.artifacts ?? []).entries())
+      artifacts.push({ ...value, ...identity(position) })
+    for (const [position, value] of (panel?.deferred ?? []).entries())
+      deferred.push({ ...value, ...identity(position) })
+    if (activityNotes)
+      states.push({
+        id: issue.id,
+        text: activityNotes,
+        updatedAt: notesUpdatedAt ?? issue.updatedAt,
+      })
     markers.push({
       userId,
       entityId: issue.id,

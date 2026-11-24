@@ -1,4 +1,5 @@
 import { isImagePath, stagedAttachmentId } from '@podium/client-core/values'
+import { LOADING } from '@podium/client-graph/loading'
 import {
   type MessageRecordAttachment,
   machinePathBasename,
@@ -9,6 +10,7 @@ import { FileText, Image as ImageIcon } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useWorklistPool } from '@/app/store-worklist-pool'
+import { BodyPending } from '@/features/issues/BodyPending'
 import { assetUrl } from '@/lib/asset-url'
 import { type ChatGalleryImage, ChatImageGallery } from './ChatImageGallery'
 import { chatUploadSrc } from './chat-upload-src'
@@ -54,6 +56,7 @@ export const ItemAttachments = observer(function ItemAttachments({
   const pool = useWorklistPool()
   const images: ChatGalleryImage[] = []
   const chips: JSX.Element[] = []
+  let uploadsLoading = false
   const pathIds = new Set<string>()
   for (const path of paths) {
     const absolute = resolveMachinePath(cwd, path)
@@ -65,6 +68,10 @@ export const ItemAttachments = observer(function ItemAttachments({
       ? (chatUploadSrc(pool, sessionId, id, httpOrigin) ??
         assetUrl({ httpOrigin, sessionId, fileDir: cwd, src: absolute }))
       : null
+    if (src === LOADING) {
+      uploadsLoading = true
+      continue
+    }
     if (src) images.push({ kind: 'image', src, label: name, path: absolute })
     else
       chips.push(
@@ -90,6 +97,10 @@ export const ItemAttachments = observer(function ItemAttachments({
     if (attachment.id && pathIds.has(attachment.id)) continue
     const src =
       attachment.kind === 'image' ? chatUploadSrc(pool, sessionId, attachment.id, httpOrigin) : null
+    if (src === LOADING) {
+      uploadsLoading = true
+      continue
+    }
     if (src) images.push({ kind: 'image', src, label: attachment.filename })
     else
       chips.push(
@@ -109,9 +120,10 @@ export const ItemAttachments = observer(function ItemAttachments({
     }
     chips.push(<TagChip key={`tag:${i}`} kind={tag.kind} label={tag.label ?? tag.kind} />)
   }
-  if (!images.length && !chips.length) return null
+  if (!images.length && !chips.length && !uploadsLoading) return null
   return (
     <div className="chat-message-attachments">
+      {uploadsLoading && <BodyPending value={LOADING} what="chat upload" />}
       {images.length > 0 && (
         <ChatImageGallery
           items={images}

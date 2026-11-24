@@ -28,6 +28,7 @@ import { issueObserver as observer } from './issue-observer'
  * pixels of history is a reply box nobody reaches.
  */
 
+import { ISSUE_ASSISTANT_KIND } from '@podium/client-core/spawn-agent'
 import {
   type ActivityDay,
   type ActivityEntry,
@@ -38,8 +39,8 @@ import {
   type IssueEventIcon,
   type IssueEventLine,
 } from '@podium/client-core/values'
-import { ISSUE_ASSISTANT_KIND } from '@podium/client-core/spawn-agent'
 import type { IssueHistoryView } from '@podium/client-graph/issue-activity'
+import { LOADING } from '@podium/client-graph/loading'
 import type { IssueId } from '@podium/model'
 import {
   ArrowRight,
@@ -70,6 +71,7 @@ import { useAtMenu, useAtTrigger } from '@/lib/at-mention/useAtMention'
 import { useMemberRoster } from '@/lib/member-roster'
 import { modChord } from '@/lib/mod-chord'
 import { cn } from '@/lib/utils'
+import { BodyPending } from '../BodyPending'
 import type { IssueMailMessage, IssuePageCommands } from '../issue-page-commands'
 import { MACHINE_LABEL, SectionHeading } from './chrome'
 import { IssueAge, IssueDayLabel } from './IssueAge'
@@ -505,33 +507,33 @@ export const IssueActivitySection = observer(function IssueActivitySection({
     <section className="group/section flex flex-col gap-2">
       <SectionHeading
         action={
-          <AssistantRefresh
-            issueId={issue.id}
-            busy={busy}
-            onRefresh={commands.refreshAssistant}
-          />
+          <AssistantRefresh issueId={issue.id} busy={busy} onRefresh={commands.refreshAssistant} />
         }
       >
         Activity
       </SectionHeading>
 
-      {issue.activityNotes && (
-        <div className="flex flex-col gap-1 rounded-lg border border-border border-dashed bg-muted/20 px-3 py-2">
-          <div className="flex items-baseline justify-between gap-2">
-            <span className={MACHINE_LABEL}>Assistant</span>
-            {issue.notesUpdatedAt && (
-              <span
-                className="font-mono shell-type-micro text-text-faint tabular-nums"
-                title={eventStamp(issue.notesUpdatedAt)}
-              >
-                <IssueAge stamp={issue.notesUpdatedAt} />
-              </span>
-            )}
+      {issue.activityNotes === LOADING ? (
+        <BodyPending value={LOADING} what="state line" />
+      ) : (
+        issue.activityNotes && (
+          <div className="flex flex-col gap-1 rounded-lg border border-border border-dashed bg-muted/20 px-3 py-2">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className={MACHINE_LABEL}>Assistant</span>
+              {issue.notesUpdatedAt && issue.notesUpdatedAt !== LOADING && (
+                <span
+                  className="font-mono shell-type-micro text-text-faint tabular-nums"
+                  title={eventStamp(issue.notesUpdatedAt)}
+                >
+                  <IssueAge stamp={issue.notesUpdatedAt} />
+                </span>
+              )}
+            </div>
+            <p className="whitespace-pre-wrap break-words text-[13.5px] text-muted-foreground leading-[1.6]">
+              {issue.activityNotes}
+            </p>
           </div>
-          <p className="whitespace-pre-wrap break-words text-[13.5px] text-muted-foreground leading-[1.6]">
-            {issue.activityNotes}
-          </p>
-        </div>
+        )
       )}
 
       {history && <EarlierActivity history={history} />}

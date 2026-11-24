@@ -9,6 +9,7 @@ import {
   type IssueEventLine,
 } from '@podium/client-core/values'
 import type { IssueHistoryView } from '@podium/client-graph/issue-activity'
+import { LOADING } from '@podium/client-graph/loading'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { issueObserver as observer } from '../../client/issue-observer'
@@ -132,6 +133,8 @@ export const IssueActivitySection = observer(function IssueActivitySection({
   const pool = useMobilePool()
   const refreshing = pool?.issueObject(issue.id).workPending === ISSUE_ASSISTANT_KIND
   const waiting = busy || refreshing
+  const activityNotes = issue.activityNotes === LOADING ? undefined : issue.activityNotes // POD-7555: LOADING reads as empty on the phone
+  const notesUpdatedAt = issue.notesUpdatedAt === LOADING ? undefined : issue.notesUpdatedAt // POD-7555: LOADING reads as empty on the phone
   return (
     <View style={styles.section}>
       <SectionHeading
@@ -152,18 +155,18 @@ export const IssueActivitySection = observer(function IssueActivitySection({
         }
       />
 
-      {issue.activityNotes ? (
+      {activityNotes ? (
         <View style={styles.assistant}>
           <View style={styles.assistantHead}>
             <MachineLabel>Assistant</MachineLabel>
-            {issue.notesUpdatedAt ? (
+            {notesUpdatedAt ? (
               <Text style={styles.stamp}>
-                <IssueAge stamp={issue.notesUpdatedAt} />
+                <IssueAge stamp={notesUpdatedAt} />
               </Text>
             ) : null}
           </View>
           <Text style={styles.assistantBody} selectable>
-            {issue.activityNotes}
+            {activityNotes}
           </Text>
         </View>
       ) : null}

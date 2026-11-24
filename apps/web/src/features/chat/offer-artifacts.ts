@@ -1,4 +1,5 @@
 import type { IssueWithBodies } from '@podium/client-core/replica'
+import { LOADING } from '@podium/client-graph/loading'
 import { machinePathHasSuffix } from '@podium/model'
 import type { IssuePanelArtifact, SessionOffer } from '@podium/model/browser'
 
@@ -20,8 +21,10 @@ export function resolveOfferArtifacts(args: {
   issue: IssueWithBodies | undefined
   /** ISO time of the session model's live last human input. */
   lastInputAt?: string
-}): IssuePanelArtifact[] {
-  const published = args.issue?.panel?.artifacts ?? []
+}): IssuePanelArtifact[] | typeof LOADING {
+  const panel = args.issue?.panel
+  if (panel === LOADING) return LOADING
+  const published = panel?.artifacts ?? []
   if (published.length === 0) return []
 
   const curated = args.offer.artifacts ?? []

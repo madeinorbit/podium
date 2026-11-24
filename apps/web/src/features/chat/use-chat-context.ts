@@ -109,8 +109,8 @@ export function useChatArtifactIssue(session: Pick<SessionView, 'sessionId' | 'i
 }
 /** The stored-copy URL for a file attached in this session's chat (POD-2148),
  * by attachment id, or null when the issue holds no copy of it and the caller
- * keeps its fallback. A string, so a panel change elsewhere does not redraw
- * the thumbnail. */
+ * keeps its fallback. LOADING until the stored copies are on the device. A
+ * string answer keeps unrelated panel changes from redrawing the thumbnail. */
 export function useChatUploadSrc(
   sessionId: SessionId,
   attachmentId: string | undefined,

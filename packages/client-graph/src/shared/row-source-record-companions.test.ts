@@ -4,6 +4,7 @@ import { subscriptionRowId, workflowBindingRowId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { createWorklistPool } from '../create'
 import { requireHere } from '../lookup'
+import { requireLoaded } from '../mission-view'
 import { fixedLocals } from './locals-source'
 import { createRowSource } from './row-source'
 
@@ -123,11 +124,13 @@ describe.each([false, true])('record companions after a snapshot (replacement=%s
     const f = fixture(replace)
     try {
       const issue = f.pool.issueObject('issue')
-      expect(issue.panelArtifacts.map((artifact) => artifact.path)).toEqual(['proof.png'])
-      expect(issue.panelTodos.map((todo) => [todo.text, todo.done])).toEqual([
+      expect(requireLoaded(issue.panelArtifacts).map((artifact) => artifact.path)).toEqual([
+        'proof.png',
+      ])
+      expect(requireLoaded(issue.panelTodos).map((todo) => [todo.text, todo.done])).toEqual([
         ['Check reload', false],
       ])
-      expect(issue.panelDeferred.map((item) => item.text)).toEqual(['Later work'])
+      expect(requireLoaded(issue.panelDeferred).map((item) => item.text)).toEqual(['Later work'])
       expect(issue.activityNotes).toBe('Ready to review')
     } finally {
       f.dispose()

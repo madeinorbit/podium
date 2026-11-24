@@ -1,6 +1,7 @@
 import { useHttpOrigin, useUiValue } from '@podium/client-core/react'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
 import type { SessionModel } from '@podium/client-graph'
+import { LOADING } from '@podium/client-graph/loading'
 import { observer } from '@podium/client-graph/react'
 import { resolveMachinePath } from '@podium/model'
 import type { IssuePanelArtifact, SessionOffer } from '@podium/model/browser'
@@ -8,6 +9,7 @@ import { Code, FileText, Play } from 'lucide-react'
 import { type JSX, useCallback, useLayoutEffect, useState } from 'react'
 import { ArtifactLightbox, artifactLightboxKey } from '@/components/ArtifactLightbox'
 import { openArtifactsTab } from '@/features/files/artifacts-tab'
+import { BodyPending } from '@/features/issues/BodyPending'
 import { useFirstArtifactAnchor } from '@/features/issues/first-artifact-tip'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
 import { resolveOfferArtifacts } from './offer-artifacts'
@@ -102,7 +104,7 @@ export const OfferArtifactStrip = observer(function OfferArtifactStrip({
   })
   const { ref: tipRef, ...tipAnchor } = useFirstArtifactAnchor(
     'offer',
-    issue && resolved.length > 0 ? issue.id : undefined,
+    issue && resolved !== LOADING && resolved.length > 0 ? issue.id : undefined,
   )
   // One element is both the measured row and the tip's anchor.
   const stripRef = useCallback(
@@ -112,6 +114,7 @@ export const OfferArtifactStrip = observer(function OfferArtifactStrip({
     },
     [tipRef],
   )
+  if (resolved === LOADING) return <BodyPending value={LOADING} what="offer artifacts" />
   if (!issue || resolved.length === 0) return null
 
   const root = issue.worktreePath ?? issue.repoPath

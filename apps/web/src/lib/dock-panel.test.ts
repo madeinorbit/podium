@@ -13,6 +13,7 @@ import {
   subissuesWithPanels,
   worktreeAssetUrl,
 } from '@podium/client-core/values'
+import { requireLoaded } from '@podium/client-graph/mission-view'
 import type { UnbrandIds } from '@podium/model'
 import { asArtifactId, asIssueId, asMachineId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
@@ -286,9 +287,9 @@ describe('panel helpers', () => {
     })
     expect(panelNonEmpty(subEmpty)).toBe(false)
     expect(panelNonEmpty(subFull)).toBe(true)
-    expect(subissuesWithPanels([parent, subEmpty, subFull], 'i1').map((s) => s.id)).toEqual([
-      's-full',
-    ])
+    expect(
+      requireLoaded(subissuesWithPanels([parent, subEmpty, subFull], 'i1')).map((s) => s.id),
+    ).toEqual(['s-full'])
   })
 })
 

@@ -453,7 +453,7 @@ export class IssueModel extends EntityModel {
     })
   }
 
-  // The bodies (POD-6921): the brief and the description are synced records
+  // The bodies (POD-6921): text and panel items are synced records
   // of their own, keyed by the issue id, on the device only once something
   // reads them (group `body`, POD-7545); a field with no text has no record.
   // Reading one holds the issue's instance of that record and loads it, and
@@ -467,30 +467,49 @@ export class IssueModel extends EntityModel {
     const records = this.briefRecords.members
     return records === LOADING ? LOADING : records[0]?.text
   }
-  @lazy({ equals: compareShallow }) get panelTodos(): IssuePanelTodoModel[] {
-    return this.panelTodoRecords.ready.slice().sort(panelOrder)
+  @lazy({ equals: compareShallow }) get panelTodos(): IssuePanelTodoModel[] | typeof LOADING {
+    const records = this.panelTodoRecords.members
+    return records === LOADING ? LOADING : records.slice().sort(panelOrder)
   }
-  @lazy({ equals: compareShallow }) get panelArtifacts(): IssuePanelArtifactModel[] {
-    return this.panelArtifactRecords.ready.slice().sort(panelOrder)
+  @lazy({ equals: compareShallow }) get panelArtifacts():
+    | IssuePanelArtifactModel[]
+    | typeof LOADING {
+    const records = this.panelArtifactRecords.members
+    return records === LOADING ? LOADING : records.slice().sort(panelOrder)
   }
-  @lazy({ equals: compareShallow }) get panelDeferred(): IssuePanelDeferredModel[] {
-    return this.panelDeferredRecords.ready.slice().sort(panelOrder)
+  @lazy({ equals: compareShallow }) get panelDeferred():
+    | IssuePanelDeferredModel[]
+    | typeof LOADING {
+    const records = this.panelDeferredRecords.members
+    return records === LOADING ? LOADING : records.slice().sort(panelOrder)
   }
   /** Lists contain shared models, never copied item facts. Membership and order
    * are the only inputs: toggling one todo does not replace any list. */
-  @lazy get panel(): IssuePanel {
-    return { todos: this.panelTodos, artifacts: this.panelArtifacts, deferred: this.panelDeferred }
+  @lazy get panel(): IssuePanel | typeof LOADING {
+    const todos = this.panelTodos,
+      artifacts = this.panelArtifacts,
+      deferred = this.panelDeferred
+    return todos === LOADING || artifacts === LOADING || deferred === LOADING
+      ? LOADING
+      : { todos, artifacts, deferred }
   }
-  @lazy get activityNotes(): string | undefined { return this.panelStateRecords.ready[0]?.text }
-  @lazy get notesUpdatedAt(): string | undefined { return this.panelStateRecords.ready[0]?.updatedAt }
+  @lazy get activityNotes(): string | undefined | typeof LOADING {
+    const records = this.panelStateRecords.members
+    return records === LOADING ? LOADING : records[0]?.text
+  }
+  @lazy get notesUpdatedAt(): string | undefined | typeof LOADING {
+    const records = this.panelStateRecords.members
+    return records === LOADING ? LOADING : records[0]?.updatedAt
+  }
 
   // Chat uploads (POD-2148): the stored copy of each file attached in one of
   // this issue's chats, by the attachment id it was staged under. The chat
   // shows a thumbnail from it once the daemon's upload sweep deleted the file.
-  @lazy get chatUploads(): ReadonlyMap<string, IssuePanelArtifact> {
-    const panel = this.panel
+  @lazy get chatUploads(): ReadonlyMap<string, IssuePanelArtifact> | typeof LOADING {
+    const artifacts = this.panelArtifacts
+    if (artifacts === LOADING) return LOADING
     const out = new Map<string, IssuePanelArtifact>()
-    for (const artifact of panel?.artifacts ?? [])
+    for (const artifact of artifacts)
       if (artifact.chatUploadId && artifact.artifactId) out.set(artifact.chatUploadId, artifact)
     return out
   }

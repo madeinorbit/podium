@@ -424,7 +424,9 @@ function ArtifactsItem({
       >
         <LayoutGrid className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />
         <span className="min-w-0 flex-1">Artifacts</span>
-        {count > 0 && <span className={`${MENU_HINT} tabular-nums`}>{count}</span>}
+        {count !== LOADING && count > 0 && (
+          <span className={`${MENU_HINT} tabular-nums`}>{count}</span>
+        )}
       </DropdownMenuItem>
     </>
   )

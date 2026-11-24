@@ -1,5 +1,11 @@
 import type { IssueWithBodies } from '@podium/client-core/replica'
-import { type ArtifactId, asArtifactId, type IssuePanelArtifact, type SessionOffer } from '@podium/model'
+import { requireLoaded } from '@podium/client-graph/mission-view'
+import {
+  type ArtifactId,
+  asArtifactId,
+  type IssuePanelArtifact,
+  type SessionOffer,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { resolveOfferArtifacts } from './offer-artifacts'
 
@@ -75,7 +81,7 @@ describe('resolveOfferArtifacts [POD-120]', () => {
       issue: issueWith([stale, ...fresh]),
       lastInputAt: '2026-07-21T08:00:00.000Z',
     })
-    expect(out.map((a) => a.path)).toEqual(['d.png', 'c.png', 'b.png'])
+    expect(requireLoaded(out).map((a) => a.path)).toEqual(['d.png', 'c.png', 'b.png'])
   })
 
   it('no fallback without a last-input anchor or without an issue', () => {

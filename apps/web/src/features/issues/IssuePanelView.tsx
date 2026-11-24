@@ -514,13 +514,13 @@ const ArtifactsPart = observer(function ArtifactsPart({
     openArtifact: useUiValue('openArtifact'),
   }
   const panel = issue.panel
-  const all = panel?.artifacts ?? []
+  const all = panel === LOADING ? [] : (panel?.artifacts ?? [])
   // Files people attached in the issue's chats (POD-2148) are kept for the
   // chat's thumbnails, not published: they sit under their own folded heading
   // so they never crowd out what the agent put up for review.
   const artifacts = all.filter((a) => a.chatUploadId === undefined)
   const chatUploads = all.filter((a) => a.chatUploadId !== undefined)
-  const deferred = panel?.deferred ?? []
+  const deferred = panel === LOADING ? [] : (panel?.deferred ?? [])
   // An issue with no dedicated worktree is worked in the repo's primary
   // checkout — serve its artifacts from there.
   const root = issue.worktreePath ?? issue.repoPath
@@ -535,6 +535,7 @@ const ArtifactsPart = observer(function ArtifactsPart({
 
   const tipAnchor = useFirstArtifactAnchor('panel', artifacts.length > 0 ? issue.id : undefined)
 
+  if (panel === LOADING) return <BodyPending value={LOADING} what="issue panel" />
   if (all.length === 0 && deferred.length === 0) return null
 
   const srcOf = (a: IssuePanelArtifact): string | null =>
@@ -906,7 +907,8 @@ export const IssuePanelBody = observer(function IssuePanelBody({
 
   const openChildren = children.filter((c) => !isFinished(c))
   const doneChildren = children.filter((c) => isFinished(c))
-  const notesAt = issue.notesUpdatedAt ?? issue.updatedAt
+  const notesAt =
+    issue.notesUpdatedAt === LOADING ? LOADING : (issue.notesUpdatedAt ?? issue.updatedAt)
   const title = detail.title
   // UNCAUGHT, like every other outboxed curation write: the queue keeps a
   // rejected write and surfaces it in the recovery surface with its own toast.
@@ -1010,27 +1012,31 @@ export const IssuePanelBody = observer(function IssuePanelBody({
         {/* The agent's latest posted update: quiet and clamped to four lines,
             because the chat beside this column is where the work is narrated.
             A click unfolds the whole text. */}
-        {issue.activityNotes?.trim() && (
-          <div
-            className="-mt-2 flex flex-col gap-1"
-            data-testid="dock-current-update"
-            data-part="Current update"
-          >
-            <span className="text-[11px] text-text-faint">
-              Agent status
-              {notesAt ? (
-                <>
-                  {' '}
-                  · <IssueAge stamp={notesAt} />
-                </>
-              ) : null}
-            </span>
-            <ClampedText
-              text={issue.activityNotes}
-              className="text-muted-foreground"
-              testId="dock-current-update-body"
-            />
-          </div>
+        {issue.activityNotes === LOADING ? (
+          <BodyPending value={LOADING} what="state line" />
+        ) : (
+          issue.activityNotes?.trim() && (
+            <div
+              className="-mt-2 flex flex-col gap-1"
+              data-testid="dock-current-update"
+              data-part="Current update"
+            >
+              <span className="text-[11px] text-text-faint">
+                Agent status
+                {notesAt && notesAt !== LOADING ? (
+                  <>
+                    {' '}
+                    · <IssueAge stamp={notesAt} />
+                  </>
+                ) : null}
+              </span>
+              <ClampedText
+                text={issue.activityNotes}
+                className="text-muted-foreground"
+                testId="dock-current-update-body"
+              />
+            </div>
+          )
         )}
 
         <ArtifactsPart

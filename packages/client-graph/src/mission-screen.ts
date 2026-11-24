@@ -244,7 +244,7 @@ export class MissionScreen {
           settled(() => deck.rowIds()),
           this.folds,
           this.rootModel.description,
-          this.rootStateHeld ? true : LOADING,
+          this.rootModel.activityNotes,
         ]
         return !reads.includes(LOADING)
       }) === true
@@ -387,21 +387,6 @@ export class MissionScreen {
   @lazy get rootLeadSessionId(): string | undefined {
     return this.rootRow?.crewIds[0]
   }
-  /**
-   * The header reads the root's description and panel state line, the
-   * issue's body part (POD-7084), and the deck is ready once both are on the
-   * device (POD-7088). Only the root's, never a member's. The description is
-   * read like on every screen: the field's read holds and loads it (POD-7545).
-   * The state line is still asked for by hand until its field does the same
-   * (POD-7546).
-   */
-  @lazy private get rootStateHeld(): boolean {
-    return this.pool.collections.held({
-      collection: 'issuePanelState.ofIssue',
-      args: { issueId: this.rootId },
-      part: 'main',
-    })
-  }
   /** The root's bodies (POD-6921) come from its pool model, which reads their records. */
   private get rootModel() {
     return this.pool.issueObject(this.rootId)
@@ -490,8 +475,9 @@ export class MissionScreen {
     )
   }
   /** What this task wrote down before its conversation moved. */
-  @lazy get rootFindings(): string {
-    return this.rootModel.activityNotes?.trim() ?? ''
+  @lazy get rootFindings(): string | typeof LOADING {
+    const notes = this.rootModel.activityNotes
+    return notes === LOADING ? LOADING : (notes?.trim() ?? '')
   }
   /** Proposals this task filed as their own issues, in the deck's proposal rows. */
   @lazy({ equals: compareShallow }) get spinOffProposalIds(): readonly string[] {

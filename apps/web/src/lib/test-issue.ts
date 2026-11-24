@@ -1,11 +1,12 @@
+import type { IssueBodyValues, IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { UnbrandIds } from '@podium/model/browser'
 import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
-import type { IssueBodyValues, IssueViewModel } from '@podium/client-core/replica'
 
 /** A row with its bodies painted on: what the pool fixtures install. A painted
  *  text wins over the issue's `issueBrief` / `issueDescription` records (POD-6921). */
-type TestIssue = IssueViewModel & IssueBodyValues & { description: string; sessions?: SessionView[] }
+type TestIssue = Omit<IssueViewModel, keyof IssueBodyValues> &
+  IssueBodyValues & { description: string; sessions?: SessionView[] }
 
 /**
  * Build a valid normalized IssueViewModel for unit tests, overriding any fields via `over`.
@@ -18,10 +19,26 @@ export const makeIssue = (
   // construction site (`entities/wire-input.ts`) — a per-field `asIssueId` in
   // every test would be noise, and a plain `Partial<IssueViewModel>` would not
   // accept `id: 'i'` at all.
-  over: Partial<UnbrandIds<IssueViewModel & IssueBodyValues>> & { sessions?: SessionView[]; draft?: boolean; origin?: 'human' | 'agent'; humanQuestion?: string; humanQuestionOptions?: string[]; humanQuestionAskedBy?: string; humanQuestionAskedAt?: string } = {},
+  over: Partial<UnbrandIds<TestIssue>> & {
+    sessions?: SessionView[]
+    draft?: boolean
+    origin?: 'human' | 'agent'
+    humanQuestion?: string
+    humanQuestionOptions?: string[]
+    humanQuestionAskedBy?: string
+    humanQuestionAskedAt?: string
+  } = {},
 ): TestIssue => {
-  const { draft, origin, humanQuestion, humanQuestionOptions, humanQuestionAskedBy, humanQuestionAskedAt, ...normalized } = over
-  return ({
+  const {
+    draft,
+    origin,
+    humanQuestion,
+    humanQuestionOptions,
+    humanQuestionAskedBy,
+    humanQuestionAskedAt,
+    ...normalized
+  } = over
+  return {
     id: 'i',
     repoPath: '/r',
     seq: 4,
@@ -58,7 +75,15 @@ export const makeIssue = (
     ...normalized,
     isDraftVessel: normalized.isDraftVessel ?? draft ?? false,
     intentOrigin: normalized.intentOrigin ?? origin ?? 'human',
-    asked: normalized.asked ?? (humanQuestion ? { question: humanQuestion, options: humanQuestionOptions,
-      by: humanQuestionAskedBy, at: humanQuestionAskedAt } : undefined),
-  }) as unknown as TestIssue
+    asked:
+      normalized.asked ??
+      (humanQuestion
+        ? {
+            question: humanQuestion,
+            options: humanQuestionOptions,
+            by: humanQuestionAskedBy,
+            at: humanQuestionAskedAt,
+          }
+        : undefined),
+  } as unknown as TestIssue
 }

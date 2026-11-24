@@ -346,7 +346,9 @@ const SheetBody = observer(function SheetBody({
   // Prefer the immutable hosted id. The slug fallback keeps URL-selected web
   // profiles scoped when an id is not available yet.
   const workspace = profile?.config.workspaceId ?? profile?.config.workspaceSlug
-  const artifacts = issue.panel?.artifacts ?? []
+  const artifacts = issue.panel === LOADING ? [] : (issue.panel?.artifacts ?? []) // POD-7555: LOADING reads as empty on the phone
+  const notesUpdatedAt = issue.notesUpdatedAt === LOADING ? undefined : issue.notesUpdatedAt // POD-7555: LOADING reads as empty on the phone
+  const activityNotes = issue.activityNotes === LOADING ? undefined : issue.activityNotes // POD-7555: LOADING reads as empty on the phone
   const git = issue.gitState
 
   return (
@@ -360,10 +362,10 @@ const SheetBody = observer(function SheetBody({
 
       <Part
         title="Current update"
-        meta={issue.notesUpdatedAt ? relativeTime(issue.notesUpdatedAt, Date.now()) : undefined}
+        meta={notesUpdatedAt ? relativeTime(notesUpdatedAt, Date.now()) : undefined}
       >
-        <Text style={[styles.proseTight, issue.activityNotes ? null : styles.proseEmpty]}>
-          {issue.activityNotes || 'No status posted yet.'}
+        <Text style={[styles.proseTight, activityNotes ? null : styles.proseEmpty]}>
+          {activityNotes || 'No status posted yet.'}
         </Text>
       </Part>
 

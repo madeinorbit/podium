@@ -274,7 +274,9 @@ function createShellViews(pool: MobxPool) {
     let body: { panel?: unknown } = {}
     if (full) {
       const model = pool.issueObject(id)
-      body = model.panel ? { panel: model.panel } : {}
+      const panel = model.panel
+      if (panel === LOADING) return LOADING
+      body = { panel }
     }
     return {
       ...(full ? input : Object.fromEntries(SHELL_SUMMARIES.issue.map((key) => [key, input[key]]))),

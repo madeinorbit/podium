@@ -1,3 +1,4 @@
+import { LOADING } from '@podium/client-graph/loading'
 import { observer } from '@podium/client-graph/react'
 import { action, observableRef } from 'mobx'
 import { type JSX, useContext, useEffect, useState } from 'react'
@@ -146,7 +147,9 @@ const IssueArtifactsDot = observer(function IssueArtifactsDot({
 }: {
   issueId: string
 }): JSX.Element | null {
-  const artifacts = usePageIssue(issueId)?.panel?.artifacts ?? []
+  const panel = usePageIssue(issueId)?.panel
+  if (panel === LOADING) return null
+  const artifacts = panel?.artifacts ?? []
   if (!artifacts.some((a) => a.chatUploadId === undefined)) return null
   return (
     <span

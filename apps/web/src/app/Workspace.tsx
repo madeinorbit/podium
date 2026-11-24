@@ -250,7 +250,7 @@ function ArtifactsTabLabel({ issueId }: { issueId: string }): JSX.Element {
     <>
       <LayoutGrid size={13} aria-hidden="true" className="flex-none text-muted-foreground" />
       <span className="truncate">Artifacts</span>
-      {count > 0 && <span className="native-tab-count">{count}</span>}
+      {typeof count === 'number' && count > 0 && <span className="native-tab-count">{count}</span>}
     </>
   )
 }

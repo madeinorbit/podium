@@ -1,4 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import { LOADING } from '@podium/client-graph/loading'
 import { machinePathBasename } from '@podium/model'
 /**
  * What opening a Podium address MEANS in the web app (POD-1606).
@@ -33,14 +34,17 @@ export interface LinkIssueLike {
   seq?: number
   displayRef?: string
   worktreePath?: string | null
-  panel?: {
-    artifacts?: ReadonlyArray<{
-      path: string
-      artifactId?: string
-      entry?: string
-      files?: ReadonlyArray<{ path: string; size: number }>
-    }>
-  } | null
+  panel?:
+    | {
+        artifacts?: ReadonlyArray<{
+          path: string
+          artifactId?: string
+          entry?: string
+          files?: ReadonlyArray<{ path: string; size: number }>
+        }>
+      }
+    | null
+    | typeof LOADING
 }
 
 export type LinkSessionLike = Pick<SessionView, 'sessionId' | 'displayRef'>
@@ -93,9 +97,9 @@ export function resolvePodiumTarget(
       if (hasUnsupportedTypedDetail(target)) return null
       const issue = context.issue(target.issue)
       if (!issue) return null
-      const artifact = issue.panel?.artifacts?.find(
-        (entry) => entry.artifactId === target.artifactId,
-      )
+      const panel = issue.panel
+      if (panel === LOADING) return null
+      const artifact = panel?.artifacts?.find((entry) => entry.artifactId === target.artifactId)
       if (!artifact) return null
       // A named bundle entry must exist in the issue's artifact manifest. An
       // unchecked relpath would report success, suppress browser fallback, and

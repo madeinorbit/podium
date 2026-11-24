@@ -14,6 +14,7 @@ import {
   chatReferenceMachines,
   chatReferenceSessions,
 } from '@podium/client-graph/chat-context'
+import { LOADING } from '@podium/client-graph/loading'
 import type { PendingInteractionModel } from '@podium/client-graph/message-models'
 import type { ReferenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 
@@ -127,25 +128,27 @@ export function checkChatContext(
       const old =
         issues.find((row) => row.id === session.issueId) ??
         issues.find((row) => row.memberSessionIds?.includes(session.sessionId))
-      const facts = (issue: (IssueViewModel & Pick<IssueBodyValues, 'panel'>) | undefined) =>
-        issue
-          ? {
-              id: issue.id,
-              panel: {
-                todos: (issue.panel?.todos ?? []).map(panelItemFacts),
-                artifacts: (issue.panel?.artifacts ?? []).map(panelItemFacts),
-                deferred: (issue.panel?.deferred ?? []).map(panelItemFacts),
-              },
-              root: issue.worktreePath ?? issue.repoPath,
-              machineId: issue.machineId,
-            }
-          : undefined
-      compare(
-        `artifacts:${id}`,
-        facts(old),
-        facts(artifact && !loading(artifact) ? artifact : undefined),
-        loading(artifact),
-      )
+      const facts = (
+        issue:
+          | Pick<IssueViewModel, 'id' | 'panel' | 'worktreePath' | 'repoPath' | 'machineId'>
+          | undefined,
+      ) => {
+        if (!issue) return undefined
+        const panel = issue.panel
+        if (panel === LOADING) return LOADING
+        return {
+          id: issue.id,
+          panel: {
+            todos: (panel?.todos ?? []).map(panelItemFacts),
+            artifacts: (panel?.artifacts ?? []).map(panelItemFacts),
+            deferred: (panel?.deferred ?? []).map(panelItemFacts),
+          },
+          root: issue.worktreePath ?? issue.repoPath,
+          machineId: issue.machineId,
+        }
+      }
+      const actualFacts = facts(artifact && !loading(artifact) ? artifact : undefined)
+      compare(`artifacts:${id}`, facts(old), actualFacts, loading(artifact) || loading(actualFacts))
     }
   }
   const sessions = chatReferenceSessions(pool)

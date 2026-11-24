@@ -1,4 +1,5 @@
 import { createIssuePageViews } from '@podium/client-graph/issue-page'
+import { LOADING } from '@podium/client-graph/loading'
 import { MobxPool } from '@podium/client-graph/pool'
 import { cleanup, renderHook } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -73,11 +74,11 @@ it('reads the same artifact record as the detail page without opening a detail v
   expect(result.result.current.count).toBe(0)
 })
 
-it('keeps the startup loading state empty without an attached pool', () => {
+it('keeps the startup artifact count pending without an attached pool', () => {
   const result = renderHook(() => ({
     issue: usePageIssue('pending'),
     count: useArtifactCount('pending'),
   }))
-  expect(result.result.current).toEqual({ issue: undefined, count: 0 })
+  expect(result.result.current).toEqual({ issue: undefined, count: LOADING })
   expect(fixture.openings).toBe(0)
 })

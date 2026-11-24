@@ -1,6 +1,6 @@
-import { useHttpOrigin } from '@podium/client-core/react'
-import { useUiValue } from '@podium/client-core/react'
+import { useHttpOrigin, useUiValue } from '@podium/client-core/react'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
+import { LOADING } from '@podium/client-graph/loading'
 import { type IssuePanelArtifact, resolveMachinePath } from '@podium/model/browser'
 import {
   Clapperboard,
@@ -13,7 +13,9 @@ import {
   Search,
   Table2,
 } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import { type JSX, useDeferredValue, useMemo, useState } from 'react'
+import { BodyPending } from '@/features/issues/BodyPending'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
 import {
   type ArtifactFilter,
@@ -50,14 +52,19 @@ const EMPTY: readonly IssuePanelArtifact[] = []
  * matches; search narrows within the chip. Opening an item uses the same open path as the task
  * panel, so it lands in its own tab.
  */
-export function ArtifactsTab({ issueId }: { issueId: string }): JSX.Element {
+export const ArtifactsTab = observer(function ArtifactsTab({
+  issueId,
+}: {
+  issueId: string
+}): JSX.Element {
   const issue = usePageIssue(issueId)
   const { httpOrigin, openArtifact, openFileInWorktree } = {
     httpOrigin: useHttpOrigin(),
     openArtifact: useUiValue('openArtifact'),
     openFileInWorktree: useUiValue('openFileInWorktree'),
   }
-  const artifacts = issue?.panel?.artifacts ?? EMPTY
+  const panel = issue?.panel
+  const artifacts = panel === LOADING ? EMPTY : (panel?.artifacts ?? EMPTY)
   const root = issue ? (issue.worktreePath ?? issue.repoPath) : undefined
 
   const [filter, setFilter] = useState<ArtifactFilter>('all')
@@ -71,6 +78,9 @@ export function ArtifactsTab({ issueId }: { issueId: string }): JSX.Element {
     () => indexArtifacts(artifacts, filter, deferredQuery),
     [artifacts, filter, deferredQuery],
   )
+
+  if (panel === LOADING || issue === undefined)
+    return <BodyPending value={LOADING} what="artifact list" className="p-4" />
 
   const open = (a: IssuePanelArtifact): void => {
     if (!issue) return
@@ -221,7 +231,7 @@ export function ArtifactsTab({ issueId }: { issueId: string }): JSX.Element {
       )}
     </div>
   )
-}
+})
 
 function ShowMore({
   remaining,
