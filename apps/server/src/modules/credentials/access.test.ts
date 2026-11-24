@@ -18,6 +18,7 @@ import {
 } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
+import { memberFacts } from '../../store/fixtures/test-support'
 import { openTestStore } from '../../test-support/open-test-store'
 import {
   ACCESS_REFUSAL_MESSAGES,
@@ -72,6 +73,19 @@ async function machine(
 
 async function open(): Promise<SessionStore> {
   store = await openTestStore(':memory:')
+  // Only a member may use a credential (POD-7594): both people are members.
+  for (const id of [OWNER, OTHER]) {
+    await memberFacts(store).create(
+      {
+        id,
+        displayName: id,
+        role: 'member',
+        createdAt: new Date().toISOString(),
+        disabledAt: null,
+      },
+      'not-a-real-hash',
+    )
+  }
   await machine(store, OWN_MACHINE, OWNER, [{ kind: 'claude-code', fingerprint: 'fp-claude' }])
   await machine(store, OTHERS_MACHINE, OTHER)
   return store

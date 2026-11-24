@@ -7,6 +7,10 @@
  * starts at the owner, and who is still a member. Every answer is read from the
  * grant table at the call: take a grant away, or remove the person who gave it,
  * and the next call says no. Being an admin gives nothing.
+ *
+ * Only a member may use anything (POD-7594): a person removed or disabled is
+ * refused every credential, their own included, so a refresh or a re-judge of a
+ * running session they own says no.
  */
 
 import { ALL_MEMBERS_GRANTEE, type CredentialId, type UserId } from '@podium/model'
@@ -40,13 +44,15 @@ export async function accessFrom(
   credential: { id: CredentialId; ownerUserId: UserId },
   edges: readonly GrantRow[],
 ): Promise<CredentialAccessLevel | null> {
-  if (userId === credential.ownerUserId) return 'owner'
   const people = [
-    credential.ownerUserId,
-    ...new Set(edges.map((edge) => edge.owner as UserId)),
+    ...new Set([userId, credential.ownerUserId, ...edges.map((edge) => edge.owner as UserId)]),
   ] as UserId[]
+  // `users.get` answers undefined for a removed or a disabled account.
   const accounts = await Promise.all(people.map((id) => deps.users.get(id)))
   const live = new Set(people.filter((_, i) => accounts[i] !== undefined))
+  // Someone who is no longer a member may use nothing, their own included.
+  if (!live.has(userId)) return null
+  if (userId === credential.ownerUserId) return 'owner'
   // Nobody else may use the credential of an owner who is no longer a member.
   if (!live.has(credential.ownerUserId)) return null
 

@@ -125,4 +125,25 @@ describe('mayUse', () => {
     expect(edges.map((e) => e.grantee)).toEqual([ALL_MEMBERS_GRANTEE])
     expect(await mayUse(store, CAROL, credential)).toBe('use')
   })
+
+  // POD-7594, review F2: a refresh or a re-judge for a person who left says no.
+  it('a member who was removed may use nothing, through the all-members grant included', async () => {
+    await grant(ALL_MEMBERS_GRANTEE, 'use', OWNER)
+    await grant(BOB, 'use', OWNER)
+    expect(await mayUse(store, BOB, credential)).toBe('use')
+    await memberFacts(store).removeMember(BOB, ADMIN)
+    expect(await mayUse(store, BOB, credential)).toBeNull()
+    expect(await mayUse(store, CAROL, credential)).toBe('use')
+  })
+
+  it('a member who was disabled may use nothing, their own credential and a manage grant included', async () => {
+    await grant(MANAGER, 'manage', OWNER)
+    expect(await mayUse(store, MANAGER, credential)).toBe('manage')
+    await memberFacts(store).disable(MANAGER, new Date().toISOString())
+    expect(await mayUse(store, MANAGER, credential)).toBeNull()
+    await memberFacts(store).disable(OWNER, new Date().toISOString())
+    expect(await mayUse(store, OWNER, credential)).toBeNull()
+    await memberFacts(store).enable(OWNER, new Date().toISOString())
+    expect(await mayUse(store, OWNER, credential)).toBe('owner')
+  })
 })
