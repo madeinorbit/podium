@@ -437,6 +437,18 @@ it there, and the dialog says so.
 When a member is removed from the instance, their credentials are removed everywhere and the
 access they shared ends with them.
 
+**Access withdrawn from a running session** (POD-7591) is treated like removal. Ending a grant
+(`unshare`) or withdrawing a machine (`disallowMachine`) judges each running session on the
+credential again. When a daemon reattaches a process, its refresh is judged at that moment. A
+refusal that withdraws the session's right flags the session and stops it at its next turn
+boundary. Those refusals are `revoked`, `not-found`, `not-yours`, `machine-not-allowed`,
+`not-on-this-machine`, `wrong-type` and `own-credential-required`. The stop ends the process
+and parks the row; the worktree stays as it is. Until the stop runs, the session takes no
+queued input. A delivery condition does not stop the process: `needs-attention`,
+`daemon-too-old`, `connection-not-encrypted` or `machine-offline`. Pausing the process would
+leave the secret in its environment. Cutting its network needs an egress proxy, which a daemon
+on a person's own machine does not have.
+
 ## 9. Using it
 
 ### The resolver
