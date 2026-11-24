@@ -87,11 +87,12 @@
 import { createLogger } from '@podium/logger'
 import type { ChangeProvenanceFields } from '@podium/model'
 import { type MetadataEntityKind, type Principal, principalRoutingId } from '@podium/protocol'
-import { type ChangeLogStore, ChangeRangeBootstrapRequired } from '../change-log'
+import { type ChangeLogStore, ChangeRangeBootstrapRequired, readChangesRange } from '../change-log'
 import type {
   FeedScopingGrade,
   FeedVisibilityPolicy,
   VisibilityAnchorPort,
+  VisibilityEdge,
 } from '../feed/visibility'
 import type { RecordIdsByKind } from '../record-builders'
 import { arbitrate } from './arbitration'
@@ -122,6 +123,17 @@ import {
 
 /** Both hosts, one namespace — see the note on `sync:ledger`. */
 const log = createLogger('sync:authority')
+
+/**
+ * POD-7585 — the most feed numbers one replay of the access moves evaluates. A
+ * longer unrecorded tail is not replayed: where recording started is raised
+ * past it, so a cursor below it is answered as "cannot tell" (a rescope)
+ * instead of a start-up or a pass reading that much of the log.
+ */
+export const ACCESS_MOVE_REPLAY_BOUND = 20_000
+
+/** POD-7585 — the page a replay of the access moves reads the log in. */
+const ACCESS_MOVE_REPLAY_PAGE = 1_000
 
 export interface AuthorityDeps {
   /** The durable change log. Narrow by design — see `ChangeStorePort`. */
@@ -163,7 +175,9 @@ export interface AuthorityDeps {
   /**
    * POD-7552 — each human's last access move, written by every delivery pass
    * whose batch moved someone's access. Absent, nothing is recorded (the
-   * client adapters and most tests).
+   * client adapters and most tests). POD-7585: a host that records calls
+   * {@link Authority.catchUpAccessMoves} when it starts and whenever it takes
+   * over a workspace's writes, so a move whose pass never ran is replayed.
    */
   accessMoves?: AccessMoveLogPort
   /**
@@ -448,6 +462,187 @@ export class Authority implements AuthorityPort {
     await this.broadcastTail
   }
 
+  // -------------------------------------------------------------------------
+  // THE RECORDED-THROUGH MARK (POD-7585)
+  // -------------------------------------------------------------------------
+  //
+  // A delivery pass records its batch's access moves AFTER the commit. A process
+  // that exits between the two, or a pass that fails, would lose the move for
+  // good, and a refused resume of that human would get a resync instead of a
+  // rescope. Writing the moves inside every append transaction would cost every
+  // write the edge reads under the workspace lock, so the passes keep writing
+  // them and a MARK says how far that is complete:
+  //
+  // - In memory, `recordedThrough` is a prefix: every change at or below it has
+  //   had its moves recorded. A pass extends it when its batch follows on; a
+  //   batch above it means changes this process never evaluated (a pass that
+  //   failed, another process's writes), and the pass replays them from the
+  //   log first. Quiet passes extend it for free.
+  // - In the database, the `#through` row of `sync_access_moves` holds a prefix
+  //   too. It is raised only by statements that write anyway: in the same
+  //   upsert as a pass's moves, by a replay, and once at a clean shutdown.
+  // - At start and at takeover, `catchUpAccessMoves` replays the log from the
+  //   durable mark to the head. Until it has, the process cannot tell, and a
+  //   refusal is answered as moved.
+  //
+  // Every prefix is a fact once true (a move is never lowered), so two of them
+  // combine by taking the larger, whichever of a pass and a replay finished
+  // first.
+
+  /** Every change at or below it has had its moves recorded. `null`: not known yet. */
+  private recordedThrough: number | null = null
+  /** The durable mark as this process last read or wrote it. */
+  private durableThrough = 0
+  private catchUp: Promise<void> | undefined
+  private catchUpFailed = false
+
+  /** See {@link AuthorityPort.accessMovesRecordedThrough}. */
+  accessMovesRecordedThrough(): number | null {
+    return this.deps.accessMoves === undefined ? null : this.recordedThrough
+  }
+
+  /**
+   * POD-7585 — bring the recorded-through mark to the head: replay the access
+   * moves of every change after the mark (the durable one, at start) that no
+   * pass of this process recorded. Call it when the process starts and when it
+   * takes over a workspace's writes. One at a time; a second call while one
+   * runs joins it.
+   */
+  async catchUpAccessMoves(): Promise<void> {
+    if (this.deps.accessMoves === undefined) return
+    this.catchUp ??= this.runCatchUp().finally(() => {
+      this.catchUp = undefined
+    })
+    await this.catchUp
+  }
+
+  private async runCatchUp(): Promise<void> {
+    const port = this.deps.accessMoves
+    if (port === undefined) return
+    try {
+      if (this.recordedThrough === null) {
+        this.durableThrough = Math.max(this.durableThrough, await port.readRecordedThrough())
+      }
+      const from = this.recordedThrough ?? this.durableThrough
+      const head = await this.deps.store.maxChangeSeq()
+      await this.replayAccessMoves(from, head)
+      this.advanceRecordedThrough(head)
+      this.catchUpFailed = false
+      await this.persistRecordedThrough()
+    } catch (err) {
+      this.catchUpFailed = true
+      log.error('replaying the access moves after the recorded-through mark failed', { err })
+      throw err
+    }
+  }
+
+  /**
+   * POD-7585 — at a clean shutdown, once the queued passes ran: one statement
+   * that raises the durable mark to this process's, so the next start has no
+   * tail to replay. Best effort; a failure leaves the replay to the next start.
+   */
+  async flushAccessMoves(): Promise<void> {
+    if (this.deps.accessMoves === undefined) return
+    try {
+      await this.settled()
+      await this.persistRecordedThrough()
+    } catch (err) {
+      log.warn('raising the recorded-through mark at shutdown failed', { err })
+    }
+  }
+
+  private advanceRecordedThrough(prefix: number): void {
+    this.recordedThrough = Math.max(this.recordedThrough ?? prefix, prefix)
+  }
+
+  private async persistRecordedThrough(): Promise<void> {
+    const port = this.deps.accessMoves
+    const through = this.recordedThrough
+    if (port === undefined || through === null || through <= this.durableThrough) return
+    await port.recordAccessMoves(new Map(), through)
+    this.durableThrough = Math.max(this.durableThrough, through)
+  }
+
+  /**
+   * Record the moves of every change in `(from, through]` from the log, as the
+   * pass that should have recorded them would have: the same edges, read over
+   * the retained rows as a heal reads them. Only the kinds whose edges move
+   * access are evaluated. A range the log no longer holds, or one longer than
+   * {@link ACCESS_MOVE_REPLAY_BOUND}, is not replayed: recording is declared
+   * to start after it instead, the conservative "cannot tell".
+   */
+  private async replayAccessMoves(from: number, through: number): Promise<void> {
+    const port = this.deps.accessMoves
+    if (port === undefined || through <= from) return
+    if (through - from > ACCESS_MOVE_REPLAY_BOUND) {
+      log.warn(
+        'the unrecorded access-move tail is past the replay bound; recording starts after it',
+        {
+          from,
+          through,
+        },
+      )
+      await this.raiseRecordingStart(through)
+      return
+    }
+    try {
+      for await (const page of readChangesRange(
+        this.deps.store,
+        from,
+        through,
+        ACCESS_MOVE_REPLAY_PAGE,
+      )) {
+        const relevant = page.filter((change) => port.movesAccess?.(change.entity) !== false)
+        const edges =
+          relevant.length === 0
+            ? []
+            : await this.deps.anchors.visibilityEdges(
+                relevant.map(({ entity, entityId, seq }) => ({ entity, entityId, seq })),
+              )
+        const moves = this.movesOf(relevant, edges)
+        const end = page[page.length - 1]?.seq
+        if (moves.size === 0 || end === undefined) continue
+        await port.recordAccessMoves(moves, end)
+        this.durableThrough = Math.max(this.durableThrough, end)
+      }
+    } catch (error) {
+      if (!(error instanceof ChangeRangeBootstrapRequired)) throw error
+      log.warn(
+        'the unrecorded access-move tail is no longer in the log; recording starts after it',
+        {
+          from,
+          through,
+          reason: error.message,
+        },
+      )
+      await this.raiseRecordingStart(through)
+    }
+  }
+
+  private async raiseRecordingStart(seq: number): Promise<void> {
+    await this.deps.accessMoves?.raiseRecordingStart(seq)
+    this.durableThrough = Math.max(this.durableThrough, seq)
+  }
+
+  /** Each human an edge names, at the seq of the latest change that named them. */
+  private movesOf(
+    changes: readonly SequencedChange[],
+    edges: readonly (VisibilityEdge | null | undefined)[],
+  ): Map<string, number> {
+    const port = this.deps.accessMoves
+    const moves = new Map<string, number>()
+    for (const [index, edge] of edges.entries()) {
+      if (edge === null || edge === undefined) continue
+      const change = changes[index]
+      if (change === undefined || port?.movesAccess?.(change.entity) === false) continue
+      for (const human of edge.audience) {
+        const key = String(human)
+        moves.set(key, Math.max(moves.get(key) ?? 0, change.seq))
+      }
+    }
+    return moves
+  }
+
   /** The principals currently subscribed, by stable id. Telemetry and tests. */
   subscribedPrincipals(): readonly string[] {
     return [...this.subscribers].map((s) => principalRoutingId(s.principal))
@@ -592,33 +787,36 @@ export class Authority implements AuthorityPort {
    * device connected is the one a later resume needs it for. A failed write
    * is logged and does not hold the delivery back; the rows are durable, and
    * a device within retention still learns of the move from them.
+   *
+   * POD-7585 — and the recorded-through mark: changes between the mark and
+   * this batch (a pass that failed, another process's writes) are replayed
+   * first, and the mark follows this batch only once its moves are written.
+   * The durable mark rides in the moves' own upsert, so a quiet batch still
+   * writes nothing.
    */
   private async recordAccessMoves(
     changes: readonly SequencedChange[],
     prepared: PreparedBatch,
   ): Promise<void> {
     const port = this.deps.accessMoves
-    if (port === undefined) return
-    const moves = new Map<string, number>()
-    for (const [index, edge] of prepared.edges.entries()) {
-      if (edge === null || edge === undefined) continue
-      const change = changes[index]
-      if (change === undefined || port.movesAccess?.(change.entity) === false) continue
-      const seq = change.seq
-      for (const human of edge.audience) {
-        const key = String(human)
-        moves.set(key, Math.max(moves.get(key) ?? 0, seq))
-      }
+    const first = changes[0]?.seq
+    const last = changes[changes.length - 1]?.seq
+    if (port === undefined || first === undefined || last === undefined) return
+    if (this.recordedThrough === null && this.catchUpFailed && this.catchUp === undefined) {
+      this.catchUpAccessMoves().catch(() => undefined)
     }
-    if (moves.size === 0) return
     try {
-      await port.recordAccessMoves(moves)
+      const mark = this.recordedThrough
+      if (mark !== null && mark < first - 1) await this.replayAccessMoves(mark, first - 1)
+      const moves = this.movesOf(changes, prepared.edges)
+      const through = mark === null ? undefined : last
+      if (moves.size > 0) await port.recordAccessMoves(moves, through)
+      if (through !== undefined) {
+        if (moves.size > 0) this.durableThrough = Math.max(this.durableThrough, through)
+        this.advanceRecordedThrough(through)
+      }
     } catch (err) {
-      log.error('recording the access moves of a batch failed', {
-        throughSeq: changes[changes.length - 1]?.seq,
-        humans: moves.size,
-        err,
-      })
+      log.error('recording the access moves of a batch failed', { throughSeq: last, err })
     }
   }
 

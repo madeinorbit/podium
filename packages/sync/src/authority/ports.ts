@@ -231,8 +231,24 @@ export type AuthorityClock = () => number
  * can no longer bridge still be answered as a rescope.
  */
 export interface AccessMoveLogPort {
-  /** Raise each human's last move to the seq given; never lower it. */
-  recordAccessMoves(moves: ReadonlyMap<string, number>): Promise<void>
+  /**
+   * Raise each human's last move to the seq given; never lower it. With
+   * `through`, the same statement raises the recorded-through mark
+   * (POD-7585): every change at or below it has had its moves recorded.
+   */
+  recordAccessMoves(moves: ReadonlyMap<string, number>, through?: number): Promise<void>
+  /**
+   * POD-7585 — the durable recorded-through mark: where a process that starts,
+   * or takes over the workspace's writes, replays the log from. Before any
+   * pass raised it, where recording started (0 when it started with the feed).
+   */
+  readRecordedThrough(): Promise<number>
+  /**
+   * POD-7585 — the changes up to `seq` can no longer be replayed (pruned, or
+   * past the replay bound): raise where recording started to `seq`, so a cursor
+   * below it is answered as "cannot tell", and the recorded-through mark with it.
+   */
+  raiseRecordingStart(seq: number): Promise<void>
   /**
    * Whether a visibility edge on a change of this kind moves anyone's access.
    * An edge can stand for a re-delivery that decides nothing (the server's
@@ -272,11 +288,19 @@ export interface AuthorityPort {
   commit<T>(op: AuthorityCommit<T>): Promise<AuthorityCommitOutcome<T>>
 
   /**
-   * Resolves once every delivery pass queued so far has run (POD-7552: the
-   * passes that record access moves). Optional: a port with no queue has
-   * nothing to wait for.
+   * Resolves once every delivery pass queued so far has run. Optional: a port
+   * with no queue has nothing to wait for.
    */
   settled?(): Promise<void>
+
+  /**
+   * POD-7585 — the seq through which every change's access moves are recorded,
+   * as far as this process knows: the passes it ran, and the log it replayed
+   * at start or takeover. `null` while it cannot tell (the replay has not
+   * finished, or nothing records). A refusal whose head is above it cannot be
+   * answered from the access-move log yet. Absent: the port records nothing.
+   */
+  accessMovesRecordedThrough?(): number | null
 
   /**
    * Catch-up read, FOR ONE PRINCIPAL. `null` means "I cannot serve you a delta —

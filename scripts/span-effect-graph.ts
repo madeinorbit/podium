@@ -412,8 +412,8 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/sync/src/authority/authority.ts',
-    line: 132,
-    why: 'the property that HOLDS the transact port; the port itself is named by its own entry in packages/sync/src/authority/ports.ts. (Was 131; POD-7552 imports the access-move port above it.)',
+    line: 144,
+    why: 'the property that HOLDS the transact port; the port itself is named by its own entry in packages/sync/src/authority/ports.ts. (Was 131; POD-7552 imports the access-move port above it. Then 144: POD-7585 adds the replay bound and its doc above it.)',
   },
   {
     file: 'packages/sync/src/ledger.ts',

@@ -61,7 +61,7 @@ import {
   WORKSPACE,
   type WorkspaceHandle,
 } from './prepared'
-import { ACCESS_MOVES_SINCE } from './schema'
+import { ACCESS_MOVES_SINCE, ACCESS_MOVES_THROUGH } from './schema'
 import type {
   CaptureWrite,
   QueuedMessagesTable,
@@ -74,7 +74,7 @@ export { type SyncTables, sqliteSyncTables } from './binding'
 
 // The shared helpers, typed for this adapter's instance and tables. The same
 // functions, so each definition's registered site is still its own line.
-/** Humans per access-move upsert: three bound values each. */
+/** Rows per access-move upsert (humans and marks): three bound values each. */
 const ACCESS_MOVE_CHUNK = 100
 
 const prepared: <P>(
@@ -1351,11 +1351,40 @@ export class SyncRepository {
   /**
    * Record the feed number of each human's latest access move: a visibility
    * edge named them in its audience at that seq. A seq below the stored one
-   * changes nothing. One statement per {@link ACCESS_MOVE_CHUNK} humans.
+   * changes nothing. With `through`, the recorded-through mark rides in the
+   * same statement as one more row (POD-7585). One statement per
+   * {@link ACCESS_MOVE_CHUNK} rows.
    */
-  async recordAccessMoves(moves: ReadonlyMap<string, number>): Promise<void> {
-    if (moves.size === 0) return
-    const entries = [...moves]
+  async recordAccessMoves(moves: ReadonlyMap<string, number>, through?: number): Promise<void> {
+    const entries: [string, number][] = [
+      ...(through === undefined ? [] : [[ACCESS_MOVES_THROUGH, through] as [string, number]]),
+      ...moves,
+    ]
+    await this.upsertAccessMoveRows(entries)
+  }
+
+  /**
+   * POD-7585 — the recorded-through mark, or where recording started when that
+   * is later (a change below it cannot be told about anyway). One statement.
+   */
+  async readRecordedThrough(): Promise<number> {
+    const row = await lastAccessMove(this.db).get({ human: ACCESS_MOVES_THROUGH })
+    return row?.seq === null || row?.seq === undefined ? 0 : Number(row.seq)
+  }
+
+  /**
+   * POD-7585 — the changes up to `seq` cannot be replayed: recording starts
+   * there, and the recorded-through mark is at least there. One statement.
+   */
+  async raiseRecordingStart(seq: number): Promise<void> {
+    await this.upsertAccessMoveRows([
+      [ACCESS_MOVES_SINCE, seq],
+      [ACCESS_MOVES_THROUGH, seq],
+    ])
+  }
+
+  private async upsertAccessMoveRows(entries: readonly [string, number][]): Promise<void> {
+    if (entries.length === 0) return
     await this.createOrJoinTransaction(async () => {
       for (let start = 0; start < entries.length; start += ACCESS_MOVE_CHUNK) {
         const chunk = entries.slice(start, start + ACCESS_MOVE_CHUNK)

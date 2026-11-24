@@ -56,8 +56,9 @@ import {
   type VisibilityAnchorPort,
   type VisibilityStatePort,
 } from '../feed/visibility'
-import type { AuthorityDeps } from './authority'
+import { ACCESS_MOVE_REPLAY_BOUND, type AuthorityDeps } from './authority'
 import type { ChangeLogReadRow, StagedChangeSpec } from './change-lifecycle'
+import type { AccessMoveLogPort, PostCommitFollowUpPort } from './ports'
 
 function memoryStore(): ChangeLogStore {
   const rows: ChangeLogReadRow[] = []
@@ -508,16 +509,45 @@ describe('a visibility change is DERIVED, and it is never a remove (D14)', () =>
   })
 })
 
+/**
+ * An access-move log in memory, as `SyncRepository` keeps it: each row only
+ * ever rises. `''` is where recording started, `#through` the recorded-through
+ * mark (POD-7585). `writes` lists each call, with the mark it carried.
+ */
+function moveLog(overrides: Partial<AccessMoveLogPort> = {}) {
+  const rows = new Map<string, number>()
+  const writes: { moves: [string, number][]; through?: number }[] = []
+  const raise = (key: string, seq: number) => rows.set(key, Math.max(rows.get(key) ?? 0, seq))
+  const port: AccessMoveLogPort = {
+    recordAccessMoves: async (moves, through) => {
+      writes.push({ moves: [...moves].sort(), ...(through === undefined ? {} : { through }) })
+      for (const [human, seq] of moves) raise(human, seq)
+      if (through !== undefined) raise('#through', through)
+    },
+    readRecordedThrough: async () => Math.max(rows.get('#through') ?? 0, rows.get('') ?? 0),
+    raiseRecordingStart: async (seq) => {
+      raise('', seq)
+      raise('#through', seq)
+    },
+    ...overrides,
+  }
+  return { port, rows, writes }
+}
+
 describe("each human's last access move is recorded (POD-7552)", () => {
   it('names every human an edge names, at its latest seq, connected or not, before delivery', async () => {
     const recorded: [string, number][][] = []
     const order: string[] = []
-    const { authority, tables } = build(32, memoryStore(), {
-      recordAccessMoves: async (moves) => {
-        order.push('recorded')
-        recorded.push([...moves].sort())
-      },
-    })
+    const { authority, tables } = build(
+      32,
+      memoryStore(),
+      moveLog({
+        recordAccessMoves: async (moves) => {
+          order.push('recorded')
+          recorded.push([...moves].sort())
+        },
+      }).port,
+    )
     await authority.save([upsert('shared', { n: 1 })])
     // Only Grace has a device connected; Ada and Lin do not.
     authority.subscribe(GRACE, () => {
@@ -541,28 +571,168 @@ describe("each human's last access move is recorded (POD-7552)", () => {
 
   it("skips the edges of a kind the port says moves nobody's access", async () => {
     const recorded: [string, number][][] = []
-    const { authority, tables } = build(32, memoryStore(), {
-      recordAccessMoves: async (moves) => {
-        recorded.push([...moves].sort())
-      },
-      movesAccess: (entity) => entity !== 'session',
-    })
+    const { authority, tables } = build(
+      32,
+      memoryStore(),
+      moveLog({
+        recordAccessMoves: async (moves) => {
+          recorded.push([...moves].sort())
+        },
+        movesAccess: (entity) => entity !== 'session',
+      }).port,
+    )
     tables.edge(ref('inert'), ['ada'], [])
     await authority.save([upsert('inert', {})])
     expect(recorded).toEqual([])
   })
 
   it('a failed record does not hold the delivery back', async () => {
-    const { authority, tables } = build(32, memoryStore(), {
-      recordAccessMoves: async () => {
-        throw new Error('the database is busy')
-      },
-    })
+    const { authority, tables } = build(
+      32,
+      memoryStore(),
+      moveLog({
+        recordAccessMoves: async () => {
+          throw new Error('the database is busy')
+        },
+      }).port,
+    )
     await authority.save([upsert('shared', { n: 1 })])
     const ada = collect(authority, ADA)
     tables.edge(ref('grant-row'), ['ada'], [ref('shared')])
     await authority.save([upsert('grant-row', {})])
     expect(ada.map((d) => d.throughSeq)).toEqual([2])
+  })
+})
+
+describe('the recorded-through mark: a move whose pass never ran is not lost (POD-7585)', () => {
+  /** One "process": an Authority over a shared log, tables and move log. */
+  function processOver(
+    store: ChangeLogStore,
+    tables: ReturnType<typeof state>,
+    log: AccessMoveLogPort,
+    postCommit?: PostCommitFollowUpPort,
+  ) {
+    return new Authority({
+      store,
+      now: () => 1,
+      transact: (fn) => fn(),
+      visibility: new GrantEdgeVisibilityPolicy(tables.port, tables.port),
+      anchors: tables.port,
+      accessMoves: log,
+      ...(postCommit === undefined ? {} : { postCommit }),
+    })
+  }
+
+  it('replays a move committed by a process that exited before its pass, when the next one starts', async () => {
+    const store = memoryStore()
+    const tables = state()
+    const log = moveLog()
+    // Process A: commits run, then it exits between a commit and its pass.
+    let exited = false
+    const a = processOver(store, tables, log.port, (step) => {
+      if (!exited) void step()
+    })
+    await a.catchUpAccessMoves()
+    await a.save([upsert('shared', { n: 1 })])
+    await a.settled()
+    exited = true
+    tables.edge(ref('revoke'), ['ada'], [ref('shared')])
+    await a.save([upsert('revoke', {})])
+    expect(log.rows.get('ada')).toBeUndefined()
+
+    // Process B starts: until its replay ran it cannot tell, then it can.
+    const b = processOver(store, tables, log.port)
+    expect(b.accessMovesRecordedThrough()).toBeNull()
+    await b.catchUpAccessMoves()
+    expect(log.rows.get('ada')).toBe(2)
+    expect(b.accessMovesRecordedThrough()).toBe(2)
+    expect(log.rows.get('#through')).toBe(2)
+  })
+
+  it('a pass that failed leaves a gap the next pass replays before its own batch', async () => {
+    const store = memoryStore()
+    const tables = state()
+    let failing = false
+    const log = moveLog()
+    const record = log.port.recordAccessMoves
+    log.port.recordAccessMoves = async (moves, through) => {
+      if (failing) throw new Error('the database is busy')
+      await record(moves, through)
+    }
+    const authority = processOver(store, tables, log.port)
+    await authority.catchUpAccessMoves()
+    tables.edge(ref('revoke'), ['ada'], [])
+    failing = true
+    await authority.save([upsert('revoke', {})])
+    // The mark does not follow a batch whose moves were not written.
+    expect(authority.accessMovesRecordedThrough()).toBe(0)
+    failing = false
+    await authority.save([upsert('plain', {})])
+    expect(log.rows.get('ada')).toBe(1)
+    expect(authority.accessMovesRecordedThrough()).toBe(2)
+  })
+
+  it('quiet passes move the mark in memory and write nothing; a moving pass carries it in its upsert', async () => {
+    const store = memoryStore()
+    const tables = state()
+    const log = moveLog()
+    const authority = processOver(store, tables, log.port)
+    await authority.catchUpAccessMoves()
+    await authority.save([upsert('plain', { n: 1 })])
+    await authority.save([upsert('plain', { n: 2 })])
+    expect(log.writes).toEqual([])
+    expect(authority.accessMovesRecordedThrough()).toBe(2)
+    tables.edge(ref('revoke'), ['ada'], [])
+    await authority.save([upsert('revoke', {})])
+    expect(log.writes).toEqual([{ moves: [['ada', 3]], through: 3 }])
+    // A clean shutdown raises the durable mark over the quiet tail in one write.
+    await authority.save([upsert('plain', { n: 3 })])
+    await authority.flushAccessMoves()
+    expect(log.writes.at(-1)).toEqual({ moves: [], through: 4 })
+    await authority.flushAccessMoves()
+    expect(log.writes).toHaveLength(2)
+  })
+
+  it('a tail the log no longer holds, or one past the bound, starts recording after it', async () => {
+    const store = memoryStore()
+    const tables = state()
+    const log = moveLog()
+    const a = processOver(store, tables, log.port, () => {})
+    await a.save([upsert('one', {}), upsert('two', {}), upsert('three', {})])
+    const pruned = processOver({ ...store, minChangeSeq: async () => 3 }, tables, log.port)
+    await pruned.catchUpAccessMoves()
+    expect(log.rows.get('')).toBe(3)
+    expect(pruned.accessMovesRecordedThrough()).toBe(3)
+
+    const far = moveLog()
+    const long = processOver(
+      { ...store, maxChangeSeq: async () => ACCESS_MOVE_REPLAY_BOUND + 1 },
+      tables,
+      far.port,
+    )
+    await long.catchUpAccessMoves()
+    expect(far.rows.get('')).toBe(ACCESS_MOVE_REPLAY_BOUND + 1)
+    expect(far.writes).toEqual([])
+  })
+
+  it('a replay evaluates only the kinds whose edges move access', async () => {
+    const store = memoryStore()
+    const tables = state()
+    const asked: string[] = []
+    const visibilityEdges = tables.port.visibilityEdges
+    tables.port.visibilityEdges = async (refs) => {
+      asked.push(...refs.map((r) => r.entityId))
+      return await visibilityEdges(refs)
+    }
+    const a = processOver(store, tables, moveLog().port, () => {})
+    await a.save([upsert('one', {}), upsert('two', {})])
+    asked.length = 0
+    const inert = processOver(store, tables, moveLog({ movesAccess: () => false }).port)
+    await inert.catchUpAccessMoves()
+    expect(asked).toEqual([])
+    const every = processOver(store, tables, moveLog().port)
+    await every.catchUpAccessMoves()
+    expect(asked).toEqual(['one', 'two'])
   })
 })
 

@@ -197,6 +197,14 @@ export const syncAccessMoves = sqliteTable(
 /** {@link syncAccessMoves}' row naming where recording started, not a human. */
 export const ACCESS_MOVES_SINCE = ''
 
+/**
+ * POD-7585 — {@link syncAccessMoves}' row holding the RECORDED-THROUGH mark, not a
+ * human: every change at or below it has had its access moves recorded. A
+ * process that starts, or takes over the workspace's writes, replays the log
+ * after it (`Authority.catchUpAccessMoves`). No member id starts with `#`.
+ */
+export const ACCESS_MOVES_THROUGH = '#through'
+
 /** Absent kinds are at generation zero within their workspace. */
 export const syncKind = sqliteTable(
   'sync_kind',

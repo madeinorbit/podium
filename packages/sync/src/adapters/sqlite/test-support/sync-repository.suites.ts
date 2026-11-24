@@ -783,6 +783,38 @@ export function describeSyncRepositoryGolden(open: OpenSyncRepositoryFixture): v
       expect(await repo.accessMovedAfter('u-1', 7)).toBe(true)
       expect(await repo.accessMovedAfter('u-1', 8)).toBe(false)
     })
+
+    // POD-7585: the recorded-through mark, raised only by statements that write anyway.
+    it('keeps the recorded-through mark in the moves upsert, and never lowers it', async () => {
+      await fixture().seed("DELETE FROM sync_access_moves WHERE human_id = ''")
+      // Before any pass raised it, a replay starts where recording started.
+      expect(await repo.readRecordedThrough()).toBe(0)
+      await fixture().seed(
+        `INSERT INTO sync_access_moves (workspace_id, human_id, seq) VALUES ('${SUITE_WORKSPACE_ID}', '', 5)`,
+      )
+      expect(await repo.readRecordedThrough()).toBe(5)
+      const statements = await fixture().record(() =>
+        repo.recordAccessMoves(new Map([['u-1', 8]]), 9),
+      )
+      expect(statements.filter((text) => /sync_access_moves/i.test(text))).toHaveLength(1)
+      expect(await repo.readRecordedThrough()).toBe(9)
+      // The mark is not a human: nobody's access moved at it.
+      expect(await repo.accessMovedAfter('u-1', 8)).toBe(false)
+      await repo.recordAccessMoves(new Map(), 7)
+      expect(await repo.readRecordedThrough()).toBe(9)
+      await repo.recordAccessMoves(new Map(), 12)
+      expect(await repo.readRecordedThrough()).toBe(12)
+    })
+
+    it('raises where recording started, and the mark with it, when a tail cannot be replayed', async () => {
+      const statements = await fixture().record(() => repo.raiseRecordingStart(20))
+      expect(statements.filter((text) => /sync_access_moves/i.test(text))).toHaveLength(1)
+      expect(await repo.readRecordedThrough()).toBe(20)
+      expect(await repo.accessMovedAfter('u-1', 19)).toBe(true)
+      expect(await repo.accessMovedAfter('u-1', 20)).toBe(false)
+      await repo.raiseRecordingStart(3)
+      expect(await repo.accessMovedAfter('u-1', 19)).toBe(true)
+    })
   })
 
   describe('the feed identity', () => {
@@ -906,6 +938,10 @@ export function describeTenantFeed(open: OpenSyncRepositoryFixture): void {
     await a.recordAccessMoves(new Map([['u-1', 2]]))
     expect(await b.accessMovedAfter('u-1', 29)).toBe(true)
     expect(await a.accessMovedAfter('u-1', 2)).toBe(false)
+    // POD-7585: and its own recorded-through mark.
+    await b.recordAccessMoves(new Map(), 40)
+    expect(await a.readRecordedThrough()).toBeLessThan(40)
+    expect(await b.readRecordedThrough()).toBe(40)
   })
 
   it('prunes only its tenant, persists the empty floor and never reuses a committed number', async () => {
