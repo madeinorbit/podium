@@ -105,7 +105,7 @@ export interface SessionTeardownPorts {
   failMessagesToRemovedSessions?: (
     scope: WriteScope,
     sessionIds: readonly SessionId[],
-    opts?: { endedIssueId?: IssueId },
+    opts?: { endedIssueId?: IssueId; notifyOwnersPrompt?: boolean },
   ) => Promise<void>
   /** Issue meta / cwd ownership for stop/stopIssue. */
   issueAccess: DurableIssueAccessIndex
@@ -132,6 +132,7 @@ export class SessionTeardown {
   private async failUnresumableMessages(
     writer: SessionWriter,
     sessionId: SessionId,
+    opts: { notifyOwnersPrompt?: boolean } = {},
   ): Promise<void> {
     const parked = this.ports.sessions.get(sessionId)
     if (!parked || parked.status !== 'exited' || parked.agentKind === 'shell') return
@@ -139,7 +140,7 @@ export class SessionTeardown {
     if (fail) {
       // Orphaned mail is part of the park's decision, including a client archive.
       await writer.commit({
-        write: async (scope) => await fail(scope, [sessionId]),
+        write: async (scope) => await fail(scope, [sessionId], opts),
       })
     }
     await this.ports.store.sync.deleteQueuedMessagesForSession(sessionId)
@@ -368,6 +369,12 @@ export class SessionTeardown {
        * by a dirty tree, nor free an issue's worktree.
        */
       keepWorktree?: boolean
+      /**
+       * The stop is not the owner's doing (a withdrawn credential, POD-7594):
+       * a task the owner started the session with that is still queued fails
+       * with a notice to them too, not silently.
+       */
+      notifyOwner?: boolean
     },
     issues: SessionIssueWorkflowPort,
   ): Promise<{
@@ -451,7 +458,9 @@ export class SessionTeardown {
           await this.ports.store.observationCheckpoints.cancelTerminalCandidate(input.sessionId),
       )
       this.ports.broadcastSessions()
-      await this.failUnresumableMessages(this.ports.writer, input.sessionId)
+      await this.failUnresumableMessages(this.ports.writer, input.sessionId, {
+        ...(input.notifyOwner ? { notifyOwnersPrompt: true } : {}),
+      })
     } else if (session.status !== 'hibernated' && session.status !== 'exited') {
       return { ok: false, reason: `cannot stop session in status '${session.status}'` }
     }

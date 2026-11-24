@@ -135,7 +135,7 @@ export interface SessionLifecycleDeps {
     /** The removal's own commit scope (POD-6602): the failures are its write. */
     scope: WriteScope,
     sessionIds: readonly SessionId[],
-    opts?: { endedIssueId?: IssueId },
+    opts?: { endedIssueId?: IssueId; notifyOwnersPrompt?: boolean },
   ): Promise<void>
   /** Store a spawn's task prompt as the parent session's message to the child
    *  (POD-4778); answers its id. */

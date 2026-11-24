@@ -892,6 +892,7 @@ export class SessionLifecycle {
       stopReason?: 'self' | 'parent' | 'forced'
       principal?: CommandPrincipal
       keepWorktree?: boolean
+      notifyOwner?: boolean
     },
     issues: SessionIssueWorkflowPort,
   ): Promise<{

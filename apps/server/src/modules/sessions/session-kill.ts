@@ -51,7 +51,7 @@ export interface SessionKillPorts {
   failMessagesToRemovedSessions(
     scope: WriteScope,
     sessionIds: readonly SessionId[],
-    opts?: { endedIssueId?: IssueId },
+    opts?: { endedIssueId?: IssueId; notifyOwnersPrompt?: boolean },
   ): Promise<void>
 }
 

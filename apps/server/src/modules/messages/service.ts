@@ -2314,7 +2314,7 @@ export class MessageDeliveryService {
   async failMessagesToRemovedSessions(
     scope: WriteScope,
     sessionIds: readonly SessionId[],
-    opts: { endedIssueId?: IssueId } = {},
+    opts: { endedIssueId?: IssueId; notifyOwnersPrompt?: boolean } = {},
   ): Promise<void> {
     const at = this.deps.now()
     for (const message of await this.deps.messages.listOpenBoundTo(sessionIds, opts.endedIssueId)) {
@@ -2326,7 +2326,12 @@ export class MessageDeliveryService {
               ...(MAY_HAVE_ARRIVED.has(message.deliveryStatus) ? { mayHaveArrived: true } : {}),
               ...(opts.endedIssueId !== undefined ? { issueEnded: true } : {}),
             }
-      const notice = await this.failureNotice(message, failure)
+      // The owner's own task gets a notice too when the stop was not theirs (a
+      // withdrawn credential, POD-7594): no prompt-failed attention reports a
+      // row failed here. Its text stays in the ledger.
+      const notice = await this.failureNotice(message, failure, {
+        ownersPrompt: opts.notifyOwnersPrompt === true,
+      })
       if (!moved(await this.deps.messages.markDeadLetter(scope, message.id, at, undefined, notice)))
         continue
       const failed: MessageRow = { ...message, deliveryStatus: 'failed', deadLetteredAt: at }
@@ -3246,8 +3251,13 @@ export class MessageDeliveryService {
   private async failureNotice(
     message: MessageRow,
     failure: SendFailure,
+    opts: { ownersPrompt?: boolean } = {},
   ): Promise<MessageRow | null> {
-    if (message.fromKind === 'system' || deliveredByAJob(message) || isOwnersSpawnPrompt(message)) {
+    if (
+      message.fromKind === 'system' ||
+      deliveredByAJob(message) ||
+      (isOwnersSpawnPrompt(message) && !opts.ownersPrompt)
+    ) {
       return null
     }
     const to = await this.replyTarget(message)

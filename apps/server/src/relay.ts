@@ -2114,7 +2114,7 @@ export class SessionRegistry {
       sessionsRemoved?: (
         scope: WriteScope,
         sessionIds: readonly SessionId[],
-        opts?: { endedIssueId?: IssueId },
+        opts?: { endedIssueId?: IssueId; notifyOwnersPrompt?: boolean },
       ) => Promise<void>
     } = {}
     const queuedMessageApply = new QueuedMessageApply({
@@ -3115,7 +3115,12 @@ export class SessionRegistry {
         // stop is tried again at its next turn boundary (POD-7591).
         stop: async (sessionId) => {
           const stopped = await asSystemWrite(
-            async () => await issueSessionLifecycle.stopSession({ sessionId, keepWorktree: true }),
+            async () =>
+              await issueSessionLifecycle.stopSession({
+                sessionId,
+                keepWorktree: true,
+                notifyOwner: true,
+              }),
           )
           if (!stopped.ok) throw new Error(stopped.reason ?? 'the session did not stop')
         },
