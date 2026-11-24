@@ -17,6 +17,7 @@ import type { SessionObservationCheckpointV1 } from '@podium/protocol'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
+import { TEST_MACHINE_ID } from '../test-support/machine-id'
 import { openTestStore } from '../test-support/open-test-store'
 import { countResultBytes, type ResultBytesTally } from '../test-support/statement-count'
 import { type RecordReads, serverRecordBuilders } from './record-builders'
@@ -36,7 +37,8 @@ interface Fixture {
 
 /** `SESSIONS` exited sessions, each with a checkpoint padded to about `padding` bytes. */
 async function world(padding: number): Promise<Fixture> {
-  const store = await openTestStore(':memory:')
+  // One machine id for every fixture, so the two sizes build comparable records.
+  const store = await openTestStore(':memory:', TEST_MACHINE_ID)
   const owner = await firstAdminMemberId(store)
   const ids: SessionId[] = []
   for (let i = 0; i < SESSIONS; i++) {
