@@ -426,6 +426,8 @@ export class Replica implements DeviceCollectionReads {
   private kindReloadTask: Promise<void> | undefined
   private pendingKindAdvertisement: KindAdvertisement | undefined
   private startedLoad: number | undefined
+  /** POD-7538 — the walk that only replaces stale policy markers after a heal: a partial load. */
+  private markerWalk: number | undefined
   private pendingTransition = false
   /**
    * Every transition-table row this replica has taken, in order. Not telemetry:
@@ -1340,16 +1342,7 @@ export class Replica implements DeviceCollectionReads {
       else {
         this.checkKindAdvertisement()
         this.requestMissingComesWith()
-        // POD-7538: a gap whose load never began (every attempt failed before
-        // its first chunk) left the policy's markers stale. The heal bridged
-        // the feed; unless a kind repair is replacing them, a load does.
-        if (
-          this.state === 'live' &&
-          !this.kindReloading &&
-          this.store.readPolicy() !== null &&
-          this.missingPolicyInstances().length > 0
-        )
-          this.rebootstrap('resume')
+        this.replaceStalePolicyMarkers()
       }
     })
   }
@@ -1434,7 +1427,7 @@ export class Replica implements DeviceCollectionReads {
    * stale-visible; POD-7086). Only the markers go at once: what the feed kept
    * complete is no longer known to be.
    */
-  private rebootstrap(cause: RebootstrapCause, replaceHeld = false): void {
+  private rebootstrap(cause: RebootstrapCause, replaceHeld = false, markersOnly = false): void {
     // Bump first, then read: a superseded walk notices the mismatch and abandons
     // its staging rather than installing a slice the ladder has moved past.
     this.walkAbort.abort()
@@ -1443,6 +1436,7 @@ export class Replica implements DeviceCollectionReads {
     this.walkAbort = new AbortController()
     this.walkGeneration += 1
     const generation = this.walkGeneration
+    this.markerWalk = markersOnly ? generation : undefined
     // ONE recovery path owns invalidation for every rung. Ordinary walks keep
     // the old slice visible, but it must no longer certify absent personal rows.
     if (cause === 'local-corruption' || cause === 'schema-version') {
@@ -1611,7 +1605,7 @@ export class Replica implements DeviceCollectionReads {
     replaceHeld: boolean,
   ): Promise<boolean> {
     const signal = this.walkAbort.signal
-    const missing = resume ? this.resumeRequests() : undefined
+    const missing = resume ? this.resumeRequests(generation) : undefined
     if (missing !== undefined && missing.length === 0) {
       await this.finishLoad(cause, undefined, generation, false, 0)
       return true
@@ -1732,10 +1726,31 @@ export class Replica implements DeviceCollectionReads {
     return true
   }
 
+  /**
+   * POD-7538 — a gap whose load never began (every attempt failed before its
+   * first chunk) left the policy's markers stale. A heal then bridged the
+   * feed, so the rows are current: a partial load of just those instances
+   * replaces their markers, never a full download. It waits for a kind repair
+   * under way, which calls again when it ends.
+   */
+  private replaceStalePolicyMarkers(): void {
+    if (
+      this.state !== 'live' ||
+      this.kindReloading ||
+      this.authority.collections === undefined ||
+      this.store.readLoadingSince() !== null ||
+      this.store.readPolicy() === null ||
+      this.missingPolicyInstances().length === 0
+    )
+      return
+    this.rebootstrap('resume', false, true)
+  }
+
   /** The policy's instances a load under way still lacks; `undefined` when only a full load can help. */
-  private resumeRequests(): InstanceRequest[] | undefined {
+  private resumeRequests(generation: number): InstanceRequest[] | undefined {
     if (this.authority.collections === undefined || this.cursorValue === null) return undefined
-    if (this.store.readLoadingSince() === null) return undefined
+    // POD-7538: a partial load after a heal asks for exactly the missing markers.
+    if (this.store.readLoadingSince() === null && this.markerWalk !== generation) return undefined
     const policy = this.store.readPolicy()
     if (policy === null) return undefined
     const offer = this.pendingKindAdvertisement
@@ -2088,10 +2103,13 @@ export class Replica implements DeviceCollectionReads {
         marker.part === 'main' && members !== undefined
           ? members.membersOf(marker, args, markRows, this.now())
           : undefined
-      // A later page carries no total: the first page's stays (POD-7158).
+      // A later page carries no total: the first page's stays (POD-7158). In
+      // a stale reload the first page's mark is still deferred (POD-7538).
+      const deferredMark = options.staleMarkers?.get(key)
       const total =
         marker.total ??
         options.reload?.totals.get(key) ??
+        (deferredMark?.kind === 'mark' ? deferredMark.instance.total : undefined) ??
         (start || marker.range === undefined
           ? undefined
           : this.store.readInstances().get(key)?.total)
@@ -2300,7 +2318,9 @@ export class Replica implements DeviceCollectionReads {
               entityId: row.entityId,
             })),
             cursor: base,
-            ...(complete
+            // A partial load after a heal (POD-7538) replaced markers only: it
+            // certifies no kind repair.
+            ...(complete && replaces
               ? {
                   kindReloadVersion: KIND_RELOAD_VERSION,
                   retainedKinds: this.retainedKinds(this.store.readKindTokens() ?? {}),
@@ -2817,18 +2837,32 @@ export class Replica implements DeviceCollectionReads {
   async load(requests: readonly InstanceRequest[]): Promise<void> {
     const device: InstanceRequest[] = []
     const server: InstanceRequest[] = []
-    const stale: InstanceRequest[] = []
+    const stale = new Map<string, InstanceRequest>()
+    const pages: InstanceRequest[] = []
     for (const request of requests) {
       const source = this.sourceOf(request)
       if (source === 'disk' || source === 'local') device.push(request)
-      else if (this.instanceStale(request) && this.isComplete(request) !== undefined)
-        stale.push(request)
-      else server.push(request)
+      else if (this.instanceStale(request) && this.isComplete(request) !== undefined) {
+        // POD-7538: a later page of a stale instance (a board scrolled while it
+        // refreshes) reloads the whole instance to the range the device holds,
+        // then asks for that page once it is current: asked alone, its
+        // answer would replace every page before it.
+        const { after, ...whole } = request
+        stale.set(instanceKey(request), whole)
+        if (after !== undefined) pages.push(request)
+      } else server.push(request)
     }
+    const reloading =
+      stale.size === 0
+        ? undefined
+        : this.reloadStale([...stale.values()]).then(() => {
+            const next = pages.filter((page) => !this.instanceStale(page))
+            return next.length === 0 ? undefined : this.loadFromServer(next)
+          })
     await Promise.all([
       device.length === 0 ? undefined : this.loadFromDisk(device),
       server.length === 0 ? undefined : this.loadFromServer(server),
-      stale.length === 0 ? undefined : this.reloadStale(stale),
+      reloading,
     ])
   }
 
@@ -3972,6 +4006,8 @@ export class Replica implements DeviceCollectionReads {
         this.kindReloading = false
         this.kindReloadTask = undefined
         this.checkKindAdvertisement()
+        // POD-7538: a kind repair replaces only its own kinds' markers.
+        this.replaceStalePolicyMarkers()
       })
     this.kindReloadTask = task
     this.fetching = Promise.all([this.fetching, task]).then(() => undefined)

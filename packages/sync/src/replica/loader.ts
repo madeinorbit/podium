@@ -509,9 +509,10 @@ export class CollectionLoader {
           if (!this.queue.has(key)) this.queue.set(key, { request, priority: 'background' })
           if (this.connected) this.arm()
         } else if (failed && this.replica.instanceStale?.(request) === true) {
-          // POD-7538: a stale reload that broke off goes again, after a wait
-          // that doubles: a screen never stays refreshing for ever, and a
-          // failing route is never asked in a loop.
+          // POD-7538: a stale reload that broke off goes again: after a wait
+          // that doubles from 1 s to 60 s, and, like every request queued
+          // again, with the next burst or cursor move. A screen never stays
+          // refreshing for ever.
           if (!this.queue.has(key)) this.queue.set(key, { request, priority: 'background' })
           retry = true
         }

@@ -3031,41 +3031,54 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         release()
       })
 
-      it('a heal after a load that never began replaces the stale policy markers', async () => {
-        const server = world()
-        const { cache, replica, events } = await boot(instantiation, server)
-        const bootstrap = server.bootstrap.bind(server)
-        server.bootstrap = () =>
-          (async function* () {
-            yield* []
-            throw new Error('the server is restarting')
-          })()
-        replica.requestRebootstrap()
-        await replica.settled()
-        await ticks()
-        await replica.settled()
-        // Every attempt failed before its first chunk: the old cursor, the markers stale.
-        expect(events.some((event) => event.type === 'bootstrap-failed')).toBe(true)
-        expect(replica.posture).toBe('stale')
-        expect(cache.readLoadingSince()).toBeNull()
-        for (const spec of [LIVE, SIDEBAR, STUBS]) expect(markedStale(cache, spec)).toBe(true)
-        // The server is back and the cursor is still in its retention: a heal.
-        server.bootstrap = bootstrap
-        server.put(ISSUE, 'A3', issue('A3', { stage: 'planning' }))
-        replica.connect()
-        await replica.settled()
-        await ticks()
-        await replica.settled()
-        await ticks()
-        await replica.settled()
-        expect(replica.posture).toBe('live')
-        for (const spec of [LIVE, SIDEBAR, STUBS]) {
-          expect(marked(cache, spec)).toBe(true)
-          expect(markedStale(cache, spec)).toBe(false)
-        }
-        expect(cache.read(ISSUE, 'A3')).toBeDefined()
-        expectMarkersTrue(cache, server)
-      })
+      for (const kindMoved of [false, true])
+        it(`a heal after a load that never began replaces the stale policy markers with a partial load${kindMoved ? ', behind a kind repair (POD-7538)' : ' (POD-7538)'}`, async () => {
+          const server = world()
+          server.kindTokens = { issueProjection: 'v1', session: 'v1', sessionUserState: 'v1' }
+          const { cache, replica, events } = await boot(instantiation, server)
+          const bootstrap = server.bootstrap.bind(server)
+          server.bootstrap = () =>
+            (async function* () {
+              yield* []
+              throw new Error('the server is restarting')
+            })()
+          replica.requestRebootstrap()
+          await replica.settled()
+          await ticks()
+          await replica.settled()
+          // Every attempt failed before its first chunk: the old cursor, the markers stale.
+          expect(events.some((event) => event.type === 'bootstrap-failed')).toBe(true)
+          expect(replica.posture).toBe('stale')
+          expect(cache.readLoadingSince()).toBeNull()
+          for (const spec of [LIVE, SIDEBAR, STUBS]) expect(markedStale(cache, spec)).toBe(true)
+          // The server is back (after an update, one kind's shape moved) and the
+          // cursor is still in its retention: a heal.
+          server.bootstrap = bootstrap
+          const fullLoads = server.bootstraps
+          const fetched = server.fetches.length
+          server.put(ISSUE, 'A3', issue('A3', { stage: 'planning' }))
+          if (kindMoved) {
+            server.kindTokens = { ...server.kindTokens, session: 'v2' }
+            replica.observeKindTokens(server.kindTokens, server.policy)
+          }
+          replica.connect()
+          for (let round = 0; round < 3; round += 1) {
+            await replica.settled()
+            await ticks()
+          }
+          await replica.settled()
+          expect(replica.posture).toBe('live')
+          for (const spec of [LIVE, SIDEBAR, STUBS]) {
+            expect(marked(cache, spec), instanceKey(spec)).toBe(true)
+            expect(markedStale(cache, spec), instanceKey(spec)).toBe(false)
+          }
+          // The heal brought the rows current: no full download, only the markers asked for.
+          expect(server.bootstraps).toBe(fullLoads)
+          expect(server.fetches.length).toBeGreaterThan(fetched)
+          if (kindMoved) expect(cache.readKindTokens()?.session).toBe('v2')
+          expect(cache.read(ISSUE, 'A3')).toBeDefined()
+          expectMarkersTrue(cache, server)
+        })
 
       it('a rescope withdraws a held instance in memory: nothing vouches for what the viewer may no longer see', async () => {
         const server = world()

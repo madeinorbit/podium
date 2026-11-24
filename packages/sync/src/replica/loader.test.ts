@@ -604,6 +604,12 @@ describe('a paged instance, a page at a time (POD-7158)', () => {
 })
 
 describe('what an open view holds through a gap the feed cannot bridge (POD-7538)', () => {
+  const BOARD: InstanceRequest = {
+    collection: 'issueProjection.byStage',
+    args: { stage: 'done' },
+    part: 'main',
+  }
+
   /** Disconnect, let the server move past what it retains, and reconnect. */
   async function gap(d: Device, server: CollectionServer, change: () => void): Promise<void> {
     d.replica.disconnect()
@@ -655,6 +661,71 @@ describe('what an open view holds through a gap the feed cannot bridge (POD-7538
     expect(d.replica.posture).toBe('live')
     expect(d.replica.instanceStale(tree('R'))).toBe(false)
     expect((d.replica.view(ISSUE, 'C') as { title?: string } | undefined)?.title).toBe('new C')
+    release()
+  })
+
+  async function heldBoard() {
+    const server = new CollectionServer()
+    server.policy = POLICY
+    server.chunkRows = 50
+    server.pageRows = 10
+    for (let i = 1; i <= 25; i += 1)
+      server.put(ISSUE, `P${i}`, issue(`P${i}`, { stage: 'done', closedReason: 'completed' }))
+    const d = device(await inMemoryInstantiation.open(), server)
+    d.replica.connect()
+    await settle(d)
+    const release = d.loader.show(BOARD)
+    await settle(d)
+    const first = d.replica.isComplete(BOARD)
+    d.loader.request([{ ...BOARD, after: first!.range!.through! }], 'visible')
+    await settle(d)
+    const held = d.replica.isComplete(BOARD)!
+    const resident = () =>
+      Array.from({ length: 25 }, (_, i) => `P${i + 1}`).filter(
+        (id) => d.replica.view(ISSUE, id) !== undefined,
+      ).length
+    expect(resident()).toBe(20)
+    return { server, d, release, held, resident }
+  }
+
+  it('the next page of a board asked while it refreshes waits for its reload: no page is lost', async () => {
+    const { server, d, release, held, resident } = await heldBoard()
+    d.replica.disconnect()
+    server.put(ISSUE, 'X', issue('X'))
+    server.minAvailableSeq = server.head
+    let open = (): void => {}
+    server.gate = new Promise<void>((resolve) => {
+      open = resolve
+    })
+    d.replica.connect()
+    for (let i = 0; i < 50 && d.replica.posture !== 'bootstrapping'; i += 1) await ticks(1)
+    expect(d.replica.posture).toBe('bootstrapping')
+    // The operator scrolls the stale board to its end during the load.
+    await d.replica.load([{ ...BOARD, after: held.range!.through! }])
+    expect(d.replica.instanceStale(BOARD)).toBe(true)
+    expect(resident()).toBe(20)
+    server.gate = undefined
+    open()
+    await settle(d)
+    expect(d.replica.posture).toBe('live')
+    expect(d.replica.instanceStale(BOARD)).toBe(false)
+    expect(d.replica.isComplete(BOARD)?.range).toEqual(held.range)
+    expect(resident()).toBe(20)
+    // Current again, the next page loads below what is held.
+    await d.replica.load([{ ...BOARD, after: held.range!.through! }])
+    await settle(d)
+    expect(resident()).toBe(25)
+    release()
+  })
+
+  it('a board reloaded over several pages takes the total of its new first page', async () => {
+    const { server, d, release, held } = await heldBoard()
+    expect(held.total).toBe(25)
+    await gap(d, server, () => server.drop(ISSUE, 'P1'))
+    expect(d.replica.instanceStale(BOARD)).toBe(false)
+    expect(d.replica.view(ISSUE, 'P1')).toBeUndefined()
+    expect(d.replica.isComplete(BOARD)?.range?.end).toBe(false)
+    expect(d.replica.isComplete(BOARD)?.total).toBe(24)
     release()
   })
 
