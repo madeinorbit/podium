@@ -101,7 +101,7 @@ function device(
     now: () => WORLD_NOW,
     ...(memory.warmInstances === undefined ? {} : { memory }),
     view: () => loader?.takeView() ?? [],
-    request: (specs) => loader?.request(specs),
+    request: (specs, priority) => loader?.request(specs, priority),
     onEvent: (event) => {
       events.push(event)
       loader?.onEvent(event)
@@ -714,6 +714,29 @@ describe('what an open view holds through a gap the feed cannot bridge (POD-7538
     expect(resident()).toBe(25)
     expect(d.replica.isComplete(BOARD)?.range?.end).toBe(true)
     release()
+  })
+
+  it('a page that waited for the reload is not asked once its view closes (POD-7560)', async () => {
+    const { server, d, release, held, resident } = await heldBoard()
+    d.replica.disconnect()
+    server.put(ISSUE, 'X', issue('X'))
+    server.minAvailableSeq = server.head
+    let open = (): void => {}
+    server.gate = new Promise<void>((resolve) => {
+      open = resolve
+    })
+    const fetched = server.fetches.length
+    d.replica.connect()
+    for (let i = 0; i < 50 && d.replica.posture !== 'bootstrapping'; i += 1) await ticks(1)
+    await d.replica.load([{ ...BOARD, after: held.range!.through! }])
+    // The operator leaves the board before its reload.
+    release()
+    server.gate = undefined
+    open()
+    await settle(d)
+    const later = server.fetches.slice(fetched)
+    expect(later.some((batch) => batch.some((spec) => spec.after !== undefined))).toBe(false)
+    expect(resident()).toBeLessThanOrEqual(20)
   })
 
   it('a later page asked while its board reload is in flight waits for that answer (POD-7560)', async () => {

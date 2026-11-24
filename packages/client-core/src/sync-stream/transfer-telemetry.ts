@@ -404,6 +404,12 @@ export function createSyncTransferTelemetry(
         else pending.bootstrap = event.cause
         return
       }
+      // A marker walk that ended (back live) without its call leaves no
+      // cause for an unrelated fetch to take.
+      if (event.type === 'posture' && event.previous === 'bootstrapping' && event.posture === 'live') {
+        if (pending.collections === 'markers') pending.collections = null
+        return
+      }
       if (event.type === 'bootstrap-installed') {
         const open = installing
         installing = null

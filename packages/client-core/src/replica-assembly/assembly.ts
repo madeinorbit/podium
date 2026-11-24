@@ -392,7 +392,7 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       // The one loader (POD-7087): the visible view rides in the first
       // download, and what held records come with shares its window.
       view: () => loader?.takeView() ?? [],
-      request: (specs) => loader?.request(specs),
+      request: (specs, priority) => loader?.request(specs, priority),
       ...(options.memorySignals === undefined
         ? {}
         : { memory: { signals: options.memorySignals } }),

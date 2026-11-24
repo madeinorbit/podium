@@ -141,6 +141,8 @@ export class CollectionLoader {
   private readonly queue = new SideMap<string, Queued>('loader.queue')
   /** Sent and not answered yet; a key here is never sent again. */
   private readonly inFlight = new SideMap<string, InstanceRequest>('loader.inFlight')
+  /** POD-7560 — later pages held in the queue while their instance's answer was in flight. */
+  private readonly waited = new SideSet<string>('loader.waited')
   /** Sent in the first download's view step; back to the queue if it ends without them. */
   private readonly riding = new SideMap<string, InstanceRequest>('loader.riding')
   /** POD-7159 — records to read from disk in the next window. */
@@ -193,8 +195,8 @@ export class CollectionLoader {
       if (this.riding.has(key)) continue
       const sending = this.inFlight.get(key)
       // POD-7560: a later page of a held instance, asked while another
-      // position of it is answered (a stale board's whole reload), waits in
-      // the queue for that answer rather than being dropped.
+      // position of it is answered (a stale board's whole reload), is
+      // queued rather than dropped: `flush` sends it once that answer is in.
       if (
         sending !== undefined &&
         (request.after === undefined ||
@@ -441,8 +443,23 @@ export class CollectionLoader {
       .sort((a, b) => rank(a.priority) - rank(b.priority))
       .map((entry) => entry.request)
     const batch: InstanceRequest[] = []
-    for (const request of queued) {
+    for (const queuedRequest of queued) {
+      let request = queuedRequest
       const key = instanceKey(request)
+      if (request.after !== undefined && this.inFlight.has(key)) {
+        // POD-7560: a later page waits for its instance's answer in flight
+        // (`send` arms again when it ends), then goes below what the device
+        // holds after it.
+        this.waited.add(key)
+        continue
+      }
+      if (this.waited.delete(key) && request.after !== undefined) {
+        const range = this.replica.isComplete(request)?.range
+        if (range?.through !== undefined && !range.end) {
+          request = { ...request, after: range.through }
+          this.queue.set(key, { request, priority: this.queue.get(key)?.priority ?? 'background' })
+        }
+      }
       if (this.held(request)) {
         this.queue.delete(key)
         continue
@@ -468,6 +485,7 @@ export class CollectionLoader {
     this.retryCancel?.()
     this.retryCancel = null
     this.queue.clear()
+    this.waited.clear()
     this.diskRecords.clear()
     this.listeners.clear()
   }
@@ -505,9 +523,14 @@ export class CollectionLoader {
       // installed stays, and the rest is asked again.
       failed = true
     } finally {
-      for (const request of requests) this.inFlight.delete(instanceKey(request))
+      for (const request of requests) {
+        const key = instanceKey(request)
+        if (this.inFlight.get(key) === request) this.inFlight.delete(key)
+      }
     }
     if (this.disposed) return
+    // POD-7560: a later page that waited for this answer goes now.
+    if (requests.some((request) => this.waited.has(instanceKey(request)))) this.arm()
     let retry = false
     for (const request of requests) {
       const key = instanceKey(request)

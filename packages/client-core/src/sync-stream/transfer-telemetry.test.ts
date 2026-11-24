@@ -176,6 +176,16 @@ describe('sync transfer telemetry (POD-4071)', () => {
     ])
   })
 
+  it('drops a marker walk\'s cause when the walk ends without its call (POD-7560)', async () => {
+    const h = harness()
+    h.telemetry.noteReplicaEvent({ type: 'heal', rung: 2, cause: 'markers', partial: true })
+    h.telemetry.noteReplicaEvent({ type: 'posture', posture: 'live', previous: 'bootstrapping' })
+    const attempt = h.telemetry.begin('collections', 'https://example.test/sync/collections', {})
+    attempt.finish('complete')
+
+    expect(h.of('sync transfer started').map(r => [r.mode, r.cause])).toEqual([['collections', null]])
+  })
+
   it('states the status, the coding the server chose, and whether the body streams', async () => {
     const h = harness()
     const { bootstrap } = sources(h.telemetry, () => responseOf(snapshot(1, 1), { encoding: 'gzip' }))

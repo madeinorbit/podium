@@ -3190,6 +3190,18 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
         expect(refused).toBe(6)
         expect(replica.posture).toBe('live')
         expect(timers.waits.map((wait) => wait.ms)).toEqual([2000])
+        // A full load replaces every marker: nothing waits, and the next walk
+        // that fails waits 1 s again, not 4.
+        replica.requestRebootstrap()
+        await settleFully(booted)
+        for (const spec of [LIVE, SIDEBAR, STUBS]) expect(markedStale(cache, spec)).toBe(false)
+        expect(timers.waits).toEqual([])
+        await loadNeverBegan(booted, server)
+        replica.connect()
+        await settleFully(booted)
+        expect(refused).toBe(9)
+        expect(replica.posture).toBe('live')
+        expect(timers.waits.map((wait) => wait.ms)).toEqual([1000])
         // The route is back: the next retry replaces the markers, and nothing waits.
         down = false
         timers.fire()
@@ -3199,8 +3211,93 @@ export function describeCollectionStore(instantiation: SyncInstantiation): void 
           expect(markedStale(cache, spec), instanceKey(spec)).toBe(false)
         }
         expect(timers.waits).toEqual([])
-        expect(replica.stats().markerWalks - walks).toBe(3)
+        expect(replica.stats().markerWalks - walks).toBe(4)
         expectMarkersTrue(cache, server)
+      })
+
+      /** The collections route down for the policy's markers; `hold` holds the first refusal until released. */
+      function policyRouteDown(server: CollectionServer, hold?: Promise<void>) {
+        const policyKeys = new Set([LIVE, SIDEBAR, STUBS].map(instanceKey))
+        const collections = server.collections.bind(server)
+        const state = { refused: 0, entered: barrier() }
+        server.collections = (instances) => {
+          if (!instances.some((spec) => policyKeys.has(instanceKey(spec))))
+            return collections(instances)
+          state.refused += 1
+          const held = state.refused === 1 ? hold : undefined
+          state.entered.release()
+          return (async function* () {
+            if (held !== undefined) await held
+            yield* []
+            throw new Error('the route is down')
+          })()
+        }
+        return state
+      }
+
+      it('a socket that drops during a marker walk that does not finish heals as the walk ends (POD-7560)', async () => {
+        const server = world()
+        const timers = manualTimers()
+        const booted = await boot(instantiation, server, undefined, { schedule: timers.schedule })
+        const { cache, replica } = booted
+        await loadNeverBegan(booted, server)
+        const gate = barrier()
+        const route = policyRouteDown(server, gate.promise)
+        replica.connect()
+        await route.entered.promise
+        expect(replica.posture).toBe('bootstrapping')
+        // During the walk the socket drops, and a change goes by unseen.
+        server.put(ISSUE, 'G1', issue('G1'))
+        replica.transportDisconnected()
+        const heals = replica.stats().heals
+        gate.release()
+        await settleFully(booted)
+        // The walk ran out, and the device caught up with no new frame.
+        expect(replica.trace).toContain('D6-MARKERS-DEFERRED')
+        expect(replica.stats().heals).toBeGreaterThan(heals)
+        expect(cache.read(ISSUE, 'G1')).toBeDefined()
+        expect(replica.posture).toBe('live')
+      })
+
+      it("a marker walk retry leaves a screen's load in flight alone (POD-7560)", async () => {
+        const server = world()
+        const timers = manualTimers()
+        const booted = await boot(instantiation, server, undefined, { schedule: timers.schedule })
+        const { replica } = booted
+        await loadNeverBegan(booted, server)
+        policyRouteDown(server)
+        replica.connect()
+        await settleFully(booted)
+        expect(timers.waits.map((wait) => wait.ms)).toEqual([1000])
+        // A view opens A1's tree; its answer is slow.
+        const down = server.collections.bind(server)
+        const gate = barrier()
+        const treeKey = instanceKey(tree('A1'))
+        server.collections = (instances) => {
+          const answer = down(instances)
+          if (!instances.some((spec) => instanceKey(spec) === treeKey)) return answer
+          return (async function* () {
+            await gate.promise
+            yield* answer
+          })()
+        }
+        const release = replica.hold(tree('A1'))
+        const loading = replica.load([tree('A1')]).then(
+          () => undefined,
+          (error: unknown) => error,
+        )
+        await ticks()
+        // The retry runs (and fails) while the tree's answer is on its way.
+        timers.fire()
+        await ticks()
+        gate.release()
+        expect(await loading).toBeUndefined()
+        await settleFully(booted)
+        expect(replica.isComplete(tree('A1'))).toBeDefined()
+        expect(
+          server.fetches.filter((batch) => batch.some((s) => instanceKey(s) === treeKey)),
+        ).toHaveLength(1)
+        release()
       })
 
       it('a marker walk whose answer carries a moved kind shape never restarts as a full download: a fresh instance stays complete (POD-7560)', async () => {
