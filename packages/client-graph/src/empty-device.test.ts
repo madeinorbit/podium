@@ -1,0 +1,103 @@
+/**
+ * POD-7544 — the empty device itself, and the one screen that asks for its
+ * issue's body today: the flight deck's root (POD-7088's hand-written hold).
+ * The web screens that do not ask are in `apps/web/src/features/issues/
+ * empty-device-bodies.test.tsx`.
+ */
+import { afterEach, expect, it } from 'vitest'
+import { MissionScreen } from './mission-screen'
+import { attachMissionTestPreferences } from './mission-screen.test.fixture'
+import {
+  BODY_KINDS,
+  bodyOf,
+  type EmptyDevice,
+  FULL_BODIES,
+  openEmptyDevice,
+  putIssueWithBodies,
+  requestKey,
+} from './test-support/empty-device.test.fixture'
+
+const ROOT = 'i1'
+const devices: EmptyDevice[] = []
+afterEach(() => {
+  for (const device of devices.splice(0)) device.dispose()
+})
+async function emptyDevice() {
+  const device = await openEmptyDevice({ world: (server) => putIssueWithBodies(server, ROOT) })
+  devices.push(device)
+  return device
+}
+const openDeck = (device: EmptyDevice) => {
+  attachMissionTestPreferences(device.pool)
+  return device.observe(
+    () => new MissionScreen(device.pool, ROOT, { sessionName: () => '' }),
+    (screen) => {
+      void screen.ready
+      void screen.rootAuthoredBrief
+      void screen.rootFindings
+    },
+  )
+}
+
+it('starts with the issue but none of its body, and answers only what is asked for', async () => {
+  const device = await emptyDevice()
+  // The issue is in the first download (open and recent); its six bodies are not.
+  expect(device.pool.issueObject(ROOT).title).toBe(`Task ${ROOT}`)
+  expect(BODY_KINDS).toHaveLength(6)
+  for (const kind of BODY_KINDS) expect(device.holds(bodyOf(kind, ROOT))).toBe(false)
+  // The server holds all six; nothing has been asked for yet.
+  expect(device.server.idsOf('issueDescription')).toEqual([ROOT])
+  expect(device.requested()).toEqual([])
+  expect(device.pool.issueObject(ROOT).description).toBe('')
+
+  // Asking for one instance brings that one and nothing else of the body.
+  const description = bodyOf('issueDescription', ROOT)
+  const read = device.observe(
+    () => null,
+    () => device.pool.collections.held(description),
+  )
+  await device.untilIdle()
+  expect(device.requestedKeys()).toEqual([requestKey(description)])
+  expect(device.holds(description)).toBe(true)
+  expect(device.holds(bodyOf('issueBrief', ROOT))).toBe(false)
+  expect(device.pool.issueObject(ROOT).description).toBe(FULL_BODIES.description)
+  read.close()
+})
+
+// Test d of POD-7544: the deck asks for its root's description and state line
+// by hand (`MissionScreen.rootBodyHeld`), so it shows them on an empty device.
+it("shows the deck root's description and state line on an empty device", async () => {
+  const device = await emptyDevice()
+  const deck = openDeck(device)
+  await device.untilIdle()
+  expect(deck.model.ready).toBe(true)
+  expect(device.requestedKeys()).toEqual(
+    expect.arrayContaining([
+      requestKey(bodyOf('issueDescription', ROOT)),
+      requestKey(bodyOf('issuePanelState', ROOT)),
+    ]),
+  )
+  expect(deck.model.rootAuthoredBrief).toBe(FULL_BODIES.description)
+  expect(deck.model.rootFindings).toBe(FULL_BODIES.stateLine)
+})
+
+it('offline, the deck asks for its root body, reaches no server, and says offline', async () => {
+  const device = await emptyDevice()
+  device.offline()
+  const deck = openDeck(device)
+  await device.untilIdle()
+  const description = bodyOf('issueDescription', ROOT)
+  // Nothing reached the server: every attempt was refused before it.
+  expect(device.requested()).toEqual(device.refused())
+  expect(device.holds(description)).toBe(false)
+  expect(device.pool.collections.status(description)).toBe('offline')
+  expect(deck.model.ready).toBe(false)
+  expect(deck.model.rootAuthoredBrief).toBe('')
+
+  // Back online, the same open deck loads what it asked for.
+  device.online()
+  await device.untilIdle()
+  expect(device.holds(description)).toBe(true)
+  expect(deck.model.ready).toBe(true)
+  expect(deck.model.rootAuthoredBrief).toBe(FULL_BODIES.description)
+})
