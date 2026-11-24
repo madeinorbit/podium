@@ -151,6 +151,8 @@ vi.mock('@expo/ui/swift-ui/modifiers', () =>
       'buttonStyle',
       'clipped',
       'contentShape',
+      'controlSize',
+      'labelsHidden',
       'font',
       'foregroundStyle',
       'frame',
