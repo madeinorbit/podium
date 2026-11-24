@@ -95,6 +95,11 @@ export interface LoaderOptions {
   readonly replica: LoaderReplica
   readonly windowMs?: number
   readonly schedule?: LoaderSchedule
+  /** The platform may know the network is down before the feed socket closes. */
+  readonly connectivity?: {
+    isOnline(): boolean
+    subscribe(onChange: () => void): () => void
+  }
 }
 
 /** Counted for tests and meters. */
@@ -138,6 +143,8 @@ export class CollectionLoader {
   readonly stats: LoaderStats = { requests: 0, instances: 0, viewInstances: 0, notifications: 0 }
   private readonly replica: LoaderReplica
   private readonly schedule: LoaderSchedule
+  private readonly connectivity: LoaderOptions['connectivity']
+  private readonly stopConnectivity: (() => void) | undefined
   private readonly queue = new SideMap<string, Queued>('loader.queue')
   /** Sent and not answered yet; a key here is never sent again. */
   private readonly inFlight = new SideMap<string, InstanceRequest>('loader.inFlight')
@@ -169,6 +176,12 @@ export class CollectionLoader {
     this.schedule = options.schedule ?? realSchedule
     this.connected = isConnected(this.replica.posture)
     this.fresh = !this.replica.canFetch
+    this.connectivity = options.connectivity
+    this.stopConnectivity = this.connectivity?.subscribe(() => {
+      if (this.disposed) return
+      this.notify('connection')
+      if (this.queue.size > 0) this.arm()
+    })
   }
 
   /**
@@ -245,7 +258,7 @@ export class CollectionLoader {
   /** How a view reads an instance. Offline only for what neither memory nor disk holds. */
   status(spec: InstanceSpec): LoadStatus {
     if (this.replica.isComplete(spec) !== undefined) return 'complete'
-    return this.connected || this.replica.onDevice?.(spec) === true ? 'loading' : 'offline'
+    return this.online || this.replica.onDevice?.(spec) === true ? 'loading' : 'offline'
   }
 
   /**
@@ -300,7 +313,7 @@ export class CollectionLoader {
 
   /** Whether the device has a connection to load over (the view's "not available offline"). */
   get online(): boolean {
-    return this.connected
+    return this.connected && this.connectivity?.isOnline() !== false
   }
 
   /** The marker of an instance the device holds complete. */
@@ -438,7 +451,7 @@ export class CollectionLoader {
     // Without a connection, or before the first download has a feed, nothing
     // can start from the server: the queue waits for the connection or the
     // cursor. What the device answers from disk goes now (POD-7159).
-    const offline = !this.connected || !this.replica.canFetch
+    const offline = !this.online || !this.replica.canFetch
     const queued = [...this.queue.values()]
       .sort((a, b) => rank(a.priority) - rank(b.priority))
       .map((entry) => entry.request)
@@ -480,6 +493,7 @@ export class CollectionLoader {
   /** Forget everything; nothing further starts. */
   dispose(): void {
     this.disposed = true
+    this.stopConnectivity?.()
     this.cancel?.()
     this.cancel = null
     this.retryCancel?.()
@@ -522,6 +536,9 @@ export class CollectionLoader {
       // The answer broke off (the connection dropped mid-answer): what it
       // installed stays, and the rest is asked again.
       failed = true
+      // A browser can reject a fetch before delivering its offline event.
+      // Read the platform and feed state, never the browser's error text.
+      if (!this.online) this.notify('connection')
     } finally {
       for (const request of requests) {
         const key = instanceKey(request)

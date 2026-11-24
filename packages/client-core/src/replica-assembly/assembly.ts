@@ -8,6 +8,8 @@ import {
   type SyncUnitOfWork,
 } from '@podium/sync/replica'
 import type { PodiumClientApi } from '../api'
+import { platformIsOnline } from '../outbox'
+import { hasDomWindow } from '../platform-globals'
 import { asClientPrincipal, type ClientPrincipal } from '../principal'
 import {
   createKernelReplica,
@@ -398,7 +400,25 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
         : { memory: { signals: options.memorySignals } }),
     })
     kernel = replicaKernel
-    loader = new CollectionLoader({ replica: replicaKernel })
+    const dom = hasDomWindow() ? window : undefined
+    loader = new CollectionLoader({
+      replica: replicaKernel,
+      ...(dom === undefined
+        ? {}
+        : {
+            connectivity: {
+              isOnline: platformIsOnline,
+              subscribe(onChange: () => void) {
+                dom.addEventListener('online', onChange)
+                dom.addEventListener('offline', onChange)
+                return () => {
+                  dom.removeEventListener('online', onChange)
+                  dom.removeEventListener('offline', onChange)
+                }
+              },
+            },
+          }),
+    })
     // AT REST: what the persisted cursor already covers retires before anything
     // paints — a receipt at or below it, and every applied entry without a receipt
     // that an older build left behind (the stranded nulldisk clear). What is ahead

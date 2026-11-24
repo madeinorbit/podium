@@ -23,7 +23,7 @@ import { inMemoryInstantiation } from '../conformance/in-memory'
 import type { ConformanceStorage } from '../conformance/instantiation'
 import { policyBudgets, TEST_BUDGETS } from '../conformance/test-budgets'
 import { instanceKey } from './cache-state'
-import { CollectionLoader, type LoaderSchedule, oneRecord } from './loader'
+import { CollectionLoader, type LoaderOptions, type LoaderSchedule, oneRecord } from './loader'
 import { Replica } from './replica'
 import type { CachePolicy, InstanceRequest, InstanceSpec, ReplicaEvent } from './types'
 
@@ -89,6 +89,7 @@ function device(
   server: CollectionServer,
   onEvent?: (event: ReplicaEvent, d: Device) => void,
   memory: { readonly warmInstances?: number } = {},
+  connectivity?: LoaderOptions['connectivity'],
 ): Device {
   const { cache } = storage.viewFor('u-ada')
   const events: ReplicaEvent[] = []
@@ -108,7 +109,7 @@ function device(
       if (self !== undefined) onEvent?.(event, self)
     },
   })
-  loader = new CollectionLoader({ replica, schedule: timer.schedule })
+  loader = new CollectionLoader({ replica, schedule: timer.schedule, connectivity })
   self = { replica, loader, events, timer }
   return self
 }
@@ -204,6 +205,67 @@ describe('the loader batches lookups', () => {
 })
 
 describe('offline, a load does not start', () => {
+  it('observes the platform going offline while the feed stays live, then drains on online', async () => {
+    const server = new CollectionServer()
+    server.policy = POLICY
+    server.put(ISSUE, 'OLD', issue('OLD', { stage: 'done', closedReason: 'completed' }))
+    let online = true
+    let changed: (() => void) | undefined
+    const d = device(
+      await inMemoryInstantiation.open(),
+      server,
+      undefined,
+      {},
+      {
+        isOnline: () => online,
+        subscribe: (listener) => {
+          changed = listener
+          return () => {
+            changed = undefined
+          }
+        },
+      },
+    )
+    try {
+      d.replica.connect()
+      await settle(d)
+      const connections: boolean[] = []
+      d.loader.subscribe((change) => {
+        if (change === 'connection') connections.push(d.loader.online)
+      })
+      online = false
+      changed?.()
+      expect(d.replica.posture).toBe('live')
+      expect(connections).toEqual([false])
+      const one = oneRecord(ISSUE, 'OLD')
+      const before = server.fetches.length
+      d.loader.request([one], 'visible')
+      await settle(d)
+      expect(d.loader.status(one)).toBe('offline')
+      expect(server.fetches).toHaveLength(before)
+
+      online = true
+      changed?.()
+      await settle(d)
+      expect(connections).toEqual([false, true])
+      expect(d.loader.status(one)).toBe('complete')
+      expect(requestsNaming(server, one)).toBe(1)
+
+      online = false
+      changed?.()
+      expect(d.loader.status(one)).toBe('complete')
+      d.replica.disconnect()
+      online = true
+      changed?.()
+      expect(d.loader.online).toBe(false)
+      expect(d.loader.status(oneRecord(ISSUE, 'UNOPENED'))).toBe('offline')
+    } finally {
+      d.loader.dispose()
+      d.replica.disconnect()
+    }
+    expect(changed).toBeUndefined()
+  })
+
   it('the view reads "offline", nothing is sent, and the queue goes when the connection returns', async () => {
     const server = new CollectionServer()
     server.policy = POLICY

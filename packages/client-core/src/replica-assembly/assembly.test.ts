@@ -14,7 +14,7 @@ import { UiPersistence } from '../ui/persistence'
 import { UiStore } from '../ui/ui-store'
 import { createMemoryRouterWindow, createRouter } from '../ui-state'
 import { emptyWorkspace, openTab } from '../values'
-import { openReplicaAssembly } from './assembly'
+import { openReplicaAssembly, type ReplicaAssembly } from './assembly'
 
 const principal = JSON.stringify(['installation-a', 'alice'])
 const prefix = 'test.replica'
@@ -52,6 +52,102 @@ const syncMeta = {
 }
 
 describe('shared replica reconnect recovery', () => {
+  it.each([
+    new TypeError('NetworkError when attempting to fetch resource. (NS_ERROR_OFFLINE)'),
+    new DOMException('NS_ERROR_OFFLINE', 'AbortError'),
+  ])('settles a Firefox fetch failure offline before its offline event: %s', async (failure) => {
+    const storage = device()
+    const dom = new EventTarget()
+    let online = true
+    vi.stubGlobal('window', dom)
+    vi.stubGlobal('navigator', {
+      get onLine() {
+        return online
+      },
+    })
+    const instance = {
+      collection: 'issueDescription.ofIssue',
+      args: { issueId: 'unopened' },
+      part: 'main' as const,
+    }
+    let failCollection = true
+    const fetch = vi.fn(async (url: string, init: RequestInit) => {
+      const collection = url.endsWith('/sync/collections')
+      if (collection && failCollection) {
+        expect(init.signal?.aborted).toBe(false)
+        // Firefox can fail the request while the feed still appears live and
+        // before the browser has delivered the offline event.
+        online = false
+        throw failure
+      }
+      return syncResponse([
+        { ...syncMeta, mode: 'snapshot', totalRows: 0 },
+        ...(collection
+          ? [{ type: 'collectionComplete', ...cursor, instances: [instance] }]
+          : [
+              {
+                type: 'feedBootstrap',
+                ...cursor,
+                fromSeq: 0,
+                minAvailableSeq: 0,
+                changes: [],
+                last: true,
+              },
+            ]),
+        { type: 'syncComplete', transferId: syncMeta.transferId, seq: 10, records: 1, rows: 0 },
+      ])
+    })
+    let assembly: ReplicaAssembly | undefined
+    try {
+      assembly = await openReplicaAssembly({
+        api: {} as never,
+        principal,
+        openStore,
+        settings: { storage, enumerateKeys: storage.keys, basePrefix: prefix },
+        httpSync: { origin: 'https://sync.test', streamingFetch: { fetch } },
+      })
+      assembly.feed.connected(false)
+      await vi.waitFor(() => expect(assembly.progress.getSnapshot().phase).toBe('ready'))
+      const loader = assembly.replica.loader?.()
+      if (!loader) throw new Error('assembly did not attach its collection loader')
+      const connections: boolean[] = []
+      loader.subscribe((change) => {
+        if (change === 'connection') connections.push(loader.online)
+      })
+      loader.request([instance], 'visible')
+      await loader.flush()
+      expect(loader.online).toBe(false)
+      expect(loader.status(instance)).toBe('offline')
+      expect(loader.wasRefused(instance)).toBe(false)
+      expect(connections).toEqual([false])
+      await loader.flush()
+      expect(fetch).toHaveBeenCalledTimes(2)
+
+      failCollection = false
+      online = true
+      dom.dispatchEvent(new Event('online'))
+      await loader.flush()
+      expect(loader.status(instance)).toBe('complete')
+      expect(fetch).toHaveBeenCalledTimes(3)
+      expect(connections).toEqual([false, true])
+
+      dom.dispatchEvent(new Event('offline'))
+      expect(loader.online).toBe(true) // The event alone is not connectivity evidence.
+      online = false
+      dom.dispatchEvent(new Event('offline'))
+      expect(loader.online).toBe(false)
+      expect(connections.at(-1)).toBe(false)
+      await assembly.dispose()
+      const count = connections.length
+      online = true
+      dom.dispatchEvent(new Event('online'))
+      expect(connections).toHaveLength(count)
+    } finally {
+      await assembly?.dispose()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it.each([
     'read-failed',
     'compressor-failed',
