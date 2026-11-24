@@ -485,14 +485,15 @@ export function createIssuePageViews(pool: MobxPool) {
     return companions(pool.issueObject(id) as PageIssue)
   }
   /**
-   * The page's issue. While its row is on its way the page also reads the
-   * bodies it draws, through the model's fields: their loads join the row's
-   * batch window instead of waiting a hop for the row (POD-7545).
+   * The page's issue. The page also reads the bodies it draws, through the
+   * model's fields: while the row is on its way their loads join its batch
+   * window instead of waiting a hop for it, and once it is here the page keeps
+   * holding them, with no release and retake when the sections mount (POD-7545).
    */
   function issue(id: string, bodies: readonly PageBody[] = PAGE_BODIES): Loaded<PageIssue> {
     if (disposed) return LOADING
     const found = readPageIssue(pool, id)
-    if (found === LOADING) readBodies(pool, id, bodies)
+    if (found !== undefined) readBodies(pool, id, bodies)
     return found
   }
   /** Resolve identity before any detail section subscribes to its own fields. */

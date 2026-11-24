@@ -1,6 +1,7 @@
 import { useCommands, useRequestClient, useUiValue } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/loading'
+import { omitGone } from '@podium/client-graph/lookup'
 import { issueWrites } from '@podium/commands/issues-synced'
 import { machinePathBasename } from '@podium/model'
 import type { IssueComment, IssueId, SessionId } from '@podium/model/browser'
@@ -99,9 +100,9 @@ function PoolRefMiniviewHost(): JSX.Element {
       }
       const parsed = parseAnyRef(ref)
       if (parsed?.kind === 'issue') {
-        const target = resolvePoolIssue(pool, ref)
-        if (target?.kind === 'issue') {
-          setOpenIssueId(target.issue.id)
+        const id = presentIssueId(pool, ref)
+        if (id) {
+          setOpenIssueId(id)
           setView('issues')
           return
         }
@@ -122,6 +123,15 @@ function PoolRefMiniviewHost(): JSX.Element {
       {state && <OpenPoolRefMiniview state={state} pool={pool} />}
     </>
   )
+}
+
+/** A direct click opens the issue once its row is here: only its id, no card read. */
+function presentIssueId(pool: MobxPool | null, token: string): IssueId | null {
+  if (!pool) return null
+  const id = pool.queries.issueReferenceId(token)
+  if (!id || typeof id === 'symbol') return null
+  const row = omitGone(pool.row('issue', id))
+  return row && typeof row !== 'symbol' ? (id as IssueId) : null
 }
 
 /** Another issue the card resolves: the same reader as the open card's, so its

@@ -186,6 +186,9 @@ describe('the issue page', () => {
     const editor = await saveAddedLine(mounted)
     expect(editor.opened).toBe(FULL_BODIES.description)
     expect(serverTextAfterSave(mounted), asked(mounted)).toContain(FULL_BODIES.description)
+    // The body stays held through the save: no loading line after it.
+    await mounted.untilIdle()
+    expect(screen.queryByTestId('issue-description-pending')).toBeNull()
   })
 
   // POD-7545 "no write over an unloaded value": offline the description is
@@ -291,6 +294,8 @@ describe('the issue page: a text save names the revision it was cut from', () =>
     ])
     expect(server.issue.description).toBe(`${FULL_BODIES.description}\n${ADDED}`)
     expect(mounted.commands.updateIssue).not.toHaveBeenCalled()
+    await mounted.untilIdle()
+    expect(screen.queryByTestId('issue-description-pending')).toBeNull()
   })
 
   it('a title save names the revision', async () => {

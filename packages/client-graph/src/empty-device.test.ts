@@ -34,7 +34,7 @@ const openDeck = (device: EmptyDevice) => {
     () => new MissionScreen(device.pool, ROOT, { sessionName: () => '' }),
     (screen) => {
       void screen.ready
-      void screen.rootAuthoredBrief
+      void screen.root.description
       void screen.rootFindings
     },
   )
@@ -80,7 +80,7 @@ it("shows the deck root's description and state line on an empty device", async 
       requestKey(bodyOf('issuePanelState', ROOT)),
     ]),
   )
-  expect(deck.model.rootAuthoredBrief).toBe(FULL_BODIES.description)
+  expect(deck.model.root.description).toBe(FULL_BODIES.description)
   expect(deck.model.rootFindings).toBe(FULL_BODIES.stateLine)
 })
 
@@ -95,13 +95,13 @@ it('offline, the deck asks for its root body, reaches no server, and says offlin
   expect(device.holds(description)).toBe(false)
   expect(device.pool.collections.status(description)).toBe('offline')
   expect(deck.model.ready).toBe(false)
-  expect(deck.model.rootAuthoredBrief).toBe(LOADING)
-  expect(device.pool.collections.reading(deck.model.rootAuthoredBrief)).toBe('offline')
+  expect(deck.model.root.description).toBe(LOADING)
+  expect(device.pool.collections.reading(deck.model.root.description)).toBe('offline')
 
   // Back online, the same open deck loads what it asked for.
   device.online()
   await device.untilIdle()
   expect(device.holds(description)).toBe(true)
   expect(deck.model.ready).toBe(true)
-  expect(deck.model.rootAuthoredBrief).toBe(FULL_BODIES.description)
+  expect(deck.model.root.description).toBe(FULL_BODIES.description)
 })

@@ -495,17 +495,22 @@ export class IssueModel extends EntityModel {
     return out
   }
   /**
-   * A body field painted on the row, which wins. While the row itself is on
-   * its way (the read throws LOADING) the body's relation is read too, so its
-   * load joins the row's batch window rather than waiting a hop for it.
+   * A body field painted on the row, which wins. The body's relation is read
+   * on every path: under a painted edit the instance stays held, so the text
+   * does not flash LOADING and refetch when the edit settles; and while the
+   * row itself is on its way (the read throws LOADING) the body's load joins
+   * the row's batch window rather than waiting a hop for it.
    */
   private paintedBody(field: 'brief' | 'description', records: { readonly members: unknown }): unknown {
+    let painted: unknown
     try {
-      return this.storedField(field)
+      painted = this.storedField(field)
     } catch (error) {
       if (error === LOADING) void records.members
       throw error
     }
+    if (painted !== undefined) void records.members
+    return painted
   }
   /** The human summary's text; empty when there is none; LOADING until it is on the device. */
   @lazy get description(): string | typeof LOADING {

@@ -406,13 +406,6 @@ export class MissionScreen {
   private get rootModel() {
     return this.pool.issueObject(this.rootId)
   }
-  /** The header's summary: the description, else the state line; LOADING until the description is here. */
-  @lazy get rootAuthoredBrief(): string | typeof LOADING {
-    const root = this.rootModel
-    const description = root.description
-    if (description === LOADING) return LOADING
-    return description.trim() || root.activityNotes?.trim() || ''
-  }
   @lazy get rootFinished(): boolean {
     return isFinished(this.rootIssue)
   }

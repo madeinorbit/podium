@@ -103,7 +103,6 @@ function newDeck(screen: MissionScreen) {
     rootStatus: screen.rootStatus,
     rootLead: screen.rootLeadSessionId,
     rootDraft: screen.rootDraftVessel,
-    rootBrief: screen.rootAuthoredBrief,
     strips: rows.map((row) => ({
       key: row.key,
       title: row.title,

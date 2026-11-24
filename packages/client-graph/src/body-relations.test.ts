@@ -171,7 +171,7 @@ describe('reading a body field on an empty device', () => {
     read.close()
   })
 
-  it('answers a painted row at once and asks for nothing', async () => {
+  it('answers a painted row at once, and keeps holding the body under it', async () => {
     const device = await emptyDevice()
     const painted = {
       ...withoutIssueBodies(issueValue('i1', { title: 'Task i1' })),
@@ -182,9 +182,20 @@ describe('reading a body field on an empty device', () => {
       device.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'i1', value: painted }] }),
     )
     const issue = device.pool.issueObject('i1')
+    const holds = countHolds(device)
+    const read = device.observe(
+      () => issue,
+      (model) => [model.description, model.brief],
+    )
+    // The painted text, before anything arrived.
     expect(issue.description).toBe('Painted here.')
     expect(issue.brief).toBe('Painted brief.')
-    expect(device.requested()).toEqual([])
+    // The body is held under the painted value, so it is there once the edit settles.
+    expect(holds(bodyOf('issueDescription', 'i1'))).toBe(1)
+    await device.untilIdle()
+    expect(device.holds(bodyOf('issueDescription', 'i1'))).toBe(true)
+    expect(issue.description).toBe('Painted here.')
+    read.close()
   })
 
   it('offline, reads as "not available offline" and fills once the connection returns', async () => {

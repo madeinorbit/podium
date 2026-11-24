@@ -122,6 +122,8 @@ export const IssueDescription = observer(function IssueDescription({
         placeholder="Add a description…"
         ariaLabel="Task description"
         busy={busy}
+        // POD-7545: no edit starts over a description not on the device (POD-7555 owns the screen).
+        loading={issue.description === LOADING}
         onCommit={commands.commitDescription}
         render={(text) => <RichMarkdown text={text} />}
       />
