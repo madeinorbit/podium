@@ -16,6 +16,12 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import desktopConfig from '../apps/desktop/vitest.config'
 import mobileConfig from '../apps/mobile/vitest.config'
+import {
+  readTestStoreEngines,
+  serverShardFiles,
+  storeShardFiles,
+  testStoreEngineProblems,
+} from '../apps/server/src/test-support/test-store-engines'
 import serverBoundaryConfig from '../apps/server/vitest.boundary.config'
 import serverPackageConfig from '../apps/server/vitest.config'
 import serverContractsConfig from '../apps/server/vitest.contracts.config'
@@ -46,6 +52,7 @@ import {
   parseEvidence,
   validateEvidence,
 } from './parity-release-proof'
+import { diffAgainstPlan, verify } from './server-test-shards'
 import { runWithHeavyTestLease } from './test-heavy'
 import {
   footer,
@@ -396,6 +403,23 @@ describe('test lane configuration', () => {
     expect(files.filter((file) => !owned.has(file)).sort(), 'server tests without a lane').toEqual(
       [],
     )
+  })
+
+  it('keeps the generated server shard roster and Turbo inputs current [POD-7559]', () => {
+    // File ownership alone stays green when imports move a test between cache shards.
+    // This probe is in the lean gate, unlike server-test-shards.test.ts in the scripts lane.
+    const root = fileURLToPath(repoRoot)
+    expect(verify(root)).toEqual([])
+    expect(diffAgainstPlan(root), 'run bun scripts/server-test-shards.ts --write').toEqual([])
+    expect(
+      testStoreEngineProblems(
+        readTestStoreEngines(),
+        storeShardFiles(root),
+        serverShardFiles(root),
+        (file) => existsSync(join(root, file)),
+      ),
+      'cache shard changes must preserve the Postgres leg and its engine exclusions',
+    ).toEqual([])
   })
 
   it('keeps every server shard on the shared hermetic setup [POD-520]', () => {

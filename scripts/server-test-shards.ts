@@ -15,8 +15,9 @@
  * source replays nothing and the lane reports a green it did not earn. So membership AND
  * inputs are both DERIVED here from the real import closure, written to
  * `apps/server/test-shards.json` and `turbo.json` by `--write`, and re-derived and
- * compared on every run of `scripts/server-test-shards.test.ts`. Drift is a failure,
- * never a silent widening.
+ * compared by the lean configuration gate and `scripts/server-test-shards.test.ts`.
+ * Drift is a failure, never a silent widening. Regeneration also retains departing store
+ * files on the Postgres leg in `apps/server/test-store-engines.json`.
  *
  * Three structural facts the derivation must respect, each of which would otherwise be a
  * false green:
@@ -67,6 +68,7 @@ import {
 } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { TestStoreEngines } from '../apps/server/src/test-support/test-store-engines'
 import {
   executedTestFiles,
   SHARD_REPORT_DIR,
@@ -200,8 +202,7 @@ function specifiersOf(source: string): string[] {
   const found = new Set<string>()
   for (const pattern of SPECIFIER_PATTERNS) {
     pattern.lastIndex = 0
-    let match: RegExpExecArray | null
-    while ((match = pattern.exec(source))) found.add(match[1] as string)
+    for (const match of source.matchAll(pattern)) found.add(match[1] as string)
   }
   return [...found]
 }
@@ -374,8 +375,7 @@ export function referencedRepositoryPaths(root: string, relativePath: string): s
   if (!FILESYSTEM_REACH.test(source)) return []
   const found = new Set<string>()
   PATH_LITERAL.lastIndex = 0
-  let match: RegExpExecArray | null
-  while ((match = PATH_LITERAL.exec(source))) {
+  for (const match of source.matchAll(PATH_LITERAL)) {
     const absolute = join(root, match[1] as string)
     if (!existsSync(absolute)) continue
     // Directory literals may already end in '/'; normalize before adding the glob suffix.
@@ -634,13 +634,13 @@ export interface VerifyFailure {
 }
 
 /**
- * Refuse unless the checked-in manifest still describes this checkout exactly.
+ * Check file ownership and lane-level inputs without re-deriving the import graph.
  *
  * This is the uncovered-file refusal for the shard split, and it is the reason the split
  * cannot quietly stop testing something: an apps/server test file that no shard claims, a
- * file claimed twice, a manifest that no longer matches the derivation, or a shard whose
- * declared inputs stop covering its measured closure all fail here rather than passing as
- * a green.
+ * file claimed twice, or a missing lane input fails here. Membership and input drift are
+ * checked separately by {@link diffAgainstPlan}, including in the lean gate: complete
+ * ownership alone cannot detect a test whose imports moved it to another cache shard.
  */
 export function verify(root: string = repositoryRoot): VerifyFailure[] {
   const failures: VerifyFailure[] = []
@@ -720,8 +720,59 @@ export function diffAgainstPlan(root: string = repositoryRoot): VerifyFailure[] 
         })
       }
     }
+    if (JSON.stringify(current.inputs) !== JSON.stringify(shard.inputs)) {
+      failures.push({ kind: 'stale', detail: `shard "${shard.id}" inputs are out of date` })
+    }
+    if (current.title !== shard.title) {
+      failures.push({ kind: 'stale', detail: `shard "${shard.id}" title is out of date` })
+    }
+  }
+  if (
+    JSON.stringify(actual.map((shard) => shard.id)) !==
+    JSON.stringify(expected.map((shard) => shard.id))
+  ) {
+    failures.push({ kind: 'stale', detail: 'the manifest shard list is out of date' })
+  }
+  try {
+    const turbo = JSON.parse(readFileSync(join(root, TURBO_CONFIG_PATH), 'utf8'))
+    if (JSON.stringify(turbo) !== JSON.stringify(turboPackageConfig(expected))) {
+      failures.push({ kind: 'stale', detail: `${TURBO_CONFIG_PATH} is out of date` })
+    }
+  } catch (error) {
+    failures.push({
+      kind: 'stale',
+      detail: `${TURBO_CONFIG_PATH} is missing or unreadable: ${error}`,
+    })
   }
   return failures
+}
+
+/**
+ * Cache affinity can change without changing which engines a test must cover. Retain a
+ * departing store file on the Postgres leg; SQLite-only and pending files keep their
+ * exclusions in every shard. Deleted files are left to the ordinary roster checks.
+ */
+export function preservePostgresCoverage(
+  previous: readonly ShardPlan[],
+  next: readonly ShardPlan[],
+  engines: TestStoreEngines,
+): Record<string, string> {
+  const allFiles = new Set(next.flatMap((shard) => shard.testFiles))
+  const storeFiles = new Set(next.find((shard) => shard.id === 'store')?.testFiles)
+  const beyond = new Map(Object.entries(engines.beyondStoreShard))
+  const excluded = new Set([...Object.keys(engines.sqliteOnly), ...engines.pending])
+  for (const file of previous.find((shard) => shard.id === 'store')?.testFiles ?? []) {
+    if (allFiles.has(file) && !storeFiles.has(file) && !excluded.has(file) && !beyond.has(file)) {
+      beyond.set(
+        file,
+        'Previously in the store shard; its store behavior still runs on Postgres after an import-graph change moved it to another cache shard.',
+      )
+    }
+  }
+  for (const file of storeFiles) beyond.delete(file)
+  return Object.fromEntries(
+    [...beyond].sort(([left], [right]) => (left === right ? 0 : left < right ? -1 : 1)),
+  )
 }
 
 // ---------------------------------------------------------------------------------------
@@ -963,8 +1014,16 @@ export const REGENERATE_HINT =
 // CLI
 // ---------------------------------------------------------------------------------------
 
-function writeArtifacts(root: string): void {
+export function writeArtifacts(root: string): void {
   const shards = computePlan(root)
+  // Read the old roster before overwriting it: otherwise --write itself can silently
+  // retire Postgres coverage when composition imports move a store file to another shard.
+  const enginesPath = join(root, SERVER_PACKAGE, 'test-store-engines.json')
+  if (existsSync(join(root, MANIFEST_PATH)) && existsSync(enginesPath)) {
+    const engines = JSON.parse(readFileSync(enginesPath, 'utf8'))
+    const beyondStoreShard = preservePostgresCoverage(readManifest(root).shards, shards, engines)
+    writeFileSync(enginesPath, `${JSON.stringify({ ...engines, beyondStoreShard }, null, 2)}\n`)
+  }
   writeFileSync(join(root, MANIFEST_PATH), renderManifest(shards))
   writeFileSync(
     join(root, TURBO_CONFIG_PATH),

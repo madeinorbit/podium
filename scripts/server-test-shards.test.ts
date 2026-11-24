@@ -3,6 +3,10 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import {
+  postgresLegFiles,
+  type TestStoreEngines,
+} from '../apps/server/src/test-support/test-store-engines'
 import { normalizedWireTests } from '../vitest.unit.config'
 import {
   AGGREGATE_INPUTS,
@@ -10,6 +14,7 @@ import {
   diffAgainstPlan,
   inputsForClosure,
   LANE_INPUTS,
+  preservePostgresCoverage,
   readManifest,
   referencedRepositoryPaths,
   repositoryRoot,
@@ -19,6 +24,7 @@ import {
   turboPackageConfig,
   unitLaneTestFiles,
   verify,
+  writeArtifacts,
 } from './server-test-shards'
 
 /**
@@ -44,8 +50,132 @@ const walkServerFiles = (dir = join(repositoryRoot, 'apps/server'), out: string[
   return out
 }
 
+function shardFixture(): string {
+  const root = mkdtempSync(join(tmpdir(), 'podium-shard-drift-'))
+  mkdirSync(join(root, 'packages'))
+  mkdirSync(join(root, 'apps/server/src/store'), { recursive: true })
+  mkdirSync(join(root, 'apps/server/src/application'), { recursive: true })
+  writeFileSync(join(root, 'apps/server/src/store/query.ts'), 'export const query = 1\n')
+  writeFileSync(
+    join(root, 'apps/server/src/application/composed.ts'),
+    "export * from '../store/query'\n",
+  )
+  writeFileSync(join(root, 'apps/server/src/portable.test.ts'), "import './store/query'\n")
+  writeFileSync(
+    join(root, 'apps/server/test-store-engines.json'),
+    JSON.stringify({
+      description: ['Engine assignments survive cache-shard moves.'],
+      sqliteOnly: {},
+      pending: [],
+      beyondStoreShard: {},
+    }),
+  )
+  writeArtifacts(root)
+  return root
+}
+
 describe('server test cache shards', () => {
   const manifest = readManifest(repositoryRoot)
+
+  it('detects import-graph drift despite complete ownership and preserves Postgres on regeneration [POD-7559]', () => {
+    const root = shardFixture()
+    try {
+      expect(verify(root)).toEqual([])
+      expect(diffAgainstPlan(root)).toEqual([])
+      const file = 'apps/server/src/portable.test.ts'
+      expect(
+        postgresLegFiles(root, { sqliteOnly: {}, pending: [], beyondStoreShard: {} }, {}),
+      ).toContain(file)
+      writeFileSync(join(root, file), "import './application/composed'\n")
+
+      // The old lean check was green here: no file was added, deleted or unowned.
+      expect(verify(root)).toEqual([])
+      expect(diffAgainstPlan(root)).toEqual(
+        expect.arrayContaining([
+          { kind: 'stale', detail: 'shard "store" membership is out of date' },
+          { kind: 'stale', detail: 'shard "boundary" membership is out of date' },
+        ]),
+      )
+      writeArtifacts(root)
+      const engines = JSON.parse(
+        readFileSync(join(root, 'apps/server/test-store-engines.json'), 'utf8'),
+      )
+      expect(engines.description).toEqual(['Engine assignments survive cache-shard moves.'])
+      expect(engines.beyondStoreShard[file]).toContain('Postgres')
+      expect(postgresLegFiles(root, engines, {})).toContain(file)
+      expect(diffAgainstPlan(root)).toEqual([])
+
+      // A later move back to store removes the override instead of duplicating the leg.
+      writeFileSync(join(root, file), "import './store/query'\n")
+      writeArtifacts(root)
+      const returned = JSON.parse(
+        readFileSync(join(root, 'apps/server/test-store-engines.json'), 'utf8'),
+      )
+      expect(returned.beyondStoreShard).toEqual({})
+      expect(postgresLegFiles(root, returned, {})).toEqual([file])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    'manifest',
+    'turbo',
+  ])('detects stale extra %s inputs, even when no required input is missing [POD-7559]', (artifact) => {
+    const root = shardFixture()
+    try {
+      const path = join(
+        root,
+        artifact === 'manifest' ? 'apps/server/test-shards.json' : TURBO_CONFIG_PATH,
+      )
+      const value = JSON.parse(readFileSync(path, 'utf8'))
+      const inputs =
+        artifact === 'manifest' ? value.shards[0].inputs : value.tasks['test:contracts'].inputs
+      inputs.push('obsolete.ts')
+      writeFileSync(path, JSON.stringify(value))
+      expect(verify(root)).toEqual([])
+      expect(diffAgainstPlan(root)).toContainEqual({
+        kind: 'stale',
+        detail:
+          artifact === 'manifest'
+            ? 'shard "contracts" inputs are out of date'
+            : `${TURBO_CONFIG_PATH} is out of date`,
+      })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('retains engine exclusions and existing reasons when store files change cache shards [POD-7559]', () => {
+    const plan = (store: string[], services: string[]) =>
+      SHARDS.map((shard) => ({
+        ...shard,
+        inputs: [],
+        testFiles: shard.id === 'store' ? store : shard.id === 'services' ? services : [],
+      }))
+    const engines: TestStoreEngines = {
+      sqliteOnly: { 'sqlite.test.ts': 'Tests a SQLite-specific migration fixture.' },
+      pending: ['pending.test.ts'],
+      beyondStoreShard: { 'kept.test.ts': 'An existing reason that must be retained.' },
+    }
+    const store = [
+      'portable.test.ts',
+      'sqlite.test.ts',
+      'pending.test.ts',
+      'deleted.test.ts',
+      'kept.test.ts',
+    ]
+    const overrides = preservePostgresCoverage(
+      plan(store, []),
+      plan(
+        [],
+        store.filter((file) => file !== 'deleted.test.ts'),
+      ),
+      engines,
+    )
+    expect(Object.keys(overrides)).toEqual(['kept.test.ts', 'portable.test.ts'])
+    expect(overrides['kept.test.ts']).toBe(engines.beyondStoreShard['kept.test.ts'])
+  })
 
   it.each(['', '/', '//'])('normalizes directory literals ending in %j [POD-6380]', (suffix) => {
     const fixture = mkdtempSync(join(tmpdir(), 'podium-server-shard-inputs-'))

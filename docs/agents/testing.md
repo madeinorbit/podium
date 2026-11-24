@@ -20,7 +20,7 @@ database-free checks:
 | `packages/runtime/src/boot.test.ts` | Runtime boot/configuration assembly |
 | `apps/server/src/router.setup.test.ts` | Server router construction and required wiring |
 | `apps/daemon/src/connection-state.test.ts` | Daemon connection-state startup contract |
-| `scripts/test-configuration.test.ts` | Lane membership, exclusions, hermetic setup, and the lean gate's own composition |
+| `scripts/test-configuration.test.ts` | Lane membership, exclusions, hermetic setup, generated server shard membership/inputs, engine lists, and the lean gate's own composition |
 | `apps/server/src/migrations/pg/schema-parity.test.ts` | The Postgres schema twin matches the SQLite schema table for table, in the native types of each column's class (POD-6978) |
 | `apps/server/src/store/dialect-census.test.ts` | Every store query definition builds on the Postgres tables; the ones that still need a Postgres form are listed with their task (POD-6978) |
 | `apps/server/src/migrations/pg/chain-parity.test.ts` | The Postgres baseline migration is what the schema twin renders, and the SQLite and Postgres chains name the same changes (POD-6981) |
@@ -262,10 +262,15 @@ store is complete (POD-6994). A new store test file runs on both engines by defa
 tests the executor or driver directly gets the leg's engine from `openEngineHarness()`
 (`store/executor/harness.ts`) or `createPgStoreExecutor`. A file outside the store shard that
 must also hold on Postgres (a boot-wiring file, a server started on a Postgres URL) is listed
-under `beyondStoreShard` with the reason.
-`src/store/test-store-engines.test.ts` refuses a list entry that is not a store-shard file,
-a SQLite-only entry without a reason, a file in both lists, and a `beyondStoreShard` entry
-that is a store-shard file, is missing or has no reason. Every store-shard file is on the leg
+under `beyondStoreShard` with the reason. `bun scripts/server-test-shards.ts --write`
+automatically retains portable files there when import changes move them out of the store
+cache shard; a move back removes the override. SQLite-only and pending exclusions apply in
+every shard. Cache affinity does not decide which database engines a test must cover.
+`src/store/test-store-engines.test.ts` and the lean configuration gate refuse an entry that
+is not a server-shard file, a SQLite-only entry without a reason, conflicting lists, and a
+`beyondStoreShard` entry that is a store-shard file, is missing or has no reason. The lean
+gate also re-derives the server manifest and Turbo inputs, so a complete but stale roster
+fails before it can silently change the Postgres leg. Every store-shard file is on the leg
 unless a list names it, so one that fails on Postgres fails the leg by name. To see which
 pending files pass now, run the leg with `PODIUM_TEST_STORE_PG_LEG=pending`.
 
