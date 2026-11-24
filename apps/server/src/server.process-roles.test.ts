@@ -85,7 +85,12 @@ describe('server process roles', () => {
   const url = (path: string): string => `http://127.0.0.1:${handle?.port}${path}`
 
   /** What the listener answers for each role's surface. */
-  async function surfaces(): Promise<{ health: number; api: number; sync: number; worker: number }> {
+  async function surfaces(): Promise<{
+    health: number
+    api: number
+    sync: number
+    worker: number
+  }> {
     const health = (await fetch(url('/health'))).status
     // The api: the HTTP app's own version route.
     const api = (await fetch(url('/version'))).status
@@ -141,6 +146,7 @@ describe('server process roles', () => {
       'worker.messaging',
       'worker.snapshotCatalogue',
       'worker.updateTargetRefresh',
+      'worker.tempFileSweep',
     ]) {
       expect(server.started(), part).toContain(part)
     }
@@ -193,6 +199,7 @@ describe('server process roles', () => {
       'worker.identitySweep',
       'worker.messaging',
       'worker.updateTargetRefresh',
+      'worker.tempFileSweep',
     ]) {
       expect(server.started(), part).toContain(part)
     }

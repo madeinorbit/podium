@@ -25,10 +25,10 @@
  * - **List** walks the directory tree in key-byte order and skips anything that
  *   is not a valid key segment: in-flight temp files, stray files, symlinks.
  * - **Temp files** left by a crash are removed by
- *   {@link LocalBlobStorage.removeLeftoverTempFiles} at boot, so they never
- *   reach a transfer snapshot.
+ *   {@link LocalBlobStorage.removeLeftoverTempFiles}, which the server runs once
+ *   it serves, so they do not pile up or reach a later transfer snapshot.
  * - **Fence.** With a {@link PortableStateWriteFence}, every write (put, copy,
- *   delete, the temp cleanup) runs inside `fence.runWriter`.
+ *   delete, each temp file removal) runs inside `fence.runWriter`.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -74,6 +74,24 @@ export const DEFAULT_LOCAL_BLOB_ROOTS: readonly string[] = [
 
 const TEMP_FILE = /^\.tmp-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const READ_CHUNK = 64 * 1024
+
+/** Which leftover temp files a sweep removes, and when it stops. */
+export interface LeftoverTempFileOptions {
+  /** Epoch ms: keep a temp file modified at or after it (a put of this process). */
+  olderThan?: number
+  /** Stops the walk; files already removed stay removed. */
+  signal?: AbortSignal
+}
+
+/** Whether `path` was last modified before `epochMs`; a file gone meanwhile was not. */
+async function modifiedBefore(path: string, epochMs: number): Promise<boolean> {
+  try {
+    return (await stat(path)).mtimeMs < epochMs
+  } catch (error) {
+    if (isMissing(error)) return false
+    throw error
+  }
+}
 
 export interface LocalBlobStorageOptions {
   /** The server's state directory; its one workspace's keys resolve under it. */
@@ -261,31 +279,44 @@ class LocalBlobStore implements BlobStore {
     })
   }
 
-  /** Remove every `.tmp-<uuid>` file under `roots`; returns how many were removed. */
-  removeLeftoverTempFiles(roots: readonly string[]): Promise<number> {
-    return this.write(async () => {
-      let removed = 0
-      const visit = async (dir: string): Promise<void> => {
-        let entries: Dirent[]
-        try {
-          entries = await readdir(dir, { withFileTypes: true })
-        } catch (error) {
-          if (isMissing(error)) return
-          throw error
-        }
-        for (const entry of entries) {
-          const path = join(dir, entry.name)
-          if (entry.isDirectory()) {
-            await visit(path)
-          } else if (entry.isFile() && TEMP_FILE.test(entry.name)) {
-            await rm(path, { force: true })
-            removed += 1
-          }
+  /**
+   * Remove every `.tmp-<uuid>` file under `roots`; returns how many were removed.
+   *
+   * The walk itself writes nothing, so it runs outside the fence; each removal
+   * takes it. A live install's roots hold tens of thousands of directories
+   * (POD-7541), so the server runs this after it listens rather than before:
+   * `olderThan` then keeps the temp file of a put this process started (its
+   * modification time is later), and `signal` stops the walk at shutdown.
+   */
+  async removeLeftoverTempFiles(
+    roots: readonly string[],
+    options: LeftoverTempFileOptions = {},
+  ): Promise<number> {
+    const { olderThan, signal } = options
+    let removed = 0
+    const visit = async (dir: string): Promise<void> => {
+      if (signal?.aborted) return
+      let entries: Dirent[]
+      try {
+        entries = await readdir(dir, { withFileTypes: true })
+      } catch (error) {
+        if (isMissing(error)) return
+        throw error
+      }
+      for (const entry of entries) {
+        if (signal?.aborted) return
+        const path = join(dir, entry.name)
+        if (entry.isDirectory()) {
+          await visit(path)
+        } else if (entry.isFile() && TEMP_FILE.test(entry.name)) {
+          if (olderThan !== undefined && !(await modifiedBefore(path, olderThan))) continue
+          await this.write(() => rm(path, { force: true }))
+          removed += 1
         }
       }
-      for (const root of roots) await visit(join(this.stateDir, ...blobKey(root).split('/')))
-      return removed
-    })
+    }
+    for (const root of roots) await visit(join(this.stateDir, ...blobKey(root).split('/')))
+    return removed
   }
 
   /**
@@ -466,8 +497,8 @@ export class LocalBlobStorage implements BlobStorage {
     return this.store
   }
 
-  /** Boot step: remove temp files a crashed put left behind. Returns how many were removed. */
-  removeLeftoverTempFiles(): Promise<number> {
-    return this.store.removeLeftoverTempFiles(this.roots)
+  /** Remove the temp files a crashed put left behind. Returns how many were removed. */
+  removeLeftoverTempFiles(options: LeftoverTempFileOptions = {}): Promise<number> {
+    return this.store.removeLeftoverTempFiles(this.roots, options)
   }
 }

@@ -1,4 +1,14 @@
-import { mkdir, mkdtemp, open, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  mkdtemp,
+  open,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  utimes,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asWorkspaceId } from '@podium/model'
@@ -255,6 +265,32 @@ describe('local temp files', () => {
     expect(await filesUnder(stateDir)).toEqual([`artifacts/${TEMP}`])
   })
 
+  it('keeps the temp file of a put that started at or after the cutoff', async () => {
+    // The server sweeps once it serves (POD-7541): its own puts may be in flight.
+    const crashed = join(stateDir, 'artifacts', 'a', TEMP)
+    const inFlight = join(stateDir, 'transcripts', 'b', TEMP_2)
+    for (const path of [crashed, inFlight]) {
+      await mkdir(join(path, '..'), { recursive: true })
+      await writeFile(path, 'x')
+    }
+    const boot = Date.now()
+    await utimes(crashed, new Date(boot - 60_000), new Date(boot - 60_000))
+    await utimes(inFlight, new Date(boot + 1_000), new Date(boot + 1_000))
+    const storage = new LocalBlobStorage({ stateDir })
+    expect(await storage.removeLeftoverTempFiles({ olderThan: boot })).toBe(1)
+    expect(await filesUnder(stateDir)).toEqual([`transcripts/b/${TEMP_2}`])
+  })
+
+  it('stops walking when its signal aborts', async () => {
+    await mkdir(join(stateDir, 'artifacts', 'a'), { recursive: true })
+    await writeFile(join(stateDir, 'artifacts', 'a', TEMP), 'x')
+    const stopped = new AbortController()
+    stopped.abort()
+    const storage = new LocalBlobStorage({ stateDir })
+    expect(await storage.removeLeftoverTempFiles({ signal: stopped.signal })).toBe(0)
+    expect(await filesUnder(stateDir)).toEqual([`artifacts/a/${TEMP}`])
+  })
+
   it('never lists a temp file or a name that is not a key segment', async () => {
     const store = localStore()
     await store.put(blobKey('artifacts/a/x'), bytes('x'))
@@ -288,6 +324,10 @@ describe('local transfer fence', () => {
     await store.put(blobKey('artifacts/f/x'), bytes('x'))
     await store.copy(blobKey('artifacts/f/x'), blobKey('artifacts/f/y'))
     await store.delete(blobKey('artifacts/f/y'))
+    // The sweep's walk reads; each removal is a write.
+    await storage.removeLeftoverTempFiles()
+    expect(fence.writers).toBe(3)
+    await writeFile(join(stateDir, 'artifacts/f', TEMP), 'x')
     await storage.removeLeftoverTempFiles()
     expect(fence.writers).toBe(4)
     await store.get(blobKey('artifacts/f/x')).then((got) => got?.body.cancel())

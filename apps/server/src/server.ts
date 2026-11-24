@@ -711,6 +711,10 @@ export async function startServer(
     janitorWorkerForTests?: import('./janitor-host').StartJanitorWorkerFn
   } = {},
 ): Promise<ServerHandle> {
+  // The process age here is what came before the server's own boot: the CLI,
+  // the reclaim of a predecessor and the module load (POD-7541).
+  bootStage('server entered', performance.now())
+  const bootEnteredAt = Date.now()
   const rehearsal = process.env.PODIUM_REHEARSAL === '1'
   const config = loadConfig()
   // WHICH PARTS THIS PROCESS RUNS (POD-7332), decided before anything opens:
@@ -791,10 +795,11 @@ export async function startServer(
     stateDir: stateDir(),
     fence: portableStateFence,
   })
-  if (!recoveryOnly) {
-    const removed = await fileStorage.removeLeftoverTempFiles()
-    if (removed > 0) log.info('removed temp files left by interrupted file writes', { removed })
-  }
+  // The leftover temp file sweep walks every directory under the file roots,
+  // tens of thousands on a long-lived install: it runs once the server serves
+  // (below), not before the port opens (POD-7541).
+  const tempSweepAbort = new AbortController()
+  let tempSweepWork: Promise<unknown> | undefined
   // One database, and this install's one workspace over it (POD-7010). Its
   // location names its engine (POD-6994): the state directory's SQLite file, or
   // the Postgres database PODIUM_DATABASE_URL names. The sync worker and the
@@ -2976,6 +2981,25 @@ export async function startServer(
       if (!recoveryOnly && !rehearsal && runs.worker) started.add('worker.updateTargetRefresh')
       targetsResolvedOnBoot = true
       bootStage('health exposed', healthStarted)
+      // A put this process started keeps its temp file: only files older than
+      // this boot are a crashed put's. A failed or stopped pass leaves the rest
+      // for the next start.
+      if (!recoveryOnly && runs.worker) {
+        started.add('worker.tempFileSweep')
+        const sweepStarted = performance.now()
+        tempSweepWork = fileStorage
+          .removeLeftoverTempFiles({ olderThan: bootEnteredAt, signal: tempSweepAbort.signal })
+          .then((removed) => {
+            log.info('swept temp files left by interrupted file writes', {
+              removed,
+              durationMs: Math.round(performance.now() - sweepStarted),
+              ...(tempSweepAbort.signal.aborted ? { stopped: true } : {}),
+            })
+          })
+          .catch((err) => {
+            if (!tempSweepAbort.signal.aborted) log.warn('leftover temp file sweep failed', { err })
+          })
+      }
       // Health cannot wait for tens of GB of cold history. A failed pass keeps
       // its sources and no done marker; reads work and the next boot retries.
       if (convertingLake && runs.worker) {
@@ -3107,7 +3131,9 @@ export async function startServer(
               await superagent.dispose()
               await membershipCatchUp?.stop()
               lakeConversionAbort.abort()
+              tempSweepAbort.abort()
               await lakeConversionWork
+              await tempSweepWork
               await convertingLake?.settled()
               await store.close(persist)
             },

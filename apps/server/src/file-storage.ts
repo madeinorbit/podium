@@ -9,7 +9,7 @@
  */
 
 import type { BlobStorage, PortableStateWriteFence } from '@podium/blob-store'
-import { LocalBlobStorage } from '@podium/blob-store/local'
+import { type LeftoverTempFileOptions, LocalBlobStorage } from '@podium/blob-store/local'
 import { S3BlobStorage } from '@podium/blob-store/s3'
 import type { FileStorageConfig } from '@podium/runtime/config'
 
@@ -18,10 +18,11 @@ export interface ServerFileStorage {
   /** Which backend holds the files: the state directory or a bucket. */
   backend: FileStorageConfig['backend']
   /**
-   * Boot step: remove the temp files a crashed local put left behind, so they
-   * never reach a transfer snapshot. Nothing to do on a bucket.
+   * Remove the temp files a crashed local put left behind, so they do not pile
+   * up or reach a later transfer snapshot. The server runs it once it listens
+   * (POD-7541). Nothing to do on a bucket.
    */
-  removeLeftoverTempFiles(): Promise<number>
+  removeLeftoverTempFiles(options?: LeftoverTempFileOptions): Promise<number>
 }
 
 export function createServerFileStorage(
@@ -33,7 +34,7 @@ export function createServerFileStorage(
     return {
       storage,
       backend: 'local',
-      removeLeftoverTempFiles: () => storage.removeLeftoverTempFiles(),
+      removeLeftoverTempFiles: (options) => storage.removeLeftoverTempFiles(options),
     }
   }
   const storage = new S3BlobStorage({
