@@ -183,7 +183,11 @@ export interface SessionStatePorts {
   readonly broadcastSessions: () => void
   readonly broadcastToClients: (
     message: LiveServerMessage,
-    options?: { exceptClientId?: string },
+    options?: {
+      exceptClientId?: string
+      /** Only these connections receive it: a draft names one session's text. */
+      to?: (conn: Pick<ClientConn, 'principal' | 'workspaceId'>) => boolean
+    },
   ) => void
   readonly deliverToClient: (clientId: string, message: LiveServerMessage) => void
   readonly toMachine: (machineId: MachineId, message: ControlMessage) => void
@@ -785,9 +789,24 @@ export class SessionStateService {
     )
   }
 
-  /** A VERSIONED edit: the sender names the rev it typed against, so a race can
-   *  be arbitrated instead of silently resolved in favour of whoever was last. */
-  async handleDraftEdit(input: DraftEditMessage, fromClientId: string): Promise<void> {
+  /**
+   * A VERSIONED edit: the sender names the rev it typed against, so a race can
+   * be arbitrated instead of silently resolved in favour of whoever was last.
+   *
+   * ONLY A READER OF THE SESSION MAY EDIT ITS DRAFT (POD-7561). The frame came
+   * from a `/client` socket, and `principal` is that connection's, never the
+   * payload's: of this workspace (POD-7483), and with read rights on the
+   * session, which is its owner only (design §2.3). Anything else is dropped
+   * with no reply at all. A refused edit is not even answered with the current
+   * document, which the arbitration below sends a rejected sender, so the frame
+   * can neither overwrite another person's unsent text nor read it, and an
+   * absent session and a denied one look the same (§3.1.5).
+   */
+  async handleDraftEdit(principal: SessionStatePrincipal, input: DraftEditMessage): Promise<void> {
+    if (!actsInOrReport(principal, this.workspaceId, 'session-state:draft-edit')) return
+    const fromClientId = principal.clientId
+    if (!fromClientId) return
+    if (!(await this.canReadSession(principal, input.sessionId))) return
     await this.applyVersionedEdit(
       input.sessionId,
       { baseRev: input.baseRev, text: input.text, origin: fromClientId },
@@ -879,6 +898,10 @@ export class SessionStateService {
     edit: { baseRev?: number; text: string; origin: string },
     fromClientId?: string,
   ): Promise<void> {
+    // WHO HEARS ABOUT IT, resolved before the document is read (an await here
+    // separates nothing: the read below is what the send must not be split
+    // from). A session whose owner cannot be resolved has no audience.
+    const owner = await this.ports.sessionOwner({ sessionId })
     const current = (await this.docOf(sessionId)) ?? emptyDraftDoc(sessionId)
     const result = applyDraftEdit(current, {
       baseRev: edit.baseRev ?? current.rev,
@@ -930,7 +953,20 @@ export class SessionStateService {
     // The echo is safe by construction on the receiving end — a client whose
     // text already equals the document treats it as convergence, not as an
     // instruction to repaint what it is typing into.
-    this.ports.broadcastToClients(this.draftWire(doc))
+    //
+    // "Every client" means every client WHO MAY READ THE SESSION (POD-7561): the
+    // frame carries the draft's text, and it went to every connection of the
+    // workspace, so any member saw another's private composer as it was typed.
+    // The audience is the replay's (`replayDrafts`): this workspace's
+    // connections whose person may reach the session.
+    if (owner) {
+      const workspaceId = this.workspaceId
+      const target = { id: sessionId, owner: owner.owner }
+      this.ports.broadcastToClients(this.draftWire(doc), {
+        to: (conn) =>
+          conn.workspaceId === workspaceId && mayReachPrivate(conn.principal.user, target),
+      })
+    }
     await this.persistDraftDoc(sessionId, doc)
     if (draftNonemptyChanged) this.ports.broadcastSessions()
   }

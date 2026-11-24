@@ -145,6 +145,13 @@ export interface ClientConn {
 export type ClientBroadcastOptions = {
   /** Skip the originator (draft echo suppression). */
   exceptClientId?: string
+  /**
+   * The recipients, chosen by the FEATURE that broadcasts (POD-7561): only the
+   * connections this answers `true` for receive the frame. The registry still
+   * decides nothing itself; a frame that names one session's content passes
+   * the predicate its own policy built.
+   */
+  to?: (conn: ClientConn) => boolean
 }
 
 /**
@@ -243,6 +250,7 @@ export class ClientRegistry {
   broadcast(msg: ServerMessage, opts: ClientBroadcastOptions = {}): void {
     for (const conn of this.conns.values()) {
       if (conn.id === opts.exceptClientId) continue
+      if (opts.to && !opts.to(conn)) continue
       this.deliver(conn, msg)
     }
   }

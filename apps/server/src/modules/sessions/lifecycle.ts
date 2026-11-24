@@ -49,7 +49,11 @@ import type { AutoContinueController } from '../../auto-continue'
 import { type CommandPrincipal, resolvePrincipalAsync } from '../../command-principal'
 import type { BrowserOpenGateway } from '../../gateway/browser-open'
 import type { ClientPrincipal } from '../../gateway/client-principal'
-import type { ClientConn, ClientRegistry } from '../../gateway/client-registry'
+import type {
+  ClientBroadcastOptions,
+  ClientConn,
+  ClientRegistry,
+} from '../../gateway/client-registry'
 import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 import type { Capability } from '../../issue-authz'
 import { ownershipSnapshotFromMachines } from '../../machine-access'
@@ -1144,7 +1148,7 @@ export class SessionLifecycle {
   transcriptFor(...args: any[]): TranscriptItem[] {
     return (this.sessionMetaOps as any).transcriptFor(...args)
   }
-  broadcastToClients(msg: LiveServerMessage, opts: { exceptClientId?: string } = {}): void {
+  broadcastToClients(msg: LiveServerMessage, opts: ClientBroadcastOptions = {}): void {
     this.clients.broadcast(msg, opts)
   }
   broadcastSessions(): void {

@@ -51,7 +51,13 @@ export interface SessionClientControlPorts {
     sessionId: SessionId,
     text: string,
   ): Promise<void>
-  editDraft(message: DraftEditMessage, clientId: string): Promise<void>
+  /** A versioned draft edit from `client`, refused unless that connection's
+   *  person may read the session (POD-7561); same principal as `setDraft`. */
+  editDraft(
+    principal: ClientPrincipal,
+    client: Pick<ClientConn, 'id' | 'workspaceId'>,
+    message: DraftEditMessage,
+  ): Promise<void>
   /**
    * Session owner (from store). Undefined ⇒ session does not exist
    * (or is invisible — same answer per the consistent-error rule).
@@ -382,7 +388,7 @@ export class SessionClientControl {
         await this.ports.setDraft(principal, client, message.sessionId, message.text)
         break
       case 'draftEdit':
-        await this.ports.editDraft(message, id)
+        await this.ports.editDraft(principal, client, message)
         break
       case 'sessionOpenUrlCallback':
         await this.ports.browserOpen.submitCallback(client, message)

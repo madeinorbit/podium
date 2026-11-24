@@ -886,7 +886,16 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         'ws',
       )
     },
-    editDraft: (message, clientId) => bag.state.handleDraftEdit(message, clientId),
+    // Checked in the service against the connection's principal (POD-7561):
+    // its workspace, and read rights on the session.
+    editDraft: (principal, client, message) =>
+      bag.state.handleDraftEdit(
+        sessionStatePrincipalFor(
+          userCommandPrincipal(client.workspaceId, asUserId(principal.user), principal.role),
+          client.id,
+        ),
+        message,
+      ),
     sessionOwner: (sessionId) => ownership.sessionOwner(sessionId),
     machineUseFor: (principal, sessionId) => ownership.machineUseForClient(principal, sessionId),
     sessionRoomJoin: bag.deps.sessionRoomJoin
