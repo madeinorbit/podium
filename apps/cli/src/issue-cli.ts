@@ -12,6 +12,7 @@ import {
 } from './argv'
 import { readArtifactSource } from './artifact-source'
 import { makeOperatorIssueClient } from './operator-client'
+import { inferRepoPath } from './repo-inference'
 
 /**
  * Flags valid on EVERY registry command, handled by the dispatcher itself and
@@ -219,18 +220,14 @@ export async function runIssueCli(
     if (rest.length) args[cmd.restKey] = rest.join(',')
   }
   // Fill in --repoPath from the cwd when the command takes one and it was omitted.
-  // The infer call is best-effort: a mock client without `repos` (unit tests) throws
-  // synchronously, which the try/catch swallows so the args pass through unchanged.
   // Daemon readiness can precede its first repository report. Wait on
   // reported roots only: never turn the local host or cwd into a placement.
   // Only the direct operator entry enables this; explicit machines need no wait.
   const discoveryDeadline = Date.now() + (opts?.discoveryWaitMs ?? 0)
   const reportedRepo = async (path: string): Promise<string | undefined> => {
     while (true) {
-      const result = (await client.repos.inferFromPath.query({ path })) as {
-        repoPath: string | null
-      }
-      if (result.repoPath) return result.repoPath
+      const repoPath = await inferRepoPath(client, path)
+      if (repoPath) return repoPath
       const remaining = discoveryDeadline - Date.now()
       if (command !== 'create' || args.machine != null || remaining <= 0) return undefined
       await new Promise((resolve) => setTimeout(resolve, Math.min(200, remaining)))
@@ -245,13 +242,7 @@ export async function runIssueCli(
     // A read failure must not mask the create endpoint's existing refusal.
     await reportedRepo(args.repoPath).catch(() => undefined)
   }
-  const resolved = await resolveRepoArg(command, args, async () => {
-    try {
-      return await reportedRepo(process.cwd())
-    } catch {
-      return undefined
-    }
-  })
+  const resolved = await resolveRepoArg(command, args, () => reportedRepo(process.cwd()))
   const parsed = cmd.args.safeParse(stripGlobalFlags(resolved))
   if (!parsed.success) {
     throw new IssueCliError(

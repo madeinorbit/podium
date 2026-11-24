@@ -248,6 +248,88 @@ describe('merge-lock end to end', () => {
   })
 })
 
+describe('runLockCli repository inference', () => {
+  it.each([
+    ['lock', 'release'],
+    ['lock', 'status'],
+    ['merge-lock', 'release'],
+    ['merge-lock', 'status'],
+  ] as const)('%s %s reports lookup failures before running the lock command', async (group, command) => {
+    const infer = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('server busy'))
+      .mockRejectedValue(new Error('connection refused'))
+    const release = vi.fn()
+    const status = vi.fn()
+    const client = {
+      repos: { inferFromPath: { query: infer } },
+      lock: { release: { mutate: release }, status: { query: status } },
+    } as never
+    const argv = group === 'merge-lock' ? mergeLockArgv([command, 'develop']) : [command, 'l']
+
+    await expect(runLockCli(argv, client, { group })).rejects.toThrow(
+      `could not reach the server to find the repository for ${process.cwd()}: connection refused; retry or pass --repoPath`,
+    )
+    expect(infer).toHaveBeenCalledTimes(2)
+    expect(infer).toHaveBeenNthCalledWith(1, { path: process.cwd() })
+    expect(infer).toHaveBeenNthCalledWith(2, { path: process.cwd() })
+    expect(release).not.toHaveBeenCalled()
+    expect(status).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    'release',
+    'status',
+  ])('retries a transient lookup failure before merge-lock %s', async (command) => {
+    const infer = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('server busy'))
+      .mockResolvedValue({ repoPath: '/inferred' })
+    const release = vi.fn(async () => ({ released: true, next: null }))
+    const status = vi.fn(async () => [])
+    const client = {
+      repos: { inferFromPath: { query: infer } },
+      lock: { release: { mutate: release }, status: { query: status } },
+    } as never
+
+    const out = await runLockCli(mergeLockArgv([command, 'develop']), client, {
+      group: 'merge-lock',
+    })
+    expect(out.exitCode).toBe(0)
+    expect(infer).toHaveBeenCalledTimes(2)
+    expect(command === 'release' ? release : status).toHaveBeenCalledExactlyOnceWith({
+      repoPath: '/inferred',
+      name: 'merge:develop',
+    })
+  })
+
+  it('uses an explicit repoPath without querying the unavailable server for inference', async () => {
+    const infer = vi.fn().mockRejectedValue(new Error('connection refused'))
+    const status = vi.fn(async () => [])
+    const client = {
+      repos: { inferFromPath: { query: infer } },
+      lock: { status: { query: status } },
+    } as never
+
+    await runLockCli(['status', '--repoPath', '/explicit'], client)
+    expect(infer).not.toHaveBeenCalled()
+    expect(status).toHaveBeenCalledExactlyOnceWith({ repoPath: '/explicit' })
+  })
+
+  it('does not retry a successful lookup with no matching repository', async () => {
+    const infer = vi.fn(async () => ({ repoPath: null }))
+    const status = vi.fn()
+    const client = {
+      repos: { inferFromPath: { query: infer } },
+      lock: { status: { query: status } },
+    } as never
+
+    await expect(runLockCli(['status'], client)).rejects.toThrow('repoPath: Required')
+    expect(infer).toHaveBeenCalledTimes(1)
+    expect(status).not.toHaveBeenCalled()
+  })
+})
+
 describe('runLockCli', () => {
   it('acquire granted → exit 0 with the grant text', async () => {
     const mutate = vi.fn(async () => grantedWire('merge:main'))

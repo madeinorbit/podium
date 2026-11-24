@@ -22,7 +22,9 @@ describe('parseIssueArgs', () => {
 
   it.each(['before', 'after'])('parses the sibling move --%s reference as a value', (direction) => {
     expect(parseIssueArgs(['move', 'POD-1', `--${direction}`, 'POD-2'])).toMatchObject({
-      command: 'move', positionals: ['POD-1'], args: { [direction]: 'POD-2' },
+      command: 'move',
+      positionals: ['POD-1'],
+      args: { [direction]: 'POD-2' },
     })
   })
 
@@ -80,7 +82,10 @@ describe('runIssueCli', () => {
     expect(out).toContain('A')
   })
 
-  it.each(['before', 'after'])('runs move from argv with --%s and documents both flags', async (direction) => {
+  it.each([
+    'before',
+    'after',
+  ])('runs move from argv with --%s and documents both flags', async (direction) => {
     const move = vi.fn(async () => ({ id: 'iss_1' }))
     const moveClient = { issues: { move: { mutate: move } } } as unknown as IssueTrpc
     const out = await runIssueCli(['move', 'POD-1', `--${direction}`, 'POD-2'], moveClient)
@@ -90,8 +95,9 @@ describe('runIssueCli', () => {
     expect(help).toContain('--before <value>')
     expect(help).toContain('--after <value>')
     await expect(runIssueCli(['move', 'POD-1'], moveClient)).rejects.toThrow('exactly one')
-    await expect(runIssueCli(['move', 'POD-1', '--before', 'POD-2', '--after', 'POD-3'], moveClient))
-      .rejects.toThrow('exactly one')
+    await expect(
+      runIssueCli(['move', 'POD-1', '--before', 'POD-2', '--after', 'POD-3'], moveClient),
+    ).rejects.toThrow('exactly one')
     expect(move).toHaveBeenCalledTimes(1)
   })
 
@@ -142,41 +148,41 @@ describe('runIssueCli', () => {
     expect(out).toMatch(/^ {2}--clear\s*$/m)
   })
 
-  it.each(TODO_INDEX_CASES)(
-    'forwards the requested index from raw todo --%s %i and equals syntax',
-    async (flag, index) => {
-      for (const tokens of [[`--${flag}`, String(index)], [`--${flag}=${index}`]]) {
-        const panelApply = vi.fn(async () => ({ seq: 6029, panel: { todos: [] } }))
-        const c = { issues: { panelApply: { mutate: panelApply } } } as unknown as IssueTrpc
-        await runIssueCli(['todo', '6029', ...tokens], c)
-        expect(panelApply).toHaveBeenCalledExactlyOnceWith({
-          id: '6029',
-          op: `todo-${flag}`,
-          index,
-        })
-      }
-    },
-  )
+  it.each(
+    TODO_INDEX_CASES,
+  )('forwards the requested index from raw todo --%s %i and equals syntax', async (flag, index) => {
+    for (const tokens of [[`--${flag}`, String(index)], [`--${flag}=${index}`]]) {
+      const panelApply = vi.fn(async () => ({ seq: 6029, panel: { todos: [] } }))
+      const c = { issues: { panelApply: { mutate: panelApply } } } as unknown as IssueTrpc
+      await runIssueCli(['todo', '6029', ...tokens], c)
+      expect(panelApply).toHaveBeenCalledExactlyOnceWith({
+        id: '6029',
+        op: `todo-${flag}`,
+        index,
+      })
+    }
+  })
 
-  it.each(['done', 'undone', 'remove'])(
-    'refuses missing raw todo --%s values without applying any panel mutation',
-    async (flag) => {
-      for (const tokens of [
-        [`--${flag}`],
-        [`--${flag}`, '--other'],
-        [`--${flag}`, '--clear'],
-        [`--${flag}`, `--${flag}`, '2'],
-        [`--${flag}`, '2', `--${flag}`],
-      ]) {
-        const panelApply = vi.fn(async () => ({ seq: 6029, panel: { todos: [] } }))
-        const c = { issues: { panelApply: { mutate: panelApply } } } as unknown as IssueTrpc
-        await expect(runIssueCli(['todo', '6029', ...tokens], c)).rejects.toThrow(
-          `--${flag} needs a value`,
-        )
-        expect(panelApply).not.toHaveBeenCalled()
-      }
-    },
-  )
+  it.each([
+    'done',
+    'undone',
+    'remove',
+  ])('refuses missing raw todo --%s values without applying any panel mutation', async (flag) => {
+    for (const tokens of [
+      [`--${flag}`],
+      [`--${flag}`, '--other'],
+      [`--${flag}`, '--clear'],
+      [`--${flag}`, `--${flag}`, '2'],
+      [`--${flag}`, '2', `--${flag}`],
+    ]) {
+      const panelApply = vi.fn(async () => ({ seq: 6029, panel: { todos: [] } }))
+      const c = { issues: { panelApply: { mutate: panelApply } } } as unknown as IssueTrpc
+      await expect(runIssueCli(['todo', '6029', ...tokens], c)).rejects.toThrow(
+        `--${flag} needs a value`,
+      )
+      expect(panelApply).not.toHaveBeenCalled()
+    }
+  })
 
   it('ship forwards no client-derived target when omitted and renders service custody', async () => {
     const ship = vi.fn(async () => ({
@@ -268,7 +274,9 @@ describe('runIssueCli', () => {
 
   it('invalid args name the offending field', async () => {
     // `claim --assignee` became optional (POD-6287); `--priority` still validates.
-    await expect(runIssueCli(['update', '1', '--priority', 'high'], client)).rejects.toThrow(/priority/)
+    await expect(runIssueCli(['update', '1', '--priority', 'high'], client)).rejects.toThrow(
+      /priority/,
+    )
   })
 
   it('forwards --confirm-rehome on attach as a boolean', async () => {
@@ -414,6 +422,95 @@ describe('runIssueCli', () => {
     const c = { issues: { addComment: { mutate: addComment } } } as any
     await runIssueCli(['comment', '4', '--body', 'hi'], c)
     expect(addComment).toHaveBeenCalledWith({ id: '4', body: 'hi' })
+  })
+})
+
+describe('runIssueCli repository inference', () => {
+  it.each([
+    new Error('connection refused'),
+    'connection refused',
+  ])('reports a failed lookup with its cause: %s', async (cause) => {
+    const infer = vi.fn().mockRejectedValue(cause)
+    const create = vi.fn()
+    const client = {
+      repos: { inferFromPath: { query: infer } },
+      issues: { create: { mutate: create } },
+    } as unknown as IssueTrpc
+
+    await expect(
+      runIssueCli(['create', '--title', 'Repository lookup errors'], client),
+    ).rejects.toThrow(
+      `could not reach the server to find the repository for ${process.cwd()}: connection refused; retry or pass --repoPath`,
+    )
+    expect(infer).toHaveBeenCalledTimes(2)
+    expect(infer).toHaveBeenNthCalledWith(1, { path: process.cwd() })
+    expect(infer).toHaveBeenNthCalledWith(2, { path: process.cwd() })
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('retries a transient lookup failure and uses the inferred repository', async () => {
+    const infer = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('server busy'))
+      .mockResolvedValue({ repoPath: '/inferred' })
+    const ready = vi.fn(async () => [])
+    const client = {
+      repos: { inferFromPath: { query: infer } },
+      issues: { ready: { query: ready } },
+    } as unknown as IssueTrpc
+
+    await runIssueCli(['ready'], client)
+    expect(infer).toHaveBeenCalledTimes(2)
+    expect(ready).toHaveBeenCalledExactlyOnceWith({ repoPath: '/inferred' })
+  })
+
+  it('uses an explicit repoPath without querying the unavailable server for inference', async () => {
+    const infer = vi.fn().mockRejectedValue(new Error('connection refused'))
+    const ready = vi.fn(async () => [])
+    const client = {
+      repos: { inferFromPath: { query: infer } },
+      issues: { ready: { query: ready } },
+    } as unknown as IssueTrpc
+
+    await runIssueCli(['ready', '--repoPath', '/explicit'], client)
+    expect(infer).not.toHaveBeenCalled()
+    expect(ready).toHaveBeenCalledExactlyOnceWith({ repoPath: '/explicit' })
+  })
+
+  it('does not retry a successful lookup with no matching repository', async () => {
+    const infer = vi.fn(async () => ({ repoPath: null }))
+    const ready = vi.fn(async () => [])
+    const client = {
+      repos: { inferFromPath: { query: infer } },
+      issues: { ready: { query: ready } },
+    } as unknown as IssueTrpc
+
+    await runIssueCli(['ready'], client)
+    expect(infer).toHaveBeenCalledTimes(1)
+    expect(ready).toHaveBeenCalledExactlyOnceWith({})
+  })
+
+  it('keeps waiting for repository discovery after a transient lookup failure', async () => {
+    const infer = vi
+      .fn()
+      .mockResolvedValueOnce({ repoPath: null })
+      .mockRejectedValueOnce(new Error('server busy'))
+      .mockResolvedValue({ repoPath: '/inferred' })
+    const create = vi.fn(async () => ({ seq: 1, title: 'Repository lookup errors' }))
+    const client = {
+      repos: { inferFromPath: { query: infer } },
+      issues: { create: { mutate: create } },
+    } as unknown as IssueTrpc
+
+    await runIssueCli(['create', '--title', 'Repository lookup errors'], client, {
+      discoveryWaitMs: 5_000,
+    })
+    expect(infer).toHaveBeenCalledTimes(3)
+    expect(create).toHaveBeenCalledExactlyOnceWith({
+      repoPath: '/inferred',
+      title: 'Repository lookup errors',
+      startNow: false,
+    })
   })
 })
 

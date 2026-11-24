@@ -17,6 +17,7 @@ import {
   withUnknownFlagAs,
 } from './argv'
 import { makeOperatorIssueClient } from './operator-client'
+import { inferRepoPath } from './repo-inference'
 
 /**
  * `podium lock <command>` / `podium merge-lock <command>` —
@@ -361,15 +362,11 @@ export async function runLockCli(
     const key = cmd.positionals?.[i]
     if (key != null && args[key] == null && positionals[i] != null) args[key] = positionals[i]
   }
-  // Fill in --repoPath from the cwd when omitted (same best-effort inference as
-  // issue-cli: a mock client without `repos` just leaves args unchanged).
+  // Fill in --repoPath from the cwd when omitted. A failed lookup is reported
+  // before argument validation, so it cannot look like a missing flag.
   if (args.repoPath == null) {
-    try {
-      const r = (await client.repos.inferFromPath.query({ path: process.cwd() })) as {
-        repoPath: string | null
-      }
-      if (r.repoPath) args.repoPath = r.repoPath
-    } catch {}
+    const repoPath = await inferRepoPath(client, process.cwd())
+    if (repoPath) args.repoPath = repoPath
   }
   // The dispatcher's own flags never reach the (strict) command schema.
   const { json: _json, help: _help, outsideScope: _outsideScope, ...forSchema } = args
