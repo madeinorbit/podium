@@ -234,6 +234,13 @@ async function* produceRecords(
           try {
             next = await iterator.next()
           } catch {
+            // After `syncMeta`, every failure is `read-failed`, a
+            // `ChangeRangeBootstrapRequired` included: the wire has no
+            // `compacted-or-unknown` once the stream has started. That is still
+            // safe. Every frame already sent passed its own floor check, the
+            // client keeps them and retries from its cursor, and the retry is
+            // refused up front from the snapshot's floor, which bootstraps. Only
+            // a refusal on the FIRST page answers `compacted-or-unknown` directly.
             outcome = 'read-failed'
             yield line({ type: 'syncError', transferId: job.transferId, reason: 'read-failed' })
             return
