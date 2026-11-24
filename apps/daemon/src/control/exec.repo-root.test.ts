@@ -116,3 +116,70 @@ describe.skipIf(process.platform === 'win32')('a repo op that names its reposito
     ).toEqual(expect.objectContaining({ ok: false, output: 'repository not found' }))
   })
 })
+
+/**
+ * POD-7505: the folder being inside the repository is not enough, because git
+ * does not stop at the folder. A `.git` file in a subfolder points git at another
+ * repository's history, and `core.worktree` at another working tree, so git is
+ * asked which working tree and which repository data it would use, and both must
+ * be the repository's. A linked worktree the server recorded for the repository
+ * may live outside it (the assistant's sibling `<repo>-<branch>`); it serves only
+ * while git's data there is the repository's own.
+ */
+describe.skipIf(process.platform === 'win32')('git itself stays in the repository', () => {
+  it('refuses a subfolder whose .git file points at another checkout', async () => {
+    const { repoRoot, other } = await machine()
+    await mkdir(join(repoRoot, 'x'))
+    await writeFile(join(repoRoot, 'x', '.git'), `gitdir: ${join(other, '.git')}\n`)
+    // Without the check git reads the other checkout's history from inside the repository.
+    const r = await run({ op: 'logPanel', cwd: join(repoRoot, 'x'), repoRoot })
+    expect(r).toEqual(expect.objectContaining({ ok: false, output: 'git data outside repository' }))
+  })
+
+  it('refuses a nested repository whose core.worktree points at another checkout', async () => {
+    const { repoRoot, other } = await machine()
+    const nested = join(repoRoot, 'nested')
+    await mkdir(nested)
+    git(nested, 'init', '-q')
+    git(nested, 'config', 'core.worktree', other)
+    const r = await run({ op: 'lsFiles', cwd: nested, repoRoot })
+    expect(r).toEqual(expect.objectContaining({ ok: false, output: 'worktree outside repository' }))
+  })
+
+  it('refuses the repository itself when its core.worktree points elsewhere', async () => {
+    const { repoRoot, other } = await machine()
+    git(repoRoot, 'config', 'core.worktree', other)
+    const r = await run({ op: 'lsFiles', cwd: repoRoot, repoRoot })
+    expect(r).toEqual(expect.objectContaining({ ok: false, output: 'worktree outside repository' }))
+  })
+
+  it('serves a linked worktree outside the repository only when it is named as one', async () => {
+    const { repoRoot } = await machine()
+    const sibling = `${repoRoot}-feat`
+    git(repoRoot, 'worktree', 'add', '-q', '-b', 'feat', sibling)
+    expect(await run({ op: 'lsFiles', cwd: sibling, repoRoot })).toEqual(
+      expect.objectContaining({ ok: false, output: 'outside repository' }),
+    )
+    const r = await run({ op: 'lsFiles', cwd: sibling, repoRoot, worktreeRoot: sibling })
+    expect(r.ok).toBe(true)
+    expect(r.output).toContain('inside.txt')
+    expect(
+      await run({ op: 'statusProbe', cwd: join(sibling, 'src'), repoRoot, worktreeRoot: sibling }),
+    ).toMatchObject({ ok: true })
+  })
+
+  it('refuses another checkout named as the repository’s worktree', async () => {
+    const { repoRoot, other } = await machine()
+    const r = await run({ op: 'lsFiles', cwd: other, repoRoot, worktreeRoot: other })
+    expect(r).toEqual(expect.objectContaining({ ok: false, output: 'git data outside repository' }))
+  })
+
+  it('serves a registered root that is itself a linked worktree of an unregistered checkout', async () => {
+    const { repoRoot } = await machine()
+    const sibling = `${repoRoot}-registered`
+    git(repoRoot, 'worktree', 'add', '-q', '-b', 'registered', sibling)
+    const r = await run({ op: 'lsFiles', cwd: sibling, repoRoot: sibling })
+    expect(r.ok).toBe(true)
+    expect(r.output).toContain('inside.txt')
+  })
+})

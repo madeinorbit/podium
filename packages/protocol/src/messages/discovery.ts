@@ -225,6 +225,12 @@ export const RepoOpRequestMessage = z.object({
    *  matched it to. The daemon refuses unless `cwd` resolves to that repository
    *  or inside it, and runs git in the resolved folder (POD-7503). */
   repoRoot: z.string().optional(),
+  /** With `repoRoot`: a linked worktree of that repository that lives outside it
+   *  (the sibling `<repo>-<branch>` the assistant creates), from the server's own
+   *  scan of the repository's worktrees. `cwd` must then resolve inside this
+   *  worktree, and git's repository data inside `repoRoot` (POD-7505). A daemon
+   *  that predates the field checks `cwd` against `repoRoot` and refuses. */
+  worktreeRoot: z.string().optional(),
 })
 export const RepoOpResultMessage = z.object({
   type: z.literal('repoOpResult'),

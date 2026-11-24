@@ -8,12 +8,12 @@ import type { UsageBucketWire, UsageSourceWire } from '@podium/model'
 import type { QuotaHistorySampleWire } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { executeBufferedHarnessTurn } from '../buffered-harness.js'
-import { sandboxRoot } from '../file-access'
 import { githubCliClone, githubCliList, githubCliStatus } from '../github-cli'
 import { bundleStagePath } from '../handoff-package'
 import type { HarnessManagementContext } from '../harness-management.js'
 import { resolveManagementAccount } from '../harness-management.js'
 import { repoOpCommand } from '../repo-op'
+import { checkRepoOpRoot } from '../repo-root-check'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const execFileAsync = promisify(execFile)
@@ -60,16 +60,23 @@ async function runRepoOp(
    * registered repositories as text, which a symlink inside a repository passes
    * while pointing at another checkout. Both are resolved here, a `cwd` outside
    * the repository is refused, and git runs in the resolved folder so the link
-   * cannot be swapped between this check and the command.
+   * cannot be swapped between this check and the command. Git is then asked
+   * which working tree and repository data it would use there, and both must
+   * stay in the repository (or in the linked worktree the server recorded for
+   * it, `worktreeRoot`; POD-7505).
    */
   let cwd = msg.cwd
   if (msg.repoRoot !== undefined) {
-    const sandbox = await sandboxRoot(msg.cwd, msg.repoRoot)
-    if (!sandbox.ok) {
-      ctx.send({ type: 'repoOpResult', requestId: msg.requestId, ok: false, output: sandbox.error })
+    const checked = await checkRepoOpRoot({
+      cwd: msg.cwd,
+      repoRoot: msg.repoRoot,
+      worktreeRoot: msg.worktreeRoot,
+    })
+    if (!checked.ok) {
+      ctx.send({ type: 'repoOpResult', requestId: msg.requestId, ok: false, output: checked.error })
       return
     }
-    cwd = sandbox.real
+    cwd = checked.cwd
   }
   try {
     if (msg.op === 'clone' && msg.args?.path) {
