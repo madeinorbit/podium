@@ -524,6 +524,17 @@ describe('rendered mission pane parity', () => {
           ? trigger.getAttribute('data-flight-task-row')
           : trigger.closest('[data-flight-session]')?.getAttribute('data-flight-session')
       expect(address).toBeTruthy()
+      // The stored row carries a revision; the rename names it (POD-7556).
+      if (menu === 'issue') {
+        const row = issues.find((issue) => issue.id === address)!
+        act(() => {
+          pool.apply({
+            type: 'update',
+            rows: [{ kind: 'issue', id: row.id, value: { ...row, revision: 41 } }],
+          })
+        })
+        await settled()
+      }
       fireEvent.contextMenu(trigger, { clientX: 10, clientY: 20 })
       await settled()
       fireEvent.click(await screen.findByRole('menuitem', { name: /^Rename/ }))
@@ -538,9 +549,11 @@ describe('rendered mission pane parity', () => {
       fireEvent.change(editor, { target: { value: 'Renamed through the menu' } })
       fireEvent.keyDown(editor, { key: 'Enter' })
       if (menu === 'issue')
-        expect(state.updateIssue).toHaveBeenCalledWith(address, {
-          title: 'Renamed through the menu',
-        })
+        expect(state.updateIssue).toHaveBeenCalledWith(
+          address,
+          { title: 'Renamed through the menu' },
+          { expectedRevision: 41 },
+        )
       else expect(state.renameSession).toHaveBeenCalledWith(address, 'Renamed through the menu')
       expect(missionIndexStats()).toEqual(baseline)
       expect(sessionOwnershipStats()).toEqual(ownership)
