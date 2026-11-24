@@ -1,5 +1,8 @@
+import type { MachineModel } from '@podium/client-graph'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, expect, it } from 'vitest'
+import { MachineStatus } from '@/features/settings/machine-status'
+import { SettingsMachine } from '@/features/settings/machine-view'
 import { MachinePresenceDot, MachinePresenceText } from './machine-presence'
 
 afterEach(cleanup)
@@ -26,4 +29,15 @@ it('calls an initial missing reading reconnecting without inventing a last-seen 
     <MachinePresenceText machine={{ online: false, onlineKnown: false }} />,
   )
   expect(container.textContent).toBe('Reconnecting')
+})
+
+it.each([
+  [{ revokedAt: '2026-11-20T12:00:00Z' }, 'Removed'],
+  [{ supersededBy: 'replacement' }, 'Replaced'],
+] as const)('keeps a retired identity neutral before its last online reading changes', (lifecycle, label) => {
+  const machine = { online: true, onlineKnown: true, ...lifecycle } as MachineModel
+  const { container } = render(<MachineStatus view={new SettingsMachine(machine)} />)
+  expect(screen.getByText(label)).toBeTruthy()
+  expect(container.querySelector('[title="Online"]')).toBeNull()
+  expect(container.querySelector('.bg-muted-foreground\\/50')).toBeTruthy()
 })

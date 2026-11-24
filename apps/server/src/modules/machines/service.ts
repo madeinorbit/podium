@@ -1845,6 +1845,11 @@ export class MachinesService {
           code: 'PRECONDITION_FAILED',
           message: `machine '${machine.name}' is offline`,
         })
+      case 'reconnecting':
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: machineRejectionMessage(machine.name, 'reconnecting', `run ${agentKind}`),
+        })
       case 'inventory-unavailable':
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',

@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 import { autorun } from 'mobx'
 import { beforeAll, expect, it } from 'vitest'
 import { automationViews } from './automation-views'
@@ -96,7 +97,7 @@ it('saved automation targets use reconnecting separately from fresh offline', ()
     read: (entity) =>
       entity === 'settingsCatalog'
         ? { machines: ['host'], repositories: ['repo'] }
-        : { path: '/project', machineId: 'host', kind: 'repository', worktrees: [] },
+        : { path: '/project', machineId: asMachineId('host'), kind: 'repository', worktrees: [] },
     dispose() {},
   })
   const view = automationViews(pool)

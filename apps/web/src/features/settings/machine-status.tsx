@@ -12,7 +12,10 @@ export const MachineStatus = observer(function MachineStatus({ view }: { view: S
       className="max-w-full gap-1.5 whitespace-normal font-normal"
       title={view.status.detail}
     >
-      {view.status.tone === 'degraded' || view.status.tone === 'off' ? (
+      {view.status.tone === 'degraded' ||
+      view.status.tone === 'off' ||
+      machine.revokedAt ||
+      machine.supersededBy ? (
         <span
           aria-hidden="true"
           className={cn(
