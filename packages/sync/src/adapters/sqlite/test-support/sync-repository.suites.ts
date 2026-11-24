@@ -431,6 +431,14 @@ export function describeSyncRepositoryGolden(open: OpenSyncRepositoryFixture): v
       })
     })
 
+    it('never plans the head row, even when every row has aged out', async () => {
+      // POD-7593: an emptied log advertises floor head + 1, which clients refuse.
+      await append(3, 1_000)
+      expect(await repo.planChangePrune({ keepRows: 0, maxAgeMs: 1, now: 5_000 })).toEqual({
+        thresholdSeq: 2,
+      })
+    })
+
     it('takes the AGE budget when it deletes more', async () => {
       // The arm that reads through the `changes_event_time` index — the one whose
       // SQLite FROM clause is the conversion's one `sql` fragment.
@@ -958,13 +966,16 @@ export function describeTenantFeed(open: OpenSyncRepositoryFixture): void {
       b = await tenant('b')
     await a.appendChanges(rows(4), 1)
     await b.appendChanges(rows(4), 100)
+    // Every row has aged out, and the plan still keeps the head row (POD-7593).
     const plan = await a.planChangePrune({ keepRows: 1, maxAgeMs: 10, now: 100 })
-    expect(plan.thresholdSeq).toBe(4)
+    expect(plan.thresholdSeq).toBe(3)
     expect(await a.pruneChangeBatch(plan, 2)).toBe(2)
     expect(await a.readFeedState()).toEqual({ headSeq: 4, floorSeq: 3 })
-    expect(await a.pruneChangeBatch(plan, 2)).toBe(2)
+    // A log emptied by an older planner: the floor is head + 1, in one read.
+    expect(await a.pruneChangeBatch({ thresholdSeq: 4 }, 2)).toBe(2)
     expect(await a.readFeedState()).toEqual({ headSeq: 4, floorSeq: 5 })
     expect(await a.minChangeSeq()).toBeNull()
+    expect(await a.minAvailableSeq()).toBe(5)
     expect(await (await tenant('a')).appendChanges(rows(1), 101)).toEqual([5])
     expect(await b.readFeedState()).toEqual({ headSeq: 4, floorSeq: 1 })
     expect(await b.changesSince(0)).toHaveLength(4)
@@ -1053,8 +1064,8 @@ export function describeTenantFeed(open: OpenSyncRepositoryFixture): void {
     expect([...(await b.changesWithPrior([1, 2, 3, 4, 5])).keys()].sort()).toEqual([1, 2])
     // A prune in A leaves B's floor and rows alone.
     const plan = await a.planChangePrune({ keepRows: 0, maxAgeMs: 0, now: 100 })
-    expect(await a.pruneChangeBatch(plan, 10)).toBe(5)
-    expect(await a.readFeedState()).toEqual({ headSeq: 5, floorSeq: 6 })
+    expect(await a.pruneChangeBatch(plan, 10)).toBe(4)
+    expect(await a.readFeedState()).toEqual({ headSeq: 5, floorSeq: 5 })
     expect(await b.readFeedState()).toEqual(bBefore)
     expect(await b.changesSince(0)).toEqual(bChanges)
   })

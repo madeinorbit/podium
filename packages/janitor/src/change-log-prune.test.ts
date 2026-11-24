@@ -46,7 +46,8 @@ describe('ChangeLogPrunePlanner bounds', () => {
     const busy = plannerOver(() => ({ headSeq: 1_008, floorSeq: 1_001, agedSeq: 1_008 }))
     const batches = await busy.planner.plan(input)
     expect(batches.map((batch) => batch.fromSeq)).toEqual([1_001, 1_003, 1_005, 1_007])
-    expect(batches.every((batch) => batch.thresholdSeq === 1_008)).toBe(true)
+    // Everything has aged, and the plan still keeps the head row (POD-7593).
+    expect(batches.every((batch) => batch.thresholdSeq === 1_007)).toBe(true)
   })
 
   it('takes the aged sequence when it reaches past what the row count keeps', async () => {
@@ -71,12 +72,24 @@ describe('ChangeLogPrunePlanner bounds', () => {
     expect(await planner.plan(input)).toEqual([])
   })
 
+  it('never plans the head row, so an idle workspace keeps one row', async () => {
+    // POD-7593: an emptied log advertises floor head + 1, and every client's frame
+    // validator refuses a bootstrap stamped at the head with it.
+    const idle = plannerOver(() => ({ headSeq: 12, floorSeq: 8, agedSeq: 12 }))
+    const batches = await idle.planner.plan({ ...input, keepRows: 0 })
+    expect(batches.map((batch) => batch.thresholdSeq)).toEqual([11, 11])
+    expect(await idle.planner.backlog({ ...input, keepRows: 0 })).toBe(4)
+    // One row left: nothing more to plan.
+    const last = plannerOver(() => ({ headSeq: 12, floorSeq: 12, agedSeq: 12 }))
+    expect(await last.planner.plan({ ...input, keepRows: 0 })).toEqual([])
+  })
+
   it('keeps replay keys distinct for workspaces with identical sequence bounds', async () => {
     const bounds = () => ({ headSeq: 5, floorSeq: 1, agedSeq: 5 })
     const one = await plannerOver(bounds, 'one/tenant').planner.plan(input)
     const two = await plannerOver(bounds, 'two').planner.plan(input)
-    expect(one).toHaveLength(3)
-    expect(new Set([...one, ...two].map(changeLogPruneRunKey)).size).toBe(6)
+    expect(one).toHaveLength(2)
+    expect(new Set([...one, ...two].map(changeLogPruneRunKey)).size).toBe(4)
   })
 
   it('caps planning at 100 batches and resumes from the durable floor', async () => {

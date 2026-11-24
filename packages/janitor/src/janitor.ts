@@ -1003,6 +1003,18 @@ export class EventLogPrunePlanner {
   }
 }
 
+/**
+ * The highest seq a prune may delete: the row budget or the age budget, whichever
+ * reaches further, and NEVER the head row (POD-7593). An idle workspace whose
+ * rows have all aged out keeps its newest row, so its floor stays at or below its
+ * head and a bootstrap stamped at the head carries a floor every client's frame
+ * validator accepts (`floor <= seq`). An emptied log advertised `head + 1`, which
+ * clients refused on every retry.
+ */
+function pruneThreshold(feed: FeedBounds, keepRows: number): number {
+  return Math.min(Math.max(feed.headSeq - keepRows, feed.agedSeq ?? 0), feed.headSeq - 1)
+}
+
 /** Plan the workspace's change-log prune batches from durable facts. */
 export class ChangeLogPrunePlanner {
   constructor(
@@ -1017,7 +1029,7 @@ export class ChangeLogPrunePlanner {
       async (reads) => await reads.changeFeed(input.nowMs - input.maxAgeMs),
     )
     if (feed === undefined) return 0
-    const thresholdSeq = Math.max(feed.headSeq - input.keepRows, feed.agedSeq ?? 0)
+    const thresholdSeq = pruneThreshold(feed, input.keepRows)
     return Math.max(0, thresholdSeq - feed.floorSeq + 1)
   }
 
@@ -1029,7 +1041,7 @@ export class ChangeLogPrunePlanner {
     if (feed === undefined) return []
     // Appends commit contiguous seqs with the head; retention removes only a
     // prefix and advances the floor, so the eligible count is arithmetic.
-    const thresholdSeq = Math.max(feed.headSeq - input.keepRows, feed.agedSeq ?? 0)
+    const thresholdSeq = pruneThreshold(feed, input.keepRows)
     const eligible = thresholdSeq - feed.floorSeq + 1
     if (eligible <= 0) return []
     const limit = Math.min(Math.ceil(eligible / input.batchSize), CANDIDATE_LIMIT)

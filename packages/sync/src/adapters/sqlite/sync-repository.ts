@@ -1044,7 +1044,8 @@ export class SyncRepository {
     maxAgeMs: number
     now: number
   }): Promise<ChangePrunePlan> {
-    const rowCapSeq = (await this.maxChangeSeq()) - opts.keepRows
+    const headSeq = await this.maxChangeSeq()
+    const rowCapSeq = headSeq - opts.keepRows
     // Force the covering (workspace_id, event_time, seq) index: the age lookup
     // seeks this tenant's time range and reads seq without loading log payloads.
     // seq must be explicit because the composite primary key is not the rowid.
@@ -1052,7 +1053,11 @@ export class SyncRepository {
     const aged = await newestAgedSeq(this.db).get({
       before: opts.now - opts.maxAgeMs,
     })
-    return { thresholdSeq: Math.max(rowCapSeq, aged?.seq ?? 0) }
+    // POD-7593: never the head row. A log with rows keeps its floor at or below
+    // its head, so every frame stamped at the head carries a floor the clients'
+    // validators accept (`floor <= seq`), and an idle workspace whose rows all
+    // aged out keeps one row instead of emptying to floor `head + 1`.
+    return { thresholdSeq: Math.min(Math.max(rowCapSeq, aged?.seq ?? 0), headSeq - 1) }
   }
 
   /**
