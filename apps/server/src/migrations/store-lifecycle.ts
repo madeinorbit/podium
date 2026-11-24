@@ -40,10 +40,20 @@ import type { RootStoreExecutor, StoreExecutorOptions } from '../store/executor/
 import { sweepOldNativeLoginTransfers } from '../store/native-login-transfer-sweep'
 import { openStoreDatabase, storeEngineFor } from '../store-database'
 import { dropChangeCapture, installChangeCapture } from '../sync/capture-triggers'
-import { type BackupPreflight, backupSpaceShortfall, measureBackupSpace } from './backup'
+import {
+  type BackupPreflight,
+  backupSpaceShortfall,
+  freeDiskBytes,
+  measureBackupSpace,
+} from './backup'
 import { type BackupSeedOutcome, discardBackupSeed, writeBackupSeed } from './backup-seed'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
-import { appliedDrizzleNames, latestAppliedMigration, runDrizzleMigrations } from './index'
+import {
+  appliedDrizzleNames,
+  latestAppliedMigration,
+  runDrizzleMigrations,
+  UPGRADE_SPACE_FACTOR,
+} from './index'
 import { SnapshotVerifier, type SnapshotVerifierDeps } from './snapshot-verifier'
 
 const log = createLogger('server:migrations')
@@ -288,10 +298,11 @@ export async function openSqliteStoreLifecycle(
  * this database lacks: then the successor boots with nothing pending and takes no
  * backup. A release that declares nothing is seeded (it may migrate).
  */
-async function seedBackupFor(
+export async function seedBackupFor(
   dbPath: string,
   target: { schema?: { migrations?: readonly string[] } },
   readApplied: () => Promise<string[]>,
+  freeBytes: (dir: string) => number = freeDiskBytes,
 ): Promise<BackupSeedOutcome> {
   const started = performance.now()
   if (releaseCarriesNewMigrations(target, await readApplied()) === false) {
@@ -302,8 +313,12 @@ async function seedBackupFor(
       ms: performance.now() - started,
     }
   }
-  // The successor's boot backup names the database by its resolved path.
-  return await writeBackupSeed(dbPath)
+  // THE BOOT'S OWN REQUIREMENT (review F1): below it the boot refuses the upgrade
+  // anyway, so a seed would only take disk from the server that is still serving.
+  // At or above it, the serving database keeps at least 1.5 times its size free
+  // after the seed.
+  const requiredBytes = Math.ceil(UPGRADE_SPACE_FACTOR * measureBackupSpace(dbPath).needed)
+  return await writeBackupSeed(dbPath, { requiredBytes, freeBytes })
 }
 
 /** Connection setup and migration bracket, owned by the exclusive boot lane. */

@@ -25,13 +25,15 @@
 import { randomUUID } from 'node:crypto'
 import {
   closeSync,
-  existsSync,
+  fstatSync,
   ftruncateSync,
   futimesSync,
+  lstatSync,
   openSync,
   readdirSync,
   readSync,
   rmSync,
+  type Stats,
   statSync,
   writeSync,
 } from 'node:fs'
@@ -52,7 +54,9 @@ const SEED_PARTIAL_INFIX = '.partial-'
 /** Bytes a published seed holds, which the boot backup reuses rather than adds. */
 export function backupSeedBytes(dbPath: string): number {
   try {
-    return statSync(backupSeedPath(dbPath)).size
+    // Only a seed the boot would take over ({@link usableBackupSeed}) is reusable.
+    const entry = lstatSync(backupSeedPath(dbPath))
+    return entry.isFile() && entry.nlink === 1 ? entry.size : 0
   } catch {
     return 0
   }
@@ -74,7 +78,7 @@ export function discardBackupSeed(dbPath: string): void {
 
 /** How a seed write ended. */
 export type BackupSeedOutcome =
-  | { seeded: true; bytes: number; ms: number }
+  | { seeded: true; bytes: number; partial?: true; ms: number }
   | { seeded: false; reason: string; ms: number }
 
 /** Read and write size of the seed copy: large enough to stream, small enough to stay out of the way. */
@@ -88,35 +92,86 @@ const SEED_CHUNK_BYTES = 8 << 20
  */
 const SEED_FLUSH_BYTES = 64 << 20
 
+/** How a seed write is bounded. */
+export interface BackupSeedLimits {
+  /**
+   * Free bytes the database's file system must keep, counting the seed's own bytes as
+   * still free: the boot reuses them. The caller passes the boot's upgrade requirement,
+   * so a disk the boot would refuse gets no seed, and the serving server is never left
+   * with less than the upgrade's headroom beside it.
+   */
+  requiredBytes: number
+  /** Free bytes on the file system holding `dir` (`freeDiskBytes` in production). */
+  freeBytes: (dir: string) => number
+  /** The copy's time budget; at the budget the copied prefix is published as it is. */
+  budgetMs?: number
+  now?: () => number
+}
+
 /**
  * Copy the database file to a new seed while the old server serves, then flush it and
- * publish it. Asynchronous throughout (the event loop never waits on the copy) and
- * bounded by `budgetMs`: a copy that outstays it is abandoned. Never throws: a seed that
- * could not be written leaves no file behind, and the boot backup then copies in full.
+ * publish it. Asynchronous throughout (the event loop never waits on the copy). Never
+ * throws: a seed that could not be written leaves no file behind, and the boot backup
+ * then copies in full.
+ *
+ * DISK FIRST (POD-7576 review F1). The seed is written beside a server that is still
+ * serving, so it starts only when the file system holds `requiredBytes`, and the check
+ * is repeated after every chunk: if other writes eat the room meanwhile, the seed is
+ * abandoned and removed rather than leave the live database without space for its WAL.
+ *
+ * AT THE BUDGET, a prefix (review F4). A database that cannot be copied within the
+ * budget still publishes what was copied: the boot rewrites the rest, which is less
+ * than all of it.
  *
  * The flush is the point. Without it the copied pages sit dirty in the page cache, and
  * the boot backup's own fsync would write them out inside the gap after all.
  */
 export async function writeBackupSeed(
   dbPath: string,
-  opts: { budgetMs?: number; now?: () => number } = {},
+  limits: BackupSeedLimits,
 ): Promise<BackupSeedOutcome> {
-  const now = opts.now ?? (() => performance.now())
+  const now = limits.now ?? (() => performance.now())
+  const freeBytes = limits.freeBytes
   const started = now()
-  const budgetMs = opts.budgetMs ?? 120_000
+  const budgetMs = limits.budgetMs ?? 120_000
   const seed = backupSeedPath(dbPath)
+  const dir = dirname(dbPath)
   // The previous seed goes first, so the disk never holds two.
   discardBackupSeed(dbPath)
+  const roomFor = (copied: number) => freeBytes(dir) + copied >= limits.requiredBytes
+  if (!roomFor(0)) {
+    return {
+      seeded: false,
+      reason: `less than ${limits.requiredBytes} bytes free in ${dir}`,
+      ms: now() - started,
+    }
+  }
   const partial = `${seed}${SEED_PARTIAL_INFIX}${randomUUID()}`
   try {
-    const bytes = await copyWithin(dbPath, partial, () => now() - started > budgetMs)
-    if (bytes === undefined) {
+    const copy = await copyWithin(dbPath, partial, {
+      expired: () => now() - started > budgetMs,
+      roomFor,
+    })
+    if (copy.stopped === 'budget' && copy.bytes === 0) {
       await rm(partial, { force: true })
       return { seeded: false, reason: `the copy outstayed ${budgetMs} ms`, ms: now() - started }
     }
+    if (copy.stopped === 'disk') {
+      await rm(partial, { force: true })
+      return {
+        seeded: false,
+        reason: `free space in ${dir} fell below ${limits.requiredBytes} bytes during the copy`,
+        ms: now() - started,
+      }
+    }
     await rename(partial, seed)
-    await fsyncPathAsync(dirname(dbPath))
-    return { seeded: true, bytes, ms: now() - started }
+    await fsyncPathAsync(dir)
+    return {
+      seeded: true,
+      bytes: copy.bytes,
+      ...(copy.stopped === 'budget' ? { partial: true } : {}),
+      ms: now() - started,
+    }
   } catch (err) {
     await rm(partial, { force: true }).catch(() => {})
     return {
@@ -127,20 +182,27 @@ export async function writeBackupSeed(
   }
 }
 
-/** Stream `from` into a new file at `to` and fsync it; `undefined` when `expired` stopped it. */
+/**
+ * Stream `from` into a new file at `to`, fsynced. Stops early when the budget expires
+ * (the prefix is kept and flushed) or the disk runs short (the caller removes it).
+ */
 async function copyWithin(
   from: string,
   to: string,
-  expired: () => boolean,
-): Promise<number | undefined> {
+  checks: { expired: () => boolean; roomFor: (copied: number) => boolean },
+): Promise<{ bytes: number; stopped?: 'budget' | 'disk' }> {
   const source = await open(from, 'r')
   try {
     const target = await open(to, 'wx')
     try {
       const buffer = Buffer.allocUnsafe(SEED_CHUNK_BYTES)
       let position = 0
+      let stopped: 'budget' | 'disk' | undefined
       for (;;) {
-        if (expired()) return undefined
+        if (checks.expired()) {
+          stopped = 'budget'
+          break
+        }
         const { bytesRead } = await source.read(buffer, 0, buffer.length, position)
         if (bytesRead === 0) break
         let written = 0
@@ -154,10 +216,11 @@ async function copyWithin(
           written += bytesWritten
         }
         position += bytesRead
+        if (!checks.roomFor(position)) return { bytes: position, stopped: 'disk' }
         if (position % SEED_FLUSH_BYTES < bytesRead) await target.datasync()
       }
       await target.sync()
-      return position
+      return stopped ? { bytes: position, stopped } : { bytes: position }
     } finally {
       await target.close()
     }
@@ -194,16 +257,24 @@ export function refreshFromSeed(source: string, target: string): SeedRefresh {
   try {
     const to = openSync(target, 'r+')
     try {
+      // Checked again on the open descriptors, before anything is written: what was
+      // checked by name may not be what was opened.
+      const seedStat = fstatSync(to)
+      if (!seedStat.isFile() || seedStat.nlink !== 1 || sameFile(seedStat, fstatSync(from)))
+        throw new SeedIdentityError(`the seed at ${target} is not a file of its own`)
       const live = Buffer.allocUnsafe(COMPARE_CHUNK_BYTES)
-      const held = Buffer.allocUnsafe(COMPARE_CHUNK_BYTES)
+      const seedBytes = Buffer.allocUnsafe(COMPARE_CHUNK_BYTES)
       let position = 0
       let rewrittenBytes = 0
       for (;;) {
         const length = readFully(from, live, position)
         if (length === 0) break
-        const heldLength = readFully(to, held, position)
-        if (heldLength !== length || !live.subarray(0, length).equals(held.subarray(0, length))) {
-          rewrittenBytes += rewriteDiffering(to, live, held, length, heldLength, position)
+        const heldLength = readFully(to, seedBytes, position)
+        if (
+          heldLength !== length ||
+          !live.subarray(0, length).equals(seedBytes.subarray(0, length))
+        ) {
+          rewrittenBytes += rewriteDiffering(to, live, seedBytes, length, heldLength, position)
         }
         position += length
         if (length < COMPARE_CHUNK_BYTES) break
@@ -267,7 +338,31 @@ function writeFully(fd: number, bytes: Buffer, position: number): void {
   }
 }
 
-/** True when a published seed exists for `dbPath`. */
-export function hasBackupSeed(dbPath: string): boolean {
-  return existsSync(backupSeedPath(dbPath))
+/**
+ * The published seed, when it can be taken over: a regular file (not a link) with one
+ * name, that is not the database itself. Anything else is discarded and the boot copies
+ * in full (POD-7576 review F2): a symlink or hard link to the live database would make
+ * the "backup" the live inode, which the migration then writes into.
+ */
+export function usableBackupSeed(dbPath: string): string | undefined {
+  const seed = backupSeedPath(dbPath)
+  let entry: Stats
+  try {
+    entry = lstatSync(seed)
+  } catch {
+    return undefined
+  }
+  if (entry.isFile() && entry.nlink === 1 && !sameFile(entry, statSync(dbPath))) return seed
+  log.warn('ignoring a pre-migration backup seed that is not a file of its own', {
+    path: seed,
+    symlink: entry.isSymbolicLink(),
+    links: entry.nlink,
+  })
+  discardBackupSeed(dbPath)
+  return undefined
 }
+
+/** Thrown by {@link refreshFromSeed} before any write, when the opened seed is not its own file. */
+export class SeedIdentityError extends Error {}
+
+const sameFile = (a: Stats, b: Stats) => a.dev === b.dev && a.ino === b.ino

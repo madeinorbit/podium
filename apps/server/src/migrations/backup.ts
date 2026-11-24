@@ -27,7 +27,12 @@ import { basename, dirname, join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { fsyncPath } from '@podium/runtime/fsync'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { backupSeedBytes, backupSeedPath, hasBackupSeed, refreshFromSeed } from './backup-seed'
+import {
+  backupSeedBytes,
+  refreshFromSeed,
+  SeedIdentityError,
+  usableBackupSeed,
+} from './backup-seed'
 
 const log = createLogger('server:migrations')
 
@@ -180,11 +185,8 @@ export function backupDatabase(
   try {
     for (const suffix of suffixes) {
       const temp = `${partialPath}${suffix}`
-      if (suffix === '' && hasBackupSeed(dbPath)) {
-        renameSync(backupSeedPath(dbPath), temp)
-        const refreshed = refreshFromSeed(dbPath, temp)
-        log.info('pre-migration backup refreshed from its seed', { path: backupPath, ...refreshed })
-      } else {
+      const seed = suffix === '' ? usableBackupSeed(dbPath) : undefined
+      if (seed === undefined || !refreshedFromSeed(seed, dbPath, temp, backupPath)) {
         copyFileSync(`${dbPath}${suffix}`, temp)
       }
       fsyncPath(temp)
@@ -222,6 +224,31 @@ export function backupDatabase(
     log.warn('database snapshot retention could not be applied', { path: dbPath, err })
   }
   return backupPath
+}
+
+/**
+ * Take the seed over as the backup's main copy and bring it level with the database.
+ * False, with the seed's name removed and nothing written, when the opened seed turns
+ * out not to be a file of its own; the caller then copies in full.
+ */
+function refreshedFromSeed(
+  seed: string,
+  dbPath: string,
+  temp: string,
+  backupPath: string,
+): boolean {
+  renameSync(seed, temp)
+  try {
+    const refreshed = refreshFromSeed(dbPath, temp)
+    log.info('pre-migration backup refreshed from its seed', { path: backupPath, ...refreshed })
+    return true
+  } catch (err) {
+    if (!(err instanceof SeedIdentityError)) throw err
+    log.warn('pre-migration backup seed refused; copying the database in full', { err })
+    // Removes only this name: a link to the database leaves the database in place.
+    rmSync(temp, { force: true })
+    return false
+  }
 }
 
 /**

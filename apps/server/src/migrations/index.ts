@@ -232,6 +232,8 @@ export function runDrizzleMigrations(
     const backupStarted = performance.now()
     backupDatabase(db, filePath, `drizzle-${applied.size}`)
     bootStage('backup', backupStarted)
+    // The published seed was consumed; this removes what a killed old server left.
+    discardBackupSeed(filePath)
   } else if (filePath !== undefined) {
     discardBackupSeed(filePath)
   }
@@ -334,7 +336,7 @@ export function runDrizzleMigrations(
  * nothing; running out of space halfway through would roll the whole batch back after minutes
  * of work, with a backup beside it.
  */
-const UPGRADE_SPACE_FACTOR = 2.5
+export const UPGRADE_SPACE_FACTOR = 2.5
 
 function refuseWithoutFreeSpace(
   db: SqlDatabase,

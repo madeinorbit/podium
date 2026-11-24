@@ -119,7 +119,13 @@ async function probe(arm: string, root: string): Promise<void> {
   }, 20)
   const stopMonitor = loopMonitor()
   const seedStarted = performance.now()
-  const seed = seedModule ? await seedModule.writeBackupSeed(dbPath) : undefined
+  // The disk gate (2.5x the database free) holds on the VM; it is not what is measured.
+  const seed = seedModule
+    ? await seedModule.writeBackupSeed(dbPath, {
+        requiredBytes: 0,
+        freeBytes: () => Number.MAX_SAFE_INTEGER,
+      })
+    : undefined
   const seedMs = performance.now() - seedStarted
   // Keep serving a moment past the seed so its tail is measured too.
   await new Promise((done) => setTimeout(done, 500))
