@@ -258,11 +258,11 @@ export interface SubsetSpec {
 
 /**
  * Names a subset may not take: the members a navigation handle already
- * answers (`ready`, `loading`) and the id reads a typed link exposes (`ids`,
+ * answers (`ready`, `loading`, `members`) and the id reads a typed link exposes (`ids`,
  * `size`).
  */
 // side-state: declaration: a fixed table, never written after module initialization
-export const RESERVED_SUBSET_NAMES: ReadonlySet<string> = new Set(['ready', 'loading', 'ids', 'size'])
+export const RESERVED_SUBSET_NAMES: ReadonlySet<string> = new Set(['ready', 'loading', 'members', 'ids', 'size'])
 
 export interface PrefixSpec extends RelationCommon {
   readonly kind: 'prefix'

@@ -66,10 +66,13 @@ import type { IssueSessionFactReader } from './shared/issue-session-facts'
 
 import { lazy } from '@podium/mobx-helpers'
 import { action, compareShallow, compareStructural, observable, runInAction } from 'mobx'
+import type { PoolCollections } from './collections'
 import type { Residence } from './pool'
 import type { SeatRelation } from './session-seats'
+import { holdingInstanceOf } from './shared/holding-relations'
 import type { CollectionName, IsLazy, SingleName, SubsetName, TargetOf } from './shared/links'
 import type { RelationReader } from './shared/relation-reader'
+import type { LoaderInstance } from './shared/source'
 import { FEED_SPELLING } from './shared/repo-from-lane'
 import { awaitingMergeOf, type EntityName, type ModelSchema, SCHEMA } from './shared/schema'
 import { computingDeadlineOf } from './shared/session-facts'
@@ -135,6 +138,8 @@ export interface ModelHost {
   edit<K extends WritableKind>(entity: K, id: string, patch: EditPatch<K>): TxId
   /** The pool's relation reader: what the relation getters follow. */
   readonly relations: RelationReader
+  /** The device's collections: a holding relation's read holds its instance (POD-7545). */
+  readonly collections: Pick<PoolCollections, 'held'>
   /** The addressed model: here, loading, or gone. */
   model<E extends EntityName>(entity: E, id: string): Lookup<ModelOf[E]>
   /** Where a row stands; an absent one answers `loading` and its load starts (first access). */
@@ -263,6 +268,9 @@ function installRelations(prototype: EntityModel, entity: EntityName): void {
       continue
     }
     // One collection class per relation, with a getter per declared subset.
+    // A relation whose target is on demand reads through the target's own
+    // collection for this source, from the declarations (POD-7545).
+    const holding = holdingInstanceOf(SCHEMA, entity, name)
     class Members extends ModelCollection {}
     const members = (host: ModelHost, owner: string) => host.relations.many(entity, owner, name)
     for (const subset of spec.kind === 'hasMany' ? Object.keys(spec.subsets ?? {}) : []) {
@@ -272,7 +280,7 @@ function installRelations(prototype: EntityModel, entity: EntityName): void {
         enumerable: false,
         get: collectionGetter(subset, function (this: Members): ModelCollection {
           subsetMembers(this.host, this.owner)
-          return new ModelCollection(this.host, spec.to, this.owner, subsetMembers)
+          return new ModelCollection(this.host, spec.to, this.owner, subsetMembers, holding)
         }),
       })
     }
@@ -282,7 +290,7 @@ function installRelations(prototype: EntityModel, entity: EntityName): void {
       get: collectionGetter(name, function (this: EntityModel): ModelCollection {
         const host = hostOf(this)
         members(host, this.id)
-        return new Members(host, spec.to, this.id, members)
+        return new Members(host, spec.to, this.id, members, holding)
       }),
     })
   }
@@ -313,11 +321,25 @@ function objectOrLoading(
 }
 
 /** A live collection (Rule L). `ready` is the shallow-equal list of shared
- * models in bucket order (unordered, M3 F1); `loading` counts absent members and
- * starts their loads. Retaining the handle never retains a stale answer. */
+ * models in bucket order (unordered, M3 F1) that are in memory now; `loading`
+ * counts absent members and starts their loads. `members` is the truthful
+ * answer: every member, or `LOADING` until the device holds them all. Retaining
+ * the handle never retains a stale answer. */
 export interface LazyCollection<M> {
+  /** The members in memory now: holds nothing, and says nothing of the rest. */
   readonly ready: readonly M[]
   readonly loading: number
+  /**
+   * Every member, or `LOADING`. A holding relation (its target on demand,
+   * `shared/holding-relations.ts`) holds its collection instance while this
+   * is observed, asks the loader for it when it is not complete, and answers
+   * `LOADING` until it is: `[]` is "complete and empty", never "not loaded".
+   * An instance the device held complete keeps answering through a refresh or
+   * a rebootstrap (its marker stays, stale). Offline, `LOADING` reads as
+   * `offline` through `pool.collections.reading`. Any other collection answers
+   * `LOADING` while a member is on its way.
+   */
+  readonly members: readonly M[] | typeof LOADING
 }
 
 class ModelCollection implements LazyCollection<EntityModel> {
@@ -326,13 +348,15 @@ class ModelCollection implements LazyCollection<EntityModel> {
     private readonly to: EntityName,
     /** The id of the row the collection belongs to (its subsets read under it). */
     readonly owner: string,
-    private readonly members: (host: ModelHost, owner: string) => Iterable<string>,
+    private readonly memberIds: (host: ModelHost, owner: string) => Iterable<string>,
+    /** A holding relation's collection instance for an owner (POD-7545). */
+    private readonly holding?: (owner: string) => LoaderInstance,
   ) {}
 
   @lazy({ equals: compareShallow })
   get ready(): readonly EntityModel[] {
     const ready: EntityModel[] = []
-    for (const id of this.members(this.host, this.owner)) {
+    for (const id of this.memberIds(this.host, this.owner)) {
       const found = objectOrLoading(this.host, this.to, id)
       if (found !== LOADING && found !== null) ready.push(found)
     }
@@ -342,10 +366,18 @@ class ModelCollection implements LazyCollection<EntityModel> {
   @lazy
   get loading(): number {
     let loading = 0
-    for (const id of this.members(this.host, this.owner)) {
+    for (const id of this.memberIds(this.host, this.owner)) {
       if (objectOrLoading(this.host, this.to, id) === LOADING) loading += 1
     }
     return loading
+  }
+
+  @lazy({ equals: compareShallow })
+  get members(): readonly EntityModel[] | typeof LOADING {
+    if (this.holding !== undefined && !this.host.collections.held(this.holding(this.owner)))
+      return LOADING
+    if (this.loading > 0) return LOADING
+    return this.ready
   }
 }
 
@@ -422,14 +454,18 @@ export class IssueModel extends EntityModel {
   }
 
   // The bodies (POD-6921): the brief and the description are synced records
-  // of their own, keyed by the issue id and loaded at start with everything
-  // else; a field with no text has no record. A painted row (an edit the log
-  // has not settled, a launch, a fixture) holds its own text, which wins.
-  /** The agent brief; absent when the issue has none. */
-  @lazy get brief(): string | undefined {
+  // of their own, keyed by the issue id, on the device only once something
+  // reads them (group `body`, POD-7545); a field with no text has no record.
+  // Reading one holds the issue's instance of that record and loads it, and
+  // answers LOADING until the device holds it complete. A painted row (an edit
+  // the log has not settled, a launch, a fixture) holds its own text, which
+  // wins at once.
+  /** The agent brief; absent when the issue has none; LOADING until it is on the device. */
+  @lazy get brief(): string | undefined | typeof LOADING {
     const painted = this.storedField('brief')
     if (painted !== undefined) return painted as string
-    return this.briefRecords.ready[0]?.text
+    const records = this.briefRecords.members
+    return records === LOADING ? LOADING : records[0]?.text
   }
   @lazy({ equals: compareShallow }) get panelTodos(): IssuePanelTodoModel[] {
     return this.panelTodoRecords.ready.slice().sort(panelOrder)
@@ -458,11 +494,12 @@ export class IssueModel extends EntityModel {
       if (artifact.chatUploadId && artifact.artifactId) out.set(artifact.chatUploadId, artifact)
     return out
   }
-  /** The human summary's text; empty when there is none. */
-  @lazy get description(): string {
+  /** The human summary's text; empty when there is none; LOADING until it is on the device. */
+  @lazy get description(): string | typeof LOADING {
     const painted = this.storedField('description')
     if (painted !== undefined) return documentText(painted)
-    return this.descriptionRecords.ready[0]?.text ?? ''
+    const records = this.descriptionRecords.members
+    return records === LOADING ? LOADING : (records[0]?.text ?? '')
   }
 
   // The issue's own work (POD-6526): start, stop, cleanup, ship and the

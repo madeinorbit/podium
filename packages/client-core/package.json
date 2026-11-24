@@ -40,6 +40,11 @@
       "types": "./src/records.ts",
       "import": "./src/records.ts"
     },
+    "./loading": {
+      "@podium/source": "./src/loading.ts",
+      "types": "./src/loading.ts",
+      "import": "./src/loading.ts"
+    },
     "./transport": {
       "@podium/source": "./src/transport.ts",
       "types": "./src/transport.ts",

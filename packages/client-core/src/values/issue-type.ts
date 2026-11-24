@@ -5,6 +5,7 @@ import type {
   SessionId,
   SlimIssueProjection,
 } from '@podium/model'
+import type { LOADING } from '../loading'
 export interface IssueView {
   id: string
 
@@ -25,12 +26,10 @@ export interface IssueView {
   dependents: Array<{ id: IssueId; type: string }>
 }
 
-
 export interface IssueSessionRollups {
   unread: boolean
   sessionSummary: { total: number; byPhase: Record<string, number> }
 }
-
 
 /** An issue as the pool shows it. Brief, description, panel items and the
  * state paragraph join their own synced records (POD-6921). */
@@ -68,16 +67,19 @@ export type IssueBodyValues = {
 
 /**
  * An issue's bodies as a screen reads them (POD-6921). `IssueModel` answers
- * them from the issue's synced body and panel records, which load at start
- * with everything else; a painted row (a fixture, a demo) carries them itself.
+ * them from the issue's synced body and panel records, which the device holds
+ * only once something reads them (POD-7545): the description and the brief
+ * answer `LOADING` until then. A painted row (a fixture, a demo) carries them
+ * itself.
  */
 export type IssueBodyFields = {
-  readonly brief?: string | undefined
+  /** The agent brief; absent when there is none; `LOADING` until it is on the device. */
+  readonly brief?: string | undefined | typeof LOADING
   readonly panel?: IssuePanel | undefined
   readonly activityNotes?: string | undefined
   readonly notesUpdatedAt?: string | undefined
-  /** The human summary's text; empty when there is none. */
-  readonly description: string
+  /** The human summary's text; empty when there is none; `LOADING` until it is on the device. */
+  readonly description: string | typeof LOADING
 }
 
 /** An issue a screen shows with its bodies: `IssueModel` and `PageIssue` are one. */
