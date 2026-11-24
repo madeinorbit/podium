@@ -189,6 +189,64 @@ describe('a cursor the log cannot serve is refused, and the refusal requests HTT
     ])
   })
 
+  // POD-7552: the rows that would show an access move in the gap are pruned, so
+  // the refusal is a rescope when the access-move log says the viewer's moved.
+  it("answers a refused cursor as a rescope when the viewer's access moved after it", async () => {
+    const compacted = await servedOnce({ retention: { minAvailableSeq: () => 5 } })
+    for (let i = 3; i <= 6; i += 1) await commit(compacted.p, `s${i}`)
+    const human = String(DEVICE_GRADE_PRINCIPAL.kind === 'user' && DEVICE_GRADE_PRINCIPAL.user)
+    await compacted.p.store.sync.recordAccessMoves(new Map([[human, 3]]))
+
+    // A move AT the cursor is one the device already has.
+    const before = await reconnect(compacted, { ...compacted.held, seq: 3 })
+    expect(before.types()).toEqual(['feedResyncRequired'])
+    compacted.p.serving.detach(before.id)
+
+    // A move after it is not: a rescope, at the head the publisher frames from.
+    await compacted.p.store.sync.recordAccessMoves(new Map([[human, 5]]))
+    const moved = await reconnect(compacted, { ...compacted.held, seq: 2 })
+    expect(moved.types()).toEqual(['feedRescope'])
+    expect(moved.of('feedRescope')[0]).toMatchObject({
+      seq: 6,
+      cause: 'rights-changed',
+      reason: 'access-moved-in-gap',
+    })
+    // Lowering is refused: the log keeps the later move.
+    await compacted.p.store.sync.recordAccessMoves(new Map([[human, 1]]))
+    expect((await reconnect(compacted, { ...compacted.held, seq: 3 })).types()).toEqual([
+      'feedRescope',
+    ])
+    // A cursor the log can serve resumes, whatever moved: the heal shows it.
+    expect((await reconnect(compacted, { ...compacted.held, seq: 5 })).types()).toEqual([
+      'feedResume',
+    ])
+  })
+
+  it('answers a refused cursor from before the access-move log as a rescope: it cannot tell', async () => {
+    const compacted = await servedOnce({ retention: { minAvailableSeq: () => 5 } })
+    for (let i = 3; i <= 6; i += 1) await commit(compacted.p, `s${i}`)
+    // What the migration writes: recording started at head 3.
+    await compacted.p.store.sync.recordAccessMoves(new Map([['', 3]]))
+    expect((await reconnect(compacted, { ...compacted.held, seq: 2 })).types()).toEqual([
+      'feedRescope',
+    ])
+    expect((await reconnect(compacted, { ...compacted.held, seq: 3 })).types()).toEqual([
+      'feedResyncRequired',
+    ])
+  })
+
+  it('keeps the other refusals a resync, whatever the access-move log says', async () => {
+    const ctx = await servedOnce()
+    const human = String(DEVICE_GRADE_PRINCIPAL.kind === 'user' && DEVICE_GRADE_PRINCIPAL.user)
+    await ctx.p.store.sync.recordAccessMoves(new Map([[human, ctx.held.seq]]))
+    for (const cursor of [
+      { ...ctx.held, seq: ctx.held.seq + 1 },
+      { ...ctx.held, feedId: 'someone-elses-feed', seq: 0 },
+    ]) {
+      expect((await reconnect(ctx, cursor)).types()).toEqual(['feedResyncRequired'])
+    }
+  })
+
   it('grants the head to a cold HTTP hello that presents no cursor', async () => {
     const ctx = await servedOnce()
     const peer = await reconnect(ctx, undefined)

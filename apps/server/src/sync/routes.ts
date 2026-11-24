@@ -6,8 +6,10 @@ import {
   CollectionFetchRequest,
   CollectionInstance,
   type Principal,
+  parseSyncBootstrapSince,
   parseSyncDeltaQuery,
   principalRoutingId,
+  SYNC_ACCESS_MOVED_HEADER,
   SyncBootstrapRequiredReason,
   syncRecoveryReason,
 } from '@podium/protocol'
@@ -99,8 +101,10 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
     if (!principal) return syncRefusal('noFeedPrincipal', 'authenticated feed principal required')
     const clientType = clientTypeOf(c.req.raw)
     if (!clientType.ok) return c.json({ error: 'unknown client type' }, 400)
-    const view = parseView(new URL(c.req.url))
+    const url = new URL(c.req.url)
+    const view = parseView(url)
     if (!view.ok) return c.json({ error: view.error }, 400)
+    const since = parseSyncBootstrapSince(url.searchParams)
     const coding = negotiateContentCoding(c.req.raw.headers.get('accept-encoding'))
     if (coding === 'not-acceptable') return c.body(null, 406)
     const routingId = String(principalRoutingId(principal))
@@ -178,9 +182,17 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
         release()
         logSyncTransfer(metrics)
       })
+      // POD-7552: the device reloads over what it held at `since`. When the viewer's
+      // access moved after it, the device must drop what it shows at once.
+      const accessMoved =
+        since !== undefined &&
+        since.feedId === feedId &&
+        since.epoch === epoch &&
+        (await deps.serving.accessMovedAfter(principal, since.seq))
       await transfer.meta // Worker acknowledgement precedes HTTP 200.
       const headers = syncResponseHeaders(coding)
       headers.set('Podium-Transfer-Id', transferId)
+      if (accessMoved) headers.set(SYNC_ACCESS_MOVED_HEADER, '1')
       return new Response(
         observeSyncTransfer(transfer.body, metrics, () => {}),
         { headers },
@@ -292,9 +304,15 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
       }
       if (error instanceof SyncWorkerError) {
         const refusal = SyncBootstrapRequiredReason.safeParse(error.reason)
-        return refusal.success
-          ? syncRefusal('bootstrapRequired', refusal.data)
-          : syncRefusal('admissionFull', error.reason)
+        if (!refusal.success) return syncRefusal('admissionFull', error.reason)
+        // POD-7552: the rows that show an access move in the gap are pruned.
+        // When the viewer's access moved after the cursor, the reload is a rescope.
+        if (
+          refusal.data === 'compacted-or-unknown' &&
+          (await deps.serving.accessMovedAfter(principal, query.data.from))
+        )
+          return syncRefusal('bootstrapRequired', 'rescope')
+        return syncRefusal('bootstrapRequired', refusal.data)
       }
       throw error
     }

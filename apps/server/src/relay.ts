@@ -1323,6 +1323,8 @@ export class SessionRegistry {
       rescopeThreshold: FEED_RESCOPE_THRESHOLD,
       listenerPrincipal: CHANGE_LOG_OBSERVER,
       repo: this.store.sync,
+      // POD-7552: each human's last access move, kept past the log's retention.
+      accessMoves: this.store.sync,
       now: () => this.now(),
       transact: async (fn) => await this.store.transact(fn),
       // Subscriber delivery waits for the OUTERMOST commit, not for the nested
@@ -1654,6 +1656,7 @@ export class SessionRegistry {
         () => randomUUID(),
       ),
       retention: { minAvailableSeq: async () => await this.store.sync.minChangeSeq() },
+      accessMoves: this.store.sync,
       subscriptions,
       // Rooms and topics are re-checked on the same trigger as the feed (D24).
       onVisibilityChanged: async (subscriberIds) => {

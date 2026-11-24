@@ -59,7 +59,7 @@ function fixture() {
   const deps: SyncRouteDeps = {
     principal: async () => DEVICE_GRADE_PRINCIPAL,
     authority: { captureHead: async () => 7, changesRange: async function* () {} },
-    serving: { identity: async () => ({ feedId: 'trusted-feed', epoch: 'trusted-epoch' }), retentionFloor: async () => 1 },
+    serving: { identity: async () => ({ feedId: 'trusted-feed', epoch: 'trusted-epoch' }), retentionFloor: async () => 1, accessMovedAfter: async () => false },
     worker: () => ({ bootstrap }),
     workspaceOf: boundWorkspaceForTests,
   }

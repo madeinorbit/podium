@@ -22,7 +22,7 @@ export const transferLog = createLogger('sync-http')
 
 export interface SyncDeltaPorts {
   authority: Pick<AuthorityPort, 'captureHead' | 'changesRange'>
-  serving: Pick<FeedServing, 'identity' | 'retentionFloor'>
+  serving: Pick<FeedServing, 'identity' | 'retentionFloor' | 'accessMovedAfter'>
 }
 
 /** Shared with tRPC: transport authentication supplies identity, never query fields. */

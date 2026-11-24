@@ -140,6 +140,7 @@ export function podiumCors(policy: OriginPolicy = {}): MiddlewareHandler {
     },
     // The whole point: the login session cookie rides these calls.
     credentials: true,
-    exposeHeaders: ['Podium-Transfer-Id'],
+    // POD-7552: a reload answer says the viewer's access moved (`SYNC_ACCESS_MOVED_HEADER`).
+    exposeHeaders: ['Podium-Transfer-Id', 'Podium-Sync-Access-Moved'],
   })
 }

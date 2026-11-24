@@ -249,6 +249,39 @@ export function parseSyncDeltaQuery(
   return SyncDeltaQuery.safeParse(fields)
 }
 
+/**
+ * POD-7552 — the cursor a device held before a full reload, on `GET /sync/bootstrap`:
+ * `sinceFeedId`, `sinceEpoch` and `since`. The server answers whether the viewer's access
+ * moved after it in {@link SYNC_ACCESS_MOVED_HEADER}, so the device drops what it showed at
+ * once instead of keeping it on screen through the load.
+ */
+export const SYNC_BOOTSTRAP_SINCE_PARAMS = {
+  feedId: 'sinceFeedId',
+  epoch: 'sinceEpoch',
+  seq: 'since',
+} as const
+/** POD-7552 — `1` on a bootstrap answer when the viewer's access moved after `since`. */
+export const SYNC_ACCESS_MOVED_HEADER = 'Podium-Sync-Access-Moved'
+
+const SyncBootstrapSince = z.object({
+  feedId: CertifiedRangeFields.feedId,
+  epoch: CertifiedRangeFields.epoch,
+  seq: QuerySeq,
+})
+export type SyncBootstrapSince = z.infer<typeof SyncBootstrapSince>
+
+/** The bootstrap's `since` cursor; undefined when absent or malformed (it only adds a check). */
+export function parseSyncBootstrapSince(query: SyncQueryParams): SyncBootstrapSince | undefined {
+  const fields: Record<string, unknown> = {}
+  for (const [field, key] of Object.entries(SYNC_BOOTSTRAP_SINCE_PARAMS)) {
+    const value = singleQueryValue(query, key)
+    if (value === undefined) return undefined
+    fields[field] = value
+  }
+  const parsed = SyncBootstrapSince.safeParse(fields)
+  return parsed.success ? parsed.data : undefined
+}
+
 export type SyncDeltaChainViolation =
   | FeedFrameViolation
   | 'meta-required'

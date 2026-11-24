@@ -45,10 +45,15 @@ function fixture() {
   const forbidden = vi.fn((): never => {
     throw new Error('main-thread data read')
   })
+  const accessMoved = vi.fn(async (_principal: unknown, _seq: number) => false)
   const deps: SyncRouteDeps = {
     principal: vi.fn(async () => DEVICE_GRADE_PRINCIPAL),
     authority: { captureHead: forbidden, changesRange: forbidden },
-    serving: { identity: async () => ({ feedId: 'f', epoch: 'e' }), retentionFloor: forbidden },
+    serving: {
+      identity: async () => ({ feedId: 'f', epoch: 'e' }),
+      retentionFloor: forbidden,
+      accessMovedAfter: accessMoved,
+    },
     worker: () => ({ bootstrap, delta, collections }),
     pageRows: 3,
     workspaceOf: boundWorkspaceForTests,
@@ -58,7 +63,7 @@ function fixture() {
   registerSyncRoutes(app, deps)
   const request = (query = 'feedId=f&epoch=e&from=0', coding = 'identity') =>
     app.request(`/sync/delta?${query}`, { headers: { 'accept-encoding': coding } })
-  return { app, deps, delta, collections, forbidden, request }
+  return { app, deps, delta, bootstrap, collections, forbidden, accessMoved, request }
 }
 
 describe('sync transfer diagnostic fields', () => {
@@ -211,6 +216,35 @@ describe('worker delta route', () => {
     expect(response.status).toBe(409)
     expect(await response.json()).toEqual({ kind: 'bootstrap-required', reason })
   })
+  // POD-7552: the rows that would show the access move are pruned; the access-move log is not.
+  it("answers a compacted cursor as a rescope when the viewer's access moved after it", async () => {
+    const f = fixture()
+    f.delta.mockImplementation(() => {
+      throw new SyncWorkerError('compacted-or-unknown')
+    })
+    f.accessMoved.mockImplementation(async (_principal, seq) => seq < 5)
+    const moved = await f.request('feedId=f&epoch=e&from=4')
+    expect(await moved.json()).toEqual({ kind: 'bootstrap-required', reason: 'rescope' })
+    expect(f.accessMoved).toHaveBeenLastCalledWith(DEVICE_GRADE_PRINCIPAL, 4)
+    const unmoved = await f.request('feedId=f&epoch=e&from=5')
+    expect(await unmoved.json()).toEqual({
+      kind: 'bootstrap-required',
+      reason: 'compacted-or-unknown',
+    })
+  })
+  it('asks the access-move log only for a compacted cursor', async () => {
+    const f = fixture()
+    f.delta.mockImplementation(() => {
+      throw new SyncWorkerError('future-cursor')
+    })
+    f.accessMoved.mockImplementation(async () => true)
+    expect(await (await f.request()).json()).toEqual({
+      kind: 'bootstrap-required',
+      reason: 'future-cursor',
+    })
+    expect((await f.request('feedId=f&epoch=e&from=2&to=6')).status).toBe(409)
+    expect(f.accessMoved).not.toHaveBeenCalled()
+  })
   it('refuses unavailable worker, principal and encoding', async () => {
     const f = fixture()
     f.deps.worker = () => undefined
@@ -218,6 +252,41 @@ describe('worker delta route', () => {
     expect((await f.request(undefined, 'identity;q=0,*;q=0')).status).toBe(406)
     f.deps.principal = async () => undefined
     expect((await f.request()).status).toBe(403)
+  })
+})
+
+describe('bootstrap since (POD-7552)', () => {
+  const bootstrapAt = (f: ReturnType<typeof fixture>, query: string) =>
+    f.app.request(`/sync/bootstrap${query}`, { headers: { 'accept-encoding': 'identity' } })
+
+  it("says the viewer's access moved after the cursor the device held", async () => {
+    const f = fixture()
+    f.accessMoved.mockImplementation(async (_principal, seq) => seq < 7)
+    const moved = await bootstrapAt(f, '?sinceFeedId=f&sinceEpoch=e&since=6')
+    expect(moved.status).toBe(200)
+    expect(moved.headers.get('podium-sync-access-moved')).toBe('1')
+    expect(f.accessMoved).toHaveBeenLastCalledWith(DEVICE_GRADE_PRINCIPAL, 6)
+    const unmoved = await bootstrapAt(f, '?sinceFeedId=f&sinceEpoch=e&since=7')
+    expect(unmoved.status).toBe(200)
+    expect(unmoved.headers.get('podium-sync-access-moved')).toBeNull()
+  })
+
+  it('asks nothing for a cold device, another feed or a malformed cursor', async () => {
+    const f = fixture()
+    f.accessMoved.mockImplementation(async () => true)
+    for (const query of [
+      '',
+      '?sinceFeedId=other&sinceEpoch=e&since=6',
+      '?sinceFeedId=f&sinceEpoch=other&since=6',
+      '?sinceFeedId=f&sinceEpoch=e&since=-1',
+      '?sinceFeedId=f&sinceEpoch=e',
+    ]) {
+      const response = await bootstrapAt(f, query)
+      expect(response.status).toBe(200)
+      expect(response.headers.get('podium-sync-access-moved')).toBeNull()
+    }
+    expect(f.accessMoved).not.toHaveBeenCalled()
+    expect(f.bootstrap).toHaveBeenCalledTimes(5)
   })
 })
 

@@ -158,6 +158,7 @@ async function fixture() {
     serving: {
       identity: async () => ({ feedId: 'fixture-feed', epoch: 'fixture-epoch' }),
       retentionFloor: async () => (await store.sync.minChangeSeq()) ?? 1,
+      accessMovedAfter: async () => false,
     },
   })
   return {

@@ -78,6 +78,7 @@ export async function feedTestPlumbing(
     ...(opts.visibility ? { visibility: opts.visibility } : {}),
     ...(opts.anchors ? { anchors: opts.anchors } : {}),
     repo: store.sync,
+    accessMoves: store.sync,
     now: () => 1_000,
     transact: async (fn) => await store.transact(fn),
     // Match relay.ts: this is a real transactional store, so queued delivery
@@ -104,6 +105,7 @@ export async function feedTestPlumbing(
       },
     ),
     retention: opts.retention ?? { minAvailableSeq: async () => await store.sync.minChangeSeq() },
+    accessMoves: store.sync,
     subscriptions,
     ...(opts.onVisibilityChanged ? { onVisibilityChanged: opts.onVisibilityChanged } : {}),
     diagnostics: opts.diagnostics ?? (() => []),

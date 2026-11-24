@@ -27,7 +27,7 @@ import type {
   ScopedDelivery,
   ServerFrame,
 } from '@podium/sync'
-import { extendBatch, FeedPublisher } from '@podium/sync'
+import { extendBatch, FeedPublisher, humanOf } from '@podium/sync'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
 import { createFrameFlusher, runAtRoot, withReadScope } from '../publication-scope'
@@ -57,6 +57,9 @@ const log = createLogger('server:gateway')
  * anyone thought to ask.
  */
 const MIN_RESUME_WIRE_VERSION = 2
+
+/** POD-7552 — the reason a refused resume is answered as a rescope. */
+export const ACCESS_MOVED_IN_GAP = 'access-moved-in-gap'
 
 /** One admitted client, as this module needs it. */
 export interface FeedPeer extends EdgePeer {
@@ -133,12 +136,23 @@ export interface FeedServingDeps {
   readonly identity: FeedIdentityRegistry
   /** ADR 2 D5's floor, read live per frame. */
   readonly retention: FeedRetentionPort
+  /**
+   * POD-7552 — each human's last access move. Absent, a refused resume is
+   * always `feedResyncRequired` and a reload never reports a move.
+   */
+  readonly accessMoves?: FeedAccessMovesPort
   /** The gateway's ONE routing table, shared with room presence. */
   readonly subscriptions: SubscriptionRegistry
 
   diagnostics(): ConversationDiagnosticWire[]
   /** Rights moved: revalidate ephemeral rooms held by these same subscribers. */
   onVisibilityChanged?(subscriberIds: readonly SubscriberId[]): void | Promise<void>
+}
+
+/** POD-7552 — the read half of the access-move log (`SyncRepository`). */
+export interface FeedAccessMovesPort {
+  /** Did the human's access move after `seq`, or did recording start after it? */
+  accessMovedAfter(human: string, seq: number): Promise<boolean>
 }
 
 export class FeedServing {
@@ -353,8 +367,28 @@ export class FeedServing {
       await this.deps.identity.resolve()
       if (this.abandoned(peer)) return
       const cursor = { ...this.deps.identity.current(), seq: await this.deps.authority.cursor() }
-      await this.serveResume(peer, principal, routingPrincipal, cursor, refusal)
+      // POD-7552: the rows that would show an access move in the gap are pruned,
+      // so the log cannot tell; the access-move log can.
+      const rescope =
+        refusal === 'compacted-or-unknown' &&
+        resumeFrom !== undefined &&
+        (await this.accessMovedAfter(principal, resumeFrom.seq))
+      await this.serveResume(peer, principal, routingPrincipal, cursor, refusal, rescope)
     })
+  }
+
+  /**
+   * POD-7552 — did this principal's access move after `seq`, or can the server
+   * not tell (the cursor predates the access-move log)? A refused resume or a
+   * reload from such a cursor is a RESCOPE: the device's screens may show what
+   * the viewer can no longer see, so they must not stay on screen through the
+   * load. A principal with no human has no audience to be in (D14.3).
+   */
+  async accessMovedAfter(principal: Principal, seq: number): Promise<boolean> {
+    const port = this.deps.accessMoves
+    const human = humanOf(principal)
+    if (port === undefined || human === null) return false
+    return await port.accessMovedAfter(String(human), seq)
   }
 
   /**
@@ -416,6 +450,7 @@ export class FeedServing {
     routingPrincipal: Principal,
     cursor: FeedCursorField,
     resyncReason?: string,
+    rescope = false,
   ): Promise<void> {
     const t0 = performance.now()
     const perfKey = perfPrincipal(this.deps.workspaceId, principal)
@@ -430,15 +465,24 @@ export class FeedServing {
     }
     this.edge.publishTo(
       peer,
-      resyncReason !== undefined
-        ? {
-            type: 'feedResyncRequired',
-            feedId: identity.feedId,
-            epoch: identity.epoch,
-            cause: 'authority-shed-load',
-            reason: resyncReason,
-          }
-        : resume,
+      resyncReason === undefined
+        ? resume
+        : rescope
+          ? {
+              type: 'feedRescope',
+              feedId: identity.feedId,
+              epoch: identity.epoch,
+              seq: cursor.seq,
+              cause: 'rights-changed',
+              reason: ACCESS_MOVED_IN_GAP,
+            }
+          : {
+              type: 'feedResyncRequired',
+              feedId: identity.feedId,
+              epoch: identity.epoch,
+              cause: 'authority-shed-load',
+              reason: resyncReason,
+            },
     )
     this.servedVersion.set(peer.id, peer.wireVersion)
     this.connections.set(peer.id, this.publisher.connect(peer.id, cursor.seq, principal))
