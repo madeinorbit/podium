@@ -32,6 +32,7 @@ export const UNTRACKED_READS: Readonly<Record<string, string>> = {
   'collections-observe-marker': 'Marker bookkeeping before the keyed marker read, whose demand atom the reader observes.',
   'collections-hold-while-read': 'Hold bookkeeping keyed by the read demand atom the reader observes; it answers only whether a view observes that key.',
   'collections-hold-record': 'The hold entry for a key whose read demand atom the reader just observed; bookkeeping, not an answer.',
+  'collections-tree-in-flight': "Whether an open view holds an ancestor's tree now; the reader then holds that tree too and observes its marker, which moves when the tree completes.",
   'seat-verdicts-first-read': "The first read builds an issue's entry from tracked rows; its owner and deadline bookkeeping is maintenance, and the entry's observable summary carries every later change.",
   'worktree-path': "The reader observes the path key's demand atom first; maintenance reports it whenever that key's canonical path changes.",
   'warmup-list-plan': 'Plan a warm-up list change into slices; only the list is tracked, each slice reaction observes its own rows.',

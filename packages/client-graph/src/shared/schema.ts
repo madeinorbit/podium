@@ -1014,7 +1014,7 @@ const DECLARED = defineSchema({
         lazy: true,
         why: 'Issues checked out here. Composing it with `sessions` is how an issue reaches its prefix-owned sessions.',
         readsPolicy:
-          'An issue checked out at a path is open work, which the sidebar collection holds; a keyed collection would need an index the server does not have (idx_issues_worktree holds only issues that are not deleted).',
+          "An issue's worktreePath is execution-private, so a collection keyed by a path would tell anyone which issues sit there (the leak POD-7582 closed for startedBy), and the session pane would ask one instance per ancestor of a cwd. It reads what the policy holds: open issues (sidebar) and those changed in the last N days (recent). A closed issue whose checkout is not collected yet and that changed longer ago reads as absent.",
       }),
       repo: belongsTo({
         to: 'repo',
@@ -1063,7 +1063,7 @@ const DECLARED = defineSchema({
     relations: {
       issues: hasMany({
         to: 'issue', inverse: 'repo', lazy: true, why: 'Every issue in the repo; holds closed ones.',
-        readsPolicy: "Every issue of a repo is its whole history, which no device holds: a reader reads a repo's issues a stage page at a time (`issueProjection.byStage`) or from the stubs.",
+        readsPolicy: "No reader. A repo's whole history is never held on a device; a reader would need a paged collection of its own.",
       }),
       worktrees: hasMany({ to: 'worktree', inverse: 'repo', lazy: false, why: 'The repo’s lanes.' }),
     },

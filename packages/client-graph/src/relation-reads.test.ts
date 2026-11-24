@@ -575,4 +575,86 @@ describe('a to-many relation held through a collection of its own', () => {
     await device.untilIdle()
     expect(device.liveHolds(top)).toBe(0)
   })
+
+  /** An epic `top` with two sub-issues, each with an old child the policy never brought. */
+  const epic = (server: Server) => {
+    openIssue(server, 'top', {})
+    openIssue(server, 'mid', { parentId: 'top' })
+    openIssue(server, 'mid2', { parentId: 'top' })
+    oldIssue(server, { parentId: 'mid' })
+    server.put(ISSUE, 'old2', closedValue('old2', { seq: 91, updatedAt: OLD, parentId: 'mid2' }))
+  }
+  const treeAt = (root: string) =>
+    ({ collection: 'issueProjection.tree', args: { root }, part: 'main' }) as const
+
+  it('waits on a tree a deck is loading, asking for no subtree of its own', async () => {
+    const device = await openEmptyDevice({ world: epic })
+    devices.push(device)
+    // The deck asks for its root's tree; before it arrives, rows under it read their children.
+    device.observe(
+      () => null,
+      () => device.pool.collections.treeHeld('top'),
+    )
+    const answers = new Map<string, unknown[]>()
+    for (const id of ['mid', 'mid2']) {
+      const issue = device.pool.issueObject(id)
+      const seen: unknown[] = []
+      answers.set(id, seen)
+      device.observe(
+        () => issue,
+        (model) => seen.push(answerOf(model.children)),
+      )
+    }
+    await device.untilIdle()
+    expect(device.requestedKeys()).toEqual(['issueProjection.tree{"root":"top"}'])
+    expect(answers.get('mid')?.[0]).toBe('LOADING')
+    expect(answers.get('mid')?.at(-1)).toEqual([OLD_ISSUE])
+    expect(answers.get('mid2')?.at(-1)).toEqual(['old2'])
+  })
+
+  it("releases a sub-issue's own subtree when its read closes", async () => {
+    const device = await openEmptyDevice({ world: epic })
+    devices.push(device)
+    const mid = device.pool.issueObject('mid')
+    const answers: unknown[] = []
+    const opened = device.observe(
+      () => mid,
+      (model) => answers.push(answerOf(model.children)),
+    )
+    await device.untilIdle()
+    expect(answers.at(-1)).toEqual([OLD_ISSUE])
+    expect(device.requestedKeys()).toEqual(['issueProjection.tree{"root":"mid"}'])
+    expect(device.liveHolds(treeAt('mid'))).toBe(1)
+    opened.close()
+    await device.untilIdle()
+    expect(device.liveHolds(treeAt('mid'))).toBe(0)
+  })
+
+  it("moves to an ancestor's tree once it completes, releasing its own subtree", async () => {
+    const device = await openEmptyDevice({ world: epic })
+    devices.push(device)
+    const mid = device.pool.issueObject('mid')
+    const answers: unknown[] = []
+    const opened = device.observe(
+      () => mid,
+      (model) => answers.push(answerOf(model.children)),
+    )
+    await device.untilIdle()
+    expect(device.liveHolds(treeAt('mid'))).toBe(1)
+    const deck = device.observe(
+      () => null,
+      () => device.pool.collections.treeHeld('top'),
+    )
+    await device.untilIdle()
+    expect(answers.at(-1)).toEqual([OLD_ISSUE])
+    expect(device.liveHolds(treeAt('mid'))).toBe(0)
+    // One hold per instance, however many readers share it.
+    expect(device.liveHolds(treeAt('top'))).toBe(1)
+    deck.close()
+    await device.untilIdle()
+    expect(device.liveHolds(treeAt('top')), 'the child read keeps the tree').toBe(1)
+    opened.close()
+    await device.untilIdle()
+    expect(device.liveHolds(treeAt('top'))).toBe(0)
+  })
 })

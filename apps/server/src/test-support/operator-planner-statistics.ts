@@ -24,6 +24,12 @@
  * `idx_issues_tombstones`, `idx_sessions_tombstones` and `idx_issues_children`.
  * Their rows are what ANALYZE gives those on the same data, from index-only
  * counts of the non-NULL keys.
+ *
+ * One row is modelled, not captured: `idx_issues_started_by` (POD-7431) came
+ * after the capture. It is partial over the issues that name a starter
+ * session; its row assumes a third of the 7351 issues do, a few to a session
+ * (POD-7582, so `issueProjection.startedBy` is planned under numbers of the
+ * operator's shape rather than SQLite's default). The next refresh replaces it.
  */
 export const OPERATOR_STATISTICS_CAPTURED_AT = '2026-11-16'
 
@@ -87,6 +93,7 @@ export const OPERATOR_PLANNER_STATISTICS: readonly (readonly [
   ['issues', 'idx_issues_tombstones', '65 1'],
   ['issues', 'idx_issues_duplicate_of', '142 2'],
   ['issues', 'idx_issues_children', '5638 8'],
+  ['issues', 'idx_issues_started_by', '2450 3'],
   ['issues', 'idx_issues_repo', '7351 53'],
   ['issues', 'idx_issues_repo_id_seq', '7351 251 1'],
   ['issues', 'idx_issues_seq', '7351 5 1 1'],

@@ -832,9 +832,12 @@ export class PoolCollections {
    * TRACKED (POD-7582): whether the device holds every issue under `id`
    * WHOLE, as a child relation reads it (`issue.children`,
    * `issue.treeChildren`): the tree of `id` or of one of its ancestors is
-   * complete, and the reader holds that tree while it reads it. When none
-   * is, it holds and asks for the tree of `id` itself, never of its
-   * top-level ancestor, so a leaf of a large epic downloads only its own
+   * complete, and the reader holds that tree (the widest complete one) while
+   * it reads it. While an
+   * open view holds such a tree that is still loading (a flight deck opening
+   * on its root), the reader holds it too and waits, asking for nothing
+   * more. Otherwise it holds and asks for the tree of `id` itself, never of
+   * its top-level ancestor, so a leaf of a large epic downloads only its own
    * subtree. A flight deck that holds its root's tree answers every child
    * read under it from that one instance.
    */
@@ -842,17 +845,34 @@ export class PoolCollections {
     return this.behind(() => {
       const loader = this.loader()
       if (loader === undefined) return this.fullDeviceFixture && !this.disposed
-      for (const at of this.chainOf(id)) {
+      const chain = this.chainOf(id)
+      // The widest complete tree: once an ancestor's completes, the source's
+      // own subtree is no longer held for this read.
+      for (const at of [...chain].reverse()) {
         const tree = treeOf(at, 'main')
         if (!this.complete(tree)) continue
         this.holdWhileRead(tree)
         return true
+      }
+      // An ancestor's: the source's own tree is asked for below, as every read asks.
+      for (const at of chain.slice(1)) {
+        const tree = treeOf(at, 'main')
+        if (!this.heldByView(tree)) continue
+        this.holdWhileRead(tree)
+        return false
       }
       const own = treeOf(id, 'main')
       this.holdWhileRead(own)
       loader.request([own], 'visible')
       return false
     })
+  }
+
+  /** Whether an open view holds `spec` now: it asked for it, and it is on its way or here. */
+  private heldByView(spec: LoaderInstance): boolean {
+    const key = readKey(spec)
+    // untracked-read: collections-tree-in-flight
+    return sideStateUpkeep(() => this.reads.get(key)?.release !== undefined)
   }
 
   /** TRACKED: `id` and each ancestor the device holds a stub of, nearest first. */

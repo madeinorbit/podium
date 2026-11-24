@@ -83,9 +83,13 @@ describe('the classification, from the declarations alone', () => {
     })
   })
 
-  it('calls a relation that declares it reads the policy a policy read', () => {
-    for (const relation of ['worktree.sessions', 'worktree.issues', 'repo.issues'])
-      expect(readOf(relation)?.kind, relation).toBe('policy')
+  it('calls exactly the relations that declare it policy reads', () => {
+    // Pinned: a new `readsPolicy` changes this list, so it cannot pass unreviewed.
+    const policy = relationReads()
+      .filter((row) => row.read.kind === 'policy')
+      .map((row) => row.relation)
+      .sort()
+    expect(policy).toEqual(['repo.issues', 'worktree.issues', 'worktree.sessions'])
   })
 
   it('calls a single relation to a kind looked up by id a lookup', () => {
