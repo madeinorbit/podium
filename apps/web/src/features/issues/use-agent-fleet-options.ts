@@ -1,26 +1,10 @@
-/**
- * ONE READING OF "CAN THIS HARNESS RUN HERE", FOR EVERY ISSUE SURFACE (POD-1457).
- *
- * The shell offers "start an agent" from several places, and POD-1201 already
- * made the spawn menus agree: a harness the target machines cannot run stays
- * VISIBLE and goes grey, with `not installed` beside it, because a row that
- * simply disappears is indistinguishable from one this build never supported.
- *
- * The issue surfaces were the holdout. `NewIssueDialog` did the work inline;
- * the launch box on the issue page and in the right dock's task panel listed
- * every harness the build knows about as equally startable, so picking Cursor
- * on a machine without Cursor wrote a default that could only fail later — a
- * refusal delivered as a dead session instead of as a greyed row.
- *
- * This hook is that reading, once: the issue's repo resolved to the machines
- * that hold it, each candidate machine's availability folded into one fleet
- * status per harness. Gating is UX only; the Authority re-authorizes at apply
- * (ADR 3 D8).
- */
-import { usePoolMachines, usePoolRepositories } from '@/app/header-data'
+/** Shared capability choices for an issue's repository and optional pinned host.
+ * Missing harnesses move into Set up agents; offline/probing readings stay visible. */
+
 import { type RepoView, reposToViews } from '@podium/client-core/values'
 import { machinesForRepoOrClone } from '@podium/model/browser'
 import { useMemo } from 'react'
+import { usePoolMachines, usePoolRepositories } from '@/app/header-data'
 import type { IssueViewModel } from '@/app/store'
 import { agentFleetStatus, candidateFromAvailability } from '@/lib/agent-capability'
 import {
@@ -46,17 +30,24 @@ export interface AgentFleetOption {
  * fleet is not evidence that a harness is missing, and greying the whole list
  * on a cold replica would be a refusal the shell cannot support.
  */
-export function useAgentFleetOptions(
-  issue: Partial<Pick<IssueViewModel, 'repoPath'>>,
-): AgentFleetOption[] {
+export function useAgentFleet(
+  issue: Partial<Pick<IssueViewModel, 'repoPath' | 'machineId'>>,
+  allMachines = false,
+) {
   // Records (POD-6644): the repositories from checkouts, my machines' models.
   const repos = usePoolRepositories()
   const machines = usePoolMachines()
-  const repoPath = issue.repoPath
+  const { repoPath, machineId } = issue
   return useMemo(() => {
     const repoView: RepoView | undefined = reposToViews(repos).find((r) => r.path === repoPath)
-    const hosts = repoView ? machinesForRepoOrClone(repoView, machines) : []
-    return ISSUE_AGENT_KINDS.map((kind) => {
+    const hosts = machineId
+      ? machines.filter((machine) => machine.id === machineId)
+      : allMachines
+        ? machines
+        : repoView
+          ? machinesForRepoOrClone(repoView, machines)
+          : []
+    const options = ISSUE_AGENT_KINDS.map((kind) => {
       const label = issueAgentLabel(kind)
       const candidates = hosts.map((machine) =>
         candidateFromAvailability(
@@ -72,5 +63,16 @@ export function useAgentFleetOptions(
         status: hosts.length > 0 ? agentFleetStatus(candidates, label) : {},
       }
     })
-  }, [repos, machines, repoPath])
+    return {
+      machines: hosts,
+      setupMachines: hosts.length ? hosts : machines,
+      options,
+    }
+  }, [repos, machines, repoPath, machineId, allMachines])
+}
+
+export function useAgentFleetOptions(
+  issue: Partial<Pick<IssueViewModel, 'repoPath' | 'machineId'>>,
+): AgentFleetOption[] {
+  return useAgentFleet(issue).options
 }

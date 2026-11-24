@@ -54,6 +54,19 @@ const HarnessInstallVersion = z.object({
 })
 
 /**
+ * A managed install's live progress (POD-7471): `download` while the vendor is
+ * asked and the release fetched (bytes when a file streams; `totalBytes` when
+ * the vendor names the size), `verify` while Podium checks the binary from
+ * outside, `setup` while it publishes the release and readies the Podium home.
+ */
+export const HarnessInstallProgress = z.object({
+  phase: z.enum(['download', 'verify', 'setup']),
+  receivedBytes: z.number().int().nonnegative().optional(),
+  totalBytes: z.number().int().positive().optional(),
+})
+export type HarnessInstallProgress = z.infer<typeof HarnessInstallProgress>
+
+/**
  * `USE` — the two installs of one harness (docs/design/harness-managed-installs.md
  * §6.1 and §8): the person's own and Podium's. Present only when Podium has
  * managed this harness on the machine (the install ledger has a row for it), so
@@ -84,7 +97,13 @@ export const AgentInstallWire = z.object({
       /** When the vendor was last asked. */
       lastCheckAt: z.string().optional(),
       /** A requested installation is filling a new release. */
-      installing: z.object({ version: z.string().optional() }).optional(),
+      installing: z
+        .object({
+          version: z.string().optional(),
+          /** Where the install is; absent from daemons that report no progress. */
+          progress: HarnessInstallProgress.optional(),
+        })
+        .optional(),
       /** Removal waits for the last running session; homes are kept. */
       removingAt: z.string().optional(),
       /** A person paused updates. */

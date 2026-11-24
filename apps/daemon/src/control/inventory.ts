@@ -26,6 +26,7 @@ import {
   managementAccountFor,
   managementContextFor,
   managementInventoryCacheKey,
+  ownLoginContextFor,
   resolveManagementAccount,
   resolveManagementCredentialHome,
 } from '../harness-management.js'
@@ -34,6 +35,7 @@ import { withHomeLogins } from '../homes/logins'
 import { homeModelProbe } from '../homes/probes'
 import { isPodiumHome } from '../homes/registry'
 import { opencode2VersionProbe } from '../runtime/version-probe'
+import { machineHomeFacts } from '../session-harness-context'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const log = createLogger('daemon:inventory')
@@ -206,7 +208,15 @@ function reportHarnessInventory(send: DaemonContext['send'], inventory: Inventor
  */
 export async function reportInventory(
   ctx: HarnessManagementContext,
-  opts: { rebuild?: boolean; reprobe?: boolean } = {},
+  opts: {
+    rebuild?: boolean
+    reprobe?: boolean
+    /**
+     * Send the snapshot as last observed, without a new probe wave: install
+     * progress (POD-7471) reports twice a second and changes only the overlay.
+     */
+    settled?: boolean
+  } = {},
 ): Promise<void> {
   // The separator is a real NUL written as an ESCAPE, deliberately. NUL cannot
   // occur in a machineId or a path, so the composite key can never collide --
@@ -221,9 +231,9 @@ export async function reportInventory(
       // single-flight, so an initial boot wave or periodic tick joins rather
       // than supersedes the observation that is about to repair the server's
       // persisted inventory row.
-      const snapshot = await (opts.rebuild
-        ? ctx.harnessRuntime.refresh()
-        : ctx.harnessRuntime.reprobe())
+      const snapshot = opts.settled
+        ? (ctx.harnessRuntime.settled() ?? (await ctx.harnessRuntime.current()))
+        : await (opts.rebuild ? ctx.harnessRuntime.refresh() : ctx.harnessRuntime.reprobe())
       if (!ctx.harnessRuntime.isCurrent(snapshot)) return
       // Declared server alternatives admitted by probe (POD-4737 D1): each
       // alternative states its own probe binary, resolved here and probed
@@ -255,11 +265,19 @@ export async function reportInventory(
         inventory: {
           // One login per home, `default` first (credential management §10).
           ...(ctx.homes
-            ? withHomeLogins(inventory, ctx.homes.list(), {
-                home:
-                  resolveManagementCredentialHome(ctx) ?? snapshot.commandEnvironment.machineHome,
-                env: snapshot.commandEnvironment.env,
-              })
+            ? withHomeLogins(
+                inventory,
+                ctx.homes.list(),
+                {
+                  home:
+                    resolveManagementCredentialHome(ctx) ?? snapshot.commandEnvironment.machineHome,
+                  env: snapshot.commandEnvironment.env,
+                },
+                // The installs this wave found and the logins on each side: a
+                // harness whose own login is the Podium home's reports that
+                // home's login as its own (POD-7494, POD-7496).
+                machineHomeFacts(ctx, snapshot),
+              )
             : inventory),
           homePath: snapshot.commandEnvironment.machineHome,
           runtimeDrivers,
@@ -405,8 +423,10 @@ export function startInventoryRefresh(
  * account. The Claude OAuth token comes from the account's credential folder.
  *
  * The first catalog read after a start (a client opening the app) lands here,
- * so these contexts name the person's own folders: the harness package lists
- * them contained (POD-7390), and a listing leaves those folders unchanged.
+ * so these contexts name the folders of the machine's own login: the
+ * person's own folders, or the Podium home where that login lives there
+ * (POD-7496). The harness package lists them contained (POD-7390), and a
+ * listing leaves those folders unchanged.
  */
 async function runModelProbe(
   ctx: HarnessManagementContext,
@@ -424,10 +444,13 @@ async function runModelProbe(
     // so it takes an account (asked for by its own kind), not a context. A
     // harness this generation did not install gets no context and no probe.
     // No harness named here.
+    // The machine's own login (POD-7496): where it is the Podium home, its
+    // models are read there on Podium's install (`ownLoginContextFor`), and
+    // Claude's through that home's login (`managementAccountFor`).
     const contexts: Partial<Record<ProbeableAgent, HarnessContext>> = {}
     if (account) {
       for (const kind of PROBEABLE_AGENTS) {
-        const context = managementContextFor(account, kind as BuiltinHarnessKind)
+        const context = ownLoginContextFor(account, kind as BuiltinHarnessKind)
         if (context) contexts[kind] = context
       }
     }

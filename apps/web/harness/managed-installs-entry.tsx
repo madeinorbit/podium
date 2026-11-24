@@ -1,10 +1,11 @@
-/** Seven section 8 states, rendered by the product's shared model and real list component. */
+/** Seven section 8 states, rendered by the product's shared model and the Set up agents harness page. */
 import type { MachineModel } from '@podium/client-graph'
+import { AgentSetupView } from '@podium/client-graph/agent-setup-view'
 import { MachineHarness } from '@podium/client-graph/machine-harness'
-import { type AgentInventory, asMachineId, type Inventory } from '@podium/model'
+import { type AgentInventory, asMachineId, asSessionId, type Inventory } from '@podium/model'
 import { observableRef } from 'mobx'
 import { createRoot } from 'react-dom/client'
-import { MachineHarnesses } from '@/features/settings/machine-harnesses'
+import { SetupAgentsPanel } from '@/features/setup-agents/SetupAgentsPanel'
 import '@/index.css'
 import '@/styles.css'
 
@@ -120,9 +121,22 @@ class FixtureMachine {
   readonly harnessInstalls = [new MachineHarness(this as unknown as MachineModel, kind)]
 }
 const machine = new FixtureMachine() as unknown as MachineModel
-const client = {
-  harnessInstalls: { action: { mutate: async () => ({ ok: true, outcome: 'confirmed' }) } },
-}
+const view = new AgentSetupView({
+  machine,
+  client: {
+    harnessInstalls: {
+      action: { mutate: async () => ({ ok: true, outcome: 'confirmed' }) as never },
+    },
+    credentials: { login: { mutate: async () => ({ sessionId: asSessionId('login') }) } },
+  },
+  preferences: {
+    credentialDefaults: () => ({}),
+    saveCredentialDefaults: () => {},
+    savedCredentials: () => [],
+  },
+  origin: { kind: 'settings' },
+})
+view.openDetail(kind)
 document.documentElement.setAttribute('data-theme', 'podium')
 document.documentElement.classList.add('dark')
 createRoot(document.getElementById('root')!).render(
@@ -134,7 +148,9 @@ createRoot(document.getElementById('root')!).render(
         <span className="text-xs text-muted-foreground">● Online</span>
       </div>
       <p className="mt-1 text-xs text-muted-foreground">Linux · x86-64</p>
-      <MachineHarnesses machine={machine} client={client} />
+      <section aria-label="Harnesses" className="mt-6">
+        <SetupAgentsPanel view={view} variant="embedded" />
+      </section>
     </div>
   </main>,
 )

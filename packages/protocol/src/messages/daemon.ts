@@ -53,6 +53,7 @@ import {
 } from './host'
 import {
   HarnessBackResultMessage,
+  HarnessCancelInstallResultMessage,
   HarnessChangesResultMessage,
   HarnessCheckResultMessage,
   HarnessHomeInfoResultMessage,
@@ -324,6 +325,8 @@ export const DaemonMessage = z.discriminatedUnion('type', [
    *  appended at the END for index stability. */
   MachineUninstallResultMessage,
   RuntimeContextReadResultMessage,
+  /** Reply to `harnessCancelInstallRequest` (POD-7471), appended at the END for index stability. */
+  HarnessCancelInstallResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>
 

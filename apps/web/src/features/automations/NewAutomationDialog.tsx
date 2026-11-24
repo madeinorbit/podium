@@ -1,5 +1,6 @@
 import { AUTO } from '@podium/client-core/agent-models'
 import type { AutomationSessionMode, MachineId } from '@podium/model/browser'
+import { ChevronDown } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { memo, useMemo, useState } from 'react'
@@ -31,7 +32,9 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { ISSUE_AGENT_KINDS, issueAgentLabel, issueDefaultAgentKind } from '@/lib/issue-agents'
+import { useAgentFleet } from '@/features/issues/use-agent-fleet-options'
+import { CapabilityAgentMenu } from '@/lib/agent-capability'
+import { issueAgentLabel, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import type { Automation } from './AutomationsView'
 import { AutomationEditDraft, localDateTimeValue } from './automation-edit-draft'
@@ -389,22 +392,13 @@ const AutomationField = observer(function AutomationField({
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex min-w-0 flex-col gap-1.5">
           <Label htmlFor={field.id}>{field.label}</Label>
-          <Select
+          <AutomationAgentMenu
+            id={field.id}
             value={state.agent}
-            // Model + effort are scoped to the agent — changing it resets both.
-            onValueChange={(v) => onAgentChange(issueDefaultAgentKind(v))}
-          >
-            <SelectTrigger id={field.id} className="w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {ISSUE_AGENT_KINDS.map((k) => (
-                <SelectItem key={k} value={k}>
-                  {issueAgentLabel(k)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            repoPath={state.target}
+            machineId={machineId}
+            onSelect={(value) => onAgentChange(issueDefaultAgentKind(value))}
+          />
         </div>
         <div className="flex items-end gap-1.5 pb-0.5">
           <ModelPicker
@@ -548,4 +542,40 @@ function coerce(key: keyof AutomationFormState, value: string): Partial<Automati
   if (key === 'reactive') return { reactive: value as ReactiveTrigger }
   if (key === 'sessionMode') return { sessionMode: value as AutomationSessionMode }
   return { [key]: value } as Partial<AutomationFormState>
+}
+
+/** Planning an automation selects its harness; starting remains the scheduler's job. */
+function AutomationAgentMenu({
+  id,
+  value,
+  repoPath,
+  machineId,
+  onSelect,
+}: {
+  id: string
+  value: string
+  repoPath: string
+  machineId?: MachineId
+  onSelect: (value: string) => void
+}): JSX.Element {
+  const fleet = useAgentFleet({ repoPath, machineId }, repoPath === GLOBAL_TARGET)
+  return (
+    <CapabilityAgentMenu
+      trigger={
+        <Button
+          type="button"
+          id={id}
+          variant="outline"
+          className="w-40 justify-between font-normal"
+        >
+          {issueAgentLabel(value)}
+          <ChevronDown size={12} aria-hidden="true" />
+        </Button>
+      }
+      options={fleet.options}
+      selectedValue={value}
+      onSelect={onSelect}
+      setup={{ machineId, machines: fleet.setupMachines }}
+    />
+  )
 }

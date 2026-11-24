@@ -41,6 +41,7 @@ import { HomeHarness, parseHomeId, parsePodiumHomeId } from '@podium/protocol'
 import type { MachineHomeFacts } from './control/access'
 import type { DaemonContext } from './control/context'
 import { resolveManagementCredentialHome } from './harness-management'
+import { ownLoginInPodiumHome, snapshotHomeFacts } from './homes/own-login'
 import { type HarnessHome, isPodiumHome } from './homes/registry'
 import { prepareHomeLaunch, type ShareSource } from './homes/share'
 import { recordedInstallation } from './session-installs'
@@ -50,22 +51,13 @@ const log = createLogger('daemon:harness-context')
 type ContextSource = Pick<DaemonContext, 'harnessRuntime' | 'accountHome' | 'homeDir'> &
   Partial<Pick<DaemonContext, 'access' | 'homes' | 'sessionInstalls'>>
 
-type HomeSource = Partial<Pick<DaemonContext, 'access' | 'homes' | 'harnessRuntime'>>
+type HomeSource = Partial<
+  Pick<DaemonContext, 'access' | 'homes' | 'harnessRuntime' | 'accountHome' | 'homeDir'>
+>
 
 /** A session's credential names a home this machine does not hold. */
 export class HomeNotOnMachineError extends Error {
   override readonly name = 'HomeNotOnMachineError'
-}
-
-/** What a snapshot says of the machine's managed installs (managed installs §4.2). */
-export function snapshotHomeFacts(
-  snapshot: Pick<HarnessExecutableSnapshot, 'managed'> &
-    Partial<Pick<HarnessExecutableSnapshot, 'executables'>>,
-): MachineHomeFacts {
-  return {
-    managedInstall: (kind) => snapshot.managed?.has(kind) ?? false,
-    externalInstall: (kind) => snapshot.executables?.has(kind) ?? false,
-  }
 }
 
 /**
@@ -75,10 +67,26 @@ export function snapshotHomeFacts(
  */
 function settledHomeFacts(ctx: HomeSource): MachineHomeFacts {
   const settled = ctx.harnessRuntime?.settled?.()
-  return {
-    managedInstall: (kind) => settled?.managed?.has(kind) ?? false,
-    externalInstall: (kind) => settled?.executables.has(kind) ?? false,
-  }
+  return settled ? machineHomeFacts(ctx, settled) : { managedInstall: () => false }
+}
+
+/**
+ * The home facts of `snapshot` with the login files of the machine's own login
+ * read through the daemon's credential home (`ownLoginInPodiumHome`): what
+ * every launch path and account read of the `default` login decides by.
+ */
+export function machineHomeFacts(
+  ctx: HomeSource,
+  snapshot: Pick<HarnessExecutableSnapshot, 'managed'> &
+    Partial<Pick<HarnessExecutableSnapshot, 'executables' | 'commandEnvironment'>>,
+): MachineHomeFacts {
+  const home = resolveManagementCredentialHome(ctx) ?? snapshot.commandEnvironment?.machineHome
+  return snapshotHomeFacts(
+    snapshot,
+    home
+      ? { homes: ctx.homes, account: { home, env: snapshot.commandEnvironment?.env ?? {} } }
+      : {},
+  )
 }
 
 /**
@@ -95,9 +103,13 @@ export function sessionHomeFor(
   kind: AgentKind,
   machine: MachineHomeFacts = settledHomeFacts(ctx),
 ): HarnessHome | undefined {
-  if (!sessionId || !ctx.access) return undefined
-  const homeId = ctx.access.homeIdOf(sessionId, machine)
-  if (homeId === undefined) return undefined
+  const homeId = sessionId && ctx.access ? ctx.access.homeIdOf(sessionId, machine) : undefined
+  if (homeId === undefined) {
+    // The machine's own login: the person's folder, or, where only Podium's
+    // install is there, the Podium home (POD-7494).
+    const podiumSide = ownLoginInPodiumHome(kind, machine)
+    return podiumSide && ctx.homes ? ctx.homes.ensurePodiumHome(podiumSide).home : undefined
+  }
   const podium = parsePodiumHomeId(homeId)
   if (podium && podium === kind && ctx.homes) return ctx.homes.ensurePodiumHome(podium).home
   const home = podium ? undefined : ctx.homes?.get(homeId)
@@ -227,7 +239,7 @@ export async function buildSessionHarnessContext(
     sessionId,
     kind,
     (side) => harnessContext(snapshot, kind, home, side),
-    snapshotHomeFacts(snapshot),
+    machineHomeFacts(ctx, snapshot),
   )
 }
 
@@ -274,7 +286,7 @@ export function driverHarnessContextFrom(
       driverId === undefined
         ? harnessContext(snapshot, kind, home, side)
         : harnessDriverContext(snapshot, kind, home, driverId, side),
-    snapshotHomeFacts(snapshot),
+    machineHomeFacts(ctx, snapshot),
   )
 }
 

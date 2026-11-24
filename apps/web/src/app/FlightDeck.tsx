@@ -59,6 +59,7 @@ import { forceReload } from '@/lib/force-reload'
 import { type IssueAgentKind, issueAgentOptions, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { renderReadoutMarkdown } from '@/lib/markdown'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
+import { SetupAgentsMenuItem } from '@/lib/setup-agents-menu-item'
 import { cn } from '@/lib/utils'
 import { useClickIntent } from './click-intent'
 import { FlightDeckFullControls } from './FlightDeckFullControls'
@@ -104,9 +105,24 @@ function MissionAgentMenuContent({
   defaultAgent,
   onAdd,
   hosts,
+  machineId,
 }: MissionAgentMenuProps & { hosts: ReturnType<typeof machineViewsFromWire> }): JSX.Element {
   const [busy, setBusy] = useState(false)
   const options = issueAgentOptions(defaultAgent)
+  // The issue's pin wins. Otherwise use its existing eligible host order;
+  // changing machine in the panel drops this issue-bound handback.
+  const setupHost =
+    hosts.find((host) => host.machine.id === machineId) ??
+    hosts.find(
+      (host) =>
+        host.availability === 'available' &&
+        !candidateFromAvailability(
+          host.machine,
+          host.availability,
+          issueDefaultAgentKind(defaultAgent),
+        ).rejection,
+    ) ??
+    hosts.find((host) => host.availability === 'available')
   const statusFor = (kind: IssueAgentKind, label: string): AgentRowStatus =>
     hosts.length === 0
       ? {}
@@ -140,10 +156,6 @@ function MissionAgentMenuContent({
           </Button>
         }
       />
-      {/* 224px, not the 192 it had: a row now carries a trailing `not installed`
-          beside its label, and at w-48 the widest label truncated to "Add Cur…"
-          — the row would have been refusing a click while hiding WHICH harness
-          it was refusing (POD-1201). */}
       <DropdownMenuContent align="end" className="w-56">
         {options.map((option) => (
           <CapabilityAgentItem
@@ -162,6 +174,11 @@ function MissionAgentMenuContent({
             onSelect={() => add(option.value)}
           />
         ))}
+        <SetupAgentsMenuItem
+          machineId={setupHost?.machine.id ?? machineId}
+          machines={hosts.map((host) => host.machine)}
+          {...(setupHost ? { onStart: (harness: IssueAgentKind) => add(harness) } : {})}
+        />
       </DropdownMenuContent>
     </DropdownMenu>
   )

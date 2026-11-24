@@ -34,6 +34,7 @@ import {
   recoverFromWireSkew,
 } from '@/features/setup/version-guard'
 import { vpsIntroState } from '@/features/setup/vps-activation'
+import { SetupAgentsDialogHost } from '@/features/setup-agents/SetupAgentsDialogHost'
 import { loadAgentPanel } from '@/features/terminal/AgentPanelBoundary'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import { TipHost } from '@/features/tips/TipHost'
@@ -1165,6 +1166,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
           <AutoContinueDialog />
           <ApprovalDialog />
         </Suspense>
+        <SetupAgentsDialogHost />
         {commandPaletteEnabled && <CommandPaletteBoundary />}
         {/* Ref linkify (#474): keep the known-prefix set fresh and host the single
           floating miniview. Both render nothing until there's something to show —

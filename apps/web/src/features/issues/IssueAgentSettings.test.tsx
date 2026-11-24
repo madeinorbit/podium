@@ -2,6 +2,7 @@ import '@/test-support/mock-store-action-ports'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { observable, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
+import { closeSetupAgents, setupAgentsRequest } from '@/features/setup-agents/open-setup-agents'
 import { makeIssue } from '@/lib/test-issue'
 import { modelCatalogFixture } from '@/test-support/model-catalog-mock'
 import { IssueAgentSettings } from './IssueAgentSettings'
@@ -17,9 +18,16 @@ vi.mock('@/app/store', () => ({
   readFixture: (select: (store: unknown) => unknown) =>
     select({ updateIssue: state.updateIssue, trpc: {} }),
 }))
-vi.mock('./use-agent-fleet-options', () => ({ useAgentFleetOptions: () => [] }))
+vi.mock('./use-agent-fleet-options', () => ({
+  useAgentFleet: () => ({
+    options: [],
+    machines: [{ id: 'machine-a', name: 'Workstation' }],
+    setupMachines: [{ id: 'machine-a', name: 'Workstation' }],
+  }),
+}))
 afterEach(() => {
   cleanup()
+  closeSetupAgents()
   modelCatalogFixture.current = {}
   state.settings = undefined
   vi.clearAllMocks()
@@ -78,4 +86,19 @@ it('shows the stored effort inert until the machine lists levels for this model'
   const pill = screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement
   expect(pill.disabled).toBe(true)
   expect(pill.textContent).toContain('High')
+})
+
+it('selects the setup result as the planned agent without starting a session', async () => {
+  const issue = makeIssue({ defaultAgent: 'claude-code' })
+  render(<IssueAgentSettings issue={issue} machines={[]} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Agent' }))
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Set up agents…' }))
+  expect(state.updateIssue).not.toHaveBeenCalled()
+  expect(setupAgentsRequest()?.machineId).toBe('machine-a')
+  act(() => setupAgentsRequest()?.onStart?.('codex'))
+  await waitFor(() =>
+    expect(state.updateIssue).toHaveBeenCalledWith(issue.id, {
+      defaultAgent: 'codex',
+    }),
+  )
 })

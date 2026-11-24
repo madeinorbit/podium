@@ -1,6 +1,6 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { type RepoView, reposToViews } from '@podium/client-core/values'
-import type { MachineFacts, IssueId } from '@podium/model/browser'
+import { type IssueId, type MachineFacts, machinesForRepoOrClone } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 import { handoffRejectionText } from '@/lib/session-context-menu'
 import { issueHandoffAvailability, issueMenuEligibility } from './issue-context-menu'
@@ -17,15 +17,22 @@ export function paletteIssueMenuData(input: {
   handoffEnabled: boolean
   repoViews?: RepoView[]
 }): IssueMenuData | null {
-  const issue = input.selectedIssue === undefined
-    ? input.issues.find((candidate) => candidate.id === input.issueId)
-    : input.selectedIssue
+  const issue =
+    input.selectedIssue === undefined
+      ? input.issues.find((candidate) => candidate.id === input.issueId)
+      : input.selectedIssue
   if (!issue) return null
 
+  const repoViews = input.repoViews ?? reposToViews(input.repos)
+  const repo = repoViews.find((candidate) => candidate.path === issue.repoPath)
+  const agentMachines = issue.machineId
+    ? input.machines.filter((machine) => machine.id === issue.machineId)
+    : repo
+      ? machinesForRepoOrClone(repo, [...input.machines])
+      : []
+  const setupMachines = agentMachines.length ? agentMachines : input.machines
   const handoff = input.handoffEnabled
-    ? issueHandoffAvailability(issue, input.sessions, input.repoViews ?? reposToViews(input.repos), [
-        ...input.machines,
-      ])
+    ? issueHandoffAvailability(issue, input.sessions, repoViews, [...input.machines])
     : null
   const handoffSession = handoff && 'session' in handoff ? handoff.session : null
   const candidates =
@@ -34,6 +41,11 @@ export function paletteIssueMenuData(input: {
       : []
 
   return createIssueMenuData({
+    agentMachines,
+    setupMachineId:
+      issue.machineId ??
+      setupMachines.find((machine) => machine.online)?.id ??
+      setupMachines[0]?.id,
     codingHarness: input.codingHarness,
     issues: [issue],
     allIssues: input.issues,

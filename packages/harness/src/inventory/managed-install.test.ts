@@ -7,6 +7,7 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -14,6 +15,7 @@ import {
   readFileSync,
   readlinkSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -26,7 +28,9 @@ import { readInstallReceipt, writeInstallReceipt } from './install-receipt.js'
 import {
   applyVendorOrigins,
   housekeepReleases,
+  type InstallProgress,
   type InstallReleaseOptions,
+  type InstallStep,
   installRelease,
   managedInstallEnv,
   printsVersion,
@@ -447,6 +451,124 @@ console.log('survived')
     expect(swept).toMatchObject({ outcome: 'swept', removed: left })
     expect(kindEntries()).toEqual(['1-1.0.0'])
     expect(ledger.rejectedReleases(KIND)).toEqual([])
+  })
+})
+
+describe('installRelease: progress, cancel and retry (POD-7471)', () => {
+  it('reports each phase once, in order, and the download bytes against the size the vendor named', async () => {
+    vendor.publish({ version: '1.1.0', padBytes: 512 * 1024 })
+    const seen: InstallProgress[] = []
+    const result = await install({ onProgress: (progress) => seen.push({ ...progress }) })
+    if (result.outcome !== 'installed') throw new Error(`not installed: ${result.outcome}`)
+
+    expect(seen.filter((p) => p.receivedBytes === undefined).map((p) => p.phase)).toEqual([
+      'download',
+      'verify',
+      'setup',
+    ])
+    const size = statSync(result.executable).size
+    const binary = seen.filter((p) => p.totalBytes === size)
+    expect(binary.length).toBeGreaterThan(2)
+    expect(binary.every((p) => p.phase === 'download')).toBe(true)
+    const received = binary.map((p) => p.receivedBytes ?? -1)
+    expect(received).toEqual([...received].sort((a, b) => a - b))
+    expect(received.at(0)).toBe(0)
+    expect(received.at(-1)).toBe(size)
+    // Every byte report comes before the outside checks start.
+    const verifyAt = seen.findIndex((p) => p.phase === 'verify')
+    expect(seen.slice(verifyAt).some((p) => p.receivedBytes !== undefined)).toBe(false)
+  })
+
+  it('a cancel mid-download of a first install leaves no ledger row, no folder and no rejection', async () => {
+    vendor.publish({ version: '1.0.0', stallAfterBytes: 16 })
+    const abort = new AbortController()
+    const result = await install({
+      signal: abort.signal,
+      onProgress: (progress) => {
+        if ((progress.receivedBytes ?? 0) > 0) abort.abort()
+      },
+    })
+
+    expect(result).toEqual({ outcome: 'cancelled', kind: KIND, swept: expect.any(Array) })
+    expect(ledger.get(KIND)).toBeUndefined()
+    expect(existsSync(join(harnessesDir, KIND))).toBe(false)
+    expect(ledger.rejectedReleases(KIND)).toEqual([])
+    expect(ledger.installLockHolder()).toBeUndefined()
+  })
+
+  it('a cancel before the vendor answers changes nothing and records no failed check', async () => {
+    const abort = new AbortController()
+    abort.abort()
+    expect((await install({ signal: abort.signal })).outcome).toBe('cancelled')
+    expect(ledger.get(KIND)).toBeUndefined()
+  })
+
+  it.each([
+    'install',
+    'verify',
+    'receipt',
+    'rename',
+    'publish',
+  ] as const satisfies readonly InstallStep[])('a cancel before %s of an update keeps the current release as it was', async (step) => {
+    await install()
+    const before = ledger.get(KIND)
+    vendor.publish({ version: '1.1.0' })
+    const abort = new AbortController()
+    const result = await install({
+      signal: abort.signal,
+      beforeStep: (at) => {
+        if (at === step) abort.abort()
+      },
+    })
+
+    expect(result.outcome).toBe('cancelled')
+    expect(ledger.get(KIND)).toMatchObject({ current: 1, previous: null })
+    expect(ledger.get(KIND)?.lastInstallError).toEqual(before?.lastInstallError)
+    expect(ledger.get(KIND)?.failingSince).toBeUndefined()
+    expect(ledger.rejectedReleases(KIND)).toEqual([])
+    expect(kindEntries()).toEqual(['1-1.0.0'])
+    expect(ledger.installLockHolder()).toBeUndefined()
+  })
+
+  it('a cancel that comes after the publish is too late: the release is installed', async () => {
+    const abort = new AbortController()
+    const result = await install({ signal: abort.signal, reprobe: () => abort.abort() })
+    expect(result).toMatchObject({ outcome: 'installed', number: 1 })
+    expect(ledger.get(KIND)).toMatchObject({ current: 1 })
+  })
+
+  it('a retry after a transient failure of the first install installs', async () => {
+    vendor.publish({ version: '1.0.0', badChecksum: true })
+    expect(await install()).toMatchObject({ outcome: 'failed', rejected: false })
+    expect(ledger.get(KIND)).toMatchObject({
+      current: null,
+      lastInstallError: { version: '1.0.0' },
+    })
+
+    vendor.publish({ version: '1.0.0' })
+    expect(await install()).toMatchObject({ outcome: 'installed', version: '1.0.0', number: 1 })
+    expect(ledger.get(KIND)?.failingSince).toBeUndefined()
+  })
+
+  it('a retry never brings a rejected release back; it installs the next one the vendor publishes', async () => {
+    vendor.publish({ version: '1.0.0', behaviour: 'exit' })
+    expect(await install()).toMatchObject({ outcome: 'failed', rejected: true })
+    const fetchesBefore = vendor.requests.filter((path) => path.endsWith('/fake-harness')).length
+
+    const retry = await install()
+    expect(retry).toMatchObject({ outcome: 'not-installable', kind: KIND, version: '1.0.0' })
+    if (retry.outcome !== 'not-installable') throw new Error('unreachable')
+    expect(retry.error).toMatch(/no newer release/)
+    expect(ledger.get(KIND)?.lastInstallError?.error).toBe(retry.error)
+    expect(ledger.get(KIND)).toMatchObject({ current: null })
+    expect(vendor.requests.filter((path) => path.endsWith('/fake-harness'))).toHaveLength(
+      fetchesBefore,
+    )
+    expect(kindEntries()).toEqual([])
+
+    vendor.publish({ version: '1.1.0' })
+    expect(await install()).toMatchObject({ outcome: 'installed', version: '1.1.0' })
+    expect(ledger.rejectedReleases(KIND).map((row) => row.version)).toEqual(['1.0.0'])
   })
 })
 

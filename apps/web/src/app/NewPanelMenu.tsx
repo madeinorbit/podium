@@ -3,9 +3,7 @@ import type { RecentFileEntry, RepoView, WorktreeView } from '@podium/client-cor
 import { LOADING } from '@podium/client-graph'
 import {
   type AgentKind,
-  agentCapabilityRejection,
   agentLoginCondition,
-  agentProbeTimeoutDescription,
   asMachineId,
   type CredentialId,
   type IssueId,
@@ -39,18 +37,13 @@ import {
   useOpenArtifactsTab,
 } from '@/features/files/artifacts-tab'
 import { FileTypeIcon } from '@/features/files/file-icon'
-import {
-  agentLabel,
-  CapabilityAgentItem,
-  capabilityHint,
-  capabilityReason,
-  loginWarning,
-} from '@/lib/agent-capability'
+import { agentLabel, agentMachineStatus, CapabilityAgentItem } from '@/lib/agent-capability'
 import { agentIconFor } from '@/lib/agent-tone'
 import { useResolvedDescriptors } from '@/lib/harness-descriptors'
 import type { issueAgentDescriptors } from '@/lib/issue-agents'
 import { MENU_HEADER, MENU_HEADER_REF, MENU_HINT, MENU_SECTION } from '@/lib/menu-surface'
 import { headlessRuntimeDrivers, runtimeDriverLabel } from '@/lib/runtime-driver-options'
+import { SetupAgentsMenuItem } from '@/lib/setup-agents-menu-item'
 import { useFeature } from '@/lib/use-feature'
 import {
   useCommandLaunchActions,
@@ -256,11 +249,17 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
 
   const credentialSection = (machineFor: (kind: AgentKind) => MachineId | undefined) => (
     <NewSessionCredentialSection
-      agents={menuAgents.map(({ kind, label, Icon }) => ({
-        kind,
-        label,
-        icon: <Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />,
-      }))}
+      agents={menuAgents
+        .filter(({ kind, label }) => {
+          const id = machineFor(kind)
+          const machine = machines.find((candidate) => candidate.id === id)
+          return !machine || !agentMachineStatus(machine, kind, label).hidden
+        })
+        .map(({ kind, label, Icon }) => ({
+          kind,
+          label,
+          icon: <Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />,
+        }))}
       machineFor={machineFor}
       acceptsOf={(kind) => descriptors.find((d) => d.kind === kind)?.accepts ?? []}
       onCreate={(kind, machineId, credentialId) => create(kind, machineId, undefined, credentialId)}
@@ -274,29 +273,12 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
       <DropdownMenuContent align="end" className="flex w-[248px] max-w-[calc(100vw-24px)] flex-col">
         {header}
         {menuAgents.map(({ kind, label, Icon }) => {
-          const rejection = machine ? agentCapabilityRejection(machine, kind) : undefined
-          const reason = machine
-            ? capabilityReason(
-                machine.name,
-                label,
-                rejection,
-                agentProbeTimeoutDescription(machine, kind),
-              )
-            : undefined
-          const hint = machine ? capabilityHint(rejection) : undefined
-          const warning = machine
-            ? loginWarning(machine.name, label, agentLoginCondition(machine, kind))
-            : undefined
           return (
             <CapabilityAgentItem
               key={kind}
               label={label}
               icon={<Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />}
-              status={{
-                ...(reason ? { reason } : {}),
-                ...(hint ? { hint } : {}),
-                ...(warning ? { warning } : {}),
-              }}
+              status={machine ? agentMachineStatus(machine, kind, label) : {}}
               onSelect={() => create(kind, machine?.id)}
             />
           )
@@ -307,6 +289,11 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
         {machine ? credentialSection(() => machine.id) : null}
         {issueId ? <ArtifactsItem issueId={issueId} worktree={worktree} /> : null}
         <RecentFilesSection worktree={worktree} {...(issueId ? { issueId } : {})} />
+        <SetupAgentsMenuItem
+          machineId={machine?.id}
+          machines={machines}
+          onStart={(kind, id) => create(kind, id)}
+        />
       </DropdownMenuContent>
     )
   }
@@ -323,15 +310,21 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
       {/* 1. Agent options — open on the resolved target machine */}
       {menuAgents.map(({ kind, label, Icon }) => {
         const target = targetFor(kind)
+        const targetMachine = machines.find((machine) => machine.id === target)
         return (
           <CapabilityAgentItem
             key={kind}
             label={label}
             icon={<Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />}
             status={
-              target
-                ? {}
+              targetMachine
+                ? agentMachineStatus(targetMachine, kind, label)
                 : {
+                    hidden:
+                      repoMachines.length > 0 &&
+                      repoMachines.every(
+                        (machine) => agentMachineStatus(machine, kind, label).hidden,
+                      ),
                     reason: `No online machine with this repository can run ${agentLabel(label)}.`,
                     hint: 'no host',
                   }
@@ -396,6 +389,7 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
       })}
       {issueId ? <ArtifactsItem issueId={issueId} worktree={worktree} /> : null}
       <RecentFilesSection worktree={worktree} {...(issueId ? { issueId } : {})} />
+      <SetupAgentsMenuItem machines={repoMachines} onStart={(kind, id) => create(kind, id)} />
     </DropdownMenuContent>
   )
 })
@@ -509,7 +503,9 @@ function HeadlessDriverItems({
   onCreate: (kind: AgentKind, machineId: MachineId, requestedDriverId?: string) => void
   agents: { kind: AgentKind; label: string; Icon: IconComponent }[]
 }): JSX.Element | null {
-  const drivers = headlessRuntimeDrivers(machine)
+  const drivers = headlessRuntimeDrivers(machine).filter(
+    (driver) => !agentMachineStatus(machine, driver.harness, driver.harness).hidden,
+  )
   if (drivers.length === 0) return null
   return (
     <>
@@ -525,6 +521,7 @@ function HeadlessDriverItems({
             label={`${agent.label} — ${runtimeDriverLabel(driver.id)}`}
             icon={<Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />}
             status={{
+              ...agentMachineStatus(machine, driver.harness, agent.label),
               ...(loggedOut
                 ? {
                     warning: `${machine.name} is logged out; this driver may refuse or fall back.`,
@@ -564,25 +561,12 @@ function MachineSubmenu({
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="min-w-[168px]">
         {agents.map(({ kind, label, Icon }) => {
-          const rejection = agentCapabilityRejection(machine, kind)
-          const reason = capabilityReason(
-            machine.name,
-            label,
-            rejection,
-            agentProbeTimeoutDescription(machine, kind),
-          )
-          const hint = capabilityHint(rejection)
-          const warning = loginWarning(machine.name, label, agentLoginCondition(machine, kind))
           return (
             <CapabilityAgentItem
               key={kind}
               label={label}
               icon={<Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />}
-              status={{
-                ...(reason ? { reason } : {}),
-                ...(hint ? { hint } : {}),
-                ...(warning ? { warning } : {}),
-              }}
+              status={agentMachineStatus(machine, kind, label)}
               onSelect={() => onCreate(kind, machine.id)}
             />
           )
@@ -590,6 +574,11 @@ function MachineSubmenu({
         {runtimeDriversEnabled ? (
           <HeadlessDriverItems machine={machine} onCreate={onCreate} agents={agents} />
         ) : null}
+        <SetupAgentsMenuItem
+          machineId={machine.id}
+          machines={[machine]}
+          onStart={(kind, id) => onCreate(kind, id)}
+        />
       </DropdownMenuSubContent>
     </DropdownMenuSub>
   )

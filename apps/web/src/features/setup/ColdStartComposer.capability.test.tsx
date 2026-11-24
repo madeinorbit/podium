@@ -19,6 +19,7 @@ import { asMachineId } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { closeSetupAgents, setupAgentsRequest } from '@/features/setup-agents/open-setup-agents'
 import { ColdStartComposer } from './ColdStartComposer'
 
 const machineId = asMachineId('machine-a')
@@ -106,6 +107,7 @@ vi.mock('@/lib/ModelEffortPicker', () => ({
 
 afterEach(() => {
   cleanup()
+  closeSetupAgents()
   uiValues.clear()
   uiListeners.clear()
   delete (globalThis as { __PODIUM_FOCUS_SESSION_PROMPT__?: () => void })
@@ -127,7 +129,7 @@ function row(label: string): HTMLElement {
   return match
 }
 
-describe('the empty-state agent menu greys what it cannot start', () => {
+describe('the empty-state agent menu lists available harnesses', () => {
   it('selects the agent by typing after Tab and skips missing harnesses', async () => {
     const user = userEvent.setup()
     render(<ColdStartComposer first={false} />)
@@ -145,19 +147,27 @@ describe('the empty-state agent menu greys what it cannot start', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
-  it('refuses a missing harness with the same words as every other spawn menu', async () => {
+  it('hides missing harnesses and ends with Set up agents', async () => {
     render(<ColdStartComposer first={false} />)
     await openMenu()
+    expect(screen.queryByRole('menuitem', { name: /Cursor|OpenCode/ })).toBeNull()
+    const items = screen.getAllByRole('menuitem')
+    expect(items.at(-1)?.textContent).toBe('Set up agents…')
+    expect(row('Claude Code').getAttribute('data-refused')).toBeNull()
+  })
 
-    const cursor = row('Cursor')
-    expect(cursor.textContent).toContain('not installed')
-    expect(cursor.getAttribute('data-refused')).toBe('true')
-    fireEvent.click(cursor)
-    expect(chip().textContent).toContain('Claude Code')
-
-    const claude = row('Claude Code')
-    expect(claude.getAttribute('data-refused')).toBeNull()
-    expect(claude.textContent).not.toContain('not installed')
+  it('hands setup back as a selection and retains the prompt without launching', async () => {
+    render(<ColdStartComposer first={false} />)
+    const prompt = screen.getByLabelText('What do you want to work on?')
+    fireEvent.change(prompt, { target: { value: 'Keep my task draft' } })
+    await openMenu()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Set up agents…' }))
+    expect(setupAgentsRequest()).toMatchObject({ machineId, origin: 'menu' })
+    const before = store.spawnDraftAgent.mock.calls.length
+    act(() => setupAgentsRequest()?.onStart?.('codex'))
+    expect(chip().textContent).toContain('Codex')
+    expect((prompt as HTMLTextAreaElement).value).toBe('Keep my task draft')
+    expect(store.spawnDraftAgent.mock.calls.length).toBe(before)
   })
 
   it('keeps a signed-out harness live and names the condition', async () => {

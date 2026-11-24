@@ -3687,7 +3687,7 @@
       "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
       "holder": "IssueContextMenu/IssueContextMenu",
       "rule": "loop:for-of",
-      "tokens": "580e24b73bf058abcb63838f40c6506d191ec1f628eaf06cb7d82b8c62dd62d2",
+      "tokens": "c424071cfc357d9d7b97a90f928d92d29d5abd20449d542db7213b907e9b03c5",
       "gate": [
         "exit:then:76f123297670b5a163440e69aeda15a69e75e517f0b03f56f0c40859ebf71a7d",
         "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
@@ -3697,7 +3697,7 @@
         "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
         "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
       ],
-      "fingerprint": "927c398815ebe1f968d577c782944c561a8bf7f2d22cafd09f56b38d521ef02d",
+      "fingerprint": "6481cdaaef6906dbf6de5e10cd9c596e7cc7e95082edc22457321043c7e8c4ea",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5672",
@@ -4676,15 +4676,15 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "bd49d25b428324d543ecf85d2553f724605dfb4dc8db805e0b3219eb164fb628"
       ],
-      "fingerprint": "f67e97f3eed1160393a5a9e3fb2212d9df77731d8d34070d62357f1af20451d6",
+      "fingerprint": "f2d046469449e73a29d4651397aeb728a17af66db28f52b79aa94ca018bcfb4a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createIssueMenuData/duplicateTargets",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -4696,15 +4696,15 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "bd49d25b428324d543ecf85d2553f724605dfb4dc8db805e0b3219eb164fb628"
       ],
-      "fingerprint": "a135749bdfdf7f19e6a184bf3b593a2e60f406103a6d9dc6ae3e24dcbdfe83bc",
+      "fingerprint": "452b54ac1d3fd6f6f087622239e331c5ed44df4323451efcb6901bb367bd0487",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createIssueMenuData/duplicateTargets",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -4716,15 +4716,15 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "bd49d25b428324d543ecf85d2553f724605dfb4dc8db805e0b3219eb164fb628"
       ],
-      "fingerprint": "dc49621db15aefb40a351bd9d62b750fbed6369732b4de2bef801409860a2207",
+      "fingerprint": "04e40cc32380cb233cbf7e0f28d067bafc4ea0755e36ff33f0fa778081dff1d3",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createIssueMenuData/duplicateTargets",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -4736,15 +4736,15 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "bd49d25b428324d543ecf85d2553f724605dfb4dc8db805e0b3219eb164fb628"
       ],
-      "fingerprint": "12c6cfdf1a07f3617846cdafd923c7cd288862a21503a66a665eb19f438fd376",
+      "fingerprint": "771839d96afc6e1df3ea71335ae5b8040956ee0b5f4322341b7c68e78cde4b34",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createIssueMenuData/labels",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:flatMap carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:flatMap carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -4756,15 +4756,15 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "bd49d25b428324d543ecf85d2553f724605dfb4dc8db805e0b3219eb164fb628"
       ],
-      "fingerprint": "7bb5bd775a1dcbc69c6dd6d2c318f5a68cf12a7e36655fb93ce0b025c55cb21c",
+      "fingerprint": "885990bcfba0807da9a7f40c2e2731931df79a5003e78ad6809e463ed7509693",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createIssueMenuData/labels",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:flatMap carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:flatMap carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -4776,15 +4776,15 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "bd49d25b428324d543ecf85d2553f724605dfb4dc8db805e0b3219eb164fb628"
       ],
-      "fingerprint": "643e891a136b629851e7e07e734b12314c3c57a41fe9fdcf86484f388fdcc935",
+      "fingerprint": "6f08137f5192fcaff9d7638f67d3b199ec5b3151c9a6eb5cd724fe27e7ec650a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createIssueMenuData/labels",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -4796,15 +4796,15 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "bd49d25b428324d543ecf85d2553f724605dfb4dc8db805e0b3219eb164fb628"
       ],
-      "fingerprint": "4add39f769a7efa13f42ce4c528d5d7c4a1665b1d534464656ec5c92f0716326",
+      "fingerprint": "880ab85fac737938d24c70775024fa090a244b6d48c9a71bd038590e9c19ee70",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createIssueMenuData/labels",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -4816,15 +4816,15 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "bd49d25b428324d543ecf85d2553f724605dfb4dc8db805e0b3219eb164fb628"
       ],
-      "fingerprint": "00a1fc383f85181cc2202c8a6db926ccd451da81a8d1784929c3c89f3e9581ae",
+      "fingerprint": "b6f0d846eca975cf92a5db92ad144eb5dfa239ed13bd860d7b708a88182f8748",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createIssueMenuData/labels",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -4836,15 +4836,15 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "bd49d25b428324d543ecf85d2553f724605dfb4dc8db805e0b3219eb164fb628"
       ],
-      "fingerprint": "5056b76319f9991a3c98aa0dd1329d09d3a1a40564c1afd5e9216a0ac48d42b4",
+      "fingerprint": "b1fd13d0dc585fc31a63184ef5694853ef6e599e231a068d82f9df2a5394b3b0",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createIssueMenuData/labels",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -4856,15 +4856,15 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "bd49d25b428324d543ecf85d2553f724605dfb4dc8db805e0b3219eb164fb628"
       ],
-      "fingerprint": "706cc2199ba7ddf417bd3a7702ed2357f79338fa78477bd6159733c8d066a8c2",
+      "fingerprint": "c913a40c4f7996d7757d0f9b404a453f2093c929a080ca82397bf7ffdd2ac1cd",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createIssueMenuData/labels",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -4876,15 +4876,15 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "bd49d25b428324d543ecf85d2553f724605dfb4dc8db805e0b3219eb164fb628"
       ],
-      "fingerprint": "197851b1d65a5a73aab73bb63832b7a8bddc7676c1f55bbcc1cd925b13e1cb55",
+      "fingerprint": "5c1bac6449cc4f26b702e367cd3d19a0a9c82e5e6f44f2c795dd4a448e47d685",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createIssueMenuData/targetIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -4896,15 +4896,15 @@
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
       ],
       "origin": [
-        "ba80130ae4b89291f65e9c2e5e7d3ad799158ce8e2e96f8b61969c2969017668"
+        "bd49d25b428324d543ecf85d2553f724605dfb4dc8db805e0b3219eb164fb628"
       ],
-      "fingerprint": "89af4905bdcbc61487baa35b3ed468d996bbd96761dfe365b340d3067e0ccca5",
+      "fingerprint": "f23956bef935b68d6f9c841e3cf1766064f9c4cdd590bd104caa97577e85e86c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createIssueMenuData/targetIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -4969,7 +4969,7 @@
     },
     {
       "file": "apps/web/src/features/issues/issue-menu-palette-commands.ts",
-      "holder": "issueMenuPaletteCommands/flatMap:callback/map:callback/run/callback",
+      "holder": "issueMenuPaletteCommands/commands/flatMap:callback/map:callback/run/callback",
       "rule": "reader-summary",
       "tokens": "6d124e1003e297429fa7bac697b3573968afe62103ee0793da7ec3ccfeb7166f",
       "gate": [
@@ -4981,18 +4981,18 @@
         "b113e78a03300f7c52a422ad46268d024325c5393b6b00a92a600ef146c075bd",
         "d705a7840084cbf09f265329532882761dd59cd72e922cf59ff51762dd6bad14"
       ],
-      "fingerprint": "468ebdc1400b7635c124f1e37fcc50993be80f9d1763b1e8e5d43d284467658d",
+      "fingerprint": "775020e49881ce5173293378a6f694ae41ce7ba6aeeb1b39ed3d235a4131e91d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of issueMenuPaletteCommands/flatMap:callback/map:callback/run/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced. POD-6526 moves the menu's start and agent entries onto the issue's effect record (startIssueSession) instead of the issues.start/addSession routes; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced. POD-6526 moves the menu's start and agent entries onto the issue's effect record (startIssueSession) instead of the issues.start/addSession routes; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/issues/issue-menu-palette-commands.ts",
-      "holder": "issueMenuPaletteCommands/flatMap:callback/run/callback",
+      "holder": "issueMenuPaletteCommands/commands/flatMap:callback/run/callback",
       "rule": "reader-summary",
       "tokens": "2ca3be46879151f3b78444902468805e0e61bf35c53c3fc6f613a6cdfb0d74a5",
       "gate": [
@@ -5004,53 +5004,53 @@
         "b113e78a03300f7c52a422ad46268d024325c5393b6b00a92a600ef146c075bd",
         "d705a7840084cbf09f265329532882761dd59cd72e922cf59ff51762dd6bad14"
       ],
-      "fingerprint": "f70f919dc7dd88457ddf39a1eff1f4deaa43f92b8a788324bdda5fb9aab0a562",
+      "fingerprint": "1b30be2d2ad740c3d119282064a63b09741383c0b4bd457a07777732cab18c78",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of issueMenuPaletteCommands/flatMap:callback/run/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced. POD-6526 moves the menu's start and agent entries onto the issue's effect record (startIssueSession) instead of the issues.start/addSession routes; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced. POD-6526 moves the menu's start and agent entries onto the issue's effect record (startIssueSession) instead of the issues.start/addSession routes; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/issues/issue-menu-palette.ts",
       "holder": "paletteIssueMenuData",
       "rule": "helper-consumer",
-      "tokens": "2400c07c7df0ef70eb71649f555711685d6dbb1a445aee9c434fc6e14cf43c61",
+      "tokens": "5ff4ead08f5b6075ecef1ef954ffed006979d8d74e7909a4d27c9c9e6c8952eb",
       "gate": [
         "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302"
       ],
       "origin": [
         "da842288cc961ad8862187641c354f5ed4888e80716779b6bb7195145dcc82e6"
       ],
-      "fingerprint": "61b843e7a2b032751a7ee63ff59fe6ab716117633072beb3583f1974b25093aa",
+      "fingerprint": "921e7ff9143e1a90b536dac9ae95bd1418d3628d69d78073b2e0404d196f0d67",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "paletteIssueMenuData",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
       "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
       "file": "apps/web/src/features/issues/issue-menu-palette.ts",
       "holder": "paletteIssueMenuData",
       "rule": "reader-summary",
-      "tokens": "5a6a72acbccf02b573cf3e6d72ce7a6c1ecddc8cb90d4c184337f20aade267d8",
+      "tokens": "1ccf41596a293ccaefd384572bdf8924ab55b40fb4a6beb93335ce0d64f8e0f6",
       "gate": [
         "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302"
       ],
       "origin": [
         "da842288cc961ad8862187641c354f5ed4888e80716779b6bb7195145dcc82e6"
       ],
-      "fingerprint": "008fbad5445f912dadeb3f890d66ce9182c3960be951cf435f2e804c5d23f3bd",
+      "fingerprint": "b05be50456ce0c6f016f0f8ca9cfb717719a632a847ea582a36c85f5cfc78c87",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "paletteIssueMenuData",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
       "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
@@ -5097,29 +5097,7 @@
       "file": "apps/web/src/features/issues/issue-menu-palette.ts",
       "holder": "paletteIssueMenuData/handoff",
       "rule": "helper-consumer",
-      "tokens": "4c9a3daa8e4b940683adf53b922d4139ead60873afaf46fd8bfeaf5fd39a5040",
-      "gate": [
-        "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302",
-        "then:940ccc80ad5a0ccea57cb26eb5401a7e8ed5838be3938e83e65bc9a8b4e059fe",
-        "??:cc9a667cfe1472373ac74f4e63dacc3e92df5c26d3ddc93a9806b8ec2b3d4ab1"
-      ],
-      "origin": [
-        "da842288cc961ad8862187641c354f5ed4888e80716779b6bb7195145dcc82e6"
-      ],
-      "fingerprint": "92ef5f366c2f21d6fb8381c34061250a8a6ca52f9797c10bb28040229988a19a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "paletteIssueMenuData/handoff",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
-    },
-    {
-      "file": "apps/web/src/features/issues/issue-menu-palette.ts",
-      "holder": "paletteIssueMenuData/handoff",
-      "rule": "helper-consumer",
-      "tokens": "daeb686da02c3a5e1223b2097f7b0337b2cea0a081a0882f17e356705252ec02",
+      "tokens": "352b7e1fd89bcd53e3ed9cb9187bddb89c60a0d39cadbbe54bfacb80c957288a",
       "gate": [
         "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302",
         "then:940ccc80ad5a0ccea57cb26eb5401a7e8ed5838be3938e83e65bc9a8b4e059fe"
@@ -5127,20 +5105,41 @@
       "origin": [
         "da842288cc961ad8862187641c354f5ed4888e80716779b6bb7195145dcc82e6"
       ],
-      "fingerprint": "43f8d3ed23fef4a9ebbfc585b5df3983cec254cbb9718092eb424dd5b0eb5c5d",
+      "fingerprint": "3052175bbcea771562e37a23f7046c12eb14f6265327da273a0c5ff96a6aaffd",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "paletteIssueMenuData/handoff",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
+    },
+    {
+      "file": "apps/web/src/features/issues/issue-menu-palette.ts",
+      "holder": "paletteIssueMenuData/repoViews",
+      "rule": "helper-consumer",
+      "tokens": "4c9a3daa8e4b940683adf53b922d4139ead60873afaf46fd8bfeaf5fd39a5040",
+      "gate": [
+        "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302",
+        "??:cc9a667cfe1472373ac74f4e63dacc3e92df5c26d3ddc93a9806b8ec2b3d4ab1"
+      ],
+      "origin": [
+        "da842288cc961ad8862187641c354f5ed4888e80716779b6bb7195145dcc82e6"
+      ],
+      "fingerprint": "76928d1822dac25afbb0b2ada80a49b1d81bee1658e88b52b4f54fa60fad454b",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "paletteIssueMenuData/handoff",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
       "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
       "file": "apps/web/src/features/issues/issue-menu-palette.ts",
       "holder": "paletteIssueMenuData/handoff",
       "rule": "reader-summary",
-      "tokens": "de75b6e4b771ef2a5826c62f1337b15b3057b2b1f7172bc866e385d406d369d6",
+      "tokens": "929094bbda25bd83725a79dbaa0e0b3a8bf32f481e15214a04de16bcb792086e",
       "gate": [
         "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302",
         "then:940ccc80ad5a0ccea57cb26eb5401a7e8ed5838be3938e83e65bc9a8b4e059fe"
@@ -5148,13 +5147,13 @@
       "origin": [
         "da842288cc961ad8862187641c354f5ed4888e80716779b6bb7195145dcc82e6"
       ],
-      "fingerprint": "598d9cb4292736c8da5a339b307b1363974abec9a0843b024f93a8f64661c3d4",
+      "fingerprint": "06deb10dbd2392d13043aa27cbd3788607eb5964219993e01dfca5d13397c093",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "paletteIssueMenuData/handoff",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
       "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
@@ -31632,7 +31631,7 @@
       "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
       "holder": "IssueContextMenu/IssueContextMenu/menuData",
       "rule": "helper-consumer",
-      "tokens": "98838a96b59670afc93286430a3668c557565bf45a8b8075f41ed294b6d4d6ce",
+      "tokens": "06a43fd526c16d2d2c1b4bbe51f5b0b1c0826befdf2a0d3fac88bc6bba01b2f4",
       "gate": [
         "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
@@ -31641,20 +31640,20 @@
         "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
         "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
       ],
-      "fingerprint": "14dab5220228b4f528c817e235c41f5e57e1f1b924c50c2dc5eddcd946f74bee",
+      "fingerprint": "0baed8020a2f8ae677f5e0054ceb6eb2f0b18d8aea4ac0fe31f0297c688b2f62",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5672",
       "trigger": "An opened Handoff submenu requests its destination choices.",
       "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
-      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
       "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
     },
     {
       "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
       "holder": "IssueContextMenu/IssueContextMenu/menuData",
       "rule": "reader-summary",
-      "tokens": "cfc72f17b5aaeb3cfc3babaf8c76f7bb6d1e3b7264d82bcf34ae04149a31e85a",
+      "tokens": "33c878736e3b23625da9a45431f716c0eab75d59093d5f485bbf9b45deacf8f3",
       "gate": [
         "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
         "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
@@ -31663,13 +31662,13 @@
         "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
         "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
       ],
-      "fingerprint": "e3f6fb3169fb5732a42f68d1228a76485af003be41f76a1bbdb9e45529536019",
+      "fingerprint": "cf8436624f051c020c6303def00a1283dafb7a049fd5e18beb2e720914967b68",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5672",
       "trigger": "An opened Handoff submenu requests its destination choices.",
       "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
-      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked. POD-7489 carries machine capabilities and the setup target through the existing menu projection; the retained operation keeps its source, trigger, bound and classification. The repository-view helper is now shared by handoff and capability selection.",
       "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
     },
     {
@@ -35910,15 +35909,15 @@
     },
     {
       "file": "apps/web/src/features/issues/IssueAgentSettings.tsx",
-      "holder": "IssueAgentSettings/IssueAgentSettings/agentOptions",
+      "holder": "IssueAgentSettings/IssueAgentSettings/agentFleet",
       "rule": "reader-summary",
-      "tokens": "238c3cb783d61fb5a7c98ea8a177cbf0cf00e233fa363bae2562114aeb281919",
+      "tokens": "e8bb6d320e84f00971e8e897158069dfd4fe118379b1c2c009af63e84ab38504",
       "gate": [],
       "origin": [
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "35a63612c12cd20ffd2a47fe7423c2f9b7ddd896d993fe187d34ab60a8a00b3c",
+      "fingerprint": "c1d0629e51b801b95e29cbba3d915ed044751e16a65a9f172adc3c768c5200e5",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
@@ -39427,26 +39426,6 @@
       "guard": "SessionCredentialChip.test.tsx \"acceptance 3: switch credential\" drives one switch per pick."
     },
     {
-      "file": "apps/web/src/features/setup/FirstTaskActivation.tsx",
-      "holder": "FirstTaskActivation/FirstTaskActivation/renderAgentRows/callback",
-      "rule": "consume:map",
-      "tokens": "f6e8820e84f890bfefc653c917242919eac289568dcff115a68555ba3008f200",
-      "gate": [
-        "exit:then:3690d368562285f15158e021acd00d21982af6c501ec51bce92615ebaeecf396"
-      ],
-      "origin": [
-        "7ff332b83199b7ad40568bd17b700d8a4beb44371ec7d25ab95cabf75b497d91"
-      ],
-      "fingerprint": "5cd617e0ee5e4b80f4e66572e8914c5d874e4ea1877d27cbbe9bb598a2414bcc",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of FirstTaskActivation/FirstTaskActivation/renderAgentRows/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "packages/client-core/src/session-values.ts",
       "holder": "sessionViews/map:callback",
       "rule": "helper-consumer",
@@ -40852,6 +40831,128 @@
       "bound": "Only the supplied workspace pane tree and its operator-opened tab IDs. The new origin is a remapped saved layout, not a session or issue catalogue.",
       "reason": "Existing pure layout reducers consume one caller-selected value. Machine-ID migration introduces a new saved-layout origin without adding any live-record enumeration.",
       "guard": "packages/client-core/src/values/workspace-layout.test.ts and packages/client-core/src/ui/ui-store.test.ts cover layout invariants, split focus and preview retirement after remapping."
+    },
+    {
+      "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
+      "holder": "IssueAgentSubmenu/fleet",
+      "rule": "reader-summary",
+      "tokens": "dd1d57474487e661c895908ffd25be7970f5d6eadef858314305cdfe56ea4410",
+      "gate": [],
+      "origin": [
+        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
+        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
+      ],
+      "fingerprint": "1a03cf27f7ec624d76b54a143fd6f58cb5dca0ba1ca93a8c739ad026593648d2",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7475",
+      "trigger": "The agent flyout is open, or an existing planned-agent picker reads its options.",
+      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
+      "reason": "Reuses the existing POD-6644 machine and checkout record source from the prior planned-agent reader. The agent flyout acquires that source only while open; the options-only compatibility helper exposes the same source. No issue or session catalogue is acquired.",
+      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts; IssueContextMenu.agent-entry.test.tsx guards deferred demand and setup handback; use-agent-fleet-options.test.tsx covers pinned and unknown-inventory readings."
+    },
+    {
+      "file": "apps/web/src/features/issues/use-agent-fleet-options.ts",
+      "holder": "useAgentFleetOptions",
+      "rule": "reader-summary",
+      "tokens": "e8bb6d320e84f00971e8e897158069dfd4fe118379b1c2c009af63e84ab38504",
+      "gate": [],
+      "origin": [
+        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
+        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
+      ],
+      "fingerprint": "983692898936b755427d8bf5256390f8e3af352a2ac53e199052a85fb1d69242",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7475",
+      "trigger": "The agent flyout is open, or an existing planned-agent picker reads its options.",
+      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
+      "reason": "Reuses the existing POD-6644 machine and checkout record source from the prior planned-agent reader. The agent flyout acquires that source only while open; the options-only compatibility helper exposes the same source. No issue or session catalogue is acquired.",
+      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts; IssueContextMenu.agent-entry.test.tsx guards deferred demand and setup handback; use-agent-fleet-options.test.tsx covers pinned and unknown-inventory readings."
+    },
+    {
+      "file": "apps/web/src/features/issues/issue-menu-palette.ts",
+      "holder": "paletteIssueMenuData/agentMachines",
+      "rule": "consume:filter",
+      "tokens": "7cc3569050dc2fad3a543bed2f0ce86dbd3932c7f4d05e9a1e4589c5d0e63f95",
+      "gate": [
+        "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302",
+        "then:ccf5abdce8078eb34d489b5fe11989db510fd95fbb189811c439ec05516176a6"
+      ],
+      "origin": [
+        "da842288cc961ad8862187641c354f5ed4888e80716779b6bb7195145dcc82e6"
+      ],
+      "fingerprint": "0156a07083197beb510dff8a85ae594b07576bc06668a2ae69e49d342def5d72",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7489",
+      "trigger": "An opened command palette projects the selected issue's agent commands.",
+      "bound": "The palette's existing instance machine fleet and registered repository views, the same sources used by POD-7475; no session or issue history is acquired.",
+      "reason": "Filters the already acquired machine fleet by the issue's pin or repository and selects one setup target. Work is over the instance's machines and repositories, not its historical issue/session catalogues; capability rules reuse the issue agent submenu.",
+      "guard": "CommandPalette.tsx mounts PaletteDialog only while paletteOpen. issue-menu-config.test.ts covers pinned and repository host filtering plus one unfocused setup command; header-source.test.ts and command-launch-data.pool.test.tsx guard the existing record sources."
+    },
+    {
+      "file": "apps/web/src/features/issues/issue-menu-palette.ts",
+      "holder": "paletteIssueMenuData/agentMachines",
+      "rule": "spread",
+      "tokens": "24c28dcf46ed85f623f2d9669144b8d5d0c6c8beeba5284c79166a1beb1722f8",
+      "gate": [
+        "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302",
+        "else:ccf5abdce8078eb34d489b5fe11989db510fd95fbb189811c439ec05516176a6",
+        "then:cad1a3e7240b04c8d2893c0c7a3acd28a5bd3d54e894bded55352cfdbd75ce76"
+      ],
+      "origin": [
+        "da842288cc961ad8862187641c354f5ed4888e80716779b6bb7195145dcc82e6"
+      ],
+      "fingerprint": "1d300d50ccb854d97672d4672007a7a7221912562cd9cfd216edd07c20b541ff",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7489",
+      "trigger": "An opened command palette projects the selected issue's agent commands.",
+      "bound": "The palette's existing instance machine fleet and registered repository views, the same sources used by POD-7475; no session or issue history is acquired.",
+      "reason": "Filters the already acquired machine fleet by the issue's pin or repository and selects one setup target. Work is over the instance's machines and repositories, not its historical issue/session catalogues; capability rules reuse the issue agent submenu.",
+      "guard": "CommandPalette.tsx mounts PaletteDialog only while paletteOpen. issue-menu-config.test.ts covers pinned and repository host filtering plus one unfocused setup command; header-source.test.ts and command-launch-data.pool.test.tsx guard the existing record sources."
+    },
+    {
+      "file": "apps/web/src/features/issues/issue-menu-palette.ts",
+      "holder": "paletteIssueMenuData/repo",
+      "rule": "consume:find",
+      "tokens": "bedc2fa5e06d791798dee156b5540ed1a913e6fb7984f0fcf718f9f49135999b",
+      "gate": [
+        "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302"
+      ],
+      "origin": [
+        "da842288cc961ad8862187641c354f5ed4888e80716779b6bb7195145dcc82e6"
+      ],
+      "fingerprint": "629d3e9c26e6092fc8edaaf031dd07f261c92e6b3b5fa7a9512d85ce44b220be",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7489",
+      "trigger": "An opened command palette projects the selected issue's agent commands.",
+      "bound": "The palette's existing instance machine fleet and registered repository views, the same sources used by POD-7475; no session or issue history is acquired.",
+      "reason": "Filters the already acquired machine fleet by the issue's pin or repository and selects one setup target. Work is over the instance's machines and repositories, not its historical issue/session catalogues; capability rules reuse the issue agent submenu.",
+      "guard": "CommandPalette.tsx mounts PaletteDialog only while paletteOpen. issue-menu-config.test.ts covers pinned and repository host filtering plus one unfocused setup command; header-source.test.ts and command-launch-data.pool.test.tsx guard the existing record sources."
+    },
+    {
+      "file": "apps/web/src/features/issues/issue-menu-palette.ts",
+      "holder": "paletteIssueMenuData/setupMachineId",
+      "rule": "consume:find",
+      "tokens": "3d50b422d5b05dc1a185a21a1795cbd57f285c88e107f4aaf0e1a24a51ad17ac",
+      "gate": [
+        "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302",
+        "??:ccf5abdce8078eb34d489b5fe11989db510fd95fbb189811c439ec05516176a6"
+      ],
+      "origin": [
+        "da842288cc961ad8862187641c354f5ed4888e80716779b6bb7195145dcc82e6"
+      ],
+      "fingerprint": "2a32a54b1cb9f7e0a255becbb286afb941019f366edd7079c13128715994e2e2",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7489",
+      "trigger": "An opened command palette projects the selected issue's agent commands.",
+      "bound": "The palette's existing instance machine fleet and registered repository views, the same sources used by POD-7475; no session or issue history is acquired.",
+      "reason": "Filters the already acquired machine fleet by the issue's pin or repository and selects one setup target. Work is over the instance's machines and repositories, not its historical issue/session catalogues; capability rules reuse the issue agent submenu.",
+      "guard": "CommandPalette.tsx mounts PaletteDialog only while paletteOpen. issue-menu-config.test.ts covers pinned and repository host filtering plus one unfocused setup command; header-source.test.ts and command-launch-data.pool.test.tsx guard the existing record sources."
     }
   ]
 }

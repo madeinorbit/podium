@@ -17,7 +17,8 @@ async function run(
     | 'harnessTakeSettingsResult'
     | 'harnessRemoveChangesResult'
     | 'harnessChangesResult'
-    | 'harnessRemoveResult',
+    | 'harnessRemoveResult'
+    | 'harnessCancelInstallResult',
 ) {
   const result = ctx.harnessInstalls
     ? await ctx.harnessInstalls.run(action, msg.harness, msg.confirmedConversations)
@@ -38,6 +39,7 @@ export const installHandlers: Pick<
   | 'harnessRemoveChangesRequest'
   | 'harnessChangesRequest'
   | 'harnessRemoveRequest'
+  | 'harnessCancelInstallRequest'
 > = {
   harnessHomeInfoRequest: (ctx, msg) => {
     void run(ctx, msg, 'home-info', 'harnessHomeInfoResult')
@@ -71,5 +73,8 @@ export const installHandlers: Pick<
   },
   harnessRemoveRequest: (ctx, msg) => {
     void run(ctx, msg, 'remove', 'harnessRemoveResult')
+  },
+  harnessCancelInstallRequest: (ctx, msg) => {
+    void run(ctx, msg, 'cancel-install', 'harnessCancelInstallResult')
   },
 }

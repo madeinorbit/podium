@@ -203,6 +203,8 @@ function rescanUsage(ctx: HarnessManagementContext, sinceMs: number): Promise<vo
             cache: ctx.usageMemo.cache,
             homeDir: account.home,
             env: account.machineEnv,
+            // The machine's own login where it is the Podium home (POD-7496).
+            ...(account.ownLoginHomes ? { homeDirs: account.ownLoginHomes } : {}),
           })
         : { buckets: [], sources: [] }
     } catch {
@@ -288,6 +290,7 @@ async function runQuotaHistoryScan(
           machineId: ctx.machineId,
           homeDir: account.home,
           env: account.machineEnv,
+          ...(account.ownLoginHomes ? { homeDirs: account.ownLoginHomes } : {}),
         })
       : []
   } catch {

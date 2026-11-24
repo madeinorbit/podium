@@ -39,11 +39,12 @@ import {
   readdirSync,
   realpathSync,
   renameSync,
+  rmdirSync,
   rmSync,
   statSync,
 } from 'node:fs'
 import { isAbsolute, join, normalize, relative, sep } from 'node:path'
-import { Readable } from 'node:stream'
+import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { ReadableStream as NodeWebReadableStream } from 'node:stream/web'
 import { type BuiltinHarnessKind, isBuiltinHarnessKind } from '@podium/model'
@@ -266,6 +267,16 @@ export interface ManagedInstallHostOptions {
   /** Longest a download or vendor request may take. Default 30 minutes. */
   downloadTimeoutMs?: number
   note?: (message: string) => void
+  /**
+   * Stops every vendor request and program run of this install. An install
+   * whose signal fires before it publishes ends `cancelled`.
+   */
+  signal?: AbortSignal
+  /**
+   * Bytes of the current download so far, after every chunk. `totalBytes` is
+   * the answer's Content-Length when it has one and the body is not encoded.
+   */
+  onDownload?: (receivedBytes: number, totalBytes: number | undefined) => void
 }
 
 const DEFAULT_DOWNLOAD_TIMEOUT_MS = 30 * 60_000
@@ -277,10 +288,19 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** The Content-Length of a plain (not encoded) answer; the decoded body would not match it. */
+function contentLength(response: Response): number | undefined {
+  const encoding = response.headers.get('content-encoding')
+  if (encoding && encoding !== 'identity') return undefined
+  const length = Number(response.headers.get('content-length'))
+  return Number.isSafeInteger(length) && length > 0 ? length : undefined
+}
+
 function runAbsolute(
   cmd: string,
   args: readonly string[],
   env: Readonly<Record<string, string>>,
+  signal?: AbortSignal,
 ): Promise<string> {
   // Only an absolute path: a bare name would be looked up on the daemon's PATH.
   if (!isAbsolute(cmd)) return Promise.reject(new Error(`refusing to run ${cmd} by name`))
@@ -293,6 +313,7 @@ function runAbsolute(
         encoding: 'utf8',
         timeout: RUN_TIMEOUT_MS,
         maxBuffer: RUN_OUTPUT_LIMIT_BYTES,
+        ...(signal ? { signal } : {}),
       },
       (error, stdout, stderr) => {
         if (error)
@@ -314,11 +335,16 @@ export function managedCheckPorts(
   const platform = options.platform ?? process.platform
   const tools = hostTools(env, platform)
   const vendorUrl = (url: string) => applyVendorOrigins(url, origins)
+  const cancel = options.signal
+  const requestSignal = () =>
+    cancel
+      ? AbortSignal.any([AbortSignal.timeout(timeoutMs), cancel])
+      : AbortSignal.timeout(timeoutMs)
   const get = async (url: string): Promise<Response> => {
     const target = vendorUrl(url)
     const response = await fetchImpl(target, {
       redirect: 'follow',
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: requestSignal(),
     })
     if (!response.ok) {
       await response.body?.cancel().catch(() => undefined)
@@ -331,10 +357,21 @@ export function managedCheckPorts(
     async fetch(url, out) {
       const response = await get(url)
       if (!response.body) throw new Error(`GET ${vendorUrl(url)}: empty body`)
+      const totalBytes = contentLength(response)
+      let received = 0
+      options.onDownload?.(0, totalBytes)
       await pipeline(
         // Through `unknown`: the DOM and node:stream/web declare the same stream differently.
         Readable.fromWeb(response.body as unknown as NodeWebReadableStream),
+        new Transform({
+          transform(chunk: Buffer, _encoding, done) {
+            received += chunk.length
+            options.onDownload?.(received, totalBytes)
+            done(null, chunk)
+          },
+        }),
         createWriteStream(out, { mode: 0o644 }),
+        cancel ? { signal: cancel } : {},
       )
     },
     async fetchText(url) {
@@ -344,13 +381,18 @@ export function managedCheckPorts(
         throw new Error(`GET ${vendorUrl(url)}: more than ${TEXT_LIMIT_BYTES} bytes`)
       return text
     },
-    run: runAbsolute,
+    run: (cmd, args, runEnv) => runAbsolute(cmd, args, runEnv, cancel),
     runTool: (tool, args, toolEnv) =>
       new Promise((resolve, reject) => {
         hostTools(toolEnv, platform).execFile(
           tool,
           args,
-          { env: toolEnv, timeout: RUN_TIMEOUT_MS, maxBuffer: RUN_OUTPUT_LIMIT_BYTES },
+          {
+            env: toolEnv,
+            timeout: RUN_TIMEOUT_MS,
+            maxBuffer: RUN_OUTPUT_LIMIT_BYTES,
+            ...(cancel ? { signal: cancel } : {}),
+          },
           (error, stdout, stderr) => {
             if (error)
               reject(new Error(`${tool} failed: ${errorText(error)}\n${stdout}${stderr}`.trim()))
@@ -565,6 +607,31 @@ export function housekeepReleases(
 /** The steps a failure is reported against; also the test seam's step names. */
 export type InstallStep = 'install' | 'verify' | 'receipt' | 'rename' | 'publish'
 
+/**
+ * What a person sees of a running install. `download` is the vendor check and
+ * the adapter's install step (bytes while a file streams), `verify` the outside
+ * checks and the receipt, `setup` the rename and publish (and, in the daemon,
+ * making the Podium home ready).
+ */
+export type InstallPhase = 'download' | 'verify' | 'setup'
+
+export interface InstallProgress {
+  phase: InstallPhase
+  /** Bytes of the current download so far. */
+  receivedBytes?: number
+  /** The current download's size, when the vendor named it. */
+  totalBytes?: number
+}
+
+/** The phase each step reports under. */
+export const INSTALL_STEP_PHASE: Readonly<Record<InstallStep, InstallPhase>> = {
+  install: 'download',
+  verify: 'verify',
+  receipt: 'verify',
+  rename: 'setup',
+  publish: 'setup',
+}
+
 export interface InstallReleaseOptions extends ManagedInstallHostOptions {
   /** `<state>/harnesses`. Default: the instance's own. */
   harnessesDir?: string
@@ -586,6 +653,8 @@ export interface InstallReleaseOptions extends ManagedInstallHostOptions {
   beforeStep?: (step: InstallStep, at: { staging: string; kindDir: string }) => unknown
   /** @internal An update check must still respect vendor ownership after taking the lock. */
   updating?: boolean
+  /** Called when the install enters a phase and with every downloaded chunk. */
+  onProgress?: (progress: InstallProgress) => void
 }
 
 export type InstallReleaseResult =
@@ -602,6 +671,22 @@ export type InstallReleaseResult =
       swept: string[]
     }
   | { outcome: 'busy'; kind: BuiltinHarnessKind; holder: InstallLockHolder }
+  /**
+   * `signal` fired before the publish: the staging folder is gone, the current
+   * release is untouched, and a first install leaves no ledger row behind.
+   */
+  | { outcome: 'cancelled'; kind: BuiltinHarnessKind; swept: string[] }
+  /**
+   * The vendor's newest release is on the rejected list and no release was
+   * named: nothing newer to try yet. Recorded as the install's error.
+   */
+  | {
+      outcome: 'not-installable'
+      kind: BuiltinHarnessKind
+      version: string
+      error: string
+      swept: string[]
+    }
   | { outcome: 'vendor-updated'; kind: BuiltinHarnessKind; swept: string[] }
   | { outcome: 'check-failed'; kind: BuiltinHarnessKind; error: string; swept: string[] }
   | {
@@ -617,6 +702,8 @@ export type InstallReleaseResult =
 
 type LockedOutcome =
   | Extract<InstallReleaseResult, { outcome: 'installed' }>
+  | Omit<Extract<InstallReleaseResult, { outcome: 'cancelled' }>, 'swept'>
+  | Omit<Extract<InstallReleaseResult, { outcome: 'not-installable' }>, 'swept'>
   | Omit<Extract<InstallReleaseResult, { outcome: 'vendor-updated' }>, 'swept'>
   | Omit<Extract<InstallReleaseResult, { outcome: 'check-failed' }>, 'swept'>
   | Omit<Extract<InstallReleaseResult, { outcome: 'failed' }>, 'swept'>
@@ -636,7 +723,17 @@ export async function installRelease(
     throw new Error(`podium install: ${kind} declares no managed install`)
   const commandEnv = options.commandEnv ?? (await createCommandEnvironment()).env
   const env = Object.freeze(managedInstallEnv(commandEnv))
-  const check = managedCheckPorts(env, options)
+  const check = managedCheckPorts(env, {
+    ...options,
+    onDownload: (receivedBytes, totalBytes) => {
+      options.onDownload?.(receivedBytes, totalBytes)
+      options.onProgress?.({
+        phase: 'download',
+        receivedBytes,
+        ...(totalBytes !== undefined ? { totalBytes } : {}),
+      })
+    },
+  })
 
   const ledger =
     options.ledger ??
@@ -644,17 +741,26 @@ export async function installRelease(
   try {
     if (ledger.get(kind)?.removingAt)
       throw new Error(`${kind} is still being removed; wait for its running sessions to exit.`)
-    if (!ledger.get(kind)) ledger.requestInstall(kind, options.requestedBy ?? 'person')
+    const firstRequest = !ledger.get(kind)
+    if (firstRequest) ledger.requestInstall(kind, options.requestedBy ?? 'person')
     const acquired = ledger.acquireInstallLock({ label: options.lockLabel ?? `install ${kind}` })
     if (!acquired.acquired) return { outcome: 'busy', kind, holder: acquired.holder }
     const { lock } = acquired
     let outcome: LockedOutcome
     let swept: string[] = []
+    let forgotten = false
     try {
       outcome =
         options.updating && ledger.get(kind)?.vendorUpdated
           ? { outcome: 'vendor-updated', kind }
           : await installLocked(ledger, lock, target, env, check, options)
+      if (outcome.outcome === 'cancelled' && firstRequest) {
+        try {
+          forgotten = ledger.forgetUnpublished(kind, lock)
+        } catch (error) {
+          options.note?.(`Could not forget the cancelled ${kind} install: ${errorText(error)}`)
+        }
+      }
     } finally {
       try {
         swept = sweepReleaseFolders(ledger, kind, lock)
@@ -662,6 +768,14 @@ export async function installRelease(
         options.note?.(`Could not clear old ${kind} install folders: ${errorText(error)}`)
       }
       lock.release()
+    }
+    if (forgotten) {
+      // The harness's folder held only this install's staging; leave nothing behind.
+      try {
+        rmdirSync(join(ledger.harnessesDir, kind))
+      } catch {
+        // Not empty (a session's release) or already gone: either is fine.
+      }
     }
     if (outcome.outcome !== 'installed') return { ...outcome, swept }
     try {
@@ -688,6 +802,15 @@ async function installLocked(
   const { kind } = target
   const kindDir = join(ledger.harnessesDir, kind)
   mkdirSync(kindDir, { recursive: true })
+  const stopped = () => options.signal?.aborted === true
+  let phase: InstallPhase | undefined
+  const enter = (step: InstallStep) => {
+    const next = INSTALL_STEP_PHASE[step]
+    if (next === phase) return
+    phase = next
+    options.onProgress?.({ phase: next })
+  }
+  enter('install')
 
   let release = options.release
   if (!release) {
@@ -695,17 +818,35 @@ async function installLocked(
       release = await target.install.latest(check)
       releaseFolderName(1, release.version)
     } catch (error) {
+      if (stopped()) return { outcome: 'cancelled', kind }
       const message = errorText(error)
       ledger.recordCheck(kind, { ok: false, error: message })
       return { outcome: 'check-failed', kind, error: message }
     }
     ledger.recordCheck(kind, { ok: true, latest: release.version, nothingToInstall: false })
+    // A person's retry never brings back a release that failed its checks: only a newer one.
+    const rejected = ledger.rejectedReleases(kind).find((row) => row.version === release?.version)
+    if (rejected) {
+      const error = `${rejected.reason}. Podium will not install ${rejected.version} again, and the vendor has no newer release yet.`
+      try {
+        ledger.recordInstallFailure(kind, { version: rejected.version, error })
+      } catch (recordError) {
+        options.note?.(`Could not record the ${kind} install failure: ${errorText(recordError)}`)
+      }
+      return { outcome: 'not-installable', kind, version: rejected.version, error }
+    }
   }
   const { version } = release
+  if (stopped()) return { outcome: 'cancelled', kind }
 
   const staging = join(kindDir, `.staging-${randomBytes(6).toString('hex')}`)
   const at = { staging, kindDir }
+  const cancelled = (): LockedOutcome => {
+    rmSync(staging, { recursive: true, force: true })
+    return { outcome: 'cancelled', kind }
+  }
   const fail = (step: InstallStep, error: string, rejected: boolean): LockedOutcome => {
+    if (stopped()) return cancelled()
     rmSync(staging, { recursive: true, force: true })
     try {
       if (rejected) ledger.rejectRelease(kind, version, error)
@@ -724,17 +865,21 @@ async function installLocked(
     const home = join(staging, 'home')
     mkdirSync(home)
     await options.beforeStep?.('install', at)
+    if (stopped()) return cancelled()
     installed = await target.install.install(release, staging, managedInstallPorts(check, home))
   } catch (error) {
     return fail('install', errorText(error), false)
   }
+  if (stopped()) return cancelled()
 
   // Step 4: checks from outside the adapter.
   let executable: string
   const probeHome = join(staging, '.probe-home')
   const probeEnv = installerEnvFor(env, probeHome, check.platform)
   try {
+    enter('verify')
     await options.beforeStep?.('verify', at)
+    if (stopped()) return cancelled()
     const found = executableInside(staging, installed.executable)
     if ('error' in found) return fail('verify', found.error, false)
     executable = found.path
@@ -747,6 +892,7 @@ async function installLocked(
   }
   const timeoutMs = options.probeTimeoutMs ?? AGENT_VERSION_PROBE_TIMEOUT_MS
   const probe = await probeExecutable(executable, target.versionArgs, probeEnv, timeoutMs)
+  if (stopped()) return cancelled()
   if (!probe.ok)
     return fail(
       'verify',
@@ -787,7 +933,9 @@ async function installLocked(
   let dir: string
   try {
     rmSync(probeHome, { recursive: true, force: true })
+    enter('receipt')
     await options.beforeStep?.('receipt', at)
+    if (stopped()) return cancelled()
     fsyncTree(staging)
     writeInstallReceipt(staging, {
       format: RECEIPT_FORMAT,
@@ -801,7 +949,9 @@ async function installLocked(
     })
     number = ledger.allocateReleaseNumber(kind, lock)
     dir = join(kindDir, releaseFolderName(number, version))
+    enter('rename')
     await options.beforeStep?.('rename', at)
+    if (stopped()) return cancelled()
     renameSync(staging, dir)
     fsyncPath(kindDir)
   } catch (error) {
@@ -812,6 +962,8 @@ async function installLocked(
   let previous: number | null
   try {
     await options.beforeStep?.('publish', at)
+    // The last moment a cancel counts; the unnamed numbered folder is swept.
+    if (stopped()) return cancelled()
     previous = ledger.publishRelease(kind, number, lock).previous
   } catch (error) {
     return fail('publish', errorText(error), false)

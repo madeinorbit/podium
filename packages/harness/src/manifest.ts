@@ -1909,8 +1909,10 @@ export interface HarnessConversationFile {
    * new object replaces it. Codex leaves out encrypted reasoning when the
    * account changes (POD-6893 §3: a foreign one is refused with 400) and
    * records the provider the target runs on. `inPodiumHome`: the target is
-   * the Podium home (managed installs §4.3), which holds no login, so a record
-   * of a provider that needs one is rewritten to the provider that does not.
+   * the Podium home on a credential passed in there (managed installs §4.3),
+   * which runs on no login file, so a record of a provider that needs one is
+   * rewritten to the provider that does not. The machine's own login kept in
+   * the Podium home (§4.2) is a login file, and is not this.
    * Absent: every record carries over.
    */
   carryRecord?(

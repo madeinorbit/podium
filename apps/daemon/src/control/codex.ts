@@ -69,14 +69,18 @@ function codexCredentialsDir(credentialHome: string | undefined): string {
   return roots.credentials ?? roots.state
 }
 
-export function codexAuthPathFor(credentialHome: string | undefined): string {
-  return join(codexCredentialsDir(credentialHome), 'auth.json')
+/** `codexHome` is the shared own-login rule's override for the default account. */
+export function codexAuthPathFor(credentialHome: string | undefined, codexHome?: string): string {
+  return join(codexHome ?? codexCredentialsDir(credentialHome), 'auth.json')
 }
 
 /** Cheap sync check so the handler can fail fast with a clear message. */
-export function codexLoginPresentOnHost(credentialHome: string | undefined): boolean {
+export function codexLoginPresentOnHost(
+  credentialHome: string | undefined,
+  codexHome?: string,
+): boolean {
   try {
-    const path = codexAuthPathFor(credentialHome)
+    const path = codexAuthPathFor(credentialHome, codexHome)
     if (!existsSync(path)) return false
     return hasValidCodexCredential(readFileSync(path, 'utf8'))
   } catch {
@@ -84,8 +88,8 @@ export function codexLoginPresentOnHost(credentialHome: string | undefined): boo
   }
 }
 
-function readAuthContents(credentialHome: string | undefined): string {
-  const path = codexAuthPathFor(credentialHome)
+function readAuthContents(credentialHome: string | undefined, codexHome?: string): string {
+  const path = codexAuthPathFor(credentialHome, codexHome)
   try {
     return readFileSync(path, 'utf8')
   } catch {
@@ -109,14 +113,14 @@ export class CodexDaemonAuthError extends Error {}
  */
 export async function resolveCodexDaemonAuth(
   credentialHome: string | undefined,
-  opts: { rejectedAccessToken?: string } = {},
+  opts: { codexHome?: string; rejectedAccessToken?: string } = {},
 ): Promise<CodexDaemonAuth> {
-  const contents = readAuthContents(credentialHome)
+  const contents = readAuthContents(credentialHome, opts.codexHome)
   try {
     JSON.parse(contents)
   } catch {
     throw new CodexDaemonAuthError(
-      `Codex auth file is corrupt: ${codexAuthPathFor(credentialHome)}`,
+      `Codex auth file is corrupt: ${codexAuthPathFor(credentialHome, opts.codexHome)}`,
     )
   }
   const parsed = parseCodexAuthContents(contents)
@@ -139,10 +143,15 @@ export type CodexCompleteOutcome =
 /**
  * Run one Responses turn against this machine's login. Injectable fetch +
  * credential home make this unit-testable without a daemon: production passes
- * the global fetch and the management credential home.
+ * the management credential home and its own-login Codex home override.
  */
 export async function runCodexComplete(
-  deps: { credentialHome: string | undefined; fetchImpl?: FetchLike; timeoutMs?: number },
+  deps: {
+    credentialHome: string | undefined
+    codexHome?: string
+    fetchImpl?: FetchLike
+    timeoutMs?: number
+  },
   msg: Extract<ControlMessage, { type: 'codexCompleteRequest' }>,
 ): Promise<CodexCompleteOutcome> {
   const fetchImpl = deps.fetchImpl ?? fetch
@@ -150,7 +159,7 @@ export async function runCodexComplete(
   const effort: CodexEffort = msg.effort
   let auth: CodexDaemonAuth
   try {
-    auth = await resolveCodexDaemonAuth(deps.credentialHome)
+    auth = await resolveCodexDaemonAuth(deps.credentialHome, { codexHome: deps.codexHome })
   } catch (err) {
     return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
   }
@@ -183,6 +192,7 @@ export async function runCodexComplete(
       // there it is unusable — surface, never loop.
       try {
         const rotated = await resolveCodexDaemonAuth(deps.credentialHome, {
+          codexHome: deps.codexHome,
           rejectedAccessToken: auth.accessToken,
         })
         const second = await attempt(rotated)
@@ -222,7 +232,10 @@ async function handleCodexComplete(
   // snapshot's machine home — never the daemon's own `homedir()`.
   const account = await resolveManagementAccount(ctx)
   const outcome: CodexCompleteOutcome = account
-    ? await runCodexComplete({ credentialHome: account.home }, msg)
+    ? await runCodexComplete(
+        { credentialHome: account.home, codexHome: account.ownLoginHomes?.codex },
+        msg,
+      )
     : { ok: false, error: 'Codex call refused: no account home on this machine' }
   ctx.send({
     type: 'codexCompleteResult',

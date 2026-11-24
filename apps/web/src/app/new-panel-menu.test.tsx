@@ -1,4 +1,5 @@
 import '@/test-support/mock-core-store-handle'
+import { asIssueId, asRepoId } from '@podium/model'
 // @vitest-environment happy-dom
 /**
  * THE TAB STRIP'S "+" (POD-1201).
@@ -13,8 +14,9 @@ import '@/test-support/mock-core-store-handle'
  *     surfaces were made to match, so its own refusal has to keep working: the
  *     fixture machine runs claude-code and not cursor.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { closeSetupAgents, setupAgentsRequest } from '@/features/setup-agents/open-setup-agents'
 import * as launchData from './command-launch-data'
 import { NewPanelMenu } from './NewPanelMenu'
 
@@ -43,6 +45,7 @@ const { conversationSearch, launchSession, feature, machine, opened, setPanelMod
         runtimeDrivers: [
           { harness: 'claude-code', id: 'claude-pty', family: 'terminal' },
           { harness: 'claude-code', id: 'claude-sdk', family: 'server' },
+          { harness: 'cursor', id: 'cursor-server', family: 'server' },
           { harness: 'opencode', id: 'generic-pty', family: 'terminal' },
           { harness: 'opencode', id: 'opencode-server', family: 'server' },
         ],
@@ -108,6 +111,7 @@ const worktree = {
 
 afterEach(() => {
   cleanup()
+  closeSetupAgents()
   conversationSearch.mockClear()
   launchSession.mockClear()
   feature.enabled = false
@@ -178,20 +182,59 @@ describe('the new-panel menu', () => {
     expect(conversationSearch).not.toHaveBeenCalled()
   })
 
-  it('still refuses a harness the machine does not have', async () => {
+  it('hides a harness the machine does not have', async () => {
     open()
 
-    const cursor = await screen.findByRole('menuitem', { name: /New Cursor/ })
-    expect(cursor.textContent).toContain('not installed')
-    expect(cursor.getAttribute('data-refused')).toBe('true')
+    expect(await screen.findByRole('menuitem', { name: 'Set up agents…' })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: /New Cursor/ })).toBeNull()
 
     const claude = await screen.findByRole('menuitem', { name: /New Claude/ })
     expect(claude.getAttribute('data-refused')).toBeNull()
   })
 
+  it('hands a setup choice back into the same issue worktree on its machine', async () => {
+    render(
+      <NewPanelMenu
+        worktree={
+          {
+            ...worktree,
+            path: '/work/repo/topic',
+            repoPath: '/work/repo',
+            repoId: asRepoId('repo'),
+            branch: 'topic',
+            isMain: false,
+          } as never
+        }
+        issueId={asIssueId('task')}
+        onOpened={opened}
+        open
+        trigger={<button type="button">plus</button>}
+      />,
+    )
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Set up agents…' }))
+    const request = setupAgentsRequest()
+    expect(request).toMatchObject({ machineId: 'mine', origin: 'menu' })
+    expect(request?.focus).toBeUndefined()
+    expect(launchSession).not.toHaveBeenCalled()
+    act(() => request?.onStart?.('codex'))
+    expect(launchSession).toHaveBeenCalledExactlyOnceWith({
+      agentKind: 'codex',
+      issueId: 'task',
+      target: {
+        path: '/work/repo/topic',
+        repoPath: '/work/repo',
+        repoId: 'repo',
+        machineId: 'mine',
+      },
+    })
+    expect(opened).toHaveBeenCalledWith('new')
+  })
+
   it('keeps headed creation as the default and exposes only available headless drivers when enabled', async () => {
     feature.enabled = true
     open()
+    await screen.findByRole('menuitem', { name: /^New Claude$/ })
+    expect(screen.queryByRole('menuitem', { name: /Cursor/ })).toBeNull()
 
     fireEvent.click(await screen.findByRole('menuitem', { name: /^New Claude$/ }))
     expect(launchSession).toHaveBeenLastCalledWith(

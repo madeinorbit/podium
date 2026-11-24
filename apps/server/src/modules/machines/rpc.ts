@@ -76,6 +76,7 @@ import type {
   WorkspaceImportResultMessage,
 } from '@podium/protocol'
 import {
+  CAP_HARNESS_INSTALL_CANCEL,
   CAP_HARNESS_INSTALLS,
   CAP_REPO_ROOT_CHECK,
   CAP_TRANSCRIPT_PATHS,
@@ -348,6 +349,7 @@ const HARNESS_CHANGES = daemonRequestKind<HarnessActionResult>('hi7')
 const HARNESS_REMOVE = daemonRequestKind<HarnessActionResult>('hi8')
 const HARNESS_HOMEINFO = daemonRequestKind<HarnessActionResult>('hih')
 const HARNESS_HOMEREMOVE = daemonRequestKind<HarnessActionResult>('hix')
+const HARNESS_CANCELINSTALL = daemonRequestKind<HarnessActionResult>('hic')
 const HOME_ENSURE = daemonRequestKind<Payload<HomeEnsureResultMessage>>('hn')
 const HOME_REMOVE = daemonRequestKind<Payload<HomeRemoveResultMessage>>('hd')
 const CREDENTIAL_REMOVE = daemonRequestKind<Payload<CredentialRemoveResultMessage>>('cx')
@@ -531,6 +533,8 @@ const RPC_REPLY_SETTLERS: { [K in SettledFrameType]: ReplySettler<K> } = {
     void broker.settle(HARNESS_CHANGES, msg.requestId, machineId, payloadOf(msg)),
   harnessRemoveResult: (broker, machineId, msg) =>
     void broker.settle(HARNESS_REMOVE, msg.requestId, machineId, payloadOf(msg)),
+  harnessCancelInstallResult: (broker, machineId, msg) =>
+    void broker.settle(HARNESS_CANCELINSTALL, msg.requestId, machineId, payloadOf(msg)),
   harnessHomeInfoResult: (broker, machineId, msg) =>
     void broker.settle(HARNESS_HOMEINFO, msg.requestId, machineId, payloadOf(msg)),
   harnessHomeRemoveResult: (broker, machineId, msg) =>
@@ -1622,6 +1626,23 @@ export class DaemonRpcService {
             error: 'The machine did not answer in time. Check its harness state before retrying.',
           }),
           (requestId) => ({ type: 'harnessRemoveRequest', requestId, harness }),
+          machineId,
+        )
+      case 'cancel-install':
+        if (!this.deps.daemonSupports?.(machineId, CAP_HARNESS_INSTALL_CANCEL))
+          return {
+            ok: false,
+            error: 'Update Podium on this machine to cancel a harness install.',
+          }
+        // The daemon answers once the install has stopped and cleaned up.
+        return await this.request(
+          HARNESS_CANCELINSTALL,
+          120000,
+          () => ({
+            ok: false,
+            error: 'The machine did not answer in time. Check its harness state before retrying.',
+          }),
+          (requestId) => ({ type: 'harnessCancelInstallRequest', requestId, harness }),
           machineId,
         )
     }

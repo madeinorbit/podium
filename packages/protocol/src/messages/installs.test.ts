@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ControlMessage } from './control'
 import { DaemonMessage } from './daemon'
-import { CAP_HARNESS_INSTALLS, HarnessInstallAction } from './installs'
+import { CAP_HARNESS_INSTALL_CANCEL, CAP_HARNESS_INSTALLS, HarnessInstallAction } from './installs'
 import { CONTROL_PLANE_CLASS, DAEMON_PLANE_CLASS } from './message-class'
 
 const pairs = [
@@ -16,11 +16,14 @@ const pairs = [
   'Remove',
   'HomeInfo',
   'HomeRemove',
+  'CancelInstall',
 ] as const
 
 describe('managed harness wire actions', () => {
-  it('declares the negotiated capability', () =>
-    expect(CAP_HARNESS_INSTALLS).toBe('harness.installs.v1'))
+  it('declares the negotiated capabilities', () => {
+    expect(CAP_HARNESS_INSTALLS).toBe('harness.installs.v1')
+    expect(CAP_HARNESS_INSTALL_CANCEL).toBe('harness.installs.cancel.v1')
+  })
   it.each(pairs)('%s has its own request and result, both control commands', (action) => {
     const request = {
       type: `harness${action}Request`,

@@ -134,9 +134,10 @@ it('skips unavailable agents while allowing signed-out agents, just like the men
       trigger={<button type="button">Agent</button>}
       selectedValue="claude-code"
       onSelect={onSelect}
+      setup={{ machines: [] }}
       options={[
         { value: 'claude-code', label: 'Claude', status: {} },
-        { value: 'codex', label: 'Codex', status: { reason: 'Not installed' } },
+        { value: 'codex', label: 'Codex', status: { hidden: true, reason: 'Not installed' } },
         { value: 'cursor', label: 'Cursor', status: { warning: 'Signed out' } },
       ]}
     />,

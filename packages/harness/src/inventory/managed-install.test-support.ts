@@ -39,9 +39,18 @@ export interface FakeRelease {
   badChecksum?: boolean
   /** The vendor's installer script exits non-zero. */
   installerFails?: boolean
+  /** Pad the binary with this many bytes of comment, so its download takes several chunks. */
+  padBytes?: number
+  /** Send this many bytes of the binary (with its full Content-Length) and never finish. */
+  stallAfterBytes?: number
 }
 
 function binaryFor(release: FakeRelease): string {
+  const script = scriptFor(release)
+  return release.padBytes ? `${script}# ${'x'.repeat(release.padBytes)}\n` : script
+}
+
+function scriptFor(release: FakeRelease): string {
   switch (release.behaviour ?? 'ok') {
     case 'ok':
       return `#!/bin/sh\necho "fake-harness ${release.version} (Fake Harness)"\n`
@@ -107,7 +116,10 @@ export class FakeVendorHost {
       const path = request.url ?? '/'
       this.requests.push(path)
       const send = (status: number, body: string | Buffer) => {
-        response.writeHead(status, { 'content-type': 'application/octet-stream' })
+        response.writeHead(status, {
+          'content-type': 'application/octet-stream',
+          'content-length': String(Buffer.byteLength(body)),
+        })
         response.end(body)
       }
       if (path === '/releases/stable') return send(200, `${this.latest}\n`)
@@ -115,6 +127,14 @@ export class FakeVendorHost {
       const release = match ? this.releases.get(match[1] as string) : undefined
       if (!match || !release) return send(404, 'not found')
       const binary = Buffer.from(binaryFor(release))
+      if (match[2] === 'fake-harness' && release.stallAfterBytes !== undefined) {
+        response.writeHead(200, {
+          'content-type': 'application/octet-stream',
+          'content-length': String(binary.length),
+        })
+        response.write(binary.subarray(0, release.stallAfterBytes))
+        return
+      }
       if (match[2] === 'fake-harness') return send(200, binary)
       if (match[2] === 'install.sh') return send(200, installerFor(release))
       const digest = release.badChecksum

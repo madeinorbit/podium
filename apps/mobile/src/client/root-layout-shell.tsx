@@ -15,6 +15,7 @@ import { useReduceMotion } from '../hooks/useReduceMotion'
 import { installBlurOnNavigate } from '../lib/blur-on-navigate'
 import { startMobileLogging } from '../lib/logging'
 import { color } from '../theme/theme'
+import { AgentOnboardingGate } from './AgentOnboardingGate'
 import { AuthGate } from './AuthGate'
 import { useLaunchFontsReady } from './font-startup'
 import { LaunchBoundary, LaunchReadyView } from './launch'
@@ -79,7 +80,9 @@ function ConnectedApp({ children }: { children: ReactNode }) {
       <MobileClientProvider key={`client:${runtimeKey}`}>
         <AgentOutcomeHaptics />
         <PodiumLinkHost />
-        <LaunchReadyView>{children}</LaunchReadyView>
+        <LaunchReadyView>
+          <AgentOnboardingGate>{children}</AgentOnboardingGate>
+        </LaunchReadyView>
         {/* Over every route, where the router and the store both exist: a
             message that did not arrive is said on whatever screen is up. */}
         <MessageNoticeBanner />

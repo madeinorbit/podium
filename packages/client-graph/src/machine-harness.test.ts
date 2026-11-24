@@ -1,4 +1,10 @@
-import { type AgentInventory, asMachineId, type Inventory } from '@podium/model'
+import {
+  type AgentInventory,
+  asMachineId,
+  type HarnessInstallProgress,
+  type Inventory,
+} from '@podium/model'
+import { CAP_HARNESS_INSTALL_CANCEL } from '@podium/protocol'
 import { autorun, observableRef, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { MachineHarness } from './machine-harness'
@@ -8,6 +14,7 @@ class Machine {
   readonly id = asMachineId('test-machine')
   online = true
   use = 'granted' as const
+  deliveryCaps: string[] | undefined = undefined
   @observableRef accessor inventory: Inventory = { os: 'linux', arch: 'x64', agents: [], tools: [] }
 }
 function agent(own: boolean, managed: boolean): AgentInventory {
@@ -128,5 +135,110 @@ describe('machine harness state', () => {
     } finally {
       stop()
     }
+  })
+
+  describe('install progress, cancel and retry (POD-7471)', () => {
+    const installing = (progress?: HarnessInstallProgress): AgentInventory => ({
+      ...agent(false, false),
+      install: {
+        managed: {
+          paused: false,
+          installing: { version: '0.172.0', ...(progress ? { progress } : {}) },
+        },
+      },
+    })
+
+    it('shows no progress for a machine that reports none', () => {
+      const { row } = fixture(installing())
+      expect(row.state).toBe('installing')
+      expect(row.progress).toBeUndefined()
+      expect(row.managedLabel).toBe('Installing 0.172.0…')
+    })
+
+    it.each([
+      [
+        { phase: 'download', receivedBytes: 512, totalBytes: 4096 },
+        { phase: 'download', receivedBytes: 512, totalBytes: 4096, percent: 12 },
+      ],
+      [
+        { phase: 'download', receivedBytes: 512 },
+        { phase: 'download', receivedBytes: 512 },
+      ],
+      [{ phase: 'download' }, { phase: 'download' }],
+      [{ phase: 'verify' }, { phase: 'verify' }],
+      [{ phase: 'setup' }, { phase: 'setup' }],
+    ] as const)('reads progress %o as %o', (reported, expected) => {
+      expect(fixture(installing(reported)).row.progress).toEqual(expected)
+    })
+
+    it('never reads past 100 percent when the body outgrows the named size', () => {
+      const { row } = fixture(
+        installing({ phase: 'download', receivedBytes: 5000, totalBytes: 4096 }),
+      )
+      expect(row.progress?.percent).toBe(100)
+    })
+
+    it('follows progress across reports', () => {
+      const { row, machine } = fixture(
+        installing({ phase: 'download', receivedBytes: 0, totalBytes: 100 }),
+      )
+      const seen: (number | string | undefined)[] = []
+      const stop = autorun(() => seen.push(row.progress?.percent ?? row.progress?.phase))
+      try {
+        runInAction(() => {
+          machine.inventory = {
+            ...machine.inventory,
+            agents: [installing({ phase: 'download', receivedBytes: 50, totalBytes: 100 })],
+          }
+        })
+        runInAction(() => {
+          machine.inventory = { ...machine.inventory, agents: [installing({ phase: 'verify' })] }
+        })
+        runInAction(() => {
+          machine.inventory = { ...machine.inventory, agents: [agent(false, true)] }
+        })
+      } finally {
+        stop()
+      }
+      expect(seen).toEqual([0, 50, 'verify', undefined])
+    })
+
+    it('offers the cancel while installing only on a machine that supports it', () => {
+      const old = fixture(installing({ phase: 'download' }))
+      expect(old.row.canCancel).toBe(false)
+      expect(old.row.actions).toEqual([])
+
+      const current = fixture(installing({ phase: 'download' }))
+      current.machine.deliveryCaps = [CAP_HARNESS_INSTALL_CANCEL]
+      expect(current.row.canCancel).toBe(true)
+      expect(current.row.actions).toEqual(['cancel-install'])
+      expect(current.row.actionLabel('cancel-install')).toBe('Cancel install')
+      // The other actions stay closed until the install ends.
+      expect(current.row.canAct).toBe(false)
+    })
+
+    it('offers Try again after a failed first install, with the error as a getter', () => {
+      const lastError = {
+        at: '2026-11-23T10:00:00.000Z',
+        message: 'codex 0.172.0 does not run (exit): exited 3',
+        version: '0.172.0',
+      }
+      const { row } = fixture({
+        ...agent(false, false),
+        install: { managed: { paused: false, lastError } },
+      })
+      expect(row.state).toBe('managed')
+      expect(row.managedLabel).toBe('No usable release · managed by Podium')
+      expect(row.lastError).toEqual(lastError)
+      expect(row.actions[0]).toBe('install')
+      expect(row.actions).toContain('remove')
+      expect(row.actionLabel('install')).toBe('Try again')
+    })
+
+    it('offers no install on a working release and has no error to show', () => {
+      const { row } = fixture(agent(false, true))
+      expect(row.actions).not.toContain('install')
+      expect(row.lastError).toBeUndefined()
+    })
   })
 })

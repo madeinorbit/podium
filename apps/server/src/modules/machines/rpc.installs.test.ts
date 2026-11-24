@@ -1,5 +1,9 @@
 import { asMachineId } from '@podium/model'
-import { CAP_HARNESS_INSTALLS, type HarnessInstallAction } from '@podium/protocol'
+import {
+  CAP_HARNESS_INSTALL_CANCEL,
+  CAP_HARNESS_INSTALLS,
+  type HarnessInstallAction,
+} from '@podium/protocol'
 import { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { DaemonRequestBroker } from '../daemon-request'
@@ -18,8 +22,13 @@ const pairs = [
   ['remove', 'Remove'],
   ['home-info', 'HomeInfo'],
   ['remove-home', 'HomeRemove'],
+  ['cancel-install', 'CancelInstall'],
 ] as const
-function setup(supports = true, ok = true) {
+function setup(
+  supports = true,
+  ok = true,
+  caps: readonly string[] = [CAP_HARNESS_INSTALLS, CAP_HARNESS_INSTALL_CANCEL],
+) {
   const sent: unknown[] = []
   let rpc: DaemonRpcService
   const broker = new DaemonRequestBroker({
@@ -49,7 +58,7 @@ function setup(supports = true, ok = true) {
       readTranscriptFromLake: async () => ({ items: [], hasMore: false }),
       transcriptHasPredecessors: async () => false,
     },
-    daemonSupports: (_id, cap) => supports && cap === CAP_HARNESS_INSTALLS,
+    daemonSupports: (_id, cap) => supports && caps.includes(cap),
     toMachine: () => {},
     defaultMachine: () => machineId,
     resolveMachine: () => machineId,
@@ -85,6 +94,14 @@ describe('managed install request round trips', () => {
       error: 'vendor refused the request',
     })
     expect(sent).toHaveLength(1)
+  })
+  it('never sends a cancel to a daemon that manages installs but cannot cancel one', async () => {
+    const { rpc, sent } = setup(true, true, [CAP_HARNESS_INSTALLS])
+    await expect(rpc.harnessAction('cancel-install', 'codex', machineId)).resolves.toEqual({
+      ok: false,
+      error: 'Update Podium on this machine to cancel a harness install.',
+    })
+    expect(sent).toEqual([])
   })
   it('never sends home deletion without conversation confirmation', async () => {
     const { rpc, sent } = setup()

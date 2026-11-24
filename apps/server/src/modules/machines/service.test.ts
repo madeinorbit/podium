@@ -1,7 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Inventory, UserId } from '@podium/model'
+import { bundledDescriptorFor } from '@podium/harness/browser'
+import type { AgentKind, Inventory, UserId } from '@podium/model'
 import {
   asMachineId,
   asSessionId,
@@ -525,9 +526,9 @@ describe('MachinesService.requireAgent refuses rather than falling through (POD-
       }))
     return svc
   }
-  async function refusal(machines: unknown[]): Promise<TRPCError> {
+  async function refusal(machines: unknown[], agentKind: AgentKind = 'codex'): Promise<TRPCError> {
     try {
-      await serviceListing(machines).requireAgent(MACHINE, 'codex')
+      await serviceListing(machines).requireAgent(MACHINE, agentKind)
     } catch (error) {
       expect(error).toBeInstanceOf(TRPCError)
       return error as TRPCError
@@ -584,6 +585,114 @@ describe('MachinesService.requireAgent refuses rather than falling through (POD-
       code: 'PRECONDITION_FAILED',
       message:
         "could not determine whether codex is installed on machine 'vmi' (probe timed out after 60s); retry",
+    })
+  })
+
+  test.each([
+    { kind: 'codex' as const, label: 'Codex', management: { installable: true } },
+    { kind: 'claude-code' as const, label: 'Claude Code', management: undefined },
+  ])('a missing $label names both setup entry points', async ({ kind, label, management }) => {
+    expect(
+      await refusal(
+        [
+          {
+            id: MACHINE,
+            name: 'build-box',
+            online: true,
+            inventory: { agents: [{ kind, installed: false, management }] },
+          },
+        ],
+        kind,
+      ),
+    ).toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: `${label} isn't installed on machine 'build-box'. Install it from Set up agents… in any harness menu, or in Settings › Machines › build-box.`,
+    })
+  })
+
+  test('uses the display label reported by the selected machine', async () => {
+    const svc = serviceListing([
+      {
+        id: MACHINE,
+        name: 'build-box',
+        online: true,
+        inventory: { agents: [{ kind: 'codex', installed: false }] },
+      },
+    ])
+    const descriptor = bundledDescriptorFor('codex')
+    if (!descriptor) throw new Error('Missing bundled Codex descriptor')
+    vi.spyOn(svc, 'harnessDescriptorsFor').mockReturnValue([
+      { ...descriptor, label: 'Machine Codex' },
+    ])
+    await expect(svc.requireAgent(MACHINE, 'codex')).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message:
+        "Machine Codex isn't installed on machine 'build-box'. Install it from Set up agents… in any harness menu, or in Settings › Machines › build-box.",
+    })
+  })
+
+  test.each([
+    {
+      reason: 'This harness requires a desktop application. Install it on the machine first.',
+      explanation: 'This harness requires a desktop application. Install it on the machine first.',
+    },
+    {
+      reason: undefined,
+      explanation: 'Installation through Podium is not supported on this machine.',
+    },
+  ])('explains why Podium cannot install a missing harness: $reason', async ({
+    reason,
+    explanation,
+  }) => {
+    expect(
+      await refusal([
+        {
+          id: MACHINE,
+          name: 'build-box',
+          online: true,
+          inventory: {
+            agents: [
+              { kind: 'codex', installed: false, management: { installable: false, reason } },
+            ],
+          },
+        },
+      ]),
+    ).toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: `Codex isn't installed on machine 'build-box'. Podium can't install it here. ${explanation}`,
+    })
+  })
+
+  test('explains missing prerequisites instead of offering installation', async () => {
+    expect(
+      await refusal([
+        {
+          id: MACHINE,
+          name: 'build-box',
+          online: true,
+          inventory: {
+            agents: [
+              {
+                kind: 'codex',
+                installed: false,
+                management: { installable: true },
+                missingPrerequisites: [
+                  {
+                    executable: 'helper',
+                    package: 'helper-package',
+                    neededFor: 'passed-in-credential',
+                    message: 'Install helper-package on this machine first.',
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ]),
+    ).toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message:
+        "Codex isn't installed on machine 'build-box'. Podium can't install it here. Install helper-package on this machine first.",
     })
   })
 
@@ -784,7 +893,7 @@ describe('MachinesService inventory persistence (#222)', () => {
     await svc.attach(MACHINE, recorder().send)
     await svc.recordInventory(MACHINE, INV)
     await expect(svc.resolveMachineForAgent(undefined, '/repo', 'codex')).rejects.toThrow(
-      "codex is not installed on machine 'Missing'",
+      "Codex isn't installed on machine 'Missing'. Install it from Set up agents… in any harness menu, or in Settings › Machines › Missing.",
     )
   })
 
@@ -989,7 +1098,7 @@ describe('MachinesService inventory persistence (#222)', () => {
 
     await svc.recordInventory(MACHINE, INV)
     await expect(svc.resolveMachineForAgent(MACHINE, '/repo', 'codex')).rejects.toThrow(
-      "codex is not installed on machine 'Builder'",
+      "Codex isn't installed on machine 'Builder'. Install it from Set up agents… in any harness menu, or in Settings › Machines › Builder.",
     )
 
     await svc.recordInventory(MACHINE, {

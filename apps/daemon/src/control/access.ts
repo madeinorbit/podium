@@ -65,6 +65,16 @@ export interface MachineHomeFacts {
   /** Whether the machine has a managed install of `kind` now. */
   managedInstall(kind: import('@podium/model').BuiltinHarnessKind): boolean
   externalInstall?(kind: import('@podium/model').BuiltinHarnessKind): boolean
+  /**
+   * What the login files say on one side of the machine's own login of
+   * `kind`: the person's own folder, or the Podium home (POD-7496,
+   * `ownLoginInPodiumHome`). Absent: not read, and with both installs the
+   * person's side keeps the machine's own login.
+   */
+  ownLogin?(
+    kind: import('@podium/protocol').HomeHarness,
+    side: import('@podium/harness').HarnessHomeSide,
+  ): import('@podium/harness').HarnessLogin['state']
 }
 
 /** A credential passed in, with a managed install there: the Podium home (§4.3). */

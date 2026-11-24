@@ -50,6 +50,7 @@ import {
   issueHandoffBlockerText,
 } from '@/lib/session-context-menu'
 import { useSessionHandoff } from '@/lib/session-handoff'
+import { SetupAgentsMenuItem } from '@/lib/setup-agents-menu-item'
 import { useCursorMenu } from '@/lib/use-cursor-menu'
 import { useFeature } from '@/lib/use-feature'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
@@ -67,6 +68,7 @@ import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './i
 import {
   createIssueMenuData,
   type IssueMenuConfig,
+  type IssueMenuData,
   type IssueMenuIcon,
   type IssueMenuOption,
   type IssueMenuSection,
@@ -79,6 +81,7 @@ import type { IssueMenuPoolInputs } from './issue-menu-pool-inputs'
 import { readIssueMenuChoices, readIssueMenuOrigins } from './issue-menu-readers'
 import { useIssueViews } from './issue-page/opening-context'
 import { isIssueStartable } from './issue-startable'
+import { useAgentFleet } from './use-agent-fleet-options'
 
 /** Shared menu section heading. */
 // A null label draws a bare rule instead of a heading. `danger` takes one
@@ -569,6 +572,18 @@ export const IssueContextMenu = observer(function IssueContextMenu({
   const submenuItems = new Map<IssueMenuSubmenu, JSX.Element[]>()
   for (const entry of entries) {
     if (entry.kind !== 'submenu' || entry.id !== sub?.kind) continue
+    if (entry.id === 'agent') {
+      submenuItems.set(entry.id, [
+        <IssueAgentSubmenu
+          key="agent"
+          entry={entry}
+          data={menuData}
+          onSelect={assignAgent}
+          onOpenSetup={onClose}
+        />,
+      ])
+      continue
+    }
     submenuItems.set(
       entry.id,
       entry.options(menuData).map((option) =>
@@ -726,3 +741,47 @@ export const IssueContextMenu = observer(function IssueContextMenu({
     document.body,
   )
 })
+
+/** Capability demand belongs to the open agent flyout, using the existing fleet source. */
+function IssueAgentSubmenu({
+  entry,
+  data,
+  onSelect,
+  onOpenSetup,
+}: {
+  entry: Extract<IssueMenuConfig, { kind: 'submenu' }>
+  data: IssueMenuData
+  onSelect: (value: string) => void
+  onOpenSetup: () => void
+}): JSX.Element {
+  const fleet = useAgentFleet(data.first)
+  const options = entry.options({ ...data, agentMachines: fleet.machines })
+  return (
+    <>
+      {options.map((option) => (
+        <button
+          data-pressable
+          key={option.id}
+          type="button"
+          role="menuitem"
+          disabled={option.disabled}
+          className={option.disabled ? MENU_ITEM_DISABLED : MENU_ITEM}
+          onClick={() => option.value !== undefined && onSelect(option.value)}
+        >
+          {issueAgentIcon(
+            option.value || issueDefaultAgentKind(data.first.defaultAgent, data.codingHarness),
+          )}
+          <span className="min-w-0 flex-1 truncate">{option.label}</span>
+          {option.hint && <span className={MENU_HINT}>{option.hint}</span>}
+        </button>
+      ))}
+      <SetupAgentsMenuItem
+        variant="context"
+        machineId={data.first.machineId}
+        machines={fleet.setupMachines}
+        onOpen={onOpenSetup}
+        onStart={(harness) => onSelect(harness)}
+      />
+    </>
+  )
+}

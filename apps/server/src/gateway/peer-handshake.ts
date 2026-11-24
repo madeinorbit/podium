@@ -24,6 +24,7 @@ import {
   CAP_HARNESS_HOMES,
   CAP_HARNESS_HOMES_GROK,
   CAP_HARNESS_HOMES_PI,
+  CAP_HARNESS_INSTALL_CANCEL,
   CAP_HARNESS_INSTALLS,
   CAP_MACHINE_PROCESSES_V1,
   CAP_MACHINE_UNINSTALL,
@@ -144,6 +145,9 @@ const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): Handsha
       // And a Pi home only when it accepted this.
       CAP_HARNESS_HOMES_PI,
       CAP_HARNESS_INSTALLS,
+      // POD-7471: this server relays a cancel of a running harness install,
+      // only to a daemon that accepted this.
+      CAP_HARNESS_INSTALL_CANCEL,
       // Credential management §9: this server asks for a conversation to be
       // placed before a switched session resumes, only from a daemon that accepted this.
       CAP_CONVERSATION_PREPARE,

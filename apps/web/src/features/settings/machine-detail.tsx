@@ -6,12 +6,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFleetConvergence } from '@/app/MachinesPanel'
 import { Button } from '@/components/ui/button'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
+import { MachineAgentSetup } from '@/features/setup-agents/MachineAgentSetup'
 import { MachineFailureReason } from '@/features/updates/MachineFailureReason'
 import { formatDisplayedVersion, machineVersionSkew } from '@/lib/machine-version-skew'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useServerAppVersion } from '@/lib/version-skew'
 import { MachineCustody } from './machine-custody'
-import { MachineHarnesses } from './machine-harnesses'
 import { useEnableHosting } from './machine-hosting'
 import { MachineCustodianName, MachineStatus } from './machine-list'
 import { MachineProjects } from './machine-projects'
@@ -213,7 +213,7 @@ const MachineDetailRecord = observer(function MachineDetailRecord({
           )}
         </Row>
       </Section>
-      <MachineHarnesses machine={machine} client={trpc} />
+      <MachineAgentSetup machine={machine} />
       {machine.unowned !== true && !machine.revokedAt && (
         <MachineCustody machineId={machine.id} transferable={view.canManage} trpc={trpc} />
       )}

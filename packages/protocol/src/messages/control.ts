@@ -50,6 +50,7 @@ import {
 } from './host'
 import {
   HarnessBackRequestMessage,
+  HarnessCancelInstallRequestMessage,
   HarnessChangesRequestMessage,
   HarnessCheckRequestMessage,
   HarnessHomeInfoRequestMessage,
@@ -264,6 +265,9 @@ export const ControlMessage = z.discriminatedUnion('type', [
   MachineUninstallRequestMessage,
   RuntimeContextReadRequestMessage,
   RuntimeContextReadCancelMessage,
+  /** Stop a running harness install (POD-7471). Appended at the END for index
+   *  stability; sent only to a daemon that accepted `CAP_HARNESS_INSTALL_CANCEL`. */
+  HarnessCancelInstallRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
 

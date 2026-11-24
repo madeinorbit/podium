@@ -4,7 +4,8 @@
  * The table: the four machine states of §4.2 against the three kinds of
  * home a context can be built for. A context in the person's own folder never
  * holds Podium's install; a home Podium made holds Podium's when there is one,
- * else the person's.
+ * else the person's. With only Podium's install, the machine's own login is
+ * the Podium home's (POD-7494).
  *
  * Then the per-home callers, with both installs present: the model probe, the
  * sign-out command and the Codex daemon stop for a home Podium made run
@@ -95,7 +96,7 @@ function contextSource(access: SessionAccessStore, snapshot: ResolvedHarnessInve
     homeDir: join(root, 'person'),
     access,
     homes,
-    harnessRuntime: { current: async () => snapshot },
+    harnessRuntime: { current: async () => snapshot, settled: () => snapshot },
   } as unknown as DaemonContext
 }
 
@@ -107,8 +108,10 @@ describe('the binary follows the home: four machine states × three home kinds (
       'sign-in-folder': 'external',
     },
     none: { 'person-folder': 'refused', 'podium-home': 'refused', 'sign-in-folder': 'refused' },
+    // No person's login to run: the machine's own login is the Podium home's
+    // (POD-7494), on Podium's install.
     'only-managed': {
-      'person-folder': 'refused',
+      'person-folder': 'managed',
       'podium-home': 'managed',
       'sign-in-folder': 'managed',
     },
@@ -141,12 +144,15 @@ describe('the binary follows the home: four machine states × three home kinds (
       expect(context.installation.executable).toBe(
         outcome === 'managed' ? MANAGED_CODEX : PERSON_CODEX,
       )
-      // The home the context runs in matches the side it got.
-      expect(context.harnessHome !== undefined).toBe(home !== 'person-folder')
-      if (home === 'person-folder') expect(context.installation.provenance).not.toBe('managed')
+      // The home the context runs in matches the side it got: Podium's
+      // install never runs in the person's own folder.
+      expect(context.harnessHome !== undefined).toBe(
+        outcome === 'managed' || home !== 'person-folder',
+      )
+      if (!context.harnessHome) expect(context.installation.provenance).not.toBe('managed')
     }
     expect(sessionHomeSide(ctx, sessionId, 'codex')).toBe(
-      home === 'person-folder' ? 'person' : 'podium',
+      home === 'person-folder' && state !== 'only-managed' ? 'person' : 'podium',
     )
   })
 })

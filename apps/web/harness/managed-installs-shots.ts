@@ -68,11 +68,7 @@ try {
       page.on('pageerror', (error) => errors.push(error.message))
       await page.goto(`http://127.0.0.1:55658/harness/managed-installs.html?state=${state}`)
       try {
-        await page
-          .locator(
-            `[data-harness-state="${['prerequisite', 'vendor-updated'].includes(state) ? 'managed' : state}"]`,
-          )
-          .waitFor()
+        await page.locator('[data-setup-agents]').waitFor()
       } catch (error) {
         throw new Error(`${state}: ${String(error)}\n${errors.join('\n')}\n${logs}`)
       }

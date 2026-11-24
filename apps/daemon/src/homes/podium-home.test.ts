@@ -757,7 +757,7 @@ describe('the conversation moves into the Podium home (§4.6 item 4)', () => {
   const deps = (managed: boolean) => ({
     account: { home: person, env: {} },
     homes,
-    managedInstall: (harness: string) => managed && harness === 'codex',
+    machine: { managedInstall: (harness: string) => managed && harness === 'codex' },
     now: () => 1_700_000_000_000,
   })
   const request = (account: string, fromAccount?: string) => ({
@@ -1329,7 +1329,7 @@ describe('Pi in a Podium-made home (§4.7)', () => {
     const deps = (managed: boolean) => ({
       account: { home: person, env: {} },
       homes,
-      managedInstall: (harness: string) => managed && harness === 'pi',
+      machine: { managedInstall: (harness: string) => managed && harness === 'pi' },
       now: () => 1_700_000_000_000,
     })
     const request = (account: string, fromAccount?: string) => ({

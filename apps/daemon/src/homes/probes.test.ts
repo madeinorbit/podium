@@ -7,6 +7,7 @@ import type {
   HarnessContext,
   HarnessExecutableSnapshot,
 } from '@podium/harness'
+import type { HomeHarness } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { homeModelProbe, homeQuotaReader } from './probes'
 import type { HarnessHome } from './registry'
@@ -136,6 +137,34 @@ describe('homeQuotaReader', () => {
     expect(await read(false)).toEqual([])
   })
 
+  it('forgets a home’s cached quota while the default reads it, and fetches afresh when it returns', async () => {
+    const podium: HarnessHome = {
+      homeId: 'podium:codex',
+      credentialId: 'podium',
+      harness: 'codex',
+      dir: '/state/homes/podium/codex',
+    }
+    let ownLoginHomes: Partial<Record<HomeHarness, string>> = {}
+    let calls = 0
+    const read = homeQuotaReader({
+      homes: () => [podium, HOME_B],
+      account: async () => ({ ...ACCOUNT, ownLoginHomes }),
+      fetchQuota: async () => {
+        calls += 1
+        return { agent: 'codex', status: 'ok', windows: [], fetchedAt: 'x' }
+      },
+    })
+
+    expect((await read(false)).map((wire) => wire.homeId)).toEqual([podium.homeId, HOME_B.homeId])
+    expect(calls).toBe(2)
+    ownLoginHomes = { codex: podium.dir }
+    expect((await read(false)).map((wire) => wire.homeId)).toEqual([HOME_B.homeId])
+    expect(calls).toBe(2)
+    ownLoginHomes = {}
+    expect((await read(false)).map((wire) => wire.homeId)).toEqual([podium.homeId, HOME_B.homeId])
+    expect(calls).toBe(3)
+  })
+
   it('reports a failed read as an error for that home only', async () => {
     const read = homeQuotaReader({
       homes: () => [HOME_A],
@@ -146,6 +175,18 @@ describe('homeQuotaReader', () => {
     })
     expect(await read(true)).toMatchObject([
       { agent: 'claude-code', homeId: HOME_A.homeId, status: 'error', error: 'signed out' },
+    ])
+  })
+
+  it('keeps account lookup failures as home quota errors', async () => {
+    const read = homeQuotaReader({
+      homes: () => [HOME_B],
+      account: async () => {
+        throw new Error('account unavailable')
+      },
+    })
+    expect(await read(true)).toMatchObject([
+      { agent: 'codex', homeId: HOME_B.homeId, status: 'error', error: 'account unavailable' },
     ])
   })
 })

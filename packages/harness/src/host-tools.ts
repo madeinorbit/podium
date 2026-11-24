@@ -65,6 +65,8 @@ export interface HostToolExecOptions {
   readonly maxBuffer?: number
   readonly env?: Readonly<Record<string, string | undefined>>
   readonly cwd?: string
+  /** Kills the tool when it fires (`execFile` only). */
+  readonly signal?: AbortSignal
 }
 
 export interface HostTools {
@@ -155,6 +157,7 @@ export function hostTools(
           ...(options.timeout !== undefined ? { timeout: options.timeout } : {}),
           ...(options.maxBuffer !== undefined ? { maxBuffer: options.maxBuffer } : {}),
           ...(options.cwd ? { cwd: options.cwd } : {}),
+          ...(options.signal ? { signal: options.signal } : {}),
           env: childEnv(options),
         },
         (error, stdout, stderr) => callback(error, stdout, stderr),

@@ -1,54 +1,10 @@
-/**
- * WHAT A SPAWN ROW SAYS WHEN IT CANNOT SPAWN (POD-1201).
- *
- * ---------------------------------------------------------------------------
- * ONE VOCABULARY, EVERY AGENT MENU
- * ---------------------------------------------------------------------------
- *
- * The shell offers "start an agent" from three places — the tab strip's "+"
- * (`app/NewPanelMenu`), the cold-start launch box
- * (`features/setup/ColdStartComposer`, which inherited the sidebar's deleted
- * `New <Agent> in <Repo>` chevron in POD-1469) and the flight deck's `Add agent`
- * (`app/FlightDeck`) — and until POD-1201 only the first one told the truth. The
- * other two listed every harness the build knows about, so `New Cursor` looked
- * exactly as startable as `New Claude` on a machine with no Cursor installed;
- * clicking it spawned a session that died on a missing binary, which is a
- * refusal delivered as a broken pane instead of as a greyed row.
- *
- * The decision and its words now live in client-core rather than in any menu,
- * because desktop and mobile controls that phrase the same refusal differently
- * read as different systems. This module keeps the desktop row and tooltip;
- * `reason` remains both the disable decision and the sentence explaining it.
- *
- * ---------------------------------------------------------------------------
- * A CONDITION IS NOT A REFUSAL, AND IT IS NOT LOUDER THAN ONE (POD-1322)
- * ---------------------------------------------------------------------------
- *
- * A signed-out harness used to wear amber ink across the whole row. That put the
- * menu's loudest treatment on the one row that still works — `New OpenCode`
- * shouted while `New Cursor`, which cannot start at all, sat quietly greyed — and
- * greying it instead is not the fix either: greyed means `disabled` here, and the
- * pane a signed-out harness opens IS where you sign in. So the row stays live and
- * in normal ink, and the condition goes where refusals already live: two faint
- * words in the right-hand column, `signed out` beside `not installed`.
- *
- * ---------------------------------------------------------------------------
- * WHY A ROW STATES ITS CASE INSTEAD OF DISAPPEARING
- * ---------------------------------------------------------------------------
- *
- * Same reasoning POD-821 used for the handoff menu: a harness that is simply
- * absent from the list is indistinguishable from one this build never supported,
- * so the user has nothing to act on. A greyed row with `not installed` on it
- * names the fix. Every refusal therefore carries a `hint` as well as a `reason`
- * — a tooltip is the one affordance a touch pointer never reaches, and these
- * rows exist to explain why they will not respond.
- *
- * Gating here is UX only; the Authority re-authorizes at apply (ADR 3 D8).
- */
+/** Shared harness rows: missing agents live in Set up agents; signed-out
+ * agents stay selectable, and offline/probing refusals keep their hints. */
 import {
   type AgentRowStatus,
   agentFleetStatus,
   spawnAgentLabel as agentLabel,
+  agentMachineStatus,
   candidateFromAvailability,
   agentCapabilityHint as capabilityHint,
   agentCapabilityReason as capabilityReason,
@@ -67,11 +23,13 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { MENU_HINT } from '@/lib/menu-surface'
 import { useSelectTypeahead } from '@/lib/use-select-typeahead'
+import { SetupAgentsMenuItem, type SetupAgentsMenuTarget } from './setup-agents-menu-item'
 
 export {
   type AgentRowStatus,
   agentFleetStatus,
   agentLabel,
+  agentMachineStatus,
   candidateFromAvailability,
   capabilityHint,
   capabilityReason,
@@ -115,8 +73,9 @@ export function CapabilityAgentItem({
   /** Marks a current choice when this shared refusal row is used as a picker. */
   selected?: boolean
   onSelect: () => void
-}): JSX.Element {
+}): JSX.Element | null {
   const { reason, warning, hint } = status
+  if (status.hidden) return null
   return (
     <CapabilityTooltip detail={reason ?? warning}>
       <DropdownMenuItem
@@ -154,6 +113,7 @@ export function CapabilityAgentMenu({
   onSelect,
   align = 'start',
   typeahead = false,
+  setup,
 }: {
   trigger: JSX.Element
   options: Array<{ value: string; label: string; icon?: ReactNode; status: AgentRowStatus }>
@@ -161,11 +121,13 @@ export function CapabilityAgentMenu({
   onSelect: (value: string) => void
   align?: 'start' | 'end'
   typeahead?: boolean
+  setup: SetupAgentsMenuTarget
 }): JSX.Element {
   const [open, setOpen] = useState(false)
+  const visibleOptions = options.filter((option) => !option.status.hidden)
   const typing = useSelectTypeahead({
     enabled: typeahead && !open,
-    options: options.map((option) => ({
+    options: visibleOptions.map((option) => ({
       ...option,
       disabled: option.status.reason !== undefined,
     })),
@@ -176,7 +138,7 @@ export function CapabilityAgentMenu({
     <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger render={trigger} {...typing} />
       <DropdownMenuContent align={align} className="w-56">
-        {options.map((option) => (
+        {visibleOptions.map((option) => (
           <CapabilityAgentItem
             key={option.value}
             icon={option.icon}
@@ -186,6 +148,14 @@ export function CapabilityAgentMenu({
             onSelect={() => onSelect(option.value)}
           />
         ))}
+        <SetupAgentsMenuItem
+          {...setup}
+          handBackKind="select"
+          onStart={(harness, machineId) => {
+            if (setup.onStart) setup.onStart(harness, machineId)
+            else onSelect(harness)
+          }}
+        />
       </DropdownMenuContent>
     </DropdownMenu>
   )
