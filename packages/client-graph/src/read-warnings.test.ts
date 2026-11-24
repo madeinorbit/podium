@@ -342,6 +342,8 @@ it('production builds remove both diagnostics and reading 30 bodies never warns'
     },
     bundle: true,
     conditions: ['@podium/source'],
+    target: 'es2022',
+    minifySyntax: true,
     format: 'cjs',
     platform: 'node',
     define: { 'process.env.NODE_ENV': '"production"' },
@@ -358,7 +360,7 @@ it('production builds remove both diagnostics and reading 30 bodies never warns'
     'BodyReadWarnings',
     'RawRelationWarnings',
   ])
-    expect(code).not.toContain(diagnostic)
+    expect(code.includes(diagnostic), `production bundle retains ${diagnostic}`).toBe(false)
   const module = { exports: {} as { read(): { held: number; remaining: number } } }
   new Function('module', 'exports', 'require', code)(
     module,
