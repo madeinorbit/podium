@@ -21,6 +21,7 @@ import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
@@ -114,7 +115,7 @@ async function fixture(size: number, issueMail = true): Promise<Fixture> {
     repos,
     superagent,
     capability: OPERATOR,
-    principal: userCommandPrincipal(firstAdminMemberId(), 'admin'),
+    principal: userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin'),
   })
   for (let i = 0; i < size + CONFIRMED_PER_SESSION; i++) {
     await call.messages.send({ to: target, body: `earlier ${i}` })

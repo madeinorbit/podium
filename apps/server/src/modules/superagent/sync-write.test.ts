@@ -23,6 +23,7 @@ import {
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { FAMILY_COMMAND_NAMES } from '../sync-write/family-commands'
 import {
@@ -207,7 +208,7 @@ describe('the superagent target check', () => {
     const user = await member(o)
     const threadId = await threadWithHarness(o, 'btw_s-admins')
     const restart = vi.spyOn(superagent(o), 'restartThread')
-    const as = userCommandPrincipal(user, 'member')
+    const as = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, user, 'member')
     const submitAs = async (input: unknown, id: string) =>
       await o.reg.modules.syncWrite.submit(envelope('superagent.restart', input, id), as, 'trpc')
 
@@ -238,7 +239,7 @@ describe('the superagent target check', () => {
   it('a member writes their own global thread; once the account is disabled the replay is refused', async () => {
     const o = await makeOracle()
     const user = await member(o)
-    const as = userCommandPrincipal(user, 'member')
+    const as = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, user, 'member')
     const env = envelope('superagent.ensureSession', { threadId: 'global' }, 'mut_sa_member')
     const first = appliedReply(await o.reg.modules.syncWrite.submit(env, as, 'trpc'))
     expect(first.result).toMatchObject({ threadId: `global:${user}` })

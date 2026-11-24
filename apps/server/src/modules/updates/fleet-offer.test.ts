@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
 import { asMachineId, firstAdminMemberId } from '@podium/model'
+import { describe, expect, it, vi } from 'vitest'
+import { userCommandPrincipal } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
+import { OPERATOR } from '../../test-support/capabilities'
+import { type Context, t } from '../../trpc'
 import { UpdatesService } from './service'
 import { fleetSnapshot, updateProcedures } from './trpc'
-import { t, type Context } from '../../trpc'
-import { userCommandPrincipal } from '../../command-principal'
-import { OPERATOR } from '../../test-support/capabilities'
 
 /**
  * WHAT THE PANEL IS ALLOWED TO OFFER (POD-2783).
@@ -66,25 +67,54 @@ describe('the update offer', () => {
   it('exposes the failed step sentence and machine reason through tRPC after withdrawal', async () => {
     const svc = await serviceFor([machine('vps', { platform: 'linux-x86_64' })], ['linux-x86_64'])
     await svc.onStatus(asMachineId('vps'), {
-      type: 'updateStatus', state: 'stuck', version: '0.4.1', detail: 'Disk is full.',
+      type: 'updateStatus',
+      state: 'stuck',
+      version: '0.4.1',
+      detail: 'Disk is full.',
     })
     await svc.setTargetUnavailable('dev', 'Update op_failed failed: package preparation failed.')
     const operation = {
-      id: 'op_failed', kind: 'update', state: 'failed',
+      id: 'op_failed',
+      kind: 'update',
+      state: 'failed',
       error: { code: 'operation-failed', message: 'Generic operation failure.' },
-      steps: [{ id: 'prepare', state: 'failed', error: { code: 'preparation-failed', message: 'Package preparation failed: compiler exited with code 1.' } }],
+      steps: [
+        {
+          id: 'prepare',
+          state: 'failed',
+          error: {
+            code: 'preparation-failed',
+            message: 'Package preparation failed: compiler exited with code 1.',
+          },
+        },
+      ],
     }
     const caller = t.router(updateProcedures()).createCaller({
-      principal: userCommandPrincipal(firstAdminMemberId(), 'admin'), capability: OPERATOR,
+      principal: userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin'),
+      capability: OPERATOR,
       serverPlacement: { kind: 'fleet', machineId: 'vps' },
-      registry: { modules: { updates: svc, operations: { engine: {
-        active: async () => undefined,
-        history: async () => [{ operation }],
-      } } }, sessionStore: {} },
+      registry: {
+        modules: {
+          updates: svc,
+          operations: {
+            engine: {
+              active: async () => undefined,
+              history: async () => [{ operation }],
+            },
+          },
+        },
+        sessionStore: {},
+      },
     } as unknown as Context)
     const snapshot = await caller.fleet()
-    expect(snapshot.operation).toEqual({ id: 'op_failed', failureReason: operation.steps[0]!.error.message })
-    expect(snapshot.allMachines[0]).toMatchObject({ state: 'stuck', reason: { message: 'Disk is full.', source: 'machine' } })
+    expect(snapshot.operation).toEqual({
+      id: 'op_failed',
+      failureReason: operation.steps[0]!.error.message,
+    })
+    expect(snapshot.allMachines[0]).toMatchObject({
+      state: 'stuck',
+      reason: { message: 'Disk is full.', source: 'machine' },
+    })
   })
   it('exposes a machine refusal on an online row in both fleet projections', async () => {
     const svc = await serviceFor([machine('vps', { platform: 'linux-x86_64' })], ['linux-x86_64'])
@@ -126,7 +156,9 @@ describe('the update offer', () => {
   /** It is still a machine. Settings shows every row, whatever this wave grants. */
   it('keeps it in the full inventory Settings renders', async () => {
     const svc = await serviceFor([machine('mac', { platform: 'darwin-aarch64' })], ['linux-x86_64'])
-    expect((await fleetSnapshot(svc, { kind: 'external' })).allMachines.map((row) => row.id)).toEqual(['mac'])
+    expect(
+      (await fleetSnapshot(svc, { kind: 'external' })).allMachines.map((row) => row.id),
+    ).toEqual(['mac'])
   })
 
   it('offers nothing at all when the only behind machine is one the release predates', async () => {

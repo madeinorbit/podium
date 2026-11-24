@@ -21,6 +21,7 @@ import { TRPCError } from '@trpc/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 import { appRouter } from '../../router'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { RouteMeta } from '../../trpc'
 import {
   disposeOracles,
@@ -180,7 +181,7 @@ describe.each(Object.keys(CASES))('issues.%s on sync.submit', (name) => {
     const o = await makeOracle()
     const issue = await newIssue(o, `${name} shared`)
     const user = await member(o, `usr_member_${name}_6603`)
-    const principal = userCommandPrincipal(user, 'member')
+    const principal = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, user, 'member')
     const asMember = (env: SyncSubmitInput) =>
       o.reg.modules.syncWrite.submit(env, principal, 'trpc')
     const executor = o.reg.modules.effects?.executors.get(CASES[name]?.kind as string)

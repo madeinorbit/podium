@@ -5,13 +5,15 @@ import {
   systemPrincipal,
   userCommandPrincipal,
 } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { decodeOperationActor, encodeOperationActor } from './actor'
 
 describe('durable operation actors', () => {
   it('round-trips human, agent-session, and system identities without rights', () => {
-    const user = userCommandPrincipal(asUserId('user:alice'), 'admin')
+    const user = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, asUserId('user:alice'), 'admin')
     const agent: AgentCommandPrincipal = {
       kind: 'agent',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       agentSessionId: asSessionId('agent-1'),
       onBehalfOf: asUserId('user:alice'),
       capability: user.capability,
@@ -26,15 +28,24 @@ describe('durable operation actors', () => {
       kind: 'session',
       sessionId: asSessionId('agent-1'),
     })
-    expect(decodeOperationActor(encodeOperationActor(systemPrincipal('boot-reconcile')))).toEqual({
+    expect(
+      decodeOperationActor(
+        encodeOperationActor(systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'boot-reconcile')),
+      ),
+    ).toEqual({
       kind: 'system',
       job: 'boot-reconcile',
     })
   })
 
-  it.each(['mem_000000000000000000000000001', 'user:alice'])('round-trips persisted member identity %s', (id) => {
+  it.each([
+    'mem_000000000000000000000000001',
+    'user:alice',
+  ])('round-trips persisted member identity %s', (id) => {
     const userId = asUserId(id)
-    const encoded = encodeOperationActor(userCommandPrincipal(userId, 'admin'))
+    const encoded = encodeOperationActor(
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, userId, 'admin'),
+    )
     expect(encoded).toBe(id)
     expect(decodeOperationActor(encoded)).toEqual({ kind: 'user', userId })
   })

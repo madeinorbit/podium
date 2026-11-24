@@ -34,20 +34,24 @@ import type { UserId } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
-
 import { SessionRegistry } from '../../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { OPERATOR } from '../../test-support/capabilities'
 import { openTestStore } from '../../test-support/open-test-store'
 import { machineUseGateFor } from './handoff/access'
 import { MUST_NOT_CHANGE, messageOf, waitFor, willChange } from './oracle-support'
 
-const TEST_PRINCIPAL = userCommandPrincipal(firstAdminMemberId(), 'admin')
+const TEST_PRINCIPAL = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin')
 const TEST_CAPABILITY = TEST_PRINCIPAL.capability
 const TEST_CALLER = { capability: TEST_CAPABILITY, principal: TEST_PRINCIPAL }
-const WORKER_PRINCIPAL = userCommandPrincipal(firstAdminMemberId(), 'member')
+const WORKER_PRINCIPAL = userCommandPrincipal(
+  SELF_HOSTED_WORKSPACE_ID,
+  firstAdminMemberId(),
+  'member',
+)
 const WORKER_CALLER = { capability: WORKER_PRINCIPAL.capability, principal: WORKER_PRINCIPAL }
-const CAROL_PRINCIPAL = userCommandPrincipal(asUserId('carol'), 'admin')
+const CAROL_PRINCIPAL = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, asUserId('carol'), 'admin')
 const CAROL_CALLER = { capability: CAROL_PRINCIPAL.capability, principal: CAROL_PRINCIPAL }
 
 const SHA = 'a'.repeat(40)
@@ -479,6 +483,7 @@ const gateForPrincipal = (user: string, ownership: ReturnType<typeof revocableFl
   machineUseGateFor({
     principal: {
       kind: 'user',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: user as UserId,
       capability: { ...TEST_CAPABILITY, role: 'worker' },
     },
@@ -490,6 +495,7 @@ const aliceGate = (m2Grants: { subject: string; verb: 'see' | 'use' | 'manage' }
   machineUseGateFor({
     principal: {
       kind: 'user',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: 'alice' as UserId,
       capability: { ...TEST_CAPABILITY, role: 'worker' },
     },
@@ -967,7 +973,12 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
       { sessionId: f.sessionId, machineId: asMachineId('m2') },
       {
         capability: OPERATOR,
-        principal: { kind: 'user', user: 'bob' as UserId, capability: OPERATOR },
+        principal: {
+          kind: 'user',
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
+          user: 'bob' as UserId,
+          capability: OPERATOR,
+        },
       },
     )
 
@@ -1044,6 +1055,7 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
         capability: agentCapability,
         principal: {
           kind: 'agent',
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
           agentSessionId: asSessionId('sess-agent-7'),
           onBehalfOf: firstAdminMemberId(),
           capability: agentCapability,
@@ -1088,7 +1100,12 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
       },
       {
         capability: OPERATOR,
-        principal: { kind: 'user', user: asUserId('alice'), capability: OPERATOR },
+        principal: {
+          kind: 'user',
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
+          user: asUserId('alice'),
+          capability: OPERATOR,
+        },
       },
     )
 
@@ -1238,7 +1255,12 @@ describe('oracle: duplicate dispatch', () => {
       caller.capability.actorUser === 'carol'
         ? gateForPrincipal('carol', revocableFleet({ m2: [] }))
         : machineUseGateFor({
-            principal: { kind: 'user', user: 'alice' as UserId, capability: TEST_CAPABILITY },
+            principal: {
+              kind: 'user',
+              workspaceId: SELF_HOSTED_WORKSPACE_ID,
+              user: 'alice' as UserId,
+              capability: TEST_CAPABILITY,
+            },
             ownership: revocableFleet({ m2: ['see', 'use'] }),
           })
 

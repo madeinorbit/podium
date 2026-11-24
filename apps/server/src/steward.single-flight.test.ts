@@ -1,8 +1,10 @@
 import { asSessionId, type SessionMeta } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
+import { systemPrincipal } from './command-principal'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { type StewardDeps, StewardService } from './steward'
 import { TEST_MACHINE_ID } from './test-support/machine-id'
 import { openTestStore } from './test-support/open-test-store'
@@ -62,6 +64,7 @@ describe('StewardService.tick single-flight (POD-3258)', () => {
     })
 
     const deps: StewardDeps = {
+      principal: systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'steward'),
       writer: issues.reports.store.serverWriter,
       store: events,
       facts: store.notificationFacts,

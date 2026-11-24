@@ -314,7 +314,7 @@ for (const scale of SCALES) {
         [...(await records.resolve(ids)).values()].map(subjectMeta),
     } as unknown as IssueDeps)
     const reports = new IssueReportsModule(issueStore)
-    const principal = userCommandPrincipal(seeded.owner, 'member')
+    const principal = userCommandPrincipal(store.workspaceId, seeded.owner, 'member')
     const ctx = new IssueCommandCtx(
       { issues: { reports } } as never,
       { principal, capability: principal.capability },
@@ -338,8 +338,11 @@ for (const scale of SCALES) {
         sample.statements++
         sample.rows += statement.rows
         sample.sqlMs += statement.durationMs / statement.batchSize
-        const text = statement.sql.replace(/select .*? from /s, "select … from ").slice(0, 400)
-        sample.bySql.set(text, (sample.bySql.get(text) ?? 0) + statement.durationMs / statement.batchSize)
+        const text = statement.sql.replace(/select .*? from /s, 'select … from ').slice(0, 400)
+        sample.bySql.set(
+          text,
+          (sample.bySql.get(text) ?? 0) + statement.durationMs / statement.batchSize,
+        )
         if (statement.sql.includes('from "issues"')) sample.issueRows += statement.rows
         if (statement.sql.includes('from "sessions"')) sample.sessionRows += statement.rows
         if (statement.sql.includes('from "issue_deps"')) sample.depRows += statement.rows

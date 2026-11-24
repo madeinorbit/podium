@@ -18,6 +18,7 @@ import { asIssueId, asSessionId, asUserId, firstAdminMemberId, type IssueDeck } 
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import type { CommandPrincipal } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { IssueRow, SessionStore } from '../../store'
 import { probeStatements, type StatementProbeHolder } from '../../store/executor/statement-probe'
 import { OPERATOR } from '../../test-support/capabilities'
@@ -157,6 +158,7 @@ const call = async (
   input: unknown,
   principal: CommandPrincipal | null = {
     kind: 'user',
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     user: reader,
     capability: OPERATOR,
   },
@@ -266,6 +268,7 @@ describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
           { id: 'iss_1' },
           {
             kind: 'agent',
+            workspaceId: SELF_HOSTED_WORKSPACE_ID,
             agentSessionId: asSessionId('agent'),
             onBehalfOf: reader,
             capability: OPERATOR,
@@ -275,7 +278,12 @@ describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
       ).toMatchObject({ counts: { total: 5 } })
       const denied = await countStatements(f.store, async () => {
         await expect(
-          call(f, 'deck', { id: 'iss_1' }, { kind: 'system', job: 'test' }),
+          call(
+            f,
+            'deck',
+            { id: 'iss_1' },
+            { kind: 'system', workspaceId: SELF_HOSTED_WORKSPACE_ID, job: 'test' },
+          ),
         ).rejects.toThrow('issue reads require a human principal')
         await expect(call(f, 'deck', { id: 'iss_1' }, null)).rejects.toThrow(
           'issue reads require a human principal',

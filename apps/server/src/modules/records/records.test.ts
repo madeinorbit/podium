@@ -38,6 +38,7 @@ import type { SyncSubmitReply } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import {
   appliedReply,
@@ -502,6 +503,7 @@ async function member(o: Oracle): Promise<CommandPrincipal> {
   // reaches nobody's per-user rows (issue-authz §3.3).
   return {
     kind: 'user',
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     user: MEMBER,
     capability: { role: 'worker', scope: { kind: 'self', userId: MEMBER } },
   }
@@ -653,7 +655,7 @@ describe('a member writes their own per-user rows through sync.submit', () => {
   /** A member with an owner-or-grant capability, as a signed-in member has. */
   async function asMember(o: Oracle): Promise<CommandPrincipal> {
     await member(o)
-    return userCommandPrincipal(MEMBER, 'member')
+    return userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, MEMBER, 'member')
   }
   /** Sessions are private: the member writes markers on their own session. */
   async function memberSession(o: Oracle): Promise<SessionId> {
@@ -733,6 +735,7 @@ describe('a member writes their own per-user rows through sync.submit', () => {
     const agentSession = await shellSession(o)
     const agent: CommandPrincipal = {
       kind: 'agent',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       agentSessionId: agentSession,
       onBehalfOf: MEMBER,
       capability: {

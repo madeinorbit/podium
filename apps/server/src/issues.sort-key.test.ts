@@ -8,9 +8,9 @@
 import { isSortKey, SORT_KEY_COMPACT_LEN, SORT_KEY_MAX_LEN, sortKeyBetween } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { resolvePrincipal } from './command-principal'
-
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { OPERATOR } from './test-support/capabilities'
 import { pinIssueFor } from './test-support/issue-pin'
 
@@ -20,7 +20,9 @@ const ctx = (registry: SessionRegistry) =>
     repos: {} as never,
     superagent: {} as never,
     capability: OPERATOR,
-    principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+    principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+      parentSessionOf: () => undefined,
+    }),
   })
 
 /** Issues are placed on a machine that reported their repo (2b803efb5 refuses

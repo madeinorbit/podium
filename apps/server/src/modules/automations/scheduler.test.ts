@@ -11,6 +11,7 @@ import { Ledger } from '@podium/sync'
 import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { openTestStore } from '../../test-support/open-test-store'
 import { logStoreRecords } from '../../test-support/record-writer'
 import { seedRows } from '../../test-support/seed-rows'
@@ -19,7 +20,7 @@ import { type AutomationDecision, decideTick, GRACE_MS, type Schedulable } from 
 import type { AutomationPrompt } from './prompt'
 import { type AutomationCommandWriter, type AutomationInput, AutomationsService } from './service'
 
-const TEST_PRINCIPAL = userCommandPrincipal(firstAdminMemberId(), 'admin')
+const TEST_PRINCIPAL = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin')
 
 /**
  * The service with its four commands bound to the operator and one command

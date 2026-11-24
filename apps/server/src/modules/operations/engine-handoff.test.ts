@@ -1,9 +1,10 @@
 import type { Operation } from '@podium/protocol'
-import { selfHostedQueriesOver } from '../../test-support/self-hosted-queries'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it, vi } from 'vitest'
 import { runDrizzleMigrations } from '../../migrations'
 import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
+import { selfHostedQueriesOver } from '../../test-support/self-hosted-queries'
 import { type OperationClock, OperationEngine, type OperationTimerHandle } from './engine'
 import {
   type OperationKindDefinition,
@@ -116,7 +117,10 @@ describe('coordinator handoff', () => {
     expect(successor).not.toHaveBeenCalled()
     expect(armed()).toBe(0)
 
-    expect(onChanged).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'running' }), 'running')
+    expect(onChanged).toHaveBeenLastCalledWith(
+      expect.objectContaining({ state: 'running' }),
+      'running',
+    )
     const bytes = (await sealed)?.payload
     await engine.recordProgress('op_1', 'first', { state: 'done' })
     await engine.settleAsk('op_1', 'anything')
@@ -162,7 +166,10 @@ describe('coordinator handoff', () => {
     await engine.whenSettled('op_1')
     expect((await store.get('op_1'))?.state).toBe('failed')
     expect((await store.get('op_1'))?.operation?.details).not.toHaveProperty('_handoff')
-    expect(onChanged).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'failed' }), 'running')
+    expect(onChanged).toHaveBeenLastCalledWith(
+      expect.objectContaining({ state: 'failed' }),
+      'running',
+    )
     expect(await engine.start('test')).toMatchObject({ started: true })
   })
 
@@ -203,7 +210,7 @@ describe('coordinator handoff', () => {
       await engine.dispatchAction(
         'op_1',
         'recover',
-        { kind: 'system', job: 'test' },
+        { kind: 'system', workspaceId: SELF_HOSTED_WORKSPACE_ID, job: 'test' },
         { settleAsk: true },
       ),
     ).toEqual({ handled: true, result: { outcome: 'resolved-committed' } })
@@ -269,7 +276,10 @@ describe('operation cancellation cleanup', () => {
     })
     expect(await engine.retryPendingCleanup()).toBe(1)
     expect(onCancel).toHaveBeenCalledTimes(2)
-    expect(onChanged).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'canceled' }), 'canceled')
+    expect(onChanged).toHaveBeenLastCalledWith(
+      expect.objectContaining({ state: 'canceled' }),
+      'canceled',
+    )
     expect((await store.get('op_1'))?.operation?.details).toMatchObject({
       cleanup: { status: 'complete' },
     })

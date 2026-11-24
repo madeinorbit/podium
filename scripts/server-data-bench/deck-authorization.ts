@@ -160,7 +160,7 @@ for (const issues of [7879, 7884]) {
         },
       } as unknown as IssueDeps),
     )
-    const principal = userCommandPrincipal(owner, 'member')
+    const principal = userCommandPrincipal(store.workspaceId, owner, 'member')
     const ctx = new IssueCommandCtx(
       { issues: { reports } } as never,
       { principal, capability: principal.capability },

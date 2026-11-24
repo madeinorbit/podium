@@ -18,6 +18,7 @@ import { describe, expect, test, vi } from 'vitest'
 import type { CommandPrincipal } from '../../command-principal'
 import { openEnrollmentLedger } from '../../enrollment-ledger'
 import type { MachineOwnershipIndex } from '../../machine-access'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { SessionStore } from '../../store'
 import { memberFacts } from '../../store/fixtures/test-support'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -1305,6 +1306,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       await svc.recordInventory(MACHINE, inventory)
       const principal: CommandPrincipal = {
         kind: 'user',
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         user: firstAdminMemberId(),
         capability: { role: 'admin', scope: { kind: 'all' } },
       }
@@ -1362,6 +1364,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       ).toEqual(inventory)
       const agent: CommandPrincipal = {
         kind: 'agent',
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         agentSessionId: asSessionId('leaf'),
         chain: [asSessionId('parent')],
         onBehalfOf: firstAdminMemberId(),

@@ -7,6 +7,7 @@ import { asUserId, firstAdminMemberId, newInviteId, type UserId } from '@podium/
 import { hashPassword } from '@podium/runtime/auth-store'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import type { SessionStore } from '../store'
 import { legacyIdentity } from '../store/fixtures/test-support'
 import { seedLegacyClientSession } from '../test-support/legacy-client-session'
@@ -150,6 +151,7 @@ describe('ensureLocalIdentity', () => {
     // The one-person server works as before: no sign-in on its own machine.
     expect(await workspace.signInRequired()).toBe(false)
     const memberOfRequest = createMemberOfRequest({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       identity: workspace,
       users: store.users,
       trustedProxyHops: 0,

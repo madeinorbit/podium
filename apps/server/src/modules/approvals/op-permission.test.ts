@@ -7,10 +7,11 @@ import { asMachineId, asSessionId, asUserId, type SessionId } from '@podium/mode
 import type { ApprovalEffectInput, ApprovalOp } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { type ApprovalOpPermissionDeps, isRequestPerson, mayRunApprovalOp } from './op-permission'
 
-const ADMIN = userCommandPrincipal(asUserId('user:admin'), 'admin')
-const MEMBER = userCommandPrincipal(asUserId('user:member'), 'member')
+const ADMIN = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, asUserId('user:admin'), 'admin')
+const MEMBER = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, asUserId('user:member'), 'member')
 const ASKING = asSessionId('s-asks')
 
 function deps(

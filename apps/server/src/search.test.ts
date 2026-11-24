@@ -9,6 +9,7 @@ import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { memberFacts } from './store/fixtures/test-support'
 import { OPERATOR } from './test-support/capabilities'
 import { fixtureInventory } from './test-support/daemon-inventory'
@@ -25,7 +26,7 @@ forceFeature('command-palette', true)
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
-const AS_OPERATOR = userCommandPrincipal(firstAdminMemberId(), 'admin')
+const AS_OPERATOR = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin')
 
 const READER = { kind: 'user' as const, id: firstAdminMemberId() }
 
@@ -624,7 +625,9 @@ describe('search.query tRPC', () => {
         repos,
         superagent,
         capability: OPERATOR,
-        principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+        principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+          parentSessionOf: () => undefined,
+        }),
       }),
     }
   }

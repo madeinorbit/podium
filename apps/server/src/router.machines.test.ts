@@ -8,6 +8,7 @@ import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { memberFacts } from './store/fixtures/test-support'
 import { OPERATOR } from './test-support/capabilities'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
@@ -47,7 +48,9 @@ async function machineCaller() {
       repos,
       superagent,
       capability: OPERATOR,
-      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        parentSessionOf: () => undefined,
+      }),
     }),
   }
 }
@@ -158,7 +161,9 @@ describe('machines.pairingCode as a member', () => {
       repos,
       superagent,
       capability: MEMBER_CAPABILITY,
-      principal: resolvePrincipal(MEMBER_CAPABILITY, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, MEMBER_CAPABILITY, {
+        parentSessionOf: () => undefined,
+      }),
     })
   }
 
@@ -222,7 +227,9 @@ describe('sessions.create with machineId', () => {
       repos,
       superagent,
       capability: OPERATOR,
-      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        parentSessionOf: () => undefined,
+      }),
     })
 
     const { sessionId } = await call.sessions.create({
@@ -258,7 +265,9 @@ describe('sessions.create with machineId', () => {
       repos,
       superagent,
       capability: OPERATOR,
-      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        parentSessionOf: () => undefined,
+      }),
     })
 
     const { sessionId } = await call.sessions.create({

@@ -11,15 +11,16 @@ import {
   firstAdminMemberId,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import {
   attributionOfSubject,
+  type ControlSubject,
   contextFromOwnership,
   controllerStillAuthorized,
   controlSubjectFromCommand,
   identityOf,
   mayDrive,
   mayWatch,
-  type ControlSubject,
   type SessionControlContext,
 } from './session-control-policy'
 
@@ -129,6 +130,7 @@ describe('session control policy — identity + attribution', () => {
   it('command principal carries the admin role, which drives nobody else’s session', () => {
     const admin = controlSubjectFromCommand({
       kind: 'user',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: ADMIN,
       capability: { role: 'admin', scope: { kind: 'all' }, actorUser: ADMIN, onBehalfOf: ADMIN },
     })

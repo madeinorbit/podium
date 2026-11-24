@@ -144,7 +144,7 @@ describe('freeWorktreeKeepBranch releases dock shells', () => {
 
     const freed = await reg.modules.issues.gitWorkflow.freeWorktreeKeepBranch(
       issueId,
-      systemPrincipal('stop'),
+      systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'stop'),
     )
     expect(freed.ok).toBe(true)
     expect(freed.worktreeFreed).toBe(true)
@@ -165,7 +165,7 @@ describe('freeWorktreeKeepBranch releases dock shells', () => {
 
     const freed = await reg.modules.issues.gitWorkflow.freeWorktreeKeepBranch(
       issueId,
-      systemPrincipal('stop'),
+      systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'stop'),
     )
     expect(freed.ok).toBe(true)
     expect(freed.worktreeFreed).toBe(true)
@@ -184,7 +184,7 @@ describe('freeWorktreeKeepBranch releases dock shells', () => {
 
     const freed = await reg.modules.issues.gitWorkflow.freeWorktreeKeepBranch(
       issueId,
-      systemPrincipal('stop'),
+      systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'stop'),
     )
     expect(freed.ok).toBe(false)
     expect(await store.dockShells.get(alice, WT)).toBe(shellA)
@@ -341,7 +341,7 @@ describe('freeWorktreeKeepBranch runs the shell lifetime policy (POD-4525)', () 
     const { reg, store, shellId, issueId } = await setupDockShell({ touched: true })
     const freed = await reg.modules.issues.gitWorkflow.freeWorktreeKeepBranch(
       issueId,
-      systemPrincipal('stop'),
+      systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'stop'),
     )
     expect(freed.ok).toBe(true)
     expect(freed.worktreeFreed).toBe(true)
@@ -353,7 +353,7 @@ describe('freeWorktreeKeepBranch runs the shell lifetime policy (POD-4525)', () 
     const { reg, store, shellId, issueId } = await setupDockShell({ touched: false })
     const freed = await reg.modules.issues.gitWorkflow.freeWorktreeKeepBranch(
       issueId,
-      systemPrincipal('stop'),
+      systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'stop'),
     )
     expect(freed.ok).toBe(true)
     expect(freed.worktreeFreed).toBe(true)

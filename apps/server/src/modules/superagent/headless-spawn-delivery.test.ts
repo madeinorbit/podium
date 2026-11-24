@@ -39,6 +39,7 @@ import { harnessResumeKind } from '../../harness-manifest'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { OPERATOR } from '../../test-support/capabilities'
 import { assignHostMachine } from '../../test-support/host-daemon'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -273,7 +274,7 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
       repos: h.repos,
       superagent: h.sa,
       capability: OPERATOR,
-      principal: userCommandPrincipal(firstAdminMemberId(), 'admin'),
+      principal: userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin'),
     })
     // Bind the thread's headless session to the host WITHOUT running a turn:
     // `ensureSession` mints the binding only, so no turn is ever in flight and
@@ -414,6 +415,7 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     rowResumed.resume = { kind: harnessResumeKind('codex'), value: 'harness-resumed' }
     expect(rowResumed.resume?.value).toBe('harness-resumed')
     const plane = new SessionClientPlane({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       headless: h.registry.modules.sessions.headless,
     } as unknown as SessionClientPlanePorts)
     const rebound: SessionId[] = []

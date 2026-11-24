@@ -19,6 +19,7 @@ import {
   ownershipSnapshotFromMachines,
 } from './machine-access'
 import { MachinesService, sha256 } from './modules/machines/service'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { SessionStore } from './store'
 import { memberFacts } from './store/fixtures/test-support'
 import { openTestStore } from './test-support/open-test-store'
@@ -305,8 +306,8 @@ describe('database-authoritative legacy bearer lifecycle', () => {
     expect(await restarted.store.grants.listForResource('machine', machineId)).toEqual([])
     const ownership = await ownershipSnapshotFromMachines(restarted.machines)
     for (const principal of [
-      userCommandPrincipal(OWNER, 'admin'),
-      userCommandPrincipal(OTHER, 'member'),
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, OWNER, 'admin'),
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, OTHER, 'member'),
     ]) {
       expect(await checkMachineUse(principal, asMachineId(machineId), ownership)).toBe('absent')
       expect(await canSeeMachine(principal, asMachineId(machineId), ownership)).toBe(false)
@@ -321,7 +322,7 @@ describe('database-authoritative legacy bearer lifecycle', () => {
     await w.store.machines.setMachineOwner(asMachineId(machineId), null)
     expect((await hello(w.machines, machineId, token)).ok).toBe(true)
     const ownership = await ownershipSnapshotFromMachines(w.machines)
-    const admin = userCommandPrincipal(OWNER, 'admin')
+    const admin = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, OWNER, 'admin')
     expect(await machineVerbsFor(admin, asMachineId(machineId), ownership)).toEqual(
       new Set(['see', 'manage']),
     )
@@ -330,7 +331,11 @@ describe('database-authoritative legacy bearer lifecycle', () => {
       await checkMachineVerb(admin, asMachineId(machineId), ownership, 'manage'),
     ).toBeUndefined()
     expect(
-      await canSeeMachine(userCommandPrincipal(OTHER, 'member'), asMachineId(machineId), ownership),
+      await canSeeMachine(
+        userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, OTHER, 'member'),
+        asMachineId(machineId),
+        ownership,
+      ),
     ).toBe(false)
     expect(await w.store.machines.custodian(machineId)).toBeNull()
   })
@@ -351,7 +356,7 @@ describe('database-authoritative legacy bearer lifecycle', () => {
       const ownership = await ownershipSnapshotFromMachines(machines)
       expect(
         await checkMachineVerb(
-          userCommandPrincipal(OWNER, 'admin'),
+          userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, OWNER, 'admin'),
           asMachineId(machineId),
           ownership,
           'manage',
@@ -359,7 +364,7 @@ describe('database-authoritative legacy bearer lifecycle', () => {
       ).toBeUndefined()
       expect(
         await checkMachineVerb(
-          userCommandPrincipal(OTHER, 'member'),
+          userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, OTHER, 'member'),
           asMachineId(machineId),
           ownership,
           'manage',
@@ -371,7 +376,7 @@ describe('database-authoritative legacy bearer lifecycle', () => {
     const ownership = await ownershipSnapshotFromMachines(w.machines)
     expect(
       await checkMachineVerb(
-        userCommandPrincipal(OWNER, 'admin'),
+        userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, OWNER, 'admin'),
         asMachineId(machineId),
         ownership,
         'manage',
@@ -379,7 +384,7 @@ describe('database-authoritative legacy bearer lifecycle', () => {
     ).toBeUndefined()
     expect(
       await checkMachineUse(
-        userCommandPrincipal(OWNER, 'admin'),
+        userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, OWNER, 'admin'),
         asMachineId(machineId),
         ownership,
       ),

@@ -27,6 +27,7 @@ import { resolvePrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { memberFacts } from '../../store/fixtures/test-support'
 import { OPERATOR } from '../../test-support/capabilities'
@@ -116,7 +117,9 @@ async function harness(type: string = 'anthropic.api-key'): Promise<Harness> {
       users: store.users,
       loginRequired: async () => true,
       capability,
-      principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+        parentSessionOf: () => undefined,
+      }),
     })
   return { store, as, credentialId: record.id }
 }

@@ -13,6 +13,7 @@ import {
 } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { memberFacts } from '../../store/fixtures/test-support'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { envelope } from '../sync-write/outbox-test-support'
@@ -37,10 +38,11 @@ const trusted = async (o: Oracle) =>
 
 /** An agent session acting for the admin, with the admin's capability. */
 function agentForAdmin(): CommandPrincipal {
-  const human = userCommandPrincipal(ADMIN, 'admin')
+  const human = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, ADMIN, 'admin')
   const agentSessionId = asSessionId('s-agent-6922')
   return {
     kind: 'agent',
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     agentSessionId,
     onBehalfOf: ADMIN,
     capability: { ...human.capability, actorSessionId: agentSessionId },
@@ -53,7 +55,7 @@ describe('daemonLink.trustedNetworks', () => {
     const o = await makeOracle()
     const reply = await submitAs(
       o,
-      userCommandPrincipal(ADMIN, 'admin'),
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, ADMIN, 'admin'),
       { 'daemonLink.trustedNetworks': ['10.1.0.0/16', 'fd7a:115c:a1e0::/48'] },
       'tn-admin',
     )
@@ -74,7 +76,7 @@ describe('daemonLink.trustedNetworks', () => {
     })
     const reply = await submitAs(
       o,
-      userCommandPrincipal(member, 'member'),
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, member, 'member'),
       { 'daemonLink.trustedNetworks': ['10.0.0.0/8'] },
       'tn-member',
     )
@@ -106,7 +108,7 @@ describe('daemonLink.trustedNetworks', () => {
     const o = await makeOracle()
     const reply = await submitAs(
       o,
-      userCommandPrincipal(ADMIN, 'admin'),
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, ADMIN, 'admin'),
       { 'daemonLink.trustedNetworks': ['192.168.1.0/24', value] },
       `tn-bad-${value}`,
     )

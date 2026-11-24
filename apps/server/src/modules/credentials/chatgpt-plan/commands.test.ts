@@ -23,6 +23,7 @@ import { resolvePrincipal } from '../../../command-principal'
 import { SessionRegistry } from '../../../relay'
 import { RepoRegistry } from '../../../repo-registry'
 import { appRouter } from '../../../router'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../../self-hosted-workspace'
 import { memberFacts } from '../../../store/fixtures/test-support'
 import { SuperagentService } from '../../superagent'
 import { FAKE_ACCOUNT, FAKE_CLIENT_ID, fakeOpenAi } from './fake-openai'
@@ -85,7 +86,9 @@ async function harness() {
       users: store.users,
       loginRequired: async () => true,
       capability,
-      principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+        parentSessionOf: () => undefined,
+      }),
     })
   /** Sign the owner in through the paste path; returns the credential id. */
   const signIn = async () => {

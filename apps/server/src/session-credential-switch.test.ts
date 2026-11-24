@@ -31,6 +31,7 @@ import { ACCESS_REFUSAL_MESSAGES } from './modules/credentials/access'
 import { sealCredentialSecret } from './modules/credentials/vault'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
@@ -189,7 +190,9 @@ async function fixture(
         repos: {} as never,
         superagent: {} as never,
         capability: OPERATOR,
-        principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+        principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+          parentSessionOf: () => undefined,
+        }),
       }),
     key: async (type, label) => {
       const record = await store.credentials.insert({ ownerUserId: admin, label, type })

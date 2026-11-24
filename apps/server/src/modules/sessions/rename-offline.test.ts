@@ -45,6 +45,7 @@ import { asMutationId, asSessionId, asUserId, type UserId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type CommandPrincipal, firstAdminMemberId } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { OPERATOR } from '../../test-support/capabilities'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -111,6 +112,7 @@ async function revocableStack() {
  */
 const humanScoped = (userId: string): CommandPrincipal => ({
   kind: 'user',
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   user: userId as UserId,
   capability: { role: 'worker', scope: { kind: 'owned', userId: asUserId(userId) } },
 })
@@ -125,6 +127,7 @@ const human = humanScoped(firstAdminMemberId())
  */
 const agentOf = (agentSessionId: string, onBehalfOf: string): CommandPrincipal => ({
   kind: 'agent',
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   agentSessionId: asSessionId(agentSessionId),
   onBehalfOf: onBehalfOf as UserId,
   capability: { ...OPERATOR, actorSessionId: asSessionId(agentSessionId) },
@@ -412,6 +415,7 @@ describe('the admin scope `all` does not pass the owner gate (POD-6283)', () => 
 
     const operator: CommandPrincipal = {
       kind: 'user',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: firstAdminMemberId(),
       capability: OPERATOR,
     }

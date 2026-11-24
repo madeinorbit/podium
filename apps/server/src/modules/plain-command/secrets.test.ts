@@ -12,6 +12,7 @@
 import { asUserId, firstAdminMemberId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import { openTestIdentity } from '../../test-support/test-identity'
@@ -55,7 +56,7 @@ describe('the plain path stores no result', () => {
     const store = await openTestStore(':memory:')
     opened.push(store)
     const adminId = firstAdminMemberId()
-    const admin: CommandPrincipal = userCommandPrincipal(adminId, 'admin')
+    const admin: CommandPrincipal = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, adminId, 'admin')
 
     // settings.setSecret, through the settings family's plain arm: gate, handler
     // and trail, over the real settings and secret stores.
@@ -67,6 +68,7 @@ describe('the plain path stores no result', () => {
     await plainSettingsCommandWith(
       'settings.setSecret',
       admin,
+      store.workspaceId,
       async () => ({ deps: { principal: admin, role: 'admin' }, service: settings }),
       { key: 'integrations.linearApiKey', value: SERVER_SECRET },
     )
@@ -81,6 +83,7 @@ describe('the plain path stores no result', () => {
     const password = await runPlainCommand({
       contract: AUTH_COMMANDS_TRPC.setPassword.contract,
       principal: admin,
+      workspaceId: store.workspaceId,
       transport: 'trpc',
       input: { next: PASSWORD },
       run: async (input) => await AUTH_COMMANDS_TRPC.setPassword.handler(instance, input as never),

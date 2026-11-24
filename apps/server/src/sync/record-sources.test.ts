@@ -196,7 +196,7 @@ async function buildCorpus(): Promise<Corpus> {
       prompt: 'sweep',
       enabled: false,
     },
-    userCommandPrincipal(owner, 'admin'),
+    userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, owner, 'admin'),
   )
   await reg.modules.layout.set(
     writes.sync(asMutationId('m-6920-layout')),

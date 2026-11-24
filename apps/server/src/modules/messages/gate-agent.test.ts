@@ -1,3 +1,4 @@
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { messageTestWriter, messageTestWriters } from '../../test-support/message-writer'
 // Cross-harness subagent spawn + bounded await (#237): gate authz ordering, deliberate-only issue creation, #285
 // pass-through metadata, parent provenance, and the never-hangs await contract.
@@ -155,6 +156,7 @@ async function harness(opts?: {
     store.notificationFacts.retire(factKey, target, opts?.now?.() ?? new Date().toISOString())
   }
   const gate = new MessageGate({
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     messages: svc,
     directWriter: messageTestWriter(),
     issues,

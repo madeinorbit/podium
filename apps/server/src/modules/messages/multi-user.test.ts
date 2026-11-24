@@ -18,6 +18,7 @@ import type { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 import type { Capability } from '../../issue-authz'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import {
   currentReadScope,
   inExplicitReadScope,
@@ -839,7 +840,8 @@ describe('mail.show admits the owner of the session the mail was delivered to', 
     expect((await h.svc.message(sent.message.id))?.deliveredTo).toBe('sBob')
 
     // The web's own principal for a member: owned scope, no session.
-    const member = (user: string) => userCommandPrincipal(asUserId(user), 'member').capability
+    const member = (user: string) =>
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, asUserId(user), 'member').capability
     const shown = (await h.gate.dispatch(member('u_bob'), undefined, 'show', {
       id: sent.message.id,
     })) as { body: string }
@@ -859,7 +861,8 @@ describe('mail.show admits the owner of the sending or the receiving session', (
   // sFrom is bob's, sTo is carol's. dana and erin held read grants on them,
   // which is what admitted them before POD-6284.
   const owners: Record<string, typeof bob> = { sFrom: bob, sTo: carol }
-  const member = (user: string) => userCommandPrincipal(asUserId(user), 'member').capability
+  const member = (user: string) =>
+    userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, asUserId(user), 'member').capability
 
   async function sentAndDelivered() {
     const h = await mailHarness({ sessionOwnerUserId: async (id) => owners[id] })

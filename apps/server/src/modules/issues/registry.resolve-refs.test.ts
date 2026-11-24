@@ -1,6 +1,7 @@
 import { asIssueId, asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { IssueRow, SessionStore } from '../../store'
 import { OPERATOR } from '../../test-support/capabilities'
 import { TEST_MACHINE_ID } from '../../test-support/machine-id'
@@ -91,7 +92,15 @@ describe('batched chip identities', () => {
     const call = async (user: typeof alice) => {
       const ctx = new IssueCommandCtx(
         { issues: { reports } } as never,
-        { capability: OPERATOR, principal: { kind: 'user', user, capability: OPERATOR } },
+        {
+          capability: OPERATOR,
+          principal: {
+            kind: 'user',
+            workspaceId: SELF_HOSTED_WORKSPACE_ID,
+            user,
+            capability: OPERATOR,
+          },
+        },
         'resolveRefs',
       )
       return await issueRegistry.defs.resolveRefs.handler(ctx, {

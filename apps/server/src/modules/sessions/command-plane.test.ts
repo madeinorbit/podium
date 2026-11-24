@@ -32,6 +32,7 @@ import {
 } from '../../command-principal'
 import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../machine-access'
 import { ownershipSnapshotFromMachines } from '../../machine-access'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { memberFacts } from '../../store/fixtures/test-support'
 import { seedLegacyKeyCredential } from '../../test-support/legacy-key-credential'
 import { DurableIssueAccessIndex } from '../issues/access-index'
@@ -63,6 +64,7 @@ const GHOST = '00000000-0000-4000-8000-000000000000'
 
 const human = (id: UserId, role: 'admin' | 'worker' = 'worker'): CommandPrincipal => ({
   kind: 'user',
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   user: id,
   // Worker by default, mirroring machine-access.test.ts: POD-3960 gives admins
   // universal `see`, so an admin principal can never be told "unknown machine"
@@ -78,6 +80,7 @@ const agentFor = (
   chain: SessionId[] = [],
 ): AgentCommandPrincipal => ({
   kind: 'agent',
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   agentSessionId: asSessionId(sessionId),
   onBehalfOf,
   // Worker, as above: the delegation tests pin the `absent` answer after the
@@ -1418,7 +1421,13 @@ describe('attribution and ownership come from the principal', () => {
     })
     // POD-1516: the job NAME survives the crossing. It used to be dropped here,
     // which made every system-spawned session attributable to "some job".
-    expect(bindingPrincipalFor({ kind: 'system', job: 'steward' })).toEqual({
+    expect(
+      bindingPrincipalFor({
+        kind: 'system',
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        job: 'steward',
+      }),
+    ).toEqual({
       kind: 'system',
       job: 'steward',
     })

@@ -19,6 +19,7 @@ import {
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { confirmingRetirement } from '../../test-support/host-daemon'
 import { disposeOracles, makeOracle, type Oracle, waitFor } from '../sessions/oracle-support'
 import { appliedReply, changeRows, envelope, submit } from '../sync-write/outbox-test-support'
@@ -279,7 +280,7 @@ describe('an issue.start effect', () => {
     const sessionId = newSessionId()
     const { reply } = await o.reg.modules.syncWrite.submitDetailed(
       startEnvelope(effectId, issueId, task(sessionId, { parentId }), 's-1'),
-      userCommandPrincipal(writer, 'member'),
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, writer, 'member'),
       'trpc',
     )
     appliedReply(reply)
@@ -316,7 +317,7 @@ describe('an issue.start effect', () => {
     await reportInventory(o)
     const { reply } = await o.reg.modules.syncWrite.submitDetailed(
       startEnvelope(effectId, issueId, task(sessionId), 's-1'),
-      userCommandPrincipal(writer, 'member'),
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, writer, 'member'),
       'trpc',
     )
     appliedReply(reply)
@@ -353,7 +354,7 @@ describe('an issue.start effect', () => {
     await reportInventory(o)
     const { reply } = await o.reg.modules.syncWrite.submitDetailed(
       startEnvelope(effectId, issueId, task(newSessionId(), { stage: 'planning' }), 's-1'),
-      userCommandPrincipal(writer, 'member'),
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, writer, 'member'),
       'trpc',
     )
     appliedReply(reply)

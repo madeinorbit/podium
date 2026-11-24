@@ -24,6 +24,7 @@ import type { ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentCommandPrincipal } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 import { seedRaw } from '../../test-support/seed-rows'
 import { sealCredentialSecret } from '../credentials/vault'
@@ -68,6 +69,7 @@ function seedUser(
 function delegatedAgent(sessionId: SessionId, onBehalfOf: UserId): AgentCommandPrincipal {
   return {
     kind: 'agent',
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     agentSessionId: sessionId,
     onBehalfOf,
     // A persisted unscoped delegation, held to its own human's member rights
@@ -79,6 +81,7 @@ function delegatedAgent(sessionId: SessionId, onBehalfOf: UserId): AgentCommandP
 
 function sessionStatePrincipal(agent: AgentCommandPrincipal): SessionStatePrincipal {
   return {
+    workspaceId: agent.workspaceId,
     userId: agent.onBehalfOf,
     capability: agent.capability,
     actorSessionId: agent.agentSessionId,

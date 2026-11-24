@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, test } from 'vitest'
 import { clientAuthGuard, registerAuthRoute } from './auth-route'
 import { httpsSignInWarning, registerHttpsRequiredPage } from './https-required'
 import { createMemberOfRequest } from './identity/member-of-request'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
 import { openTestIdentity, type TestIdentity } from './test-support/test-identity'
@@ -21,6 +22,7 @@ afterEach(async () => {
 function appFor(publicUrl?: string, trustedProxyHops = 0) {
   const app = new Hono()
   const memberOfRequest = createMemberOfRequest({
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     identity: identity.workspace,
     users: store.users,
     trustedProxyHops,

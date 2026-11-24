@@ -15,6 +15,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 import { checkMachineUse, ownershipSnapshotFromMachines } from '../../machine-access'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { confirmingRetirement } from '../../test-support/host-daemon'
 import { appliedReply, envelope, rowsOf, submit } from '../sync-write/outbox-test-support'
 import { disposeOracles, makeOracle, type Oracle, waitFor } from './oracle-support'
@@ -351,7 +352,11 @@ describe('a start is re-authorized when it is acted on', () => {
     await o.reg.modules.machines.transferMachineOwnership(host, other, firstAdminMemberId())
     const ownership = await ownershipSnapshotFromMachines(o.reg.modules.machines)
     expect(
-      checkMachineUse(userCommandPrincipal(firstAdminMemberId(), 'admin'), host, ownership),
+      checkMachineUse(
+        userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin'),
+        host,
+        ownership,
+      ),
       'the fixture must actually take use away',
     ).toBeDefined()
   }

@@ -39,6 +39,7 @@ import {
   resolvePrincipal,
   userCommandPrincipal,
 } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { EventBus } from '../bus'
 import { CREDENTIAL_COMMANDS_TRPC } from '../credentials/commands'
 import { NativeLoginService } from '../credentials/native-login'
@@ -97,13 +98,17 @@ const agentCapability: Capability = {
 
 const PRINCIPALS = {
   /** The web app (and mobile, desktop, operator CLI) signed in as an admin. */
-  admin: userCommandPrincipal(firstAdminMemberId(), 'admin'),
+  admin: userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin'),
   /** The same apps signed in as a member: `userCommandPrincipal`'s member arm. */
-  member: resolvePrincipal(memberCapability, { parentSessionOf: () => undefined }),
+  member: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, memberCapability, {
+    parentSessionOf: () => undefined,
+  }),
   /** First-run setup: `server.ts` resolves the earliest admin account. */
-  bootstrap: userCommandPrincipal(firstAdminMemberId(), 'admin'),
+  bootstrap: userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin'),
   /** An agent session acting for an admin, as the relay presents it. */
-  agent: resolvePrincipal(agentCapability, { parentSessionOf: () => undefined }),
+  agent: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, agentCapability, {
+    parentSessionOf: () => undefined,
+  }),
 } satisfies Record<string, CommandPrincipal>
 
 type Who = keyof typeof PRINCIPALS
@@ -328,9 +333,16 @@ describe('every current caller of the non-sync commands', () => {
       for (const principal of Object.values(PRINCIPALS))
         for (const transport of ['trpc', 'relay'] as const)
           expect(
-            coarselyPermitted(registered.door, principal, transport),
+            coarselyPermitted(registered.door, principal, transport, SELF_HOSTED_WORKSPACE_ID),
             `${contract.name} on ${transport}`,
-          ).toBe(coarselyPermitted(contractFrontDoor(contract), principal, transport))
+          ).toBe(
+            coarselyPermitted(
+              contractFrontDoor(contract),
+              principal,
+              transport,
+              SELF_HOSTED_WORKSPACE_ID,
+            ),
+          )
     }
     for (const row of CALLERS) expect(CONTRACTS.has(row.command), row.command).toBe(true)
   })
@@ -341,7 +353,12 @@ describe('every current caller of the non-sync commands', () => {
     const contract = CONTRACTS.get(command)!
     const target = TARGET_CHECKS.get(command)
     const admitted =
-      coarselyPermitted(contractFrontDoor(contract), PRINCIPALS[who], 'trpc') &&
+      coarselyPermitted(
+        contractFrontDoor(contract),
+        PRINCIPALS[who],
+        'trpc',
+        SELF_HOSTED_WORKSPACE_ID,
+      ) &&
       (target === undefined || target(PRINCIPALS[who], input ?? {}))
     expect(admitted).toBe(expected === 'ok')
   })

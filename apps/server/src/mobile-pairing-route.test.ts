@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemberOfRequest } from './identity/member-of-request'
 import { PairingFailureThrottle, registerMobilePairingRoutes } from './mobile-pairing-route'
 import { clientAddressForRequest } from './request-scheme'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { registerSignInRoutes } from './sign-in-routes'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
@@ -52,6 +53,7 @@ function mount(
 ) {
   app = new Hono()
   const memberOfRequest = createMemberOfRequest({
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     identity: identity.workspace,
     users: store.users,
     trustedProxyHops: opts.trustedProxyHops ?? 1,

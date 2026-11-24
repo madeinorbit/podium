@@ -17,12 +17,13 @@ import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
 import { resolvePrincipal, userCommandPrincipal } from './command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { loggedRows } from './test-support/logged-rows'
 import { StoreModelLedger as Ledger } from './test-support/model-ledger'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
-const AS_OPERATOR = userCommandPrincipal(firstAdminMemberId(), 'admin')
+const AS_OPERATOR = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin')
 
 import type { Capability } from './issue-authz'
 import { SessionRegistry } from './relay'
@@ -266,7 +267,9 @@ describe('characterization: issue lifecycle equivalence across entry points (con
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
-      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        parentSessionOf: () => undefined,
+      }),
     })
 
   it('create → claim → comment → close yields identical rows, events, comments, and folded oplog via IssueService, the CLI command registry, and the tRPC router', async () => {
@@ -694,7 +697,9 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
         repos: {} as never,
         superagent: {} as never,
         capability: OPERATOR,
-        principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+        principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+          parentSessionOf: () => undefined,
+        }),
       })
       const caller = (capability: Capability, overrideScope = false) =>
         appRouter.createCaller({
@@ -702,7 +707,9 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
           repos: {} as never,
           superagent: {} as never,
           capability,
-          principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
+          principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+            parentSessionOf: () => undefined,
+          }),
           overrideScope,
         })
       const A = await op.issues.create({ repoPath: '/r', title: 'mine', startNow: false })

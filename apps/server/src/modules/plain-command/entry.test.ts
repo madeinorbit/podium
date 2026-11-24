@@ -8,7 +8,7 @@ import { ModelLedger as Ledger } from '@podium/sync/testing'
  */
 
 import { type AnyCommandContract, credentialsUseOnMyMachinesContract } from '@podium/commands'
-import { asUserId, firstAdminMemberId } from '@podium/model'
+import { asUserId, asWorkspaceId, firstAdminMemberId } from '@podium/model'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -23,6 +23,7 @@ import {
   PlainCommandWroteSyncedData,
   syncedWriteProvenance,
 } from '../../plain-command-scope'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -71,8 +72,16 @@ const probe = {
   policy: { ...credentialsUseOnMyMachinesContract.policy, action: 'manage', roleFloor: 'admin' },
 } as const satisfies AnyCommandContract
 
-const admin: CommandPrincipal = userCommandPrincipal(firstAdminMemberId(), 'admin')
-const member: CommandPrincipal = userCommandPrincipal(asUserId('user:plain-member'), 'member')
+const admin: CommandPrincipal = userCommandPrincipal(
+  SELF_HOSTED_WORKSPACE_ID,
+  firstAdminMemberId(),
+  'admin',
+)
+const member: CommandPrincipal = userCommandPrincipal(
+  SELF_HOSTED_WORKSPACE_ID,
+  asUserId('user:plain-member'),
+  'member',
+)
 
 describe('the front door on the plain path', () => {
   it('refuses a caller below the role floor before parsing, and runs nothing', async () => {
@@ -80,6 +89,7 @@ describe('the front door on the plain path', () => {
     const reply = await runPlainCommand({
       contract: probe,
       principal: member,
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       transport: 'trpc',
       input: { note: '' },
       run: () => {
@@ -92,12 +102,13 @@ describe('the front door on the plain path', () => {
 
   it('refuses a system principal and a transport the contract does not expose', async () => {
     for (const [principal, transport] of [
-      [systemPrincipal('test'), 'trpc'],
+      [systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'test'), 'trpc'],
       [admin, 'relay'],
     ] as const) {
       const reply = await runPlainCommand({
         contract: probe,
         principal,
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         transport,
         input: { note: 'x' },
         run: () => 'ran',
@@ -106,11 +117,28 @@ describe('the front door on the plain path', () => {
     }
   })
 
+  it('refuses a principal of another workspace, even an admin, and runs nothing', async () => {
+    let runs = 0
+    const reply = await runPlainCommand({
+      contract: probe,
+      principal: admin,
+      workspaceId: asWorkspaceId('ws_elsewhere'),
+      transport: 'trpc',
+      input: { note: 'x' },
+      run: () => {
+        runs += 1
+      },
+    })
+    expect(reply).toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
+    expect(runs).toBe(0)
+  })
+
   it('refuses invalid input with its paths, and runs nothing', async () => {
     let runs = 0
     const reply = await runPlainCommand({
       contract: probe,
       principal: admin,
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       transport: 'trpc',
       input: { note: '' },
       run: () => {
@@ -128,6 +156,7 @@ describe('the front door on the plain path', () => {
     const reply = await runPlainCommand({
       contract: probe,
       principal: admin,
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       transport: 'trpc',
       input: { note: 'hello', extra: 'dropped' },
       run: async (input) => ({ seen: input }),
@@ -143,6 +172,7 @@ describe('the front door on the plain path', () => {
     const reply = await runPlainCommand({
       contract: memberProbe,
       principal: member,
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       transport: 'trpc',
       input: { note: 'mine' },
       run: () => 'ok',
@@ -161,6 +191,7 @@ describe('the front door on the plain path', () => {
       runPlainCommand({
         contract: memberProbe,
         principal: member,
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         transport: 'trpc',
         input: { note },
         targetPermitted: (_principal, input) => {
@@ -193,6 +224,7 @@ describe('a plain handler cannot obtain a synced writer', () => {
       runPlainCommand({
         contract: probe,
         principal: admin,
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         transport: 'trpc',
         input: { note: 'x' },
         run: async () =>
@@ -209,6 +241,7 @@ describe('a plain handler cannot obtain a synced writer', () => {
       runPlainCommand({
         contract: probe,
         principal: admin,
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         transport: 'trpc',
         input: { note: 'x' },
         run: async () =>
@@ -234,6 +267,7 @@ describe('a plain handler cannot obtain a synced writer', () => {
     const reply = await runPlainCommand({
       contract: probe,
       principal: admin,
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       transport: 'trpc',
       input: { note: 'x' },
       run: async () => {
@@ -258,6 +292,7 @@ describe('a plain handler cannot obtain a synced writer', () => {
     await runPlainCommand({
       contract: probe,
       principal: admin,
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       transport: 'trpc',
       input: { note: 'x' },
       run: () => {
@@ -281,6 +316,7 @@ describe('a plain handler cannot obtain a synced writer', () => {
     const plain = runPlainCommand({
       contract: probe,
       principal: admin,
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       transport: 'trpc',
       input: { note: 'x' },
       run: async () => await held,

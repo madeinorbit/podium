@@ -19,6 +19,7 @@ import {
   type MemberResolution,
 } from '../identity/member-of-request'
 import { openServerIdentity } from '../identity/server-identity'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import type { SessionStore } from '../store'
 
 export interface TestIdentity {
@@ -71,6 +72,7 @@ export async function openTestIdentity(
     workspace,
     credentials,
     memberOfRequest: createMemberOfRequest({
+      workspaceId: store.workspaceId,
       identity: workspace,
       users: store.users,
       trustedProxyHops: opts.trustedProxyHops ?? 0,
@@ -114,7 +116,7 @@ export function memberResolution(
     kind: 'member',
     memberId: id,
     role,
-    principal: userCommandPrincipal(id, role),
+    principal: userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, id, role),
     accountId: `account-of-${memberId}`,
     deviceSignIn: deviceSignInId
       ? { id: deviceSignInId, kind: 'browser', expiresAt: new Date('2999-01-01T00:00:00Z') }

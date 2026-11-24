@@ -7,6 +7,7 @@ import {
 } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { SessionClientControl, type SessionClientControlPorts } from './client-control'
 import type { HandoffPlacement } from './handoff/placement'
 import type { HandoffPorts } from './handoff/ports'
@@ -280,6 +281,7 @@ describe('async session port boundaries', () => {
     f.session.requestedModel = 'selected-model'
     f.session.requestedEffort = 'low'
     const plane = new SessionClientPlane({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       terminalProof: {
         fence: async () => {
           await Promise.resolve()
@@ -399,7 +401,10 @@ describe('async session port boundaries', () => {
   it('a draft revision is published only after its DRAFT-tag commit', async () => {
     const f = fixture()
     const state = new SessionStateService({
-      store: { sessions: { setDraftDoc: async () => {}, draftDocOf: async () => undefined } },
+      store: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        sessions: { setDraftDoc: async () => {}, draftDocOf: async () => undefined },
+      },
       getSession: () => f.session,
       writeSession: async (
         _writer: Parameters<SessionStatePorts['writeSession']>[0],
@@ -431,6 +436,7 @@ describe('async session port boundaries', () => {
     const persisted: string[] = []
     const state = new SessionStateService({
       store: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         sessions: {
           setDraftDoc: async (_id: string, doc: { text: string }) => {
             persisted.push(doc.text)

@@ -39,6 +39,7 @@ import {
 import { asSessionId, firstAdminMemberId, type UserRole } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import {
   SECRET_SURFACE_ABSENT,
   type SettingsAuthzDeps,
@@ -49,6 +50,7 @@ import {
 
 const person: CommandPrincipal = {
   kind: 'user',
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   user: firstAdminMemberId(),
   capability: { role: 'admin', scope: { kind: 'all' } },
 }
@@ -57,6 +59,7 @@ const person: CommandPrincipal = {
  *  member's agent must be refused exactly where the member is (ADR 9 D5 A1/A2). */
 const agent: CommandPrincipal = {
   kind: 'agent',
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   agentSessionId: asSessionId('sess-1'),
   onBehalfOf: firstAdminMemberId(),
   capability: { role: 'admin', scope: { kind: 'all' } },
@@ -153,7 +156,10 @@ describe('a SYSTEM principal has no account and is not given one', () => {
     // rejects.
     for (const name of SETTINGS_COMMAND_NAMES) {
       expect(
-        settingsAuthzFailure(name, deps(undefined, systemPrincipal('steward'))),
+        settingsAuthzFailure(
+          name,
+          deps(undefined, systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'steward')),
+        ),
       ).toBeUndefined()
     }
   })
@@ -243,7 +249,10 @@ describe('settingsCommandsPermitted — the rendering hint, and what it is NOT',
   })
 
   it('refuses both record edits for a disabled account or a transport system principal', () => {
-    for (const viewer of [deps(undefined), deps('admin', systemPrincipal('test'))]) {
+    for (const viewer of [
+      deps(undefined),
+      deps('admin', systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'test')),
+    ]) {
       const permitted = settingsCommandsPermitted(viewer)
       expect(permitted['records.userPreferences.edit']).toBe(false)
       expect(permitted['records.instancePreferences.edit']).toBe(false)

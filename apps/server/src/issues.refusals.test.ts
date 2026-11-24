@@ -13,6 +13,7 @@ import { openKernelEngineOutbox } from '../../../packages/client-core/src/runtim
 import { resolvePrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 
@@ -78,7 +79,9 @@ describe('definitive issue refusals (POD-5429)', () => {
           repos: {} as never,
           superagent: {} as never,
           capability: OPERATOR,
-          principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+          principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+            parentSessionOf: () => undefined,
+          }),
         }) as never,
     })
     return { status: response.status, body: await response.json() }

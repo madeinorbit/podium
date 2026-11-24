@@ -5,6 +5,7 @@ import type { Capability } from './issue-authz'
 import { issueRegistry } from './modules/issues/registry'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { seedMailboxRow } from './test-support/seed-issue-mail'
@@ -92,7 +93,9 @@ describe('issues.* subtree scope (P1a)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
-      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        parentSessionOf: () => undefined,
+      }),
     })
     A = await setup.issues.create({ repoPath: '/r', title: 'epic root', startNow: false })
     B = await setup.issues.create({ repoPath: '/r', title: 'unrelated', startNow: false })
@@ -120,7 +123,9 @@ describe('issues.* subtree scope (P1a)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability,
-      principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+        parentSessionOf: () => undefined,
+      }),
       overrideScope,
     })
   }
@@ -133,7 +138,9 @@ describe('issues.* subtree scope (P1a)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
-      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        parentSessionOf: () => undefined,
+      }),
     })
     for (let i = 0; i < 4; i++)
       await c.issues.create({ repoPath: '/r', title: `k${i}`, parentId: A.id, startNow: false })
@@ -178,7 +185,9 @@ describe('issues.* subtree scope (P1a)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
-      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        parentSessionOf: () => undefined,
+      }),
     })
     await expect(c.issues.update({ id: B.id, patch: { brief: 'x' } })).resolves.toBeTruthy()
   })
@@ -197,7 +206,9 @@ describe('issues.* subtree scope (P1a)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
-      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        parentSessionOf: () => undefined,
+      }),
     })
     const w = (await op.issues.setNeedsHuman({
       id: A.id,
@@ -261,7 +272,9 @@ describe('issues.* subtree scope (P1a)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
-      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        parentSessionOf: () => undefined,
+      }),
     })
     await expect(human.issues.answerQuestion({ id: A.id, answer: 'Yes' })).rejects.toThrow(
       /answer not delivered/,
@@ -439,7 +452,9 @@ describe('issues.mail* (agent mail #103)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
-      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        parentSessionOf: () => undefined,
+      }),
     })
     A = await setup.issues.create({ repoPath: '/r', title: 'mine', startNow: false })
     B = await setup.issues.create({ repoPath: '/r', title: 'other', startNow: false })
@@ -467,7 +482,9 @@ describe('issues.mail* (agent mail #103)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability,
-      principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+        parentSessionOf: () => undefined,
+      }),
       overrideScope,
     })
   }
@@ -573,7 +590,9 @@ describe('issues router create/list/update', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
-      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        parentSessionOf: () => undefined,
+      }),
     })
   }
 
@@ -610,7 +629,9 @@ describe('issues.subscription* authz (Phase B)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
-      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        parentSessionOf: () => undefined,
+      }),
     })
     A = await setup.issues.create({ repoPath: '/r', title: 'root A', startNow: false })
     B = await setup.issues.create({ repoPath: '/r', title: 'root B', startNow: false })
@@ -638,7 +659,9 @@ describe('issues.subscription* authz (Phase B)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability,
-      principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+        parentSessionOf: () => undefined,
+      }),
       overrideScope,
     })
   }
@@ -805,7 +828,9 @@ describe('issues.* on an issue that does not exist (POD-1926)', () => {
       repos: {} as never,
       superagent: {} as never,
       capability: OPERATOR,
-      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        parentSessionOf: () => undefined,
+      }),
     })
 
   const GONE = 'iss_00000000-0000-4000-8000-000000000000'

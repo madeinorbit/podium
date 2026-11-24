@@ -44,6 +44,7 @@ import type { Ledger, ScopedDelivery, WriteScope } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { AutomationRunRow } from './store/automations'
 import type { WriteContexts } from './write-contexts'
 
@@ -113,7 +114,7 @@ const automationInput = {
 describe('POD-1509 — a removal reaches the principal who owned the row', () => {
   it("delivers the automation's `remove` to its owner, not a bare watermark", async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    const principal = userCommandPrincipal(OWNER, 'admin')
+    const principal = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, OWNER, 'admin')
     const delivered = deliveriesFor(reg, feedPrincipalFor(firstAdminMemberId()))
 
     const created = await reg.modules.automations.create(
@@ -152,7 +153,7 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
 
   it("delivers a run's `remove` too — the cascade no longer fires, so it is stamped", async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    const principal = userCommandPrincipal(OWNER, 'admin')
+    const principal = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, OWNER, 'admin')
     const delivered = deliveriesFor(reg, feedPrincipalFor(firstAdminMemberId()))
     const store = (reg as unknown as { store: { automations: AutomationRunWriter } }).store
 
@@ -205,7 +206,7 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
 
   it('does not deliver another user’s removal — the fix widens delivery, not visibility', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    const owner = userCommandPrincipal(OWNER, 'admin')
+    const owner = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, OWNER, 'admin')
     const stranger = deliveriesFor(reg, feedPrincipalFor('user:someone-else'))
 
     const created = await reg.modules.automations.create(commandWriter(reg), automationInput, owner)

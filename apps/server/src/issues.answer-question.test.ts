@@ -6,6 +6,7 @@ import type { IssueCommandDeps } from './modules/issues/command-ctx'
 import { IssueCommandDispatcher } from './modules/issues/dispatcher'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { OPERATOR } from './test-support/capabilities'
 import { executionFactsOf } from './test-support/execution-facts'
 import { TEST_MACHINE_ID } from './test-support/machine-id'
@@ -48,6 +49,7 @@ async function harness(
   }
   const svc = await IssueService.create(deps)
   const dispatcher = new IssueCommandDispatcher({
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     issues: svc,
     // These commands run outside sync.submit here, under the service's writer.
     directWriter: svc.reports.store.serverWriter,

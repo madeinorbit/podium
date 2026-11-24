@@ -1,4 +1,5 @@
 import { resolvePrincipal, userCommandPrincipal } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 /**
  * THE SETTINGS GATE AND TRAIL, AGAINST THE REAL DERIVED ROUTER (POD-421).
  *
@@ -86,10 +87,12 @@ async function harness(role: UserRole | undefined) {
       repos,
       superagent,
       capability,
-      principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+        parentSessionOf: () => undefined,
+      }),
     }),
     callAsMember: (user: UserId) => {
-      const principal = userCommandPrincipal(user, 'member')
+      const principal = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, user, 'member')
       return appRouter.createCaller({
         registry,
         repos,

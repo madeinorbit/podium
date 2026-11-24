@@ -19,7 +19,13 @@ import { LayoutService } from './service'
 
 function deps(role: LayoutAuthzDeps['role'], principal?: CommandPrincipal): LayoutAuthzDeps {
   return {
-    principal: principal ?? userCommandPrincipal(asUserId(firstAdminMemberId()), role ?? 'member'),
+    principal:
+      principal ??
+      userCommandPrincipal(
+        SELF_HOSTED_WORKSPACE_ID,
+        asUserId(firstAdminMemberId()),
+        role ?? 'member',
+      ),
     role,
   }
 }

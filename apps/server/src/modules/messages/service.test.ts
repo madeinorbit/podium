@@ -1,5 +1,6 @@
 import { queryAttributionEnabled } from '@podium/runtime/query-attribution'
 import { fixtureWriteScope } from '@podium/sync/testing'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { statementBudget } from '../../test-support/statement-budget'
 // Unified agent messaging (#237) — store CRUD, server-stamped
 // sender, envelope rendering + spoof containment, the full delivery
@@ -3515,6 +3516,7 @@ describe('containment brakes survive a restart (durable derivation)', () => {
 describe('MessageGate.send authz (target-issue scope)', () => {
   function gateFor(svc: MessageDeliveryService, sessions: SessionMeta[] = []) {
     return new MessageGate({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       messages: svc,
       directWriter: messageTestWriter(),
       issues: fakeIssues(),

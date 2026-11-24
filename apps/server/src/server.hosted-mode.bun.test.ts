@@ -21,6 +21,7 @@ import { noJanitorWorkerForTests } from './janitor-host'
 import { SuperagentService } from './modules/superagent'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { type ServerHandle, startServer } from './server'
 import type { ServerMode } from './server-mode'
 import { DATABASE_URL_ENV } from './store'
@@ -88,7 +89,7 @@ function bootFixture(engine: 'sqlite' | 'pg', mode: ServerMode) {
     }
     const admin = await fixture.server.registry.sessionStore.users.earliestAdmin()
     if (!admin) throw new Error('Missing boot administrator')
-    const principal = userCommandPrincipal(asUserId(admin.id), 'admin')
+    const principal = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, asUserId(admin.id), 'admin')
     fixture.caller = appRouter.createCaller({
       registry: fixture.server.registry,
       repos: new RepoRegistry(fixture.server.registry.sessionStore),

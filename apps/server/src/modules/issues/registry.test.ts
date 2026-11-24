@@ -1,8 +1,16 @@
 import { ISSUE_COMMAND_NAMES, ISSUE_CONTRACTS } from '@podium/commands'
-import { asIssueId, asSessionId, asUserId, firstAdminMemberId, type UserId } from '@podium/model'
+import {
+  asIssueId,
+  asSessionId,
+  asUserId,
+  asWorkspaceId,
+  firstAdminMemberId,
+  type UserId,
+} from '@podium/model'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { SessionRegistry } from '../../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { INLINE_BODY_MAX } from '../../store/messages'
 import { OPERATOR } from '../../test-support/capabilities'
 import { executionFactsOf } from '../../test-support/execution-facts'
@@ -558,6 +566,7 @@ describe('Shipping command boundary', () => {
       completedAt: '2026-08-13T10:00:00.000Z',
     }))
     const dispatcher = new IssueCommandDispatcher({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       issues: registry.issues,
       directWriter: registry.issues.reports.store.serverWriter,
       shipping: {
@@ -594,6 +603,7 @@ describe('Shipping command boundary', () => {
       capability,
       principal: {
         kind: 'agent' as const,
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         agentSessionId: actorSessionId,
         onBehalfOf: firstAdminMemberId(),
         capability,
@@ -624,6 +634,30 @@ describe('Shipping command boundary', () => {
     )
   })
 
+  it("refuses a caller whose principal is another workspace's, on dispatch and on run (POD-7483)", async () => {
+    const { registry, dispatcher, enqueueCurrent } = await harness()
+    const root = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Root',
+      startNow: false,
+    })
+    const own = agentCaller(root.id)
+    const foreign = {
+      ...own,
+      principal: { ...own.principal, workspaceId: asWorkspaceId('ws_elsewhere') },
+    }
+
+    await expect(dispatcher.dispatch(foreign, 'issues', 'ship', {})).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'not_workspace_member',
+    })
+    const def = issueRegistry.defs.ship
+    await expect(dispatcher.run(foreign, 'ship', def, {} as never)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    expect(enqueueCurrent).not.toHaveBeenCalled()
+  })
+
   it('requires operator/unattached callers to name an id and requires a principal', async () => {
     const { registry, dispatcher, enqueueCurrent } = await harness()
     const root = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
@@ -635,6 +669,7 @@ describe('Shipping command boundary', () => {
       capability: OPERATOR,
       principal: {
         kind: 'user' as const,
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         user: firstAdminMemberId(),
         capability: OPERATOR,
       },
@@ -1360,6 +1395,7 @@ describe('agent close while a session on the issue works [POD-5762]', () => {
     const registry = await reportingRegistry()
     registries.push(registry)
     const dispatcher = new IssueCommandDispatcher({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       issues: registry.issues,
       directWriter: registry.issues.reports.store.serverWriter,
       shipping: {} as never,
@@ -1403,6 +1439,7 @@ describe('agent close while a session on the issue works [POD-5762]', () => {
       capability,
       principal: {
         kind: 'agent' as const,
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         agentSessionId: self,
         onBehalfOf: firstAdminMemberId(),
         capability,
@@ -1450,7 +1487,12 @@ describe('agent close while a session on the issue works [POD-5762]', () => {
     const { registry, dispatcher, issue } = await harness('working')
     const operator = {
       capability: OPERATOR,
-      principal: { kind: 'user' as const, user: firstAdminMemberId(), capability: OPERATOR },
+      principal: {
+        kind: 'user' as const,
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        user: firstAdminMemberId(),
+        capability: OPERATOR,
+      },
     }
 
     await dispatcher.dispatch(operator, 'issues', 'close', { id: issue.id })

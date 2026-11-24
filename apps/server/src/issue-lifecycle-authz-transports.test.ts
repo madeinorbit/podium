@@ -6,10 +6,10 @@ import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
 import { createAgentRelayHub, startAgentRelayServer } from '../../daemon/src/agent-relay'
 import { firstAdminMemberId, resolvePrincipal } from './command-principal'
-
 import { IssueToolProvider } from './issue-mcp'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { OPERATOR } from './test-support/capabilities'
 import { confirmingRetirement } from './test-support/host-daemon'
 
@@ -114,7 +114,9 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
         repos: {} as never,
         superagent: {} as never,
         capability: OPERATOR,
-        principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+        principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+          parentSessionOf: () => undefined,
+        }),
       })
       await caller.issues.reparent({ id: f.moving.id, parentId: f.newParent.id })
       await caller.issues.supersede({ oldId: f.superseded.id, newId: f.replacement.id })

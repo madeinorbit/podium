@@ -1,3 +1,5 @@
+import { systemPrincipal } from './command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { TEST_MACHINE_ID } from './test-support/machine-id'
 /**
  * A steward poll reads only the subscriptions that can match its events
@@ -103,6 +105,7 @@ async function setup(size: number): Promise<Fixture> {
   const issues = await IssueService.create(issueDeps)
   const sendNotice = vi.fn()
   const deps: StewardDeps = {
+    principal: systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'steward'),
     writer: issues.reports.store.serverWriter,
     store: store.events,
     facts: store.notificationFacts,

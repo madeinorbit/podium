@@ -32,6 +32,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { sha256 } from './modules/machines/enrollment'
 import { inboxPrincipalFromCommand } from './modules/sessions/inbox'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { attachDaemonWithInventory } from './test-support/daemon-inventory'
 import {
   MEMBERS,
@@ -317,6 +318,7 @@ describe('MU-10: a `use` grant never grants session access', () => {
         sessionId: f.sessions.bob,
         principal: inboxPrincipalFromCommand({
           kind: 'agent',
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
           agentSessionId: sessionId,
           onBehalfOf: claimedHuman,
           capability: await sessions().capabilityForSession(sessionId),
@@ -336,7 +338,9 @@ describe('MU-10: a `use` grant never grants session access', () => {
     const bobRow = async () =>
       await sessions().authorizeQueuedInputAtApply({
         sessionId: bobOnAliceMachine,
-        principal: inboxPrincipalFromCommand(userCommandPrincipal(MEMBERS.bob.id, 'member')),
+        principal: inboxPrincipalFromCommand(
+          userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, MEMBERS.bob.id, 'member'),
+        ),
         sourceMessageId: null,
       })
     expect(await bobRow()).toEqual({ ok: true })

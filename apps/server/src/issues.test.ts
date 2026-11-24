@@ -58,7 +58,7 @@ import { metasAsFacts, sessionReadPorts } from './test-support/session-facts'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
-const AS_OPERATOR = userCommandPrincipal(firstAdminMemberId(), 'admin')
+const AS_OPERATOR = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin')
 
 async function harness(sessions: SessionMeta[] = [], opts: { originUrl?: string } = {}) {
   const store = await openTestStore(':memory:', TEST_MACHINE_ID)
@@ -6093,7 +6093,10 @@ describe('IssueService.cleanup (issue #71)', () => {
     const alice = asUserId('user:alice')
     expect(alice).not.toBe(firstAdminMemberId())
 
-    const r = await h.svc.gitWorkflow.cleanup(w.id, userCommandPrincipal(alice, 'member'))
+    const r = await h.svc.gitWorkflow.cleanup(
+      w.id,
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, alice, 'member'),
+    )
     expect(r.ok).toBe(true)
     const audit = (await h.store.issues.listIssueComments(w.id)).find(
       (c) => c.author === 'system:cleanup' && c.body.includes(WT),
@@ -6681,7 +6684,10 @@ describe('IssueService.integrate (issue #70)', () => {
     const alice = asUserId('user:alice')
     expect(alice).not.toBe(firstAdminMemberId())
 
-    const r = await h.svc.gitWorkflow.integrate(epic.id, userCommandPrincipal(alice, 'member'))
+    const r = await h.svc.gitWorkflow.integrate(
+      epic.id,
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, alice, 'member'),
+    )
     expect(r.ok).toBe(true)
     const audit = (await h.store.issues.listIssueComments(epic.id)).find(
       (c) => c.author === 'system:integrate',
@@ -8683,7 +8689,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     const result = await h.svc.gitWorkflow.tryWorktreeGcObserved(
       await observationFor(h, id, 'propose'),
       DUE,
-      systemPrincipal('expiry'),
+      systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'expiry'),
     )
 
     expect(result).toEqual({ outcome: 'proposed' })
@@ -8707,7 +8713,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     const result = await h.svc.gitWorkflow.tryWorktreeGcObserved(
       await observationFor(h, id, 'auto'),
       DUE,
-      systemPrincipal('expiry'),
+      systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'expiry'),
     )
 
     expect(result).toEqual({ outcome: 'freed' })
@@ -8725,7 +8731,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     const result = await h.svc.gitWorkflow.tryWorktreeGcObserved(
       await observationFor(h, id, 'auto'),
       DUE,
-      systemPrincipal('expiry'),
+      systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'expiry'),
     )
 
     expect(result.outcome).toBe('refused')
@@ -8758,7 +8764,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     const result = await h.svc.gitWorkflow.tryWorktreeGcObserved(
       await observationFor(h, id, 'auto'),
       DUE,
-      systemPrincipal('expiry'),
+      systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'expiry'),
     )
 
     expect(result).toEqual({ outcome: 'precondition' })
@@ -8775,7 +8781,11 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     await h.svc.crud.update(h.svc.reports.store.serverWriter, id, { worktreePath: null })
 
     expect(
-      await h.svc.gitWorkflow.tryWorktreeGcObserved(observed, DUE, systemPrincipal('expiry')),
+      await h.svc.gitWorkflow.tryWorktreeGcObserved(
+        observed,
+        DUE,
+        systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'expiry'),
+      ),
     ).toEqual({
       outcome: 'precondition',
     })
@@ -8792,14 +8802,14 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
       await h.svc.gitWorkflow.tryWorktreeGcObserved(
         await observationFor(h, id, 'auto'),
         DUE,
-        systemPrincipal('expiry'),
+        systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'expiry'),
       ),
     ).toEqual({ outcome: 'precondition' })
     expect(
       await h.svc.gitWorkflow.tryWorktreeGcObserved(
         await observationFor(h, id, 'propose', 30),
         DUE,
-        systemPrincipal('expiry'),
+        systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'expiry'),
       ),
     ).toEqual({ outcome: 'precondition' })
     expect((await h.svc.reports.get(id))!.worktreePath).not.toBeNull()
@@ -8813,7 +8823,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
       await h.svc.gitWorkflow.tryWorktreeGcObserved(
         await observationFor(h, id, 'auto'),
         DUE,
-        systemPrincipal('expiry'),
+        systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'expiry'),
       ),
     ).toEqual({ outcome: 'precondition' })
     expect((await h.svc.reports.get(id))!.worktreePath).not.toBeNull()
@@ -8827,7 +8837,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
       await h.svc.gitWorkflow.tryWorktreeGcObserved(
         await observationFor(h, id, 'auto'),
         Date.parse(CLOSED_AT) + 5 * 24 * 3600_000,
-        systemPrincipal('expiry'),
+        systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'expiry'),
       ),
     ).toEqual({ outcome: 'not-due' })
   })
@@ -8931,7 +8941,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
       await h.svc.gitWorkflow.tryWorktreeGcObserved(
         await observationFor(h, pinned, 'auto'),
         DUE,
-        systemPrincipal('expiry'),
+        systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'expiry'),
       ),
     ).toEqual({ outcome: 'freed' })
     expect(ops).toHaveBeenCalledWith('worktreeRemove', '/r', expect.any(Object), remote)
@@ -8940,7 +8950,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
       await h.svc.gitWorkflow.tryWorktreeGcObserved(
         await observationFor(h, unresolved, 'auto'),
         DUE,
-        systemPrincipal('expiry'),
+        systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'expiry'),
       ),
     ).toEqual({ outcome: 'refused', reason: 'no machine for this worktree: /r' })
     expect(ops).not.toHaveBeenCalled()
@@ -8993,24 +9003,30 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
       ])
     } else if (operation === 'release') {
       expect(
-        await h.svc.gitWorkflow.releaseWorktreeIfIdle(occupied, systemPrincipal('expiry')),
+        await h.svc.gitWorkflow.releaseWorktreeIfIdle(
+          occupied,
+          systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'expiry'),
+        ),
       ).toMatchObject({ freed: false, reason: expect.stringContaining('live session') })
       expect(
-        await h.svc.gitWorkflow.releaseWorktreeIfIdle(idle, systemPrincipal('expiry')),
+        await h.svc.gitWorkflow.releaseWorktreeIfIdle(
+          idle,
+          systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'expiry'),
+        ),
       ).toEqual({ freed: true })
     } else {
       expect(
         await h.svc.gitWorkflow.tryWorktreeGcObserved(
           await observationFor(h, occupied, operation),
           DUE,
-          systemPrincipal('expiry'),
+          systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'expiry'),
         ),
       ).toEqual({ outcome: 'precondition' })
       expect(
         await h.svc.gitWorkflow.tryWorktreeGcObserved(
           await observationFor(h, idle, operation),
           DUE,
-          systemPrincipal('expiry'),
+          systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'expiry'),
         ),
       ).toEqual({ outcome: operation === 'auto' ? 'freed' : 'proposed' })
     }
@@ -9096,7 +9112,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     )
 
     const result = await h.svc.gitWorkflow.releaseReclaimableWorktrees(
-      systemPrincipal('expiry'),
+      systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'expiry'),
       DUE,
     )
 
@@ -9571,12 +9587,18 @@ describe('landing verdict over real git (POD-2151)', () => {
     try {
       await r.land('A')
       const old = await r.worktree()
-      await r.svc.gitWorkflow.freeWorktreeKeepBranch(r.id, systemPrincipal('test'))
+      await r.svc.gitWorkflow.freeWorktreeKeepBranch(
+        r.id,
+        systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'test'),
+      )
       r.calls.length = 0
       await r.svc.gitWorkflow.refreshGitState(r.id, old)
       expect((await r.svc.reports.get(r.id))!.gitState).toMatchObject({ merged: true, ahead: 0 })
       expect(r.calls.filter((c) => c.cwd === old)).toEqual([])
-      const cleaned = await r.svc.gitWorkflow.cleanup(r.id, systemPrincipal('test'))
+      const cleaned = await r.svc.gitWorkflow.cleanup(
+        r.id,
+        systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'test'),
+      )
       expect(cleaned.ok).toBe(true)
       expect((await r.svc.reports.store.row(r.id))?.branch).toBeNull()
       r.calls.length = 0

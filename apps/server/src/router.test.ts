@@ -8,12 +8,13 @@ import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { artifactStoreOnDisk } from './test-support/artifact-store'
 import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { clientSessionViews } from './test-support/session-views'
 
-const TEST_PRINCIPAL = userCommandPrincipal(firstAdminMemberId(), 'admin')
+const TEST_PRINCIPAL = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin')
 
 async function caller() {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })

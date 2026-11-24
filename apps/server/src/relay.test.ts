@@ -47,6 +47,7 @@ import { dispatchSessionCommand } from './modules/sessions/command-plane'
 import { SessionRuntimeGateway } from './modules/sessions/runtime-gateway'
 import { ShippingService } from './modules/shipping/service'
 import { SessionRegistry } from './relay'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { SessionRow } from './store'
 import { SessionStore } from './store'
 import { captureLogs } from './test-support/capture-logs'
@@ -755,7 +756,7 @@ describe('SessionRegistry', () => {
     })
     const daemon: ControlMessage[] = []
     await attachHostDaemon(reg, (message) => daemon.push(message), { repos: ['/w'] })
-    const principal = userCommandPrincipal(firstAdminMemberId(), 'admin')
+    const principal = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin')
     const operator = {
       actor: { kind: 'operator' as const, id: null },
       capability: principal.capability,
@@ -862,7 +863,7 @@ describe('SessionRegistry', () => {
         cwd: '/w',
       })
     ).sessionId
-    const principal = userCommandPrincipal(firstAdminMemberId(), 'admin')
+    const principal = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin')
     const operator = {
       actor: { kind: 'operator' as const, id: null },
       capability: principal.capability,
@@ -894,7 +895,7 @@ describe('SessionRegistry', () => {
     const coordinatorCaller = {
       actor: { kind: 'session' as const, id: coordinator },
       capability: coordinatorCapability,
-      principal: await resolvePrincipalAsync(coordinatorCapability, {
+      principal: await resolvePrincipalAsync(SELF_HOSTED_WORKSPACE_ID, coordinatorCapability, {
         parentSessionOf: () => undefined,
         onBehalfOfFor: async (candidate) =>
           (await reg.modules.sessions.sessionOwner(candidate))?.owner,
@@ -911,7 +912,7 @@ describe('SessionRegistry', () => {
       {
         actor: { kind: 'session', id: worker },
         capability: workerCapability,
-        principal: await resolvePrincipalAsync(workerCapability, {
+        principal: await resolvePrincipalAsync(SELF_HOSTED_WORKSPACE_ID, workerCapability, {
           parentSessionOf: () => undefined,
           onBehalfOfFor: async (candidate) =>
             (await reg.modules.sessions.sessionOwner(candidate))?.owner,
@@ -5059,7 +5060,7 @@ describe('hibernation', () => {
 
       const ctx = await sessionCommandCtx(
         reg.modules,
-        userCommandPrincipal(firstAdminMemberId(), 'admin').capability,
+        userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin').capability,
       )
       const first = await dispatchSessionCommand(ctx, 'sendText', {
         sessionId,

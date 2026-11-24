@@ -16,6 +16,7 @@
 import { asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../../self-hosted-workspace'
 import { Session } from '../session'
 import { HandoffAdmission } from './admission'
 import type { HandoffCaller, HandoffResult } from './ports'
@@ -26,7 +27,7 @@ const OTHER = asMachineId('m-other')
 const SESSION = asSessionId('s1')
 
 const caller = (): HandoffCaller => {
-  const principal = userCommandPrincipal(firstAdminMemberId(), 'admin')
+  const principal = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin')
   return { capability: principal.capability, principal }
 }
 

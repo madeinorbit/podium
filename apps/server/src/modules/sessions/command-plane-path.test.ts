@@ -19,6 +19,7 @@ import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolvePrincipalAsync } from '../../command-principal'
 import { appRouter } from '../../router'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { OPERATOR } from '../../test-support/capabilities'
 import { confirmingRetirement } from '../../test-support/host-daemon'
 import { scopedMutationId } from '../sync-write/legacy-receipt'
@@ -290,6 +291,7 @@ describe('the relay chat sends are on the sync write entry point (POD-6591)', ()
       const o = await makeOracle()
       const { caller: agent } = await caller(o)
       const principal = await resolvePrincipalAsync(
+        SELF_HOSTED_WORKSPACE_ID,
         await o.reg.modules.sessions.capabilityForSession(agent),
         { parentSessionOf: async () => undefined },
       )
@@ -333,6 +335,7 @@ describe('the relay chat sends are on the sync write entry point (POD-6591)', ()
     const o = await makeOracle()
     const { caller: agent, b } = await caller(o)
     const principal = await resolvePrincipalAsync(
+      SELF_HOSTED_WORKSPACE_ID,
       await o.reg.modules.sessions.capabilityForSession(agent),
       { parentSessionOf: async () => undefined },
     )

@@ -6,11 +6,11 @@ import { asUserId, firstAdminMemberId } from '@podium/model'
 import { loadConfig } from '@podium/runtime/config'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resolvePrincipal } from './command-principal'
-
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
@@ -62,7 +62,9 @@ async function harness(
     hostLocalRequest,
     ...(loginPolicy ? { loginPolicy: async () => loginPolicy } : {}),
     capability,
-    principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
+    principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+      parentSessionOf: () => undefined,
+    }),
   }
   /** Does this password sign the first admin in. */
   const adminPassword = (password: string) =>

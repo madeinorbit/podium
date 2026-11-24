@@ -22,6 +22,7 @@ import { Authority, GrantEdgeVisibilityPolicy, NoDelegationsGranted } from '@pod
 import { afterEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 import { makeFeedVisibility } from '../../feed-visibility'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import { logStoreRecords, testStoreRecords } from '../../test-support/record-writer'
@@ -484,7 +485,7 @@ describe('records.userReadPosition', () => {
         { id: readPositionRowId(user, 'issueEvents'), patch: { lastEventId: 1, seenAt: null } },
         'rp-disabled',
       ),
-      userCommandPrincipal(user, 'member'),
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, user, 'member'),
       'trpc',
     )
     expect(reply).toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })

@@ -9,6 +9,7 @@ import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { capabilityPrincipalResolver } from './capability-principal'
 import { resolvePrincipalAsync } from './command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { SessionRow } from './store/types'
 import { openPeopleStoreSlice, type PeopleStoreSlice } from './test-support/people-store-slice'
 import { expectConstantStatements, type StatementPin } from './test-support/statement-count'
@@ -68,7 +69,7 @@ const agent = (id: string): Capability =>
  * the drain's own statements would be counted with the reads.
  */
 const legacyResolver = (store: PeopleStoreSlice) => (capability: Capability) =>
-  resolvePrincipalAsync(capability, {
+  resolvePrincipalAsync(SELF_HOSTED_WORKSPACE_ID, capability, {
     parentSessionOf: async (candidate) =>
       spawnedByParentSessionId(
         (await store.undrained.sessions.getSession(asSessionId(candidate)))?.spawnedBy,
@@ -94,11 +95,16 @@ const pin = (
 describe('capability → principal resolution', () => {
   it('reads a root agent session once, whatever the number of sessions', async () => {
     await expectConstantStatements(
-      pin('root agent', (s) => capabilityPrincipalResolver(s.undrained.sessions), 'root', {
-        kind: 'agent',
-        onBehalfOf: ALICE,
-        chain: [],
-      }),
+      pin(
+        'root agent',
+        (s) => capabilityPrincipalResolver(SELF_HOSTED_WORKSPACE_ID, s.undrained.sessions),
+        'root',
+        {
+          kind: 'agent',
+          onBehalfOf: ALICE,
+          chain: [],
+        },
+      ),
       1,
     )
   })
@@ -115,7 +121,7 @@ describe('capability → principal resolution', () => {
     await expectConstantStatements(
       pin(
         'grandchild agent',
-        (s) => capabilityPrincipalResolver(s.undrained.sessions),
+        (s) => capabilityPrincipalResolver(SELF_HOSTED_WORKSPACE_ID, s.undrained.sessions),
         'grandchild',
         expected,
       ),
@@ -131,13 +137,13 @@ describe('capability → principal resolution', () => {
     const store = await fixture(5)
     try {
       for (const id of ['root', 'child', 'grandchild', 'other-1']) {
-        expect(await capabilityPrincipalResolver(store.sessions)(agent(id))).toEqual(
-          await legacyResolver(store)(agent(id)),
-        )
+        expect(
+          await capabilityPrincipalResolver(SELF_HOSTED_WORKSPACE_ID, store.sessions)(agent(id)),
+        ).toEqual(await legacyResolver(store)(agent(id)))
       }
-      await expect(capabilityPrincipalResolver(store.sessions)(agent('absent'))).rejects.toThrow(
-        'agent capability has no delegation owner: absent',
-      )
+      await expect(
+        capabilityPrincipalResolver(SELF_HOSTED_WORKSPACE_ID, store.sessions)(agent('absent')),
+      ).rejects.toThrow('agent capability has no delegation owner: absent')
     } finally {
       await store.close()
     }
@@ -148,7 +154,7 @@ describe('capability → principal resolution', () => {
     try {
       const { withReadScope } = await import('./store/executor/read-scope')
       await withReadScope(async () => {
-        const resolve = capabilityPrincipalResolver(store.sessions)
+        const resolve = capabilityPrincipalResolver(SELF_HOSTED_WORKSPACE_ID, store.sessions)
         expect(await resolve(agent('root'))).toMatchObject({ onBehalfOf: ALICE, chain: [] })
         // The owner column is immutable on upsert; the parent link is not.
         await store.sessions.upsertSession(

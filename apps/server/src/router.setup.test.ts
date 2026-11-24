@@ -15,6 +15,7 @@ import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { HostedModeRefusal, type ServerMode, serverCapabilities } from './server-mode'
 import { createServerReadiness } from './server-readiness'
 import { OPERATOR } from './test-support/capabilities'
@@ -99,7 +100,9 @@ async function makeHarness(
       superagent,
       users,
       capability: OPERATOR,
-      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        parentSessionOf: () => undefined,
+      }),
       ...(options.readiness ? { readiness: options.readiness } : {}),
       ...(options.requestCoordinatorRestart
         ? { requestCoordinatorRestart: options.requestCoordinatorRestart }
@@ -138,7 +141,9 @@ async function activationHarness(opts: {
     superagent,
     users,
     capability: OPERATOR,
-    principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+    principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+      parentSessionOf: () => undefined,
+    }),
     readiness: opts.readiness,
     ...(opts.requestCoordinatorRestart
       ? { requestCoordinatorRestart: opts.requestCoordinatorRestart }
@@ -255,7 +260,9 @@ describe('setup tRPC', () => {
       superagent,
       users: registry.sessionStore.users,
       capability: OPERATOR,
-      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        parentSessionOf: () => undefined,
+      }),
       connect: { check: vi.fn(), publicUrlChanged },
     })
     await api.setup.complete({ publicUrl: 'https://a.example', acknowledgeNoPassword: true })

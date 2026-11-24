@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolvePrincipal } from '../../command-principal'
 import { currentPlainCommand } from '../../plain-command-scope'
 import { appRouter } from '../../router'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 
 afterEach(() => disposeOracles())
@@ -83,7 +84,9 @@ describe('lock writes on the plain path', () => {
     const viewer = appRouter.createCaller({
       registry: o.reg,
       capability: VIEWER,
-      principal: resolvePrincipal(VIEWER, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, VIEWER, {
+        parentSessionOf: () => undefined,
+      }),
     } as never)
     await expect(viewer.lock.acquire({ repoPath: REPO, name: 'nope' })).rejects.toThrow(
       'not allowed to use locks',
@@ -162,7 +165,9 @@ describe('host and update panel commands on the plain path', () => {
     const caller = appRouter.createCaller({
       registry: o.reg,
       capability,
-      principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+        parentSessionOf: () => undefined,
+      }),
     } as never)
     const repair = vi.spyOn(o.reg.modules.updates, 'repairMachine')
     await expect(caller.updates.repairPayload({ id: asSessionId('m') })).rejects.toThrow(

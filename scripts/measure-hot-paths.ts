@@ -568,7 +568,7 @@ async function measureRoundTrips(latencyMs: number, repeat: number): Promise<Rou
       actorUser: owner,
       onBehalfOf: owner,
     },
-    principal: userCommandPrincipal(owner, 'admin'),
+    principal: userCommandPrincipal(fixture.store.workspaceId, owner, 'admin'),
   } as never)
   // A running session to send mail to: its daemon has bound it.
   const target = fixture.bound[0]

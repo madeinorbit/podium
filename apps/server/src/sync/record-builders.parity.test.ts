@@ -39,6 +39,7 @@ import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../command-principal'
 import { SessionRegistry } from '../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import type { SessionStore } from '../store'
 import type { MessageRow } from '../store/types'
 import { openWorkerReadSession } from '../sync-worker/read-session'
@@ -343,7 +344,7 @@ describe('record builders (POD-6763)', () => {
           prompt: 'sweep',
           enabled: false,
         },
-        userCommandPrincipal(owner, 'admin'),
+        userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, owner, 'admin'),
       )
       await reg.modules.layout.set(
         writes.sync(asMutationId('m-pod-6763-layout')),

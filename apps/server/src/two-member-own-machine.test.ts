@@ -26,6 +26,7 @@ import { resolvePrincipal } from './command-principal'
 import { SuperagentService } from './modules/superagent'
 import { RepoRegistry } from './repo-registry'
 import { type AppRouter, appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import {
   MEMBERS,
   type MemberName,
@@ -146,7 +147,7 @@ describe('an agent may not mint an enrollment code', () => {
       repos,
       superagent,
       capability,
-      principal: resolvePrincipal(capability, {
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
         parentSessionOf: () => undefined,
         onBehalfOfFor: () => onBehalfOf,
       }),

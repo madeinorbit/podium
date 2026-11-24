@@ -26,6 +26,7 @@ import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { OPERATOR } from './test-support/capabilities'
 import { openTestStore } from './test-support/open-test-store'
 
@@ -78,7 +79,9 @@ async function fleet() {
       repos,
       superagent,
       capability: OPERATOR,
-      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+        parentSessionOf: () => undefined,
+      }),
     }),
   }
 }

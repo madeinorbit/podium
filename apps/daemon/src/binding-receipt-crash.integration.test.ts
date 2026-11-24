@@ -15,6 +15,7 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { AgentCommandPrincipal } from '../../server/src/command-principal'
 import { machineUseDecision, ownershipFromMachines } from '../../server/src/machine-access'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../server/src/self-hosted-workspace'
 import { BindingStore } from './binding-store'
 
 const roots: string[] = []
@@ -120,6 +121,7 @@ describe('binding receipt crash durability', () => {
           throw new Error(`missing delegation for ${sessionId}`)
         return {
           kind: 'agent',
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
           agentSessionId: sessionId,
           onBehalfOf: delegation.onBehalfOf,
           capability: {

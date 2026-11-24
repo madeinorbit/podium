@@ -14,6 +14,7 @@ import { asUserId, type UserId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
 import { appRouter } from '../../router'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { FAMILY_COMMAND_NAMES } from './family-commands'
 import { appliedReply, envelope, expectAppliedOnPath, rowsOf, submit } from './outbox-test-support'
@@ -109,7 +110,7 @@ describe('the sync families on the entry point', () => {
 
     const reply = await submitAs(
       o,
-      userCommandPrincipal(user, 'member'),
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, user, 'member'),
       'records.agentProfile.create',
       profileCreate('nope'),
     )

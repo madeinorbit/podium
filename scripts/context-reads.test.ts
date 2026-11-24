@@ -26,6 +26,7 @@ import { queryProcedures } from '../apps/server/src/modules/derived-family'
 import { DaemonRpcService } from '../apps/server/src/modules/machines/rpc'
 import { SessionContextReads } from '../apps/server/src/modules/sessions/context-reads'
 import { SESSION_QUERIES } from '../apps/server/src/modules/sessions/queries'
+import { SELF_HOSTED_WORKSPACE_ID } from '../apps/server/src/self-hosted-workspace'
 import { type Context, t } from '../apps/server/src/trpc'
 import {
   createFakeServerDriver,
@@ -151,7 +152,7 @@ async function fixture(caps = [CAP_CONTEXT_OBSERVATION_V1, CAP_CONTEXT_READ_V1])
       actorUser: owner,
       onBehalfOf: owner,
     },
-    principal: userCommandPrincipal(owner, 'member'),
+    principal: userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, owner, 'member'),
   } as unknown as Context
   const router = t.router({
     sessions: t.router(

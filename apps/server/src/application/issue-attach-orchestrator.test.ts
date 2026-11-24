@@ -2,6 +2,7 @@ import { asIssueId, asSessionId, asUserId, type IssueProjection } from '@podium/
 import { fixtureCommitWriter } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { OPERATOR } from '../test-support/capabilities'
 import { type IssueAttachInput, IssueAttachOrchestrator } from './issue-attach-orchestrator'
 
@@ -12,7 +13,11 @@ const RESULT = {
 describe('IssueAttachOrchestrator', () => {
   it('carries one transport principal through one transaction', async () => {
     const writer = { ...fixtureCommitWriter(), capture: async () => [] }
-    const principal = userCommandPrincipal(asUserId('user:alice'), 'admin')
+    const principal = userCommandPrincipal(
+      SELF_HOSTED_WORKSPACE_ID,
+      asUserId('user:alice'),
+      'admin',
+    )
     const attachSession = vi.fn(async (_writer: unknown, _input: IssueAttachInput) => RESULT)
     const transactionCall = vi.fn()
     const transact = <T>(work: () => T): T => {
@@ -68,7 +73,14 @@ describe('IssueAttachOrchestrator', () => {
     })
     await expect(
       orchestrator.execute(
-        { capability: OPERATOR, principal: userCommandPrincipal(asUserId('user:alice'), 'admin') },
+        {
+          capability: OPERATOR,
+          principal: userCommandPrincipal(
+            SELF_HOSTED_WORKSPACE_ID,
+            asUserId('user:alice'),
+            'admin',
+          ),
+        },
         { sessionId: asSessionId('session-1'), targetId: 'iss_target' },
       ),
     ).rejects.toThrow('no writer outside a command')

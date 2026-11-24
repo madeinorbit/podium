@@ -39,6 +39,7 @@ import { userCommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { RUNTIME_EVENT_LOG_KIND } from '../../store/events'
 import { OPERATOR } from '../../test-support/capabilities'
@@ -131,7 +132,7 @@ async function fixture(size: number): Promise<Fixture> {
     repos,
     superagent,
     capability: OPERATOR,
-    principal: userCommandPrincipal(owner, 'admin'),
+    principal: userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, owner, 'admin'),
   })
   await settle(reg)
   return { store, reg, ids, call }

@@ -13,6 +13,7 @@ import type { UserId } from '@podium/model'
 import { asMachineId, asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../../self-hosted-workspace'
 import { Session } from '../session'
 import { exportedIdentity, recordHandoff } from './attribution'
 import type { HandoffCaller } from './ports'
@@ -22,16 +23,17 @@ const TARGET = asMachineId('m-target')
 const HUMAN: UserId = asUserId(firstAdminMemberId())
 
 const userCaller = (): HandoffCaller => {
-  const principal = userCommandPrincipal(HUMAN, 'admin')
+  const principal = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, HUMAN, 'admin')
   return { capability: principal.capability, principal }
 }
 
 const agentCaller = (): HandoffCaller => {
-  const base = userCommandPrincipal(HUMAN, 'admin')
+  const base = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, HUMAN, 'admin')
   return {
     capability: base.capability,
     principal: {
       kind: 'agent',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       agentSessionId: asSessionId('agent-1'),
       onBehalfOf: HUMAN,
       capability: base.capability,
@@ -78,7 +80,7 @@ describe('exportedIdentity: read off the capability, never off the payload', () 
     expect(() =>
       exportedIdentity({
         capability: userCaller().capability,
-        principal: { kind: 'system', job: 'steward' },
+        principal: { kind: 'system', workspaceId: SELF_HOSTED_WORKSPACE_ID, job: 'steward' },
       }),
     ).toThrow('system principal cannot export a personal handoff bundle')
   })
@@ -89,21 +91,40 @@ describe('recordHandoff: the durable receipt', () => {
     const events: { ts: string; kind: string; subject: string; payload: unknown }[] = []
     return {
       events,
-      ports: { recordEvent: async (event: (typeof events)[number]) => { await Promise.resolve(); events.push(event) } },
+      ports: {
+        recordEvent: async (event: (typeof events)[number]) => {
+          await Promise.resolve()
+          events.push(event)
+        },
+      },
     }
   }
 
   it('completes only after the handoff receipt is durable', async () => {
     let release!: () => void
     let entered!: () => void
-    const commit = new Promise<void>(resolve => { release = resolve })
-    const started = new Promise<void>(resolve => { entered = resolve })
+    const commit = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
     const order: string[] = []
-    const pending = recordHandoff({ recordEvent: async () => {
-      entered()
-      await commit
-      order.push('committed')
-    } }, makeSession(), SOURCE, TARGET, userCaller()).then(() => { order.push('returned') })
+    const pending = recordHandoff(
+      {
+        recordEvent: async () => {
+          entered()
+          await commit
+          order.push('committed')
+        },
+      },
+      makeSession(),
+      SOURCE,
+      TARGET,
+      userCaller(),
+    ).then(() => {
+      order.push('returned')
+    })
     await started
     release()
     await pending

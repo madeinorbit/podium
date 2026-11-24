@@ -9,7 +9,14 @@
  */
 
 import type { MachineId } from '@podium/model'
-import { agentCapabilityRejection, asMachineId, asSessionId, asUserId, type SessionId, type UserId } from '@podium/model'
+import {
+  agentCapabilityRejection,
+  asMachineId,
+  asSessionId,
+  asUserId,
+  type SessionId,
+  type UserId,
+} from '@podium/model'
 import type { MachineGrant, MachineVerb } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
@@ -26,25 +33,35 @@ import {
   isMachineOwner,
   type MachineOwnershipIndex,
   type MachineOwnershipRow,
+  type MachineRowSource,
   machineAccessMessage,
   machineUseDecision,
   machineVerbsFor,
   ownershipFromMachines as ownershipFromGrantEdges,
-  type MachineRowSource,
 } from './machine-access'
 import { machinesForPrincipal } from './modules/sessions/command-ctx'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 
 /** Seed the same behavioral matrix with the Stage 2 representation. The fixture
  * names its custodian, but the production gate receives only explicit edges. */
-function ownershipFromMachines(source: Omit<MachineRowSource, 'ownershipRows'> & {
-  ownershipRows(): (ReturnType<MachineRowSource['ownershipRows']>[number] & { ownerUserId: UserId | null })[]
-}): MachineOwnershipIndex {
+function ownershipFromMachines(
+  source: Omit<MachineRowSource, 'ownershipRows'> & {
+    ownershipRows(): (ReturnType<MachineRowSource['ownershipRows']>[number] & {
+      ownerUserId: UserId | null
+    })[]
+  },
+): MachineOwnershipIndex {
   return ownershipFromGrantEdges({
     ownershipRows: source.ownershipRows,
     grantsForMachine: (id) => {
-      const owner = source.ownershipRows().find(row => row.id === id)?.ownerUserId
+      const owner = source.ownershipRows().find((row) => row.id === id)?.ownerUserId
       return [
-        ...(owner ? [{ grantee: owner, verb: 'use' }, { grantee: owner, verb: 'manage', custody: true }] : []),
+        ...(owner
+          ? [
+              { grantee: owner, verb: 'use' },
+              { grantee: owner, verb: 'manage', custody: true },
+            ]
+          : []),
         ...(source.grantsForMachine?.(id) ?? []),
       ]
     },
@@ -56,6 +73,7 @@ const COLLEAGUE: UserId = asUserId('colleague')
 
 const user = (id: UserId, role: 'admin' | 'worker' = 'worker'): CommandPrincipal => ({
   kind: 'user',
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   user: id,
   capability: {
     role,
@@ -71,6 +89,7 @@ const agent = (
   chain: SessionId[] = [],
 ): AgentCommandPrincipal => ({
   kind: 'agent',
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   agentSessionId: sessionId,
   onBehalfOf,
   capability: { role: 'worker', scope: { kind: 'none' }, actorSessionId: sessionId },
@@ -91,7 +110,15 @@ function ownershipTable(
         owner: row.owner,
         daemonAssigned: true,
         daemonAvailable: true,
-        grants: [...(row.owner ? [{ subject: row.owner, verb: 'use' as const }, { subject: row.owner, verb: 'manage' as const, custody: true }] : []), ...row.grants],
+        grants: [
+          ...(row.owner
+            ? [
+                { subject: row.owner, verb: 'use' as const },
+                { subject: row.owner, verb: 'manage' as const, custody: true },
+              ]
+            : []),
+          ...row.grants,
+        ],
         ...(row.name === undefined ? {} : { name: row.name }),
       }
     },
@@ -139,7 +166,15 @@ void _grantsAreRequired
 describe("the owner column decides: the machine's owner holds all three verbs, nobody else does", () => {
   it('the owner holds all three verbs, and a second human holds none', () => {
     const ownership = ownershipFromMachines({
-      ownershipRows: () => [{ id: asMachineId('local'), name: 'This Mac', ownerUserId: OWNER, daemonAssigned: true, daemonAvailable: true }],
+      ownershipRows: () => [
+        {
+          id: asMachineId('local'),
+          name: 'This Mac',
+          ownerUserId: OWNER,
+          daemonAssigned: true,
+          daemonAvailable: true,
+        },
+      ],
     })
 
     expect([...machineVerbsFor(user(OWNER), asMachineId('local'), ownership)].sort()).toEqual([
@@ -154,7 +189,14 @@ describe("the owner column decides: the machine's owner holds all three verbs, n
     // The `local` daemon IS the host machine. The owner may use it — so this is
     // not a fixture that denies everybody — and the colleague may not.
     const ownership = ownershipFromMachines({
-      ownershipRows: () => [{ id: asMachineId('local'), ownerUserId: OWNER, daemonAssigned: true, daemonAvailable: true }],
+      ownershipRows: () => [
+        {
+          id: asMachineId('local'),
+          ownerUserId: OWNER,
+          daemonAssigned: true,
+          daemonAvailable: true,
+        },
+      ],
     })
 
     expect(checkMachineUse(user(OWNER), asMachineId('local'), ownership)).toBeUndefined()
@@ -166,11 +208,16 @@ describe("the owner column decides: the machine's owner holds all three verbs, n
     // can assign an owner; that is not ambient execute. Members still cannot see.
     const ownership = ownershipTable(new Map([['legacy', { owner: null, grants: [] }]]))
 
-    expect(checkMachineUse(user(OWNER, 'admin'), asMachineId('legacy'), ownership)).toBe('unauthorized')
+    expect(checkMachineUse(user(OWNER, 'admin'), asMachineId('legacy'), ownership)).toBe(
+      'unauthorized',
+    )
     expect(canSeeMachine(user(OWNER, 'admin'), asMachineId('legacy'), ownership)).toBe(true)
-    expect(machineVerbsFor(user(OWNER, 'admin'), asMachineId('legacy'), ownership)).toEqual(new Set(['see', 'manage']))
+    expect(machineVerbsFor(user(OWNER, 'admin'), asMachineId('legacy'), ownership)).toEqual(
+      new Set(['see', 'manage']),
+    )
     const member: CommandPrincipal = {
       kind: 'user',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: COLLEAGUE,
       capability: {
         role: 'worker',
@@ -334,6 +381,7 @@ describe('the principal itself', () => {
     ])
 
     const principal = resolvePrincipal(
+      SELF_HOSTED_WORKSPACE_ID,
       { role: 'worker', scope: { kind: 'none' }, actorSessionId: asSessionId('child') },
       { parentSessionOf: (id) => parents.get(id), onBehalfOfFor: (id) => onBehalfOf.get(id) },
     )
@@ -350,6 +398,7 @@ describe('the principal itself', () => {
     ])
 
     const principal = resolvePrincipal(
+      SELF_HOSTED_WORKSPACE_ID,
       {
         role: 'worker',
         scope: { kind: 'none' },
@@ -364,6 +413,7 @@ describe('the principal itself', () => {
 
   it('a capability with no actor session is a human; attribution is a pair either way', () => {
     const human = resolvePrincipal(
+      SELF_HOSTED_WORKSPACE_ID,
       {
         role: 'admin',
         scope: { kind: 'all' },
@@ -375,6 +425,7 @@ describe('the principal itself', () => {
 
     expect(human).toEqual({
       kind: 'user',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: firstAdminMemberId(),
       capability: {
         role: 'admin',
@@ -395,9 +446,16 @@ describe('the principal itself', () => {
 
   it('a system job has no human, and holds see + use but never manage', () => {
     const ownership = ownershipFromMachines({
-      ownershipRows: () => [{ id: asMachineId('local'), ownerUserId: OWNER, daemonAssigned: true, daemonAvailable: true }],
+      ownershipRows: () => [
+        {
+          id: asMachineId('local'),
+          ownerUserId: OWNER,
+          daemonAssigned: true,
+          daemonAvailable: true,
+        },
+      ],
     })
-    const steward = systemPrincipal('steward')
+    const steward = systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'steward')
 
     expect(attributionOf(steward)).toEqual({ actor: 'system:steward', onBehalfOf: null })
     expect([...machineVerbsFor(steward, asMachineId('local'), ownership)].sort()).toEqual([
@@ -427,7 +485,13 @@ describe('ownership and grants come from the source, live', () => {
       rows,
       edges,
       source: {
-        ownershipRows: () => [...rows].map(([id, ownerUserId]) => ({ id, ownerUserId, daemonAssigned: true, daemonAvailable: true })),
+        ownershipRows: () =>
+          [...rows].map(([id, ownerUserId]) => ({
+            id,
+            ownerUserId,
+            daemonAssigned: true,
+            daemonAvailable: true,
+          })),
         grantsForMachine: (machineId: MachineId) => edges.get(machineId) ?? [],
       },
     }
@@ -475,7 +539,9 @@ describe('ownership and grants come from the source, live', () => {
     rows.set(asMachineId('orphan'), null)
     const ownership = ownershipFromMachines(source)
 
-    expect(checkMachineUse(user(OWNER, 'admin'), asMachineId('orphan'), ownership)).toBe('unauthorized')
+    expect(checkMachineUse(user(OWNER, 'admin'), asMachineId('orphan'), ownership)).toBe(
+      'unauthorized',
+    )
     expect(canSeeMachine(user(OWNER, 'admin'), asMachineId('orphan'), ownership)).toBe(true)
     expect(checkMachineUse(user(OWNER), asMachineId('laptop'), ownership)).toBeUndefined()
   })
@@ -500,7 +566,14 @@ describe('ownership and grants come from the source, live', () => {
 
   it('a source with no grant half resolves owner-only — the closed direction', () => {
     const ownership = ownershipFromMachines({
-      ownershipRows: () => [{ id: asMachineId('laptop'), ownerUserId: OWNER, daemonAssigned: true, daemonAvailable: true }],
+      ownershipRows: () => [
+        {
+          id: asMachineId('laptop'),
+          ownerUserId: OWNER,
+          daemonAssigned: true,
+          daemonAvailable: true,
+        },
+      ],
     })
 
     expect(checkMachineUse(user(COLLEAGUE), asMachineId('laptop'), ownership)).toBe('absent')
@@ -519,7 +592,15 @@ describe('ownership and grants come from the source, live', () => {
 describe('isMachineOwner: the one predicate behind both the transfer gate and the offer', () => {
   it('the owner is the owner; a second human with no edge at all is not', () => {
     const ownership = ownershipFromMachines({
-      ownershipRows: () => [{ id: asMachineId('laptop'), name: 'Laptop', ownerUserId: OWNER, daemonAssigned: true, daemonAvailable: true }],
+      ownershipRows: () => [
+        {
+          id: asMachineId('laptop'),
+          name: 'Laptop',
+          ownerUserId: OWNER,
+          daemonAssigned: true,
+          daemonAvailable: true,
+        },
+      ],
     })
 
     expect(isMachineOwner(user(OWNER), asMachineId('laptop'), ownership)).toBe(true)
@@ -532,7 +613,14 @@ describe('isMachineOwner: the one predicate behind both the transfer gate and th
     // ownership is still refused. That is the whole point of the predicate —
     // giving the machine away is larger than any verb the machine can grant.
     const ownership = ownershipFromMachines({
-      ownershipRows: () => [{ id: asMachineId('laptop'), ownerUserId: OWNER, daemonAssigned: true, daemonAvailable: true }],
+      ownershipRows: () => [
+        {
+          id: asMachineId('laptop'),
+          ownerUserId: OWNER,
+          daemonAssigned: true,
+          daemonAvailable: true,
+        },
+      ],
       grantsForMachine: () => [{ grantee: COLLEAGUE, verb: 'manage' }],
     })
 
@@ -549,8 +637,18 @@ describe('isMachineOwner: the one predicate behind both the transfer gate and th
     // adopting an unowned machine is a different act with different authority.
     const ownership = ownershipFromMachines({
       ownershipRows: () => [
-        { id: asMachineId('orphan'), ownerUserId: null, daemonAssigned: true, daemonAvailable: true },
-        { id: asMachineId('laptop'), ownerUserId: OWNER, daemonAssigned: true, daemonAvailable: true },
+        {
+          id: asMachineId('orphan'),
+          ownerUserId: null,
+          daemonAssigned: true,
+          daemonAvailable: true,
+        },
+        {
+          id: asMachineId('laptop'),
+          ownerUserId: OWNER,
+          daemonAssigned: true,
+          daemonAvailable: true,
+        },
       ],
     })
 
@@ -563,7 +661,14 @@ describe('isMachineOwner: the one predicate behind both the transfer gate and th
 
   it('an unknown machine id owns nothing, and a system principal owns nothing either', () => {
     const ownership = ownershipFromMachines({
-      ownershipRows: () => [{ id: asMachineId('laptop'), ownerUserId: OWNER, daemonAssigned: true, daemonAvailable: true }],
+      ownershipRows: () => [
+        {
+          id: asMachineId('laptop'),
+          ownerUserId: OWNER,
+          daemonAssigned: true,
+          daemonAvailable: true,
+        },
+      ],
     })
 
     expect(isMachineOwner(user(OWNER), asMachineId('no-such-machine'), ownership)).toBe(false)
@@ -571,14 +676,31 @@ describe('isMachineOwner: the one predicate behind both the transfer gate and th
     // fixture that refuses it everything — but it acts for no human, and there
     // is no account to hand a machine to.
     expect(
-      machineVerbsFor(systemPrincipal('steward'), asMachineId('laptop'), ownership).has('use'),
+      machineVerbsFor(
+        systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'steward'),
+        asMachineId('laptop'),
+        ownership,
+      ).has('use'),
     ).toBe(true)
-    expect(isMachineOwner(systemPrincipal('steward'), asMachineId('laptop'), ownership)).toBe(false)
+    expect(
+      isMachineOwner(
+        systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'steward'),
+        asMachineId('laptop'),
+        ownership,
+      ),
+    ).toBe(false)
   })
 
   it('an agent is the owner exactly when ITS HUMAN is — never on its own account', () => {
     const ownership = ownershipFromMachines({
-      ownershipRows: () => [{ id: asMachineId('laptop'), ownerUserId: OWNER, daemonAssigned: true, daemonAvailable: true }],
+      ownershipRows: () => [
+        {
+          id: asMachineId('laptop'),
+          ownerUserId: OWNER,
+          daemonAssigned: true,
+          daemonAvailable: true,
+        },
+      ],
     })
     const session = asSessionId('s-1')
 
@@ -587,49 +709,74 @@ describe('isMachineOwner: the one predicate behind both the transfer gate and th
   })
 })
 
- it('admins manage every machine by role, without use on an unowned or other-owned row', () => {
-   const ownership = ownershipTable(new Map([
-     ['orphan', { owner: null, grants: [grant(OWNER, 'use')] }],
-     ['theirs', { owner: COLLEAGUE, grants: [] }],
-   ]))
-   for (const id of ['orphan', 'theirs']) {
-     expect(machineVerbsFor(user(OWNER, 'admin'), asMachineId(id), ownership)).toEqual(new Set(['manage', 'see']))
-   }
-   expect(machineUseDecision(systemPrincipal('steward'), asMachineId('orphan'), ownership)).toBe('denied')
-   const delegated = { ...agent(asSessionId('limited'), OWNER), capability: { role: 'admin' as const, scope: { kind: 'all' as const } } }
-   const limited = { ...ownership, delegatedMachines: () => new Set<string>() }
-   expect(machineVerbsFor(delegated, asMachineId('orphan'), limited)).toEqual(new Set(['see']))
- })
-
+it('admins manage every machine by role, without use on an unowned or other-owned row', () => {
+  const ownership = ownershipTable(
+    new Map([
+      ['orphan', { owner: null, grants: [grant(OWNER, 'use')] }],
+      ['theirs', { owner: COLLEAGUE, grants: [] }],
+    ]),
+  )
+  for (const id of ['orphan', 'theirs']) {
+    expect(machineVerbsFor(user(OWNER, 'admin'), asMachineId(id), ownership)).toEqual(
+      new Set(['manage', 'see']),
+    )
+  }
+  expect(
+    machineUseDecision(
+      systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'steward'),
+      asMachineId('orphan'),
+      ownership,
+    ),
+  ).toBe('denied')
+  const delegated = {
+    ...agent(asSessionId('limited'), OWNER),
+    capability: { role: 'admin' as const, scope: { kind: 'all' as const } },
+  }
+  const limited = { ...ownership, delegatedMachines: () => new Set<string>() }
+  expect(machineVerbsFor(delegated, asMachineId('orphan'), limited)).toEqual(new Set(['see']))
+})
 
 describe('retained revoked ownership', () => {
   it('retains owner visibility but never use or manage', () => {
     const ownership = ownershipFromMachines({
-      ownershipRows: () => [{ id: asMachineId('revoked-box'), ownerUserId: OWNER, revokedAt: '2026-09-17T00:00:00Z' }],
+      ownershipRows: () => [
+        { id: asMachineId('revoked-box'), ownerUserId: OWNER, revokedAt: '2026-09-17T00:00:00Z' },
+      ],
     })
-    expect([...machineVerbsFor(user(OWNER), asMachineId('revoked-box'), ownership)]).toEqual(['see'])
+    expect([...machineVerbsFor(user(OWNER), asMachineId('revoked-box'), ownership)]).toEqual([
+      'see',
+    ])
   })
 })
-
 
 it('revoked machine custody remains bounded by agent delegation', () => {
   const id = asMachineId('revoked-delegated')
   const ownership = {
-    ...ownershipFromMachines({ ownershipRows: () => [{ id, ownerUserId: OWNER, revokedAt: '2026-09-17T00:00:00Z' }] }),
+    ...ownershipFromMachines({
+      ownershipRows: () => [{ id, ownerUserId: OWNER, revokedAt: '2026-09-17T00:00:00Z' }],
+    }),
     delegatedMachines: () => new Set<string>(),
   }
-  const delegated = { ...agent(asSessionId('limited-revoked'), OWNER), capability: { role: 'admin' as const, scope: { kind: 'all' as const } } }
+  const delegated = {
+    ...agent(asSessionId('limited-revoked'), OWNER),
+    capability: { role: 'admin' as const, scope: { kind: 'all' as const } },
+  }
   expect(machineVerbsFor(delegated, id, ownership)).toEqual(new Set(['see']))
   expect(machineVerbsFor(user(OWNER, 'admin'), id, ownership)).toEqual(new Set(['see', 'manage']))
 })
 
-
 it('custody alone never implies use and an owner field cannot invent rights', () => {
   const id = asMachineId('edge-only')
-  const row: MachineOwnershipRow = { machine: id, owner: OWNER,
+  const row: MachineOwnershipRow = {
+    machine: id,
+    owner: OWNER,
     grants: [{ subject: OWNER, verb: 'manage', custody: true }],
-    daemonAssigned: true, daemonAvailable: true }
-  expect(machineVerbsFor(user(OWNER), id, { rowFor: () => row })).toEqual(new Set(['manage', 'see']))
+    daemonAssigned: true,
+    daemonAvailable: true,
+  }
+  expect(machineVerbsFor(user(OWNER), id, { rowFor: () => row })).toEqual(
+    new Set(['manage', 'see']),
+  )
   row.grants = []
   expect(machineVerbsFor(user(OWNER), id, { rowFor: () => row })).toEqual(new Set())
 })
@@ -651,9 +798,24 @@ describe('offline is reachability, never authorization', () => {
   const machineRows = [
     { id: asMachineId('ludovico'), name: 'ludovico', daemonAssigned: true, daemonAvailable: false },
     { id: asMachineId('sbx'), name: 'sbx', daemonAssigned: true, daemonAvailable: true },
-    { id: asMachineId('coordinator'), name: 'coordinator', daemonAssigned: false, daemonAvailable: false },
-    { id: asMachineId('theirs-offline'), name: 'theirs-offline', daemonAssigned: true, daemonAvailable: false },
-    { id: asMachineId('theirs-online'), name: 'theirs-online', daemonAssigned: true, daemonAvailable: true },
+    {
+      id: asMachineId('coordinator'),
+      name: 'coordinator',
+      daemonAssigned: false,
+      daemonAvailable: false,
+    },
+    {
+      id: asMachineId('theirs-offline'),
+      name: 'theirs-offline',
+      daemonAssigned: true,
+      daemonAvailable: false,
+    },
+    {
+      id: asMachineId('theirs-online'),
+      name: 'theirs-online',
+      daemonAssigned: true,
+      daemonAvailable: true,
+    },
   ]
   const ownership = ownershipFromGrantEdges({
     ownershipRows: () => machineRows,
@@ -708,7 +870,10 @@ describe('offline is reachability, never authorization', () => {
       Object.fromEntries(
         (await machinesForPrincipal({ machines }, principal, ownership)).map((row) => [
           row.id,
-          agentCapabilityRejection(row as Parameters<typeof agentCapabilityRejection>[0], 'claude-code') ?? 'ok',
+          agentCapabilityRejection(
+            row as Parameters<typeof agentCapabilityRejection>[0],
+            'claude-code',
+          ) ?? 'ok',
         ]),
       )
 

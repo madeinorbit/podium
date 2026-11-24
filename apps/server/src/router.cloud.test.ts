@@ -13,6 +13,7 @@ import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { SessionStore } from './store'
 import { memberFacts } from './store/fixtures/test-support'
 import { OPERATOR } from './test-support/capabilities'
@@ -51,7 +52,9 @@ async function caller(
     superagent,
     cloud,
     capability: OPERATOR,
-    principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+    principal: resolvePrincipal(registry.workspaceId, OPERATOR, {
+      parentSessionOf: () => undefined,
+    }),
   })
   return { call, registry }
 }

@@ -72,6 +72,7 @@ import { userCommandPrincipal } from '../command-principal'
 import { IssueToolProvider } from '../issue-mcp'
 import { noJanitorWorkerForTests } from '../janitor-host'
 import type { AppRouter } from '../router'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { startServer } from '../server'
 import { syncFeedPrincipal } from '../sync/route-support'
 import { worldSnapshot } from './bootstrap-snapshot'
@@ -561,7 +562,9 @@ export async function startTwoMemberInstance(
           const account = userId ? await store.users.get(userId) : undefined
           if (!userId || !account || account.disabledAt)
             throw new Error('authenticated member required')
-          const principal = syncFeedPrincipal(userCommandPrincipal(userId, account.role))
+          const principal = syncFeedPrincipal(
+            userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, userId, account.role),
+          )
           if (!principal) throw new Error('authenticated feed principal required')
           return await worldSnapshot(registry, principal)
         },

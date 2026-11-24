@@ -10,6 +10,7 @@ import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
 import { pinMachineChannel } from './test-support/machine-records'
@@ -127,11 +128,11 @@ async function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions
     repos,
     superagent,
     capability: opts.member
-      ? userCommandPrincipal(asUserId(opts.member), 'member').capability
+      ? userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, asUserId(opts.member), 'member').capability
       : OPERATOR,
     principal: opts.member
-      ? userCommandPrincipal(asUserId(opts.member), 'member')
-      : userCommandPrincipal(firstAdminMemberId(), 'admin'),
+      ? userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, asUserId(opts.member), 'member')
+      : userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin'),
     ...(opts.serverInstallKind ? { serverInstallKind: opts.serverInstallKind } : {}),
     ...(opts.requestCoordinatorRestart
       ? { requestCoordinatorRestart: opts.requestCoordinatorRestart }

@@ -18,6 +18,7 @@ import { type CommandPrincipal, resolvePrincipal, systemPrincipal } from '../../
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { OPERATOR } from '../../test-support/capabilities'
 import { openTestStore } from '../../test-support/open-test-store'
 import { openTestIdentity } from '../../test-support/test-identity'
@@ -104,7 +105,10 @@ async function harness(opts: { capability: Capability; principal?: CommandPrinci
     loginRequired: async () => true,
     capability: opts.capability,
     principal:
-      opts.principal ?? resolvePrincipal(opts.capability, { parentSessionOf: () => undefined }),
+      opts.principal ??
+      resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, opts.capability, {
+        parentSessionOf: () => undefined,
+      }),
   })
   return { registry, caller, users, credentials: identity.credentials }
 }
@@ -142,7 +146,10 @@ afterEach(() => {
 describe('every non-sync command goes through the front door', () => {
   it('a system principal with garbage input is refused as unauthorized by all 35', async () => {
     expect(PLAIN_COMMANDS).toHaveLength(35)
-    const { caller } = await harness({ capability: OPERATOR, principal: systemPrincipal('test') })
+    const { caller } = await harness({
+      capability: OPERATOR,
+      principal: systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'test'),
+    })
     const codes: Record<string, string> = {}
     for (const name of PLAIN_COMMANDS) {
       codes[name] = (await refusalOf(procOf(caller, name)({ garbage: true }))).code

@@ -10,10 +10,10 @@
 
 import { isExposedOn, SESSION_STATE_COMMAND_TABLES, sessionStateCommand } from '@podium/commands'
 import { asSessionId, MemberId, type UserId } from '@podium/model'
-
 import { afterEach, describe, expect, it } from 'vitest'
 import { type CommandPrincipal, firstAdminMemberId } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { OPERATOR } from '../../test-support/capabilities'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -97,6 +97,7 @@ describe('the sole-human identity fork this skeleton surfaced, now reconciled', 
     const created = await sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const ownAgent: CommandPrincipal = {
       kind: 'agent',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       agentSessionId: asSessionId('agent-sess-8'),
       onBehalfOf: firstAdminMemberId(),
       capability: agentCapability,
@@ -123,6 +124,7 @@ describe('the sole-human identity fork this skeleton surfaced, now reconciled', 
     const created = await sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const strangersAgent: CommandPrincipal = {
       kind: 'agent',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       agentSessionId: asSessionId('agent-sess-9'),
       onBehalfOf: 'user:stranger' as UserId,
       capability: agentCapability,

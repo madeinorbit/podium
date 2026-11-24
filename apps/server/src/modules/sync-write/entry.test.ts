@@ -16,6 +16,7 @@ import {
   asMutationId,
   asSessionId,
   asUserId,
+  asWorkspaceId,
   type ChangeProvenanceFields,
   firstAdminMemberId,
   type MutationId,
@@ -27,6 +28,7 @@ import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -75,6 +77,7 @@ async function harness(): Promise<Harness> {
   const registry = new SyncWriteRegistry()
   const writes = new WriteContexts(ledger, ledger.takeScopeMint())
   const entry = new SyncWriteEntry({
+    workspaceId: store.workspaceId,
     registry,
     mutations: new MutationLedger(store.sync, () => 1_000),
     legacyFallback: (id, human) =>
@@ -86,7 +89,14 @@ async function harness(): Promise<Harness> {
     receipt: async () => ({ ...FEED, seq: await ledger.cursor() }),
   })
   const adminId = firstAdminMemberId()
-  return { store, ledger, registry, entry, admin: userCommandPrincipal(adminId, 'admin'), adminId }
+  return {
+    store,
+    ledger,
+    registry,
+    entry,
+    admin: userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, adminId, 'admin'),
+    adminId,
+  }
 }
 
 /** A test contract: every ADR 3 field taken from a real outbox contract, so the
@@ -178,6 +188,7 @@ describe('sync write entry point: the coarse check runs before parsing', () => {
     registerPut(h)
     const viewer: CommandPrincipal = {
       kind: 'user',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: h.adminId,
       capability: { role: 'viewer', scope: { kind: 'all' } },
     }
@@ -198,6 +209,20 @@ describe('sync write entry point: the coarse check runs before parsing', () => {
     expect(reply).toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
   })
 
+  it('a principal of another workspace is refused before anything runs, even an admin', async () => {
+    const h = await harness()
+    const runs = { count: 0 }
+    registerPut(h, { runs })
+    const elsewhere: CommandPrincipal = { ...h.admin, workspaceId: asWorkspaceId('ws_elsewhere') }
+    const before = await rows(h)
+
+    const reply = await h.entry.submit(envelope('m-ws', { id: 'a', note: 'n' }), elsewhere, 'trpc')
+
+    expect(reply).toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
+    expect(runs.count).toBe(0)
+    expect(await rows(h)).toEqual(before)
+  })
+
   it('a system principal never reaches a handler through a transport', async () => {
     const h = await harness()
     const runs = { count: 0 }
@@ -205,7 +230,7 @@ describe('sync write entry point: the coarse check runs before parsing', () => {
 
     const reply = await h.entry.submit(
       envelope('m-sys', { id: 'a', note: 'n' }),
-      { kind: 'system', job: 'steward' },
+      { kind: 'system', workspaceId: SELF_HOSTED_WORKSPACE_ID, job: 'steward' },
       'trpc',
     )
 
@@ -224,7 +249,7 @@ describe('sync write entry point: the coarse check runs before parsing', () => {
       target: () => NO_TARGET,
       handle: async () => 'ran',
     })
-    const member = userCommandPrincipal(asUserId('mem_member'), 'member')
+    const member = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, asUserId('mem_member'), 'member')
 
     const reply = await h.entry.submit(
       { ...envelope('m-floor', { wrong: 1 }), command: 'test.adminOnly' },
@@ -270,6 +295,7 @@ describe('sync write entry point: the coarse check runs before parsing', () => {
     })
     const viewer: CommandPrincipal = {
       kind: 'user',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: h.adminId,
       capability: { role: 'viewer', scope: { kind: 'all' } },
     }
@@ -295,7 +321,7 @@ describe('sync write entry point: the coarse check runs before parsing', () => {
 describe('sync write entry point: the target check', () => {
   it('the target check runs on the parsed input; a revoked grant refuses a replay', async () => {
     const h = await harness()
-    const member = userCommandPrincipal(asUserId('mem_member'), 'member')
+    const member = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, asUserId('mem_member'), 'member')
     const owners = new Map<string, string>([['s-1', 'mem_member']])
     const seen: string[] = []
     const runs = { count: 0 }
@@ -349,6 +375,7 @@ describe('sync write entry point: the target check', () => {
     const h = await harness()
     const agentScoped: CommandPrincipal = {
       kind: 'user',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: h.adminId,
       capability: { role: 'worker', scope: { kind: 'subtree', rootId: 'iss_root' as never } },
     }
@@ -402,7 +429,7 @@ describe('sync write entry point: dedup, provenance and the receipt', () => {
     const h = await harness()
     const runs = { count: 0 }
     registerPut(h, { runs })
-    const other = userCommandPrincipal(asUserId('mem_other'), 'admin')
+    const other = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, asUserId('mem_other'), 'admin')
     const [first, second] = await Promise.all([
       h.entry.submit(envelope('shared-id', { id: 'a', note: 'first' }), h.admin, 'trpc'),
       h.entry.submit(envelope('shared-id', { id: 'b', note: 'second' }), other, 'trpc'),
@@ -438,7 +465,7 @@ describe('sync write entry point: dedup, provenance and the receipt', () => {
       JSON.stringify({ stored: 'before-upgrade' }),
       1_000,
     )
-    const other = userCommandPrincipal(asUserId('mem_other'), 'admin')
+    const other = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, asUserId('mem_other'), 'admin')
     expect(
       applied(
         await h.entry.submit(
@@ -450,6 +477,7 @@ describe('sync write entry point: dedup, provenance and the receipt', () => {
     ).toMatchObject({ replayed: false, result: { stored: 'other' } })
     const agent: CommandPrincipal = {
       kind: 'agent',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       agentSessionId: asSessionId('agent-original'),
       onBehalfOf: h.adminId,
       capability: { role: 'admin', scope: { kind: 'all' } },
@@ -491,7 +519,7 @@ describe('sync write entry point: dedup, provenance and the receipt', () => {
     const h = await harness()
     registerPut(h)
     const otherId = asUserId('mem_other')
-    const other = userCommandPrincipal(otherId, 'admin')
+    const other = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, otherId, 'admin')
     await h.entry.submit(envelope('private-id', { id: 'private', note: 'secret' }), other, 'trpc')
     // Even a caller who guesses the complete stored key gets no raw-key fallback.
     const guess = scopedMutationId(other, asMutationId('private-id'))
@@ -831,6 +859,7 @@ describe('sync.submit outcome diagnostics', () => {
         step === 'coarse'
           ? {
               kind: 'user',
+              workspaceId: SELF_HOSTED_WORKSPACE_ID,
               user: h.adminId,
               capability: { role: 'viewer', scope: { kind: 'all' } },
             }
@@ -933,6 +962,7 @@ describe("sync write entry point: a refusal's display message (POD-6412)", () =>
     const runs = registerRefusing(h, () => NO_TARGET)
     const viewer: CommandPrincipal = {
       kind: 'user',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: h.adminId,
       capability: { role: 'viewer', scope: { kind: 'all' } },
     }
@@ -940,7 +970,11 @@ describe("sync write entry point: a refusal's display message (POD-6412)", () =>
     for (const reply of [
       await submitRefusing(h, 'm-coarse-role', viewer),
       await submitRefusing(h, 'm-coarse-transport', h.admin, 'cli'),
-      await submitRefusing(h, 'm-coarse-system', { kind: 'system', job: 'steward' }),
+      await submitRefusing(h, 'm-coarse-system', {
+        kind: 'system',
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        job: 'steward',
+      }),
     ]) {
       expect(reply).toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
       expect(reply.outcome === 'rejected' && 'message' in reply.refusal).toBe(false)
@@ -950,7 +984,7 @@ describe("sync write entry point: a refusal's display message (POD-6412)", () =>
 
   it("a target refusal never carries a message, and never another user's", async () => {
     const h = await harness()
-    const member = userCommandPrincipal(asUserId('mem_member'), 'member')
+    const member = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, asUserId('mem_member'), 'member')
     // The record belongs to someone else, then to nobody (unknown).
     let owner: string | undefined = 'mem_someone_else'
     const runs = registerRefusing(h, () => ownedTarget(owner))

@@ -14,8 +14,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resolvePrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
-import { memberFacts } from '../../store/fixtures/test-support'
 import { appRouter } from '../../router'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
+import { memberFacts } from '../../store/fixtures/test-support'
 import { OPERATOR } from '../../test-support/capabilities'
 import { sealCredentialSecret, withSecret } from '../credentials/vault'
 import { SuperagentService } from '../superagent'
@@ -58,7 +59,9 @@ async function harness(capability: Capability) {
     users,
     loginRequired: async () => true,
     capability,
-    principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
+    principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+      parentSessionOf: () => undefined,
+    }),
   })
   return { store: registry.sessionStore, caller }
 }

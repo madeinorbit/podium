@@ -1,13 +1,14 @@
 import { asMachineId, asUserId, type HarnessAgent, Inventory } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
+  type CodexLoginMachine,
+  type CodexLoginMachineSource,
   codexAuthorizerFor,
   codexLoginMachines,
   pickCodexMachine,
-  type CodexLoginMachine,
-  type CodexLoginMachineSource,
 } from './codex-machine'
 import { LlmConfigError } from './llm-error'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 
 const VERSION = 'test-server-version'
 
@@ -106,7 +107,9 @@ describe('pickCodexMachine', () => {
     // silently is the failure this guards. (aaa-b-box sorts FIRST, so without
     // the authorization filter this test picks the wrong machine.)
     const authorize = (id: { toString(): string }) =>
-      String(id) === asMachineId('zzz-mine') ? undefined : 'you do not have access to use this machine'
+      String(id) === asMachineId('zzz-mine')
+        ? undefined
+        : 'you do not have access to use this machine'
     const picked = pickCodexMachine([machine('aaa-b-box'), machine('zzz-mine')], {
       authorize,
     })
@@ -159,13 +162,25 @@ describe('pickCodexMachine', () => {
 
 describe('codexAuthorizerFor', () => {
   const machines = {
-    ownershipRows: async () => [{ id: asMachineId('m1'), name: 'm1', revokedAt: null, daemonAssigned: true, daemonAvailable: true }],
+    ownershipRows: async () => [
+      {
+        id: asMachineId('m1'),
+        name: 'm1',
+        revokedAt: null,
+        daemonAssigned: true,
+        daemonAvailable: true,
+      },
+    ],
     grantsForMachine: async () => [],
   }
 
   it('refuses a non-admin outright', async () => {
     const authorize = await codexAuthorizerFor(
-      { users: { get: async () => ({ role: 'member' }) as never }, machines },
+      {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        users: { get: async () => ({ role: 'member' }) as never },
+        machines,
+      },
       asUserId('u1'),
       'use',
     )
@@ -174,10 +189,20 @@ describe('codexAuthorizerFor', () => {
 
   it('names the refused action (start login vs use share one rule)', async () => {
     const admin = { get: async () => ({ role: 'admin' }) as never }
-    const forLogin = await codexAuthorizerFor({ users: admin, machines }, asUserId('u1'), 'start login')
-    const forUse = await codexAuthorizerFor({ users: admin, machines }, asUserId('u1'), 'use')
+    const forLogin = await codexAuthorizerFor(
+      { workspaceId: SELF_HOSTED_WORKSPACE_ID, users: admin, machines },
+      asUserId('u1'),
+      'start login',
+    )
+    const forUse = await codexAuthorizerFor(
+      { workspaceId: SELF_HOSTED_WORKSPACE_ID, users: admin, machines },
+      asUserId('u1'),
+      'use',
+    )
     // No grants: an admin owns nothing here, so both refuse — with their own noun.
-    expect(forLogin(asMachineId('m1'))).toBe('you do not have access to start login on this machine')
+    expect(forLogin(asMachineId('m1'))).toBe(
+      'you do not have access to start login on this machine',
+    )
     expect(forUse(asMachineId('m1'))).toBe('you do not have access to use on this machine')
   })
 })

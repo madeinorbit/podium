@@ -30,6 +30,7 @@ const TEST_MACHINE = asMachineId('machine-under-test')
 
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { attachTestClient } from './test-support/client-transport'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
@@ -526,7 +527,7 @@ describe('queueText (durable outbox sends)', () => {
           enabled: true,
           sessionMode: 'resume',
         },
-        userCommandPrincipal(firstAdminMemberId(), 'admin'),
+        userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin'),
       )
 
       vi.setSystemTime(new Date('2026-07-16T22:02:01.000Z'))

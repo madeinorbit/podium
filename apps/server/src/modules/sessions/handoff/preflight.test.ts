@@ -10,6 +10,7 @@
 import { asMachineId, asRepoId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../../self-hosted-workspace'
 import { Session } from '../session'
 import { exportedIdentity } from './attribution'
 import type { HandoffPlacement } from './placement'
@@ -24,10 +25,10 @@ const SOURCE_TIP = 'a'.repeat(40)
 const TARGET_TIP = 'b'.repeat(40)
 
 function placement(): HandoffPlacement {
-  const principal = userCommandPrincipal(firstAdminMemberId(), 'admin')
+  const principal = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin')
   return {
     session: new Session({
-    ownerUserId: firstAdminMemberId(),
+      ownerUserId: firstAdminMemberId(),
       sessionId: SESSION,
       durableLabel: 'podium-session-1',
       agentKind: 'claude-code',

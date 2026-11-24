@@ -9,9 +9,10 @@ import {
 import { normalizeSettings } from '@podium/runtime'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
-import { firstAdminMemberId, userCommandPrincipal } from './command-principal'
+import { firstAdminMemberId, systemPrincipal, userCommandPrincipal } from './command-principal'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import {
   isAcceptedLiveTerminalEvent,
   JANITOR_STEWARD_EVENT_LIMIT,
@@ -40,7 +41,7 @@ const T6 = '2026-07-01T00:00:06.000Z'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
-const AS_OPERATOR = userCommandPrincipal(firstAdminMemberId(), 'admin')
+const AS_OPERATOR = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin')
 
 async function harness(
   opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor?: boolean } = {},
@@ -85,6 +86,7 @@ async function harness(
   // tests assert the call without ever reaching ntfy/Telegram.
   const notify = vi.fn()
   const deps: StewardDeps = {
+    principal: systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'steward'),
     writer: issues.reports.store.serverWriter,
     store: store.events,
     facts: store.notificationFacts,

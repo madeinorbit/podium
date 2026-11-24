@@ -1,5 +1,5 @@
-import { serverRecordBuilders } from './sync/record-builders'
 import { memberFacts } from './store/fixtures/test-support'
+import { serverRecordBuilders } from './sync/record-builders'
 /**
  * AGENT PROFILES, WORKFLOWS AND TRIGGER SUBSCRIPTIONS AS SYNCED RECORDS
  * (POD-6676, ADR 12 D1; design POD-5620 §1.9-1.11), through the registry the
@@ -28,8 +28,9 @@ import {
   rowsOf,
   submit,
 } from './modules/sync-write/outbox-test-support'
-import { withWriteProvenance } from './write-provenance'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { seedRows } from './test-support/seed-rows'
+import { withWriteProvenance } from './write-provenance'
 
 afterEach(() => disposeOracles())
 
@@ -121,7 +122,7 @@ describe('workflow records on the change log', () => {
     const user = await member(o)
     const reply = await o.reg.modules.syncWrite.submit(
       envelope('records.workflowBinding.edit', bind, 'mut_bind_member'),
-      userCommandPrincipal(user, 'member'),
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, user, 'member'),
       'trpc',
     )
     expect(reply.outcome).toBe('rejected')
@@ -228,12 +229,13 @@ describe('agent profile records', () => {
     const user = await member(o)
     const asMember = await o.reg.modules.syncWrite.submit(
       create('mut_p_member'),
-      userCommandPrincipal(user, 'member'),
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, user, 'member'),
       'trpc',
     )
     expect(asMember.outcome).toBe('rejected')
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/a' })
     const agent = await resolvePrincipalAsync(
+      SELF_HOSTED_WORKSPACE_ID,
       await o.reg.modules.sessions.capabilityForSession(sessionId),
       { parentSessionOf: async () => undefined, onBehalfOfFor: async () => firstAdminMemberId() },
     )
@@ -283,7 +285,7 @@ describe('trigger subscription records', () => {
         { id: subscriptionRowId('session', sessionId, sub.id), patch: { enabled: false } },
         'mut_s_other',
       ),
-      userCommandPrincipal(user, 'member'),
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, user, 'member'),
       'trpc',
     )
     // One answer for a missing record and another person's (no oracle).
@@ -296,29 +298,45 @@ describe('the boot back-fill', () => {
   it('puts every stored workflow, revision, binding and run on the log, once', async () => {
     const o = await makeOracle()
     const store = o.store.workflows
-    await seedRows(o.store, async () => await store.insertWorkflow({
-      id: 'wf_old',
-      name: 'Old',
-      description: '',
-      scope: 'global',
-      scopeRef: null,
-      actor: { kind: 'operator', id: null },
-      ownerUserId: firstAdminMemberId(),
-      now: AT,
-    }))
-    await seedRows(o.store, async () => await store.insertRevision({
-      id: 'wfr_old',
-      workflowId: 'wf_old',
-      instructions: '',
-      steps: [],
-      actor: { kind: 'operator', id: null },
-      now: AT,
-    }))
+    await seedRows(
+      o.store,
+      async () =>
+        await store.insertWorkflow({
+          id: 'wf_old',
+          name: 'Old',
+          description: '',
+          scope: 'global',
+          scopeRef: null,
+          actor: { kind: 'operator', id: null },
+          ownerUserId: firstAdminMemberId(),
+          now: AT,
+        }),
+    )
+    await seedRows(
+      o.store,
+      async () =>
+        await store.insertRevision({
+          id: 'wfr_old',
+          workflowId: 'wf_old',
+          instructions: '',
+          steps: [],
+          actor: { kind: 'operator', id: null },
+          now: AT,
+        }),
+    )
     const seen: Array<[string, string[]]> = []
     const builders = serverRecordBuilders()
-    for (const kind of ['workflow', 'workflowRevision', 'workflowBinding', 'workflowRun'] as const) {
+    for (const kind of [
+      'workflow',
+      'workflowRevision',
+      'workflowBinding',
+      'workflowRun',
+    ] as const) {
       const ids: string[] = []
-      for await (const page of builders.streamAll({ store: o.store, now: Date.now, effectExecutors: { get: () => undefined } }, kind)) {
+      for await (const page of builders.streamAll(
+        { store: o.store, now: Date.now, effectExecutors: { get: () => undefined } },
+        kind,
+      )) {
         ids.push(...page.map((row) => row.id))
       }
       seen.push([kind, ids])

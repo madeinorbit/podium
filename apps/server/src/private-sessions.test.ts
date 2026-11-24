@@ -25,6 +25,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runSessionCli } from '../../cli/src/session-cli'
 import { userCommandPrincipal } from './command-principal'
 import { inboxPrincipalFromCommand } from './modules/sessions/inbox'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { attachTestClient } from './test-support/client-transport'
 import {
   MEMBERS,
@@ -272,7 +273,7 @@ describe('MU-07: admin Alice cannot drive Bob’s session; Bob can', () => {
       await sessions().authorizeQueuedInputAtApply({
         sessionId: target(),
         principal: inboxPrincipalFromCommand(
-          userCommandPrincipal(MEMBERS[who].id, MEMBERS[who].role),
+          userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, MEMBERS[who].id, MEMBERS[who].role),
         ),
         sourceMessageId: null,
       })

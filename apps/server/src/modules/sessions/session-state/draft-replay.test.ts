@@ -1,6 +1,7 @@
 import { asSessionId, asUserId, firstAdminMemberId, type SessionId } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../../self-hosted-workspace'
 import { OPERATOR } from '../../../test-support/capabilities'
 import { type SessionStatePorts, SessionStateService } from './service'
 
@@ -21,6 +22,7 @@ describe('draft replay ordering', () => {
     })
     const state = new SessionStateService({
       store: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         sessions: {
           setDraftDoc: vi.fn(),
           draftDocOf: async () => undefined,
@@ -47,7 +49,12 @@ describe('draft replay ordering', () => {
       await state.setDraft({ sessionId, text: 'older text' })
       received.length = 0
       const replay = state.replayDrafts(
-        { userId: firstAdminMemberId(), capability: OPERATOR, humanDirect: true },
+        {
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
+          userId: firstAdminMemberId(),
+          capability: OPERATOR,
+          humanDirect: true,
+        },
         send,
       )
       // The replay reads the stored drafts first (POD-6160), then authorizes.
@@ -94,6 +101,7 @@ describe('draft replay authorization (POD-7036)', () => {
     const received: LiveServerMessage[] = []
     const state = new SessionStateService({
       store: {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         sessions: {
           setDraftDoc: vi.fn(),
           draftDocOf: async () => undefined,
@@ -126,7 +134,12 @@ describe('draft replay authorization (POD-7036)', () => {
     })
 
     await state.replayDrafts(
-      { userId: admin, capability: OPERATOR, humanDirect: true },
+      {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        userId: admin,
+        capability: OPERATOR,
+        humanDirect: true,
+      },
       (message) => received.push(message),
     )
 
@@ -153,6 +166,7 @@ function draftWorld() {
   const state = new SessionStateService({
     // No stored draft: documents start in this process (POD-6160 reads on use).
     store: {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       sessions: { setDraftDoc, draftDocOf: async () => undefined, loadDraftDocs: async () => ({}) },
     },
     now: Date.now,

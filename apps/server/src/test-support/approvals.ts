@@ -10,9 +10,10 @@ import type { ApprovalWire } from '@podium/protocol'
 import { fixtureCommitWriter } from '@podium/sync/testing'
 import { userCommandPrincipal } from '../command-principal'
 import type { SessionRegistry } from '../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 
 /** The person every bare-registry session belongs to. */
-const owner = () => userCommandPrincipal(firstAdminMemberId(), 'admin')
+const owner = () => userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin')
 
 /** An agent's request, written as `approvals.request` writes it. */
 export async function fileApproval(

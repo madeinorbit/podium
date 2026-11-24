@@ -26,6 +26,7 @@ import {
   userCommandPrincipal,
 } from '../../command-principal'
 import { currentPlainCommand } from '../../plain-command-scope'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { AutomationRow, AutomationRunRow } from '../../store/automations'
 import { seedRows } from '../../test-support/seed-rows'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
@@ -137,10 +138,15 @@ describe('automations on the entry point', () => {
     const user = await member(o)
     const update = vi.spyOn(o.reg.modules.automations, 'update')
 
-    const reply = await submitAs(o, userCommandPrincipal(user, 'member'), 'automations.update', {
-      id,
-      patch: { name: 'mine now' },
-    })
+    const reply = await submitAs(
+      o,
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, user, 'member'),
+      'automations.update',
+      {
+        id,
+        patch: { name: 'mine now' },
+      },
+    )
     expect(reply).toEqual({
       outcome: 'rejected',
       refusal: { kind: 'target-not-found', message: `unknown automation: ${id}` },
@@ -151,7 +157,7 @@ describe('automations on the entry point', () => {
   it('a member writes their own; once the account is disabled, the replay is refused', async () => {
     const o = await makeOracle()
     const user = await member(o, 'usr_member_disable_6418')
-    const principal = userCommandPrincipal(user, 'member')
+    const principal = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, user, 'member')
     const created = appliedReply(
       await submitAs(o, principal, 'automations.create', nightly('members'), 'mut_aut_member'),
     )
@@ -185,7 +191,7 @@ describe('automations on the entry point', () => {
 
   it('operator-only: the relay is refused by the coarse check, before the parse', async () => {
     const o = await makeOracle()
-    const admin = userCommandPrincipal(firstAdminMemberId(), 'admin')
+    const admin = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin')
     const reply = await submitAs(
       o,
       admin,
@@ -303,11 +309,16 @@ describe('workflows on the entry point', () => {
     const user = await member(o)
     const execute = vi.spyOn(o.reg.modules.workflows, 'execute')
 
-    const reply = await submitAs(o, userCommandPrincipal(user, 'member'), 'workflows.revise', {
-      workflowId: workflow.id,
-      instructions: 'mine',
-      steps: [],
-    })
+    const reply = await submitAs(
+      o,
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, user, 'member'),
+      'workflows.revise',
+      {
+        workflowId: workflow.id,
+        instructions: 'mine',
+        steps: [],
+      },
+    )
     // One answer for a workflow the caller may not write and one that does not
     // exist (ADR 3 Amendment 1 D20.2), in the words the handler always used.
     expect(reply).toEqual({
@@ -333,7 +344,7 @@ describe('workflows on the entry point', () => {
       actorId: firstAdminMemberId(),
       onBehalfOf: firstAdminMemberId(),
     })
-    const principal = userCommandPrincipal(user, 'member')
+    const principal = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, user, 'member')
     const input = { workflowId: workflow.id, instructions: 'shared edit', steps: [] }
     appliedReply(await submitAs(o, principal, 'workflows.revise', input, 'mut_wf_granted'))
 
@@ -404,6 +415,7 @@ describe("a worker's checkpoint and its coordinator notice", () => {
     })
     await seedRows(o.store, async () => await o.store.workflows.assignStep(run.id, 'build', worker))
     const principal = await resolvePrincipalAsync(
+      SELF_HOSTED_WORKSPACE_ID,
       await o.reg.modules.sessions.capabilityForSession(worker),
       { parentSessionOf: async () => undefined, onBehalfOfFor: async () => firstAdminMemberId() },
     )

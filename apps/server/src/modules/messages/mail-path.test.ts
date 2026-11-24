@@ -26,6 +26,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolvePrincipalAsync } from '../../command-principal'
 import { failureNoticeId } from '../../message-ids'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import {
   disposeOracles,
   makeOracle as makeBareOracle,
@@ -544,9 +545,13 @@ describe("an await's claim retirement is its own write", () => {
 
     const retire = vi.spyOn(f.o.reg.modules.messageGate, 'retireParentNudge')
     const principalOf = async (sessionId: SessionId) =>
-      await resolvePrincipalAsync(await f.o.reg.modules.sessions.capabilityForSession(sessionId), {
-        parentSessionOf: async () => undefined,
-      })
+      await resolvePrincipalAsync(
+        SELF_HOSTED_WORKSPACE_ID,
+        await f.o.reg.modules.sessions.capabilityForSession(sessionId),
+        {
+          parentSessionOf: async () => undefined,
+        },
+      )
     const asParent = await f.o.reg.modules.syncWrite.submit(
       envelope(MAIL_AWAIT_OBSERVED, { sessionId: child }, 'm-observed'),
       await principalOf(f.agent),

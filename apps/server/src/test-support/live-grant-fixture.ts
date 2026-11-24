@@ -18,6 +18,7 @@ import { fixtureWriteScope } from '@podium/sync/testing'
 import { userCommandPrincipal } from '../command-principal'
 import type { ClientGrantSources } from '../modules/live-grants/scopes'
 import { MachinesService } from '../modules/machines/service'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import type { SessionStore } from '../store'
 import { memberFacts } from '../store/fixtures/test-support'
 import { session } from './workspace-seeds/sessions'
@@ -110,7 +111,8 @@ export const S = {
 } as const
 export const SESSIONS: readonly SessionId[] = Object.values(S)
 
-export const principalOf = (user: UserId) => userCommandPrincipal(user, ROLE[user]!)
+export const principalOf = (user: UserId) =>
+  userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, user, ROLE[user]!)
 
 /** Alice, Bob (member) and Carol (admin); four machines, one revoked; six session ids. */
 export async function seedGrantWorld(store: SessionStore): Promise<void> {

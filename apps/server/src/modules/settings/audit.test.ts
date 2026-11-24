@@ -28,6 +28,7 @@ import { REDACTED } from '@podium/commands'
 import { asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SettingsAuditRow } from '../../store/settings-audit'
 import { settingsAuditAttribution } from '../../store/settings-audit'
 import { REDACTED_MESSAGE, recordSettingsCommand, redactErrorMessage } from './audit'
@@ -37,6 +38,7 @@ const DELEGATOR = asUserId('ada')
 
 const person: CommandPrincipal = {
   kind: 'user',
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   user: HUMAN,
   capability: { role: 'admin', scope: { kind: 'all' } },
 }
@@ -45,6 +47,7 @@ const person: CommandPrincipal = {
  *  therefore the only one that can prove the pair is not collapsed. */
 const agent: CommandPrincipal = {
   kind: 'agent',
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   agentSessionId: asSessionId('sess-42'),
   onBehalfOf: DELEGATOR,
   capability: { role: 'admin', scope: { kind: 'all' } },
@@ -243,7 +246,7 @@ describe('ATTRIBUTION IS A PAIR, AND IT IS NOT COLLAPSED (ADR 9 D5 A3)', () => {
     await recordSettingsCommand(p, {
       command: 'records.instancePreferences.edit',
       outcome: 'applied',
-      principal: systemPrincipal('boot-reconcile'),
+      principal: systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'boot-reconcile'),
       input: { id: 'instance', patch: {} },
     })
     const row = p.rows[0]
@@ -258,7 +261,9 @@ describe('ATTRIBUTION IS A PAIR, AND IT IS NOT COLLAPSED (ADR 9 D5 A3)', () => {
   it('the derivation itself cannot give a system principal a human', () => {
     // Asserted at the function that DECIDES, not only at the row it produced:
     // there is no argument a caller could pass that would put a person here.
-    expect(settingsAuditAttribution(systemPrincipal('expiry')).onBehalfOf).toBeNull()
+    expect(
+      settingsAuditAttribution(systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'expiry')).onBehalfOf,
+    ).toBeNull()
     expect(settingsAuditAttribution(agent).onBehalfOf).toBe(DELEGATOR)
     expect(settingsAuditAttribution(person).onBehalfOf).toBe(HUMAN)
   })

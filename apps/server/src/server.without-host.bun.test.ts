@@ -23,6 +23,7 @@ import { sha256 } from './modules/machines/enrollment'
 import { SuperagentService } from './modules/superagent'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { type ServerHandle, startServer } from './server'
 import { DATABASE_URL_ENV } from './store'
 import { bunPgTestDatabase } from './test-support/pg-test-host'
@@ -80,7 +81,7 @@ for (const engine of ['sqlite', 'pg'] as const) {
       await until(() => token !== undefined)
       const admin = await server.registry.sessionStore.users.earliestAdmin()
       if (!admin) throw new Error('Missing boot administrator')
-      const principal = userCommandPrincipal(asUserId(admin.id), 'admin')
+      const principal = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, asUserId(admin.id), 'admin')
       caller = appRouter.createCaller({
         registry: server.registry,
         repos: new RepoRegistry(server.registry.sessionStore),
@@ -268,6 +269,7 @@ for (const engine of ['sqlite', 'pg'] as const) {
 
     it('treats loopback sign-in, HTTPS gates and pairing as remote', async () => {
       const memberOfRequest = createMemberOfRequest({
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         identity: server.identity,
         users: server.registry.sessionStore.users,
         trustedProxyHops: 0,

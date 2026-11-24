@@ -6,11 +6,11 @@ import { fetchRequestHandler } from '@trpc/server/adapters/fetch'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { resolvePrincipal } from './command-principal'
-
 import { IssueRevisionConflict } from './modules/issues/conflict'
 import { type AnyIssueCommandDef, issueRegistry } from './modules/issues/registry'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { OPERATOR } from './test-support/capabilities'
 
 /**
@@ -32,7 +32,9 @@ function callerFor(registry: SessionRegistry) {
     repos: {} as never,
     superagent: {} as never,
     capability: OPERATOR,
-    principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+    principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+      parentSessionOf: () => undefined,
+    }),
   })
 }
 
@@ -354,7 +356,9 @@ describe('the conflict reaches a real client over HTTP (ADR 3 D13.3)', () => {
             repos: {} as never,
             superagent: {} as never,
             capability: OPERATOR,
-            principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+            principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+              parentSessionOf: () => undefined,
+            }),
           }) as never,
       })
 

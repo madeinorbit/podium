@@ -19,10 +19,21 @@ import { soleHumanSessionStatePrincipal } from '../../../test-support/session-st
  * envelope has to discriminate rather than merely refuse.
  */
 
-import { asSessionId, asUserId, firstAdminMemberId, type SessionId } from '@podium/model'
+import {
+  asSessionId,
+  asUserId,
+  asWorkspaceId,
+  firstAdminMemberId,
+  type SessionId,
+  type WorkspaceId,
+} from '@podium/model'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from '../../../command-principal'
+import { userClientPrincipal } from '../../../gateway/client-principal'
+import type { ClientConn } from '../../../gateway/client-registry'
 import { SessionRegistry } from '../../../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../../self-hosted-workspace'
 import { memberFacts } from '../../../store/fixtures/test-support'
 import { OPERATOR } from '../../../test-support/capabilities'
 import { attachHostDaemon } from '../../../test-support/host-daemon'
@@ -68,6 +79,7 @@ async function fixture() {
    * so an isolation test built on it would pass no matter what the policy said.
    */
   const asUser = (userId: string, scope: 'owned' | 'self'): SessionStatePrincipal => ({
+    workspaceId: store.workspaceId,
     userId: asUserId(userId),
     capability: { role: 'worker', scope: { kind: scope, userId: asUserId(userId) } },
     onBehalfOf: asUserId(userId),
@@ -77,8 +89,10 @@ async function fixture() {
    *  their OWN member scope (design §4.1, POD-6288). The shared `OPERATOR`
    *  fixture names the first admin, so it is nobody else's capability. */
   const asVisibleUser = (userId: string): SessionStatePrincipal => ({
+    workspaceId: store.workspaceId,
     userId: asUserId(userId),
-    capability: userCommandPrincipal(asUserId(userId), 'admin').capability,
+    capability: userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, asUserId(userId), 'admin')
+      .capability,
     onBehalfOf: asUserId(userId),
     humanDirect: true,
   })
@@ -188,6 +202,7 @@ describe('per-user writes are SELF-SCOPED', () => {
     // authorize() compares the target row's user against the CAPABILITY's user, so
     // the mismatch is caught rather than trusted.
     const mismatched: SessionStatePrincipal = {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       userId: ALICE,
       capability: { role: 'worker', scope: { kind: 'self', userId: asUserId(BOB) } },
       onBehalfOf: ALICE,
@@ -204,7 +219,7 @@ describe('per-user writes are SELF-SCOPED', () => {
     // the denial above is the scope check talking, not a broken fixture.
     const coherent: SessionStatePrincipal = {
       ...mismatched,
-      capability: userCommandPrincipal(ALICE, 'admin').capability,
+      capability: userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, ALICE, 'admin').capability,
     }
     expect(
       (await sessionState.execute('snoozes.set', { sessionId, until: null }, coherent)).outcome,
@@ -275,6 +290,7 @@ describe('owner-or-grant policy on the shared session writes', () => {
     const { sessionId } = await session()
     // Sessions are owned by firstAdminMemberId() until POD-1075 (SessionLifecycle.sessionOwner).
     const owner: SessionStatePrincipal = {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       userId: firstAdminMemberId(),
       capability: { role: 'worker', scope: { kind: 'owned', userId: firstAdminMemberId() } },
       onBehalfOf: firstAdminMemberId(),
@@ -453,6 +469,68 @@ describe('the envelope refuses before it reads anything', () => {
     expect((await sessionState.execute('sessions.setDraft', input, owner, 'ws')).outcome).toBe(
       'applied',
     )
+  })
+
+  it('a caller of another workspace is denied, and is replayed no draft (POD-7483)', async () => {
+    const { reg, sessionState, session } = await fixture()
+    const { sessionId } = await session()
+    const owner = soleHumanSessionStatePrincipal(OPERATOR)
+    const elsewhere = { ...owner, workspaceId: asWorkspaceId('ws_elsewhere') }
+    const write = (text: string) => ({ sessionId, edit: { kind: 'replace', text } })
+
+    expect(
+      (await sessionState.execute('sessions.setDraft', write('foreign'), elsewhere, 'ws')).outcome,
+    ).toBe('denied')
+    expect(
+      (await sessionState.execute('sessions.setDraft', write('mine'), owner, 'ws')).outcome,
+    ).toBe('applied')
+    const replayed = async (principal: typeof owner) => {
+      const sent: unknown[] = []
+      await reg.modules.sessions.state.replayDrafts(principal, (message) => sent.push(message))
+      return sent
+    }
+    expect(await replayed(elsewhere)).toEqual([])
+    expect(JSON.stringify(await replayed(owner))).toContain('mine')
+  })
+
+  it("the /client socket stamps the connection's workspace on drafts and replay (POD-7483)", async () => {
+    const { reg, session } = await fixture()
+    const { sessionId } = await session()
+    const control = reg.modules.sessions.clientControl
+    const client = (id: string, workspaceId: WorkspaceId) => {
+      const sent: unknown[] = []
+      const principal = userClientPrincipal(id, firstAdminMemberId(), 'admin')
+      const conn = {
+        id,
+        principal,
+        send: (message: unknown) => sent.push(message),
+        workspaceId,
+        viewports: new Map(),
+        attached: new Set(),
+        caps: new Set(),
+        wireVersion: CLIENT_WIRE_VERSION,
+        transcriptSubs: new Set(),
+        visible: true,
+        viewVisible: new Set(),
+        focused: null,
+        viewModes: {},
+      } as unknown as ClientConn
+      return { principal, conn, sent }
+    }
+    const own = client('c-own', SELF_HOSTED_WORKSPACE_ID)
+    const foreign = client('c-foreign', asWorkspaceId('ws_elsewhere'))
+    const draft = (text: string) => ({ type: 'setSessionDraft' as const, sessionId, text })
+
+    // A connection another workspace's gateway admitted writes nothing here...
+    await control.onFrame(foreign.principal, foreign.conn, draft('from elsewhere'))
+    await control.onFrame(own.principal, own.conn, draft('typed here'))
+    // ...and is replayed nothing on attach, while this workspace's client is.
+    await control.onAttached(foreign.principal, foreign.conn)
+    await control.onAttached(own.principal, own.conn)
+    expect(foreign.sent).toEqual([])
+    const replayed = JSON.stringify(own.sent)
+    expect(replayed).toContain('typed here')
+    expect(replayed).not.toContain('from elsewhere')
   })
 
   it('an unknown or prototype-chain command name is refused', async () => {

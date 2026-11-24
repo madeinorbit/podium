@@ -38,6 +38,7 @@ import type { TurnReceipt } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import type { Capability } from '../../issue-authz'
 import { isMemberCwd, sessionsForIssue } from '../../issue-util'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { TEST_MACHINE_ID } from '../../test-support/machine-id'
 import { messageTestWriter, messageTestWriters } from '../../test-support/message-writer'
@@ -437,6 +438,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
 
   const gate = new MessageGate(
     {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       messages: svc,
       directWriter: messageTestWriter(),
       issues,

@@ -1,5 +1,7 @@
 import type { IssueProjection } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import { systemPrincipal } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import {
   AUTO_ARCHIVE_BOOT_DELAY_MS,
   AUTO_ARCHIVE_INTERVAL_MS,
@@ -18,17 +20,20 @@ describe('IssueAutoArchive single-flight (POD-3258)', () => {
       let sweeps = 0
       let reentered = false
       let armed = false
-      const archive = new IssueAutoArchive({
-        sweepAutoArchive: async () => {
-          sweeps += 1
-          // Re-enter exactly once, from inside a pass the interval drives.
-          if (armed && !reentered) {
-            reentered = true
-            vi.advanceTimersByTime(AUTO_ARCHIVE_INTERVAL_MS)
-          }
-          return noIssues
+      const archive = new IssueAutoArchive(
+        {
+          sweepAutoArchive: async () => {
+            sweeps += 1
+            // Re-enter exactly once, from inside a pass the interval drives.
+            if (armed && !reentered) {
+              reentered = true
+              vi.advanceTimersByTime(AUTO_ARCHIVE_INTERVAL_MS)
+            }
+            return noIssues
+          },
         },
-      })
+        systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'expiry'),
+      )
       archive.start()
       // Past the boot one-shot FIRST. `start` assigns the interval only after
       // the boot pass returns, so re-entering from inside that pass would have
@@ -51,12 +56,15 @@ describe('IssueAutoArchive single-flight (POD-3258)', () => {
     vi.useFakeTimers()
     try {
       let sweeps = 0
-      const archive = new IssueAutoArchive({
-        sweepAutoArchive: async () => {
-          sweeps += 1
-          throw new Error('boom')
+      const archive = new IssueAutoArchive(
+        {
+          sweepAutoArchive: async () => {
+            sweeps += 1
+            throw new Error('boom')
+          },
         },
-      })
+        systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'expiry'),
+      )
       archive.start()
       await vi.advanceTimersByTimeAsync(AUTO_ARCHIVE_BOOT_DELAY_MS)
       await vi.advanceTimersByTimeAsync(AUTO_ARCHIVE_INTERVAL_MS)

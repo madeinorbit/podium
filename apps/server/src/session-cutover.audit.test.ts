@@ -71,6 +71,7 @@ import { SessionStateRegistry } from './modules/sessions/session-state/registry'
 import { sessionSurfaceManifest } from './modules/sessions/trpc'
 import { scopedMutationId } from './modules/sync-write/legacy-receipt'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { OPERATOR } from './test-support/capabilities'
 import { messageTestWriter, messageTestWriters } from './test-support/message-writer'
 import { seedRows } from './test-support/seed-rows'
@@ -141,6 +142,7 @@ function familyMutations(procedures = routerProcedures()): string[] {
 
 const human = (id: UserId, role: 'admin' | 'worker' = 'admin'): CommandPrincipal => ({
   kind: 'user',
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   user: id,
   // POD-4667: POD-3960 layers admin `see` onto every owned row (D19.4b —
   // pinned in machine-access.test.ts: "an admin holds see + manage on every
@@ -153,6 +155,7 @@ const human = (id: UserId, role: 'admin' | 'worker' = 'admin'): CommandPrincipal
 
 const agentFor = (sessionId: string, onBehalfOf: UserId): AgentCommandPrincipal => ({
   kind: 'agent',
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   agentSessionId: asSessionId(sessionId),
   onBehalfOf,
   capability: {
@@ -433,6 +436,7 @@ describe('AC2 · framework idempotency is the single implementation', () => {
 
     // A DIFFERENT user (scope `owned` for themselves) replays the same id.
     const stranger = {
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       userId: asUserId('user:stranger'),
       capability: {
         role: 'worker' as const,
@@ -1103,6 +1107,7 @@ describe('AC7 · the command surface is not an existence oracle', () => {
       'sessions.rename',
       { sessionId, name: 'x' },
       {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         userId: asUserId('user:stranger'),
         capability: { role: 'worker', scope: { kind: 'owned', userId: asUserId('user:stranger') } },
         onBehalfOf: asUserId('user:stranger'),

@@ -2,6 +2,7 @@ import { asUserId } from '@podium/model'
 import type { ReleaseProposal } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { Context } from '../../trpc'
 import { ReleaseApprovalRefusal } from './release-approval'
 import { approveReleaseProposal, releaseProposalFor } from './trpc'
@@ -20,7 +21,7 @@ function context(
   role: 'admin' | 'member',
   extra: Pick<Context, 'releaseProposal' | 'approveReleaseProposal'> = {},
 ): Context {
-  const principal = userCommandPrincipal(asUserId(`user:${role}`), role)
+  const principal = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, asUserId(`user:${role}`), role)
   return { principal, capability: principal.capability, ...extra } as Context
 }
 

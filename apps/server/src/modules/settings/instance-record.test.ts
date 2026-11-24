@@ -24,6 +24,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 import { makeFeedVisibility } from '../../feed-visibility'
 import { withPlainCommand } from '../../plain-command-scope'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import { logStoreRecords, testStoreRecords } from '../../test-support/record-writer'
@@ -158,7 +159,7 @@ describe('records.instancePreferences', () => {
         { id: ID, patch: { 'hibernation.enabled': false } },
         'i-member',
       ),
-      userCommandPrincipal(asMember, 'member'),
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, asMember, 'member'),
       'trpc',
     )
     expect(memberReply).toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
@@ -171,7 +172,7 @@ describe('records.instancePreferences', () => {
         { id: ID, patch: { 'hibernation.enabled': false } },
         'i-disabled',
       ),
-      userCommandPrincipal(formerAdmin, 'admin'),
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, formerAdmin, 'admin'),
       'trpc',
     )
     expect(disabledReply).toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })

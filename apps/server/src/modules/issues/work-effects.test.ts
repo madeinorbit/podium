@@ -20,6 +20,7 @@ import { fixtureWriteScope } from '@podium/sync/testing'
 import { TRPCError } from '@trpc/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import {
   disposeOracles,
   makeOracle as makeBareOracle,
@@ -119,7 +120,7 @@ describe('the issue work effects', () => {
       createdAt: new Date().toISOString(),
       disabledAt: null,
     })
-    const principal = userCommandPrincipal(member, 'member')
+    const principal = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, member, 'member')
     const run = vi.spyOn(o.reg.issues.gitWorkflow, 'cleanup')
     const def = (issueRegistry.defs as Record<string, AnyIssueCommandDef>)
       .cleanup as AnyIssueCommandDef

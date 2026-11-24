@@ -18,6 +18,7 @@ import { resolvePrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { memberFacts } from '../../store/fixtures/test-support'
 import { acceptingProviderFetch } from '../../test-support/fake-provider'
@@ -96,7 +97,9 @@ describe('acceptance 4: no secret leaves add or renew', () => {
       users: store.users,
       loginRequired: async () => true,
       capability: owner,
-      principal: resolvePrincipal(owner, { parentSessionOf: () => undefined }),
+      principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, owner, {
+        parentSessionOf: () => undefined,
+      }),
     })
 
     const added = await caller.credentials.add({

@@ -28,6 +28,7 @@ import { TRPCError } from '@trpc/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 import { appRouter } from '../../router'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { spanOpen } from '../../store/executor/executor'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { envelope, expectAppliedOnPath, rowsOf, submit } from '../sync-write/outbox-test-support'
@@ -87,7 +88,11 @@ async function grantManage(o: Oracle, machineId: MachineId, grantee: UserId) {
 }
 
 const submitAs = async (o: Oracle, user: UserId, env: ReturnType<typeof envelope>) =>
-  await o.reg.modules.syncWrite.submitDetailed(env, userCommandPrincipal(user, 'member'), 'trpc')
+  await o.reg.modules.syncWrite.submitDetailed(
+    env,
+    userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, user, 'member'),
+    'trpc',
+  )
 
 /** Make the handler's last read throw once its write has run: the unit rolls back. */
 function failAfter(o: Oracle, method: 'renameMachine' | 'revokeMachine' | 'setUpdateChannel') {
@@ -368,7 +373,7 @@ describe('the target check is the fleet gate, before the handler', () => {
       store: () => o.store,
       servesHub: () => false,
     }
-    const operator = userCommandPrincipal(firstAdminMemberId(), 'admin')
+    const operator = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin')
     const target = await fleetTarget(deps, 'machines.revoke', { id: OFFLINE }, operator)
     expect(isTargetRefused(target) && target.syncWriteRefused.kind).toBe('target-not-found')
     // A core command is still served there.

@@ -16,6 +16,7 @@ import { Ledger } from '@podium/sync'
 import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import { logStoreRecords } from '../../test-support/record-writer'
@@ -236,7 +237,11 @@ async function harness(
 }
 
 const approval = {
-  principal: { kind: 'system' as const, job: 'shipping-test' },
+  principal: {
+    kind: 'system' as const,
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
+    job: 'shipping-test',
+  },
   requestedBy: {
     actor: { kind: 'user' as const, id: firstAdminMemberId() },
     onBehalfOf: firstAdminMemberId(),

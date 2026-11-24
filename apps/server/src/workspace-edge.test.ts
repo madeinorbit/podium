@@ -187,7 +187,12 @@ describe('hosted edge, two workspaces in one database', () => {
     aliceCookie = await admin(identityA, A, 'Alice', PASSWORDS.alice)
     beaCookie = await admin(identityB, B, 'Bea', PASSWORDS.bea)
     const resolver = (identity: WorkspaceIdentity, store: SessionStore) =>
-      createMemberOfRequest({ identity, users: store.users, trustedProxyHops: 0 })
+      createMemberOfRequest({
+        workspaceId: store.workspaceId,
+        identity,
+        users: store.users,
+        trustedProxyHops: 0,
+      })
     servedA = { id: A.workspaceId, slug: 'acme', memberOfRequest: resolver(identityA, A) }
     servedB = { id: B.workspaceId, slug: 'beta', memberOfRequest: resolver(identityB, B) }
     edge = createWorkspaceEdge({ mode: 'hosted', served: [servedA, servedB] })
@@ -322,6 +327,33 @@ describe('hosted edge, two workspaces in one database', () => {
     expect((await call('/trpc/x', { cookie: beaCookie, 'Podium-Workspace': 'acme' })).status).toBe(
       403,
     )
+  })
+
+  it('refuses a member whose resolver stamps another workspace, as nobody here (POD-7483)', async () => {
+    // A misconfigured edge: B is served with A's member resolver, so Alice
+    // resolves as a member and her principal names ws_a, not ws_b.
+    const miswired = createWorkspaceEdge({
+      mode: 'hosted',
+      served: [servedA, { ...servedB, memberOfRequest: servedA.memberOfRequest }],
+    })
+    const request = new Request(`${ORIGIN}/trpc/x`, {
+      headers: { cookie: aliceCookie, 'Podium-Workspace': 'beta' },
+    })
+    expect(await miswired.bind(request)).toMatchObject({ kind: 'bound', workspace: { id: 'ws_b' } })
+    expect(await boundMemberOfRequest(miswired)(request)).toEqual({
+      kind: 'not-a-member',
+      accountId: expect.any(String),
+    })
+    // In her own workspace the same resolver still admits her.
+    const own = new Request(`${ORIGIN}/trpc/x`, {
+      headers: { cookie: aliceCookie, 'Podium-Workspace': 'acme' },
+    })
+    await miswired.bind(own)
+    expect(await boundMemberOfRequest(miswired)(own)).toMatchObject({
+      kind: 'member',
+      workspaceId: 'ws_a',
+      principal: { workspaceId: 'ws_a' },
+    })
   })
 
   it('classifies the decoded path Hono routes, so a percent-encoded path is no way around it (review F1)', async () => {

@@ -6,6 +6,7 @@ import { SuperagentService } from '../../modules/superagent'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { OPERATOR } from '../../test-support/capabilities'
 import type { OperationKindDefinition, StepOutcome } from './kinds'
 
@@ -31,7 +32,9 @@ import type { OperationKindDefinition, StepOutcome } from './kinds'
 const registries: SessionRegistry[] = []
 
 async function harness() {
-  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'operations-test' })
+  const registry = await SessionRegistry.create(undefined, undefined, {
+    instanceId: 'operations-test',
+  })
   registries.push(registry)
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
@@ -40,7 +43,7 @@ async function harness() {
     repos,
     superagent,
     capability: OPERATOR,
-    principal: userCommandPrincipal(firstAdminMemberId(), 'admin'),
+    principal: userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin'),
   } as Parameters<typeof appRouter.createCaller>[0])
   return { registry, caller, operations: registry.modules.operations }
 }
@@ -153,12 +156,15 @@ describe('operations.active', () => {
     for (const done of [1, 2]) {
       await operations.engine.recordProgress(id, 'first', { progress: { done, total: 3 } })
       const served = await caller.operations.active()
-      expect(served).toMatchObject({ aFieldAddedNextYear: { text: 'keep me' },
-        steps: [expect.objectContaining({ id: 'first', progress: { done, total: 3 } }), expect.anything()],
+      expect(served).toMatchObject({
+        aFieldAddedNextYear: { text: 'keep me' },
+        steps: [
+          expect.objectContaining({ id: 'first', progress: { done, total: 3 } }),
+          expect.anything(),
+        ],
       })
     }
   })
-
 })
 
 describe('operations.history', () => {
@@ -206,38 +212,38 @@ describe('operations.history', () => {
 })
 
 describe('operations action authorization', () => {
-  it.each(['settleAsk', 'action'] as const)(
-    '%s authorizes a managed target through the real machines ownership adapter',
-    async (procedure) => {
-      const { registry, caller, operations } = await harness()
-      const targetMachineId = registry.modules.machines.ensureHostMachine('Target machine')
-      const onAction = vi.fn(async () => ({ outcome: 'recovered' }))
-      operations.kinds.register(
-        testKind({
-          plan: () => ({
-            steps: [{ id: 'first' }],
-            details: { targetMachineId },
-            awaiting: [{ id: 'recover', required: true }],
-          }),
-          runners: { first: { ensure: done } },
-          onAction,
+  it.each([
+    'settleAsk',
+    'action',
+  ] as const)('%s authorizes a managed target through the real machines ownership adapter', async (procedure) => {
+    const { registry, caller, operations } = await harness()
+    const targetMachineId = registry.modules.machines.ensureHostMachine('Target machine')
+    const onAction = vi.fn(async () => ({ outcome: 'recovered' }))
+    operations.kinds.register(
+      testKind({
+        plan: () => ({
+          steps: [{ id: 'first' }],
+          details: { targetMachineId },
+          awaiting: [{ id: 'recover', required: true }],
         }),
-      )
-      const started = await operations.engine.start('test')
-      if (!started.started) throw new Error('expected a live operation')
+        runners: { first: { ensure: done } },
+        onAction,
+      }),
+    )
+    const started = await operations.engine.start('test')
+    if (!started.started) throw new Error('expected a live operation')
 
-      const input = { id: started.operation.id, actionId: 'recover' }
-      const result =
-        procedure === 'settleAsk'
-          ? await caller.operations.settleAsk(input)
-          : await caller.operations.action(input)
+    const input = { id: started.operation.id, actionId: 'recover' }
+    const result =
+      procedure === 'settleAsk'
+        ? await caller.operations.settleAsk(input)
+        : await caller.operations.action(input)
 
-      expect(result).toEqual({ handled: true, result: { outcome: 'recovered' } })
-      expect(onAction).toHaveBeenCalledWith(
-        expect.objectContaining({ actionId: 'recover', mode: 'engine' }),
-      )
-    },
-  )
+    expect(result).toEqual({ handled: true, result: { outcome: 'recovered' } })
+    expect(onAction).toHaveBeenCalledWith(
+      expect.objectContaining({ actionId: 'recover', mode: 'engine' }),
+    )
+  })
 })
 
 describe('operations.cancel', () => {

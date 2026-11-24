@@ -1,5 +1,6 @@
 import { asMachineId, asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { MachinesService } from '../machines/service'
 import { serverMoveAuthorization } from './authorization'
 
@@ -9,7 +10,10 @@ const admin = asUserId('user:admin')
 function machines(owner = admin): MachinesService {
   return {
     ownershipRows: () => [{ id: targetMachineId }],
-    grantsForMachine: () => [{ grantee: owner, verb: 'use' }, { grantee: owner, verb: 'manage', custody: true }],
+    grantsForMachine: () => [
+      { grantee: owner, verb: 'use' },
+      { grantee: owner, verb: 'manage', custody: true },
+    ],
   } as unknown as MachinesService
 }
 
@@ -22,6 +26,7 @@ describe('server move durable reauthorization', () => {
     'commit',
   ] as const)('rechecks the live admin and manage grant at %s', async (phase) => {
     const authorization = serverMoveAuthorization({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       authorizedBy: admin,
       targetMachineId,
       machines: machines(),
@@ -38,6 +43,7 @@ describe('server move durable reauthorization', () => {
     ['system actor', 'system:boot-reconcile', 'admin'],
   ] as const)('refuses a %s at every privileged boundary', async (_name, authorizedBy, role) => {
     const authorization = serverMoveAuthorization({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       authorizedBy,
       targetMachineId,
       machines: machines(),
@@ -53,6 +59,7 @@ describe('server move durable reauthorization', () => {
 
   it('keeps administrator management authority when another member has custody', async () => {
     const authorization = serverMoveAuthorization({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       authorizedBy: admin,
       targetMachineId,
       machines: machines(asUserId('user:other')),

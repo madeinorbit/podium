@@ -5,6 +5,7 @@ import { nativeAccountId } from '@podium/runtime'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { fixtureInventory } from './test-support/daemon-inventory'
 import { attachHostDaemon } from './test-support/host-daemon'
 
@@ -95,7 +96,7 @@ describe('approval broker relay e2e (#410)', () => {
         version: 1,
         input: { id, patch: { decision: 'approve' }, expectedRevision: row?.revision },
       },
-      userCommandPrincipal(firstAdminMemberId(), 'admin'),
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin'),
       'trpc',
     )
     expect(reply).toMatchObject({ outcome: 'applied' })

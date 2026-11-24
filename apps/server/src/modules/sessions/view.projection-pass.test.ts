@@ -17,6 +17,7 @@ afterAll(() => {
 import { queryAttributionSnapshot, resetQueryAttribution } from '@podium/runtime/sqlite'
 import { systemPrincipal } from '../../command-principal'
 import { harnessCapabilitiesFor } from '../../harness-manifest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { memberFacts } from '../../store/fixtures/test-support'
 import { openTestStore } from '../../test-support/open-test-store'
 import { residentRecords } from '../../test-support/session-records'
@@ -30,6 +31,7 @@ import { SessionView } from './view'
 
 const reader = asUserId('projection-reader')
 const principal: SessionStatePrincipal = {
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   userId: reader,
   humanDirect: true,
   onBehalfOf: reader,
@@ -276,9 +278,9 @@ describe('one projection pass', () => {
       expect(
         await Promise.all(f.rows.map((s) => f.state.canReadSession(principal, s.sessionId))),
       ).toEqual([true, true, true, true, false])
-      expect(() => sessionStatePrincipalFor(systemPrincipal('characterization'))).toThrow(
-        'system principal has no per-user session state',
-      )
+      expect(() =>
+        sessionStatePrincipalFor(systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'characterization')),
+      ).toThrow('system principal has no per-user session state')
       const member = {
         ...principal,
         userId: asUserId('unrelated'),

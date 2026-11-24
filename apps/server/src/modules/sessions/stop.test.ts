@@ -9,6 +9,7 @@ import type { ControlMessage, RuntimeEvent } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { systemPrincipal, userCommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { RUNTIME_EVENT_LOG_KIND } from '../../store/events'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -896,7 +897,7 @@ describe('stopSession', () => {
     })
     const freed = await reg.modules.issues.gitWorkflow.freeWorktreeKeepBranch(
       issue.id,
-      systemPrincipal('stop'),
+      systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'stop'),
     )
     expect(freed.ok).toBe(true)
     expect(seen.find((s) => s.op === 'status')?.machineId).toBe('machine-remote')
@@ -924,7 +925,7 @@ describe('stopSession', () => {
     const alice = asUserId('user:alice')
     const freed = await reg.modules.issues.gitWorkflow.freeWorktreeKeepBranch(
       issue.id,
-      userCommandPrincipal(alice, 'member'),
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, alice, 'member'),
     )
     expect(freed.ok).toBe(true)
     // Actor lives on the store row (public comments() wire omits attribution fields).
@@ -937,7 +938,7 @@ describe('stopSession', () => {
 
   it('stopSession threads principal into the free-worktree audit comment (POD-1344)', async () => {
     // Direct freeWorktreeKeepBranch tests can pass a principal without exercising
-    // the lifecycle stop path. Mutant that always stamps systemPrincipal('stop')
+    // the lifecycle stop path. Mutant that always stamps systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'stop')
     // in lifecycle stayed green against the direct-call test — this one pins the
     // stopSession → freeWorktreeKeepBranch thread.
     const { reg, setRepoOp } = await makeRegistry()
@@ -967,7 +968,7 @@ describe('stopSession', () => {
     const alice = asUserId('user:alice')
     const r = await reg.modules.issueSessionLifecycle.stopSession({
       sessionId,
-      principal: userCommandPrincipal(alice, 'member'),
+      principal: userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, alice, 'member'),
     })
     expect(r.ok).toBe(true)
     expect(r.worktreeFreed).toBe(true)

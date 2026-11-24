@@ -2,6 +2,7 @@ import { asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { systemPrincipal, userCommandPrincipal } from '../../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../../self-hosted-workspace'
 import { TEST_MACHINE_ID } from '../../../test-support/machine-id'
 import { openTestStore } from '../../../test-support/open-test-store'
 import { sessionReadPorts } from '../../../test-support/session-facts'
@@ -13,7 +14,7 @@ import { issueTestPlumbing } from './test-plumbing'
  *
  * IssueService.addComment used to declare
  *
- *     principal: CommandPrincipal = userCommandPrincipal(firstAdminMemberId(), 'admin')
+ *     principal: CommandPrincipal = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin')
  *
  * so a caller that simply forgot the argument silently acted as the instance
  * administrator. The count-occurrences-of-firstAdminMemberId() scan that watches
@@ -146,7 +147,7 @@ describe('addComment requires an explicit principal', () => {
       issue.id,
       'alice',
       'my note',
-      userCommandPrincipal(alice, 'member'),
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, alice, 'member'),
     )
 
     const [comment] = await store.issues.listIssueComments(issue.id)
@@ -162,7 +163,7 @@ describe('addComment requires an explicit principal', () => {
       issue.id,
       'system:cleanup',
       'freed the worktree',
-      systemPrincipal('cleanup'),
+      systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'cleanup'),
     )
 
     const [comment] = await store.issues.listIssueComments(issue.id)
@@ -180,7 +181,7 @@ describe('addComment requires an explicit principal', () => {
       issue.id,
       'mike',
       'attributed',
-      userCommandPrincipal(firstAdminMemberId(), 'admin'),
+      userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin'),
     )
 
     const [comment] = await store.issues.listIssueComments(issue.id)

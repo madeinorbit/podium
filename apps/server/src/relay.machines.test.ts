@@ -21,6 +21,7 @@ import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { withReadScope } from './store/executor/read-scope'
 import { memberFacts } from './store/fixtures/test-support'
 import { captureLogs } from './test-support/capture-logs'
@@ -30,7 +31,7 @@ import { seedLegacyKeyCredential } from './test-support/legacy-key-credential'
 import { openTestStore } from './test-support/open-test-store'
 import { clientSessionViews } from './test-support/session-views'
 
-const TEST_PRINCIPAL = userCommandPrincipal(firstAdminMemberId(), 'admin')
+const TEST_PRINCIPAL = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin')
 const TEST_CAPABILITY = TEST_PRINCIPAL.capability
 const TEST_CALLER = { capability: TEST_CAPABILITY, principal: TEST_PRINCIPAL }
 
@@ -773,7 +774,7 @@ describe('session handoff orchestration', () => {
       // holds only `use`. It is still Bob's, and its agent still acts for Bob.
       const bob = asUserId('mem_handoff_bob')
       const { reg, target, sessionId, store } = await handoffRegistry({ secondMember: bob })
-      const bobPrincipal = userCommandPrincipal(bob, 'member')
+      const bobPrincipal = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, bob, 'member')
       await reg.modules.issueSessionLifecycle.handoffSession(
         { sessionId, machineId: asMachineId('m2') },
         { capability: bobPrincipal.capability, principal: bobPrincipal },

@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { systemPrincipal } from './command-principal'
 import { machineVerbsFor, ownershipSnapshotFromMachines } from './machine-access'
 import { MachinesService } from './modules/machines/service'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { memberFacts } from './store/fixtures/test-support'
 import { openTestStore } from './test-support/open-test-store'
 import { testStoreEngine } from './test-support/pg-test-database'
@@ -49,7 +50,7 @@ describe('desired assignment and observed availability', () => {
         })
         const verbs = async () =>
           machineVerbsFor(
-            systemPrincipal('component-test'),
+            systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'component-test'),
             id,
             await ownershipSnapshotFromMachines(service),
           )
@@ -131,6 +132,7 @@ describe('desired assignment and observed availability', () => {
         })
         const principal = {
           kind: 'user' as const,
+          workspaceId: SELF_HOSTED_WORKSPACE_ID,
           user: ownerUserId,
           capability: { role: 'admin' as const, scope: { kind: 'all' as const } },
         }

@@ -22,6 +22,7 @@ import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 import { appRouter } from '../../router'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { EffectRow } from '../../store/effects'
 import { memberFacts } from '../../store/fixtures/test-support'
 import type { EffectRunContext } from '../effects/registry'
@@ -225,7 +226,7 @@ describe('sessions.answerAskUserQuestion is a session.answer record', () => {
       },
       'fixture-hash',
     )
-    const principal = userCommandPrincipal(member, 'member')
+    const principal = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, member, 'member')
     const call = appRouter.createCaller({
       registry: o.reg,
       repos: {} as never,

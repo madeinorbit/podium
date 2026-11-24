@@ -9,6 +9,7 @@
 import { asMachineId, asMutationId, asUserId, mintDeviceId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { systemPrincipal, userCommandPrincipal } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { SERVER_MOVE_EFFECT_KIND } from '../fleet/server-move-effect'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { appliedReply, envelope, submit } from '../sync-write/outbox-test-support'
@@ -68,10 +69,18 @@ describe('the composed server registers both kinds', () => {
 describe('who may ask', () => {
   it('a server move needs an administrator who may manage the destination', async () => {
     const o = await oracle()
-    const member = userCommandPrincipal(asUserId('usr_member_6358'), 'member')
+    const member = userCommandPrincipal(
+      SELF_HOSTED_WORKSPACE_ID,
+      asUserId('usr_member_6358'),
+      'member',
+    )
     const refused = await submitAs(o, moveCreate(mintDeviceId('eff_')), member)
     expect(refused.outcome).toBe('rejected')
-    const system = await submitAs(o, moveCreate(mintDeviceId('eff_')), systemPrincipal('test'))
+    const system = await submitAs(
+      o,
+      moveCreate(mintDeviceId('eff_')),
+      systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'test'),
+    )
     expect(system.outcome).toBe('rejected')
   })
 
@@ -86,10 +95,18 @@ describe('who may ask', () => {
 
   it('an update is an admin’s: a member and the system are refused, and it targets this server', async () => {
     const o = await oracle()
-    const member = userCommandPrincipal(asUserId('usr_member_6358'), 'member')
+    const member = userCommandPrincipal(
+      SELF_HOSTED_WORKSPACE_ID,
+      asUserId('usr_member_6358'),
+      'member',
+    )
     const byMember = await submitAs(o, updateCreate(o, mintDeviceId('eff_')), member)
     expect(byMember.outcome).toBe('rejected')
-    const system = await submitAs(o, updateCreate(o, mintDeviceId('eff_')), systemPrincipal('test'))
+    const system = await submitAs(
+      o,
+      updateCreate(o, mintDeviceId('eff_')),
+      systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'test'),
+    )
     expect(system.outcome).toBe('rejected')
     const elsewhere = await submit(o, updateCreate(o, mintDeviceId('eff_'), OTHER))
     expect(elsewhere.outcome === 'rejected' && elsewhere.refusal.kind).toBe('invalid')
@@ -113,7 +130,11 @@ describe('an update record', () => {
         registry: o.reg,
         modules: o.reg.modules,
         capability: { role: 'admin' },
-        principal: userCommandPrincipal(asUserId('usr_admin_6358'), 'admin'),
+        principal: userCommandPrincipal(
+          SELF_HOSTED_WORKSPACE_ID,
+          asUserId('usr_admin_6358'),
+          'admin',
+        ),
         serverPlacement: { kind: 'fleet', machineId: o.store.hostMachine!.id },
       } as unknown as Parameters<typeof updateStartPortsOf>[0]),
     )

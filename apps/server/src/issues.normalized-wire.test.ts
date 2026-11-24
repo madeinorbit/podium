@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { feedPrincipalOf } from './gateway/client-principal'
 import { SessionRegistry } from './relay'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { IssueRow, SessionStore } from './store'
 import { authoritySnapshot } from './test-support/authority-snapshot'
 import { attachTestClient } from './test-support/client-transport'
@@ -14,7 +15,7 @@ import { openTestStore } from './test-support/open-test-store'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
-const AS_OPERATOR = userCommandPrincipal(firstAdminMemberId(), 'admin')
+const AS_OPERATOR = userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, firstAdminMemberId(), 'admin')
 
 /**
  * The normalized issue wire, end to end through the PRODUCTION wiring

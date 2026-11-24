@@ -1,5 +1,6 @@
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { resolvePrincipal } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * THE FLEET AUTHORIZATION GATE (POD-1079) — what POD-384 declared and nothing
@@ -59,6 +60,7 @@ const COLLEAGUE: UserId = asUserId('colleague')
 
 const user = (id: UserId): CommandPrincipal => ({
   kind: 'user',
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   user: id,
   capability: { role: 'worker', scope: { kind: 'all' } },
 })
@@ -171,6 +173,7 @@ describe('the role floor is read from the contract', () => {
     // An agent never mints a new machine, even for an admin.
     const agent: CommandPrincipal = {
       kind: 'agent',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       agentSessionId: asSessionId('leaf'),
       chain: [],
       onBehalfOf: OWNER,
@@ -222,7 +225,7 @@ describe('the role floor is read from the contract', () => {
       await fleetAuthzFailure(
         'machines.pairingCode',
         {},
-        { ...deps(systemPrincipal('boot-reconcile')), role: undefined },
+        { ...deps(systemPrincipal(SELF_HOSTED_WORKSPACE_ID, 'boot-reconcile')), role: undefined },
       ),
     ).toMatchObject({ code: 'FORBIDDEN' })
   })
@@ -301,6 +304,7 @@ describe('the machine verb is read from the contract, per command', () => {
     ).toBe('FORBIDDEN')
     const agent: CommandPrincipal = {
       kind: 'agent',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       agentSessionId: asSessionId('leaf'),
       chain: [asSessionId('parent')],
       onBehalfOf: COLLEAGUE,
@@ -431,6 +435,7 @@ describe('the machine verb is read from the contract, per command', () => {
     // would leave the caller admin-graded exactly where it matters.
     const memberPrincipal: CommandPrincipal = {
       kind: 'user',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: COLLEAGUE,
       capability: { role: 'worker', scope: { kind: 'all' } },
     }
@@ -471,6 +476,7 @@ describe('the machine verb is read from the contract, per command', () => {
     // leave the caller admin-graded exactly where it decides.
     const memberPrincipal: CommandPrincipal = {
       kind: 'user',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: COLLEAGUE,
       capability: { role: 'worker', scope: { kind: 'all' } },
     }
@@ -661,7 +667,9 @@ describe('the derived fleet router actually calls the gate', () => {
         repos,
         superagent,
         capability: OPERATOR,
-        principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+        principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, OPERATOR, {
+          parentSessionOf: () => undefined,
+        }),
       }),
     }
   }

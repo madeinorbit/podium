@@ -14,6 +14,7 @@ import { asUserId, newMemberId } from '@podium/model'
 import { httpsRequiredRefusal } from '@podium/protocol'
 import { hashPassword, isPasswordHash, verifyPasswordHash } from '@podium/runtime/auth-store'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
 import {
@@ -122,7 +123,12 @@ describe('memberOfRequest', () => {
   })
 
   const resolver = (identity: WorkspaceIdentity = workspace) =>
-    createMemberOfRequest({ identity, users: store.users, trustedProxyHops: 0 })
+    createMemberOfRequest({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      identity,
+      users: store.users,
+      trustedProxyHops: 0,
+    })
 
   it("resolves each caller's own member from their own sign-in", async () => {
     const memberOfRequest = resolver()
@@ -189,6 +195,7 @@ describe('memberOfRequest', () => {
     // The hosted window before a membership is applied: the membership is
     // active and the workspace database has no usable row for it yet.
     const memberOfRequest = createMemberOfRequest({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       identity: workspace,
       users: { get: async () => undefined },
       trustedProxyHops: 0,
@@ -223,6 +230,7 @@ describe('memberOfRequest', () => {
   it('takes the role from the member row, which every gate behind it reads', async () => {
     const cookie = cookieOf(await signIn('bob@example.test', 'bob pw 22'))
     const memberOfRequest = createMemberOfRequest({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       identity: workspace,
       users: { get: async (id) => (id === asUserId(bob) ? { role: 'admin' } : undefined) },
       trustedProxyHops: 0,
@@ -553,6 +561,7 @@ describe('memberOfRequest', () => {
 
   it('never reports the same machine when the server has no host machine', async () => {
     const resolve = createMemberOfRequest({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       identity: workspace,
       users: store.users,
       trustedProxyHops: 0,
@@ -602,6 +611,7 @@ describe('memberOfRequest', () => {
       clientAddress: '203.0.113.5',
     })
     const trusting = createMemberOfRequest({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       identity: workspace,
       users: store.users,
       trustedProxyHops: 1,

@@ -1,5 +1,6 @@
-import { firstAdminMemberId, type Capability } from '@podium/model'
+import { type Capability, firstAdminMemberId } from '@podium/model'
 import type { SessionStatePrincipal } from '../modules/sessions/session-state/service'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 
 /**
  * Compatibility constructor for the first administrator. A direct human now has
@@ -18,6 +19,7 @@ import type { SessionStatePrincipal } from '../modules/sessions/session-state/se
  */
 export function soleHumanSessionStatePrincipal(capability: Capability): SessionStatePrincipal {
   return {
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     userId: firstAdminMemberId(),
     capability,
     onBehalfOf: firstAdminMemberId(),

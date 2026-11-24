@@ -177,7 +177,7 @@ async function sqliteCorpus(): Promise<SessionStore> {
         actorUser: owner,
         onBehalfOf: owner,
       },
-      principal: userCommandPrincipal(owner, 'admin'),
+      principal: userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, owner, 'admin'),
     })
     for (let i = 0; i < 3; i++) {
       await call.messages.send({

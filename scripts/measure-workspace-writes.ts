@@ -220,7 +220,7 @@ async function worker(config: Config, workerIndex: number): Promise<void> {
           actorUser: owner,
           onBehalfOf: owner,
         },
-        principal: userCommandPrincipal(owner, 'admin'),
+        principal: userCommandPrincipal(store.workspaceId, owner, 'admin'),
       } as never)
       const context = { store, registry, call }
       contexts.push(context)

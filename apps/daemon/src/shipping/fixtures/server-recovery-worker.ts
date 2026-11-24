@@ -22,6 +22,7 @@ import {
   type ShippingIssuePort,
   ShippingService,
 } from '../../../../server/src/modules/shipping'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../../../server/src/self-hosted-workspace'
 import { SessionStore } from '../../../../server/src/store'
 import { changeLogCommit } from '../../../../server/src/store/change-log-commit'
 import { installChangeLogHooks } from '../../../../server/src/test-support/change-log-hooks'
@@ -194,6 +195,7 @@ if (phase === 'crash') {
     issueId: created.id,
     principal: {
       kind: 'user',
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       user: ownerUserId,
       capability: {
         role: 'admin',

@@ -15,6 +15,7 @@ import { inboxPrincipalFromCommand } from '../modules/sessions/inbox'
 import { deliverAnswerToSession } from '../modules/superagent/answer-delivery'
 import { buildSuperagentTools } from '../modules/superagent/tools'
 import { SessionRegistry } from '../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { messageTestWriter } from '../test-support/message-writer'
 import { openTestStore } from '../test-support/open-test-store'
 
@@ -141,7 +142,11 @@ describe('production terminal answer identity', () => {
       )!
       await registry.gateway.routeDaemonFrame(store.hostMachine!.id, askFrame)
       expect(await registry.modules.interactions.listOpen(sessionId)).toHaveLength(1)
-      const principal = userCommandPrincipal(firstAdminMemberId(), 'admin')
+      const principal = userCommandPrincipal(
+        SELF_HOSTED_WORKSPACE_ID,
+        firstAdminMemberId(),
+        'admin',
+      )
       const ctx = await sessionCommandCtx(registry.modules, principal.capability)
       expect(
         await dispatchSessionCommand(ctx, 'answerAskUserQuestion', {

@@ -4,6 +4,7 @@ import { firstAdminMemberId, resolvePrincipal } from './command-principal'
 import type { Capability } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { OPERATOR } from './test-support/capabilities'
 
 // The gate only exercises `issues.*`, which touches `ctx.registry.issues` (an in-memory
@@ -39,7 +40,9 @@ async function caller(rawCapability: Capability, shared?: SessionRegistry) {
     repos: {} as never,
     superagent: {} as never,
     capability,
-    principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
+    principal: resolvePrincipal(SELF_HOSTED_WORKSPACE_ID, capability, {
+      parentSessionOf: () => undefined,
+    }),
   })
 }
 

@@ -13,6 +13,7 @@ import { disposeOracles, makeOracle } from './modules/sessions/oracle-support'
 import { SESSION_QUERIES } from './modules/sessions/queries'
 import { buildSuperagentTools } from './modules/superagent/tools'
 import { privateResourceAccess } from './private-resources'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { memberFacts } from './store/fixtures/test-support'
 import { worldSnapshot } from './test-support/bootstrap-snapshot'
 import { feedDelta } from './test-support/feed-delta'
@@ -229,7 +230,7 @@ describe('S1 session companion records', () => {
             sessionOwnerUserId: async (id) => (await f.store.sessions.getSession(id))?.ownerUserId,
             machines: f.reg.modules.machines,
           },
-          userCommandPrincipal(userId, 'member'),
+          userCommandPrincipal(SELF_HOSTED_WORKSPACE_ID, userId, 'member'),
         ),
       }) as unknown as FamilyState
     // The owner lists it, and the row carries nobody's per-user markers.

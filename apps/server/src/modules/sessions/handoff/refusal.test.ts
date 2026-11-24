@@ -14,6 +14,7 @@ import { asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { CommandPrincipal } from '../../../command-principal'
 import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../../machine-access'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../../self-hosted-workspace'
 import { machineUseGateFor } from './access'
 import { HandoffRefusalError, handoffRefusalOf, refusalForMachineAccess } from './refusal'
 
@@ -22,6 +23,7 @@ const CALLER: UserId = asUserId('caller')
 
 const user = (id: UserId): CommandPrincipal => ({
   kind: 'user',
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   user: id,
   // An administrator may inspect the fleet; these refusals exercise a regular member.
   capability: { role: 'worker', scope: { kind: 'all' } },
@@ -37,17 +39,31 @@ const user = (id: UserId): CommandPrincipal => ({
 const ownership: MachineOwnershipIndex = {
   rowFor: (machineId): MachineOwnershipRow | undefined => {
     const rows: Record<string, MachineOwnershipRow> = {
-      mine: { machine: 'mine' as MachineId, owner: CALLER, grants: [{ subject: CALLER, verb: 'use' }, { subject: CALLER, verb: 'manage', custody: true }] },
+      mine: {
+        machine: 'mine' as MachineId,
+        owner: CALLER,
+        grants: [
+          { subject: CALLER, verb: 'use' },
+          { subject: CALLER, verb: 'manage', custody: true },
+        ],
+      },
       theirs: {
         machine: 'theirs' as MachineId,
         owner: COLLEAGUE,
-        grants: [{ subject: COLLEAGUE, verb: 'use' }, { subject: COLLEAGUE, verb: 'manage', custody: true }],
+        grants: [
+          { subject: COLLEAGUE, verb: 'use' },
+          { subject: COLLEAGUE, verb: 'manage', custody: true },
+        ],
         name: 'their-laptop',
       },
       shared: {
         machine: 'shared' as MachineId,
         owner: COLLEAGUE,
-        grants: [{ subject: COLLEAGUE, verb: 'use' }, { subject: COLLEAGUE, verb: 'manage', custody: true }, { subject: CALLER, verb: 'see' }],
+        grants: [
+          { subject: COLLEAGUE, verb: 'use' },
+          { subject: COLLEAGUE, verb: 'manage', custody: true },
+          { subject: CALLER, verb: 'see' },
+        ],
         name: 'shared-box',
       },
     }
