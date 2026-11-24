@@ -44,6 +44,7 @@ export const PhoneTimeline = observer(function PhoneTimeline({
   const history = useIssueActivity(issue, ISSUE_HISTORY_PAGE)
   return (
     <IssueActivitySection
+      headless
       issue={issue}
       busy={busy}
       commands={commands}

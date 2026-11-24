@@ -8,6 +8,7 @@ import {
   font,
   foregroundStyle,
   frame,
+  listRowBackground,
   listRowInsets,
   listSectionSpacing,
   listStyle,
@@ -142,5 +143,51 @@ export function DetailActionRow({
         </Text>
       </HStack>
     </Button>
+  )
+}
+
+/**
+ * The page's one primary action as a single tinted inset-grouped row (POD-2666):
+ * the row itself carries the accent, so there is no card inside a card and no
+ * section label above it. The label is centred, as in Apple's grouped forms.
+ */
+export function DetailPrimaryRow({
+  label,
+  systemImage,
+  onPress,
+  testID,
+}: {
+  label: string
+  systemImage?: string
+  onPress: () => void
+  testID?: string
+}) {
+  return (
+    <Section>
+      <Button
+        onPress={onPress}
+        modifiers={[
+          buttonStyle('plain'),
+          listRowBackground(color.accent),
+          accessibilityIdentifier(testID ?? 'issue-primary-action'),
+        ]}
+      >
+        <HStack
+          spacing={8}
+          modifiers={[padding({ vertical: 12 }), frame({ minHeight: 44, maxWidth: Infinity })]}
+        >
+          {systemImage ? <Image systemName={systemImage} size={15} color={color.onAccent} /> : null}
+          <Text
+            modifiers={[
+              font({ textStyle: 'body', weight: 'semibold' }),
+              foregroundStyle(color.onAccent),
+              fixedSize({ horizontal: false, vertical: true }),
+            ]}
+          >
+            {label}
+          </Text>
+        </HStack>
+      </Button>
+    </Section>
   )
 }

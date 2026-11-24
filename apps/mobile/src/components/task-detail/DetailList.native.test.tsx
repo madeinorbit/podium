@@ -58,6 +58,7 @@ vi.mock('@expo/ui/swift-ui/modifiers', () => {
     'frame',
     'layoutPriority',
     'lineLimit',
+    'listRowBackground',
     'listRowInsets',
     'listSectionSpacing',
     'listStyle',

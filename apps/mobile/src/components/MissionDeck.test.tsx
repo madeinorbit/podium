@@ -335,7 +335,7 @@ describe('MissionDeck', () => {
     expect(buildCounter()).toContain('1/2')
     expect(screen.getByTestId('deck-filter-all').getAttribute('aria-label')).toBe('All, 3')
     expect(screen.getByTestId('deck-gauge').innerHTML).toBe(gauge)
-    expect(screen.getByText('2 done hidden')).toBeTruthy()
+    expect(screen.getByText('2 Completed')).toBeTruthy()
 
     await act(async () => fireEvent.click(screen.getByTestId('deck-done-hidden')))
     expect(taskLabels()).toEqual(shown)
@@ -366,7 +366,7 @@ describe('MissionDeck', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Collapse Delivery' })),
     )
     await act(async () => fireEvent.click(screen.getByTestId('deck-filter-needs-you')))
-    expect(screen.getByText('1 done hidden')).toBeTruthy()
+    expect(screen.getByText('1 Completed')).toBeTruthy()
     await act(async () => fireEvent.click(screen.getByTestId('deck-done-hidden')))
     expect(screen.getByTestId('deck-filter-all').getAttribute('aria-selected')).toBe('true')
     expect(screen.queryByTestId('deck-done-hidden')).toBeNull()

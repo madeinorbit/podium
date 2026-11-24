@@ -23,10 +23,10 @@ import type { IssueCommands } from '../../lib/issue-detail'
 import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
 import { NativePicker, type NativePickerOption } from '../action-sheet-native'
 import { Icon } from '../Icon'
-import { ChevronRight, ExternalLink, Plus, X } from '../icons'
+import { ChevronRight, ExternalLink, X } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { PriorityGlyph, StageGlyph } from '../StageGlyph'
-import { Disclosure, MachineLabel } from './chrome'
+import { Disclosure } from './chrome'
 import { DetailText as Text } from './DetailText'
 import { useDetailLayout } from './detail-type'
 
@@ -94,158 +94,245 @@ export const IssueProperties = observer(function IssueProperties({
   // Merge axis only: a shared checkout's `ahead` is not this task's to land.
   const ahead = issue.gitState?.shared ? 0 : (issue.gitState?.ahead ?? 0)
 
+  const parentTitle = parent
+    ? `${issueDisplayRef(parent)}  ${'authoredTitle' in parent ? (parent as PageIssue).authoredTitle : parent.title}`
+    : issue.parentId
+      ? 'Loading'
+      : 'None'
+
   return (
     <View style={styles.section}>
       <Disclosure label="Details" open={open} onToggle={onToggle} testID="issue-details">
-        {onPriority ? (
-          <Row label="Priority" first>
-            <Ghost label={`P${issue.priority}`} busy={busy} onPress={onPriority} />
-          </Row>
-        ) : null}
-        {onType ? (
-          <Row label="Type">
-            <Ghost label={issue.type} busy={busy} onPress={onType} />
-          </Row>
-        ) : null}
-        <Row label="Labels" first>
-          <View style={styles.labels}>
-            {issue.labels.map((l) => (
-              <PressableScale
-                key={l}
-                accessibilityRole="button"
-                accessibilityLabel={`Remove label ${l}`}
-                accessibilityState={{ disabled: busy }}
-                disabled={busy}
-                onPress={() => commands.removeLabel(l)}
-                style={({ pressed }) => [styles.label, pressed && styles.pressed]}
-              >
-                <Text style={styles.labelText}>{l}</Text>
-                <Icon as={X} size={size(11)} color={color.accentTint} />
-              </PressableScale>
-            ))}
-            <TextInput
-              value={label}
-              onChangeText={setLabel}
-              accessibilityLabel="Add label"
-              placeholder="Add label…"
-              placeholderTextColor={color.textMicro}
-              returnKeyType="done"
-              onSubmitEditing={() => {
-                commands.addLabel(label)
-                setLabel('')
-              }}
-              style={[
-                styles.labelField,
-                { minHeight: Math.max(44, textSize(leading(font.body)) + space.lg) },
-                accessibility && styles.labelFieldAccessible,
-              ]}
+        {/* Settings-style rows, indented under their header (POD-2666): one
+            44pt row per property, value trailing, chevron when it opens more. */}
+        <View style={styles.nested}>
+          {onPriority ? (
+            <KeyRow
+              label="Priority"
+              value={`P${issue.priority}`}
+              busy={busy}
+              onPress={onPriority}
+              first
             />
-          </View>
-        </Row>
-
-        <Row label="Parent">
-          <PropertyParentReference
-            id={issue.parentId}
-            parent={parent}
-            resolveEdge={resolveEdge}
-            onOpenIssue={onOpenIssue}
-          />
-          <Ghost
-            label={parent || issue.parentId ? 'Change parent' : 'Set parent'}
+          ) : null}
+          {onType ? (
+            <KeyRow label="Type" value={capitalize(issue.type)} busy={busy} onPress={onType} />
+          ) : null}
+          <KeyRow
+            label="Parent"
+            value={parentTitle}
             busy={busy}
-            onPress={onPickParent}
+            onPress={parent ? () => onOpenIssue(parent.id) : onPickParent}
+            first={!onPriority && !onType}
           />
           {issue.parentId ? (
-            <Ghost label="Clear parent" busy={busy} onPress={() => commands.setParent(null)} />
-          ) : null}
-        </Row>
-
-        <Row label="Relations">
-          {relations.map((group) => (
-            <View key={group.section} style={styles.relGroup}>
-              <MachineLabel>{group.section}</MachineLabel>
-              {group.entries.map((entry) => (
-                <PropertyRelationRow
-                  key={`${entry.direction}:${entry.type}:${entry.id}`}
-                  entry={entry}
-                  resolveEdge={resolveEdge}
-                  busy={busy}
-                  commands={commands}
-                  onOpenIssue={onOpenIssue}
-                />
-              ))}
-            </View>
-          ))}
-          <Ghost label="Add relation" busy={busy} onPress={onAddRelation} icon />
-        </Row>
-
-        {sessions.length > 0 ? (
-          <Row label="Past sessions">
-            {sessions.map((session) => (
-              <PropertySessionRow
-                key={session.sessionId}
-                session={session}
-                onOpenSession={onOpenSession}
-              />
-            ))}
-          </Row>
-        ) : null}
-
-        {issue.worktreePath ? (
-          <Row label="Branch">
-            <Text style={styles.mono}>{issue.branch ?? '—'}</Text>
-            <View style={styles.ghostRow}>
-              {/* THE SIGNAL RULE. The merge button takes the accent only when
-                  there is something to land; on every other task both actions are
-                  outline and behave identically. A permanently accented primary
-                  in a fold spends the one signal on furniture. */}
-              <Ghost
-                label="FF-only merge"
+            <>
+              <ActionRow label="Change parent…" busy={busy} onPress={onPickParent} />
+              <ActionRow
+                label="Remove parent"
                 busy={busy}
-                primary={ahead > 0}
+                destructive
+                onPress={() => commands.setParent(null)}
+              />
+            </>
+          ) : null}
+
+          <View style={[styles.kv, styles.labelsRow]}>
+            <Text style={styles.kvLabel}>Labels</Text>
+            <View style={styles.labels}>
+              {issue.labels.map((l) => (
+                <PressableScale
+                  key={l}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove label ${l}`}
+                  accessibilityState={{ disabled: busy }}
+                  disabled={busy}
+                  onPress={() => commands.removeLabel(l)}
+                  style={({ pressed }) => [styles.label, pressed && styles.pressed]}
+                >
+                  <Text style={styles.labelText}>{l}</Text>
+                  <Icon as={X} size={size(10)} color={color.accentTint} />
+                </PressableScale>
+              ))}
+              <TextInput
+                value={label}
+                onChangeText={setLabel}
+                accessibilityLabel="Add label"
+                placeholder="Add"
+                placeholderTextColor={color.textFaint}
+                returnKeyType="done"
+                onSubmitEditing={() => {
+                  commands.addLabel(label)
+                  setLabel('')
+                }}
+                style={[
+                  styles.labelField,
+                  { minHeight: Math.max(32, textSize(leading(font.small))) },
+                  accessibility && styles.labelFieldAccessible,
+                ]}
+              />
+            </View>
+          </View>
+
+          {relations.map((group) =>
+            group.entries.map((entry) => (
+              <PropertyRelationRow
+                key={`${entry.direction}:${entry.type}:${entry.id}`}
+                section={group.section}
+                entry={entry}
+                resolveEdge={resolveEdge}
+                busy={busy}
+                commands={commands}
+                onOpenIssue={onOpenIssue}
+              />
+            )),
+          )}
+          <ActionRow label="Add relation…" busy={busy} onPress={onAddRelation} />
+
+          {sessions.map((session) => (
+            <PropertySessionRow
+              key={session.sessionId}
+              session={session}
+              onOpenSession={onOpenSession}
+            />
+          ))}
+
+          {issue.worktreePath ? (
+            <>
+              <KeyRow label="Branch" value={issue.branch ?? '—'} mono />
+              {/* THE SIGNAL RULE: merge takes the accent only when there is
+                  something to land. */}
+              <ActionRow
+                label="Merge (fast-forward only)"
+                busy={busy}
+                strong={ahead > 0}
                 onPress={() => commands.gitAction('merge')}
               />
-              <Ghost
+              <ActionRow
                 label={`Rebase on ${issue.parentBranch}`}
                 busy={busy}
                 onPress={() => commands.gitAction('rebase')}
               />
-              <Ghost label="Open PR" busy={busy} onPress={() => commands.gitAction('pr')} />
-            </View>
-            {issue.prUrl ? <External label="View PR" url={issue.prUrl} /> : null}
-          </Row>
-        ) : null}
+              <ActionRow label="Open PR" busy={busy} onPress={() => commands.gitAction('pr')} />
+              {issue.prUrl ? <External label="View PR" url={issue.prUrl} /> : null}
+            </>
+          ) : null}
 
-        {issue.dueAt || issue.estimateMin != null || issue.deferUntil ? (
-          <Row label="Dates">
-            {issue.dueAt ? (
-              <Text style={styles.meta}>{`due ${new Date(issue.dueAt).toLocaleDateString()}`}</Text>
-            ) : null}
-            {issue.estimateMin != null ? (
-              <Text style={styles.meta}>{`estimate ${issue.estimateMin}m`}</Text>
-            ) : null}
-            {issue.deferUntil ? (
-              <>
-                <Text style={styles.meta}>
-                  {`deferred until ${new Date(issue.deferUntil).toLocaleDateString()}`}
-                </Text>
-                <Ghost label="Undefer" busy={busy} onPress={commands.undefer} />
-              </>
-            ) : null}
-          </Row>
-        ) : null}
-
-        {issue.linearUrl || issue.linearIdentifier ? (
-          <Row label="Linear">
-            {issue.linearUrl ? (
-              <External label={issue.linearIdentifier ?? 'Open'} url={issue.linearUrl} />
-            ) : (
-              <Text style={styles.meta}>{issue.linearIdentifier}</Text>
-            )}
-          </Row>
-        ) : null}
+          {issue.dueAt ? (
+            <KeyRow label="Due" value={new Date(issue.dueAt).toLocaleDateString()} />
+          ) : null}
+          {issue.estimateMin != null ? (
+            <KeyRow label="Estimate" value={`${issue.estimateMin}m`} />
+          ) : null}
+          {issue.deferUntil ? (
+            <>
+              <KeyRow
+                label="Deferred until"
+                value={new Date(issue.deferUntil).toLocaleDateString()}
+              />
+              <ActionRow label="Undefer" busy={busy} onPress={commands.undefer} />
+            </>
+          ) : null}
+          {issue.linearUrl ? (
+            <External
+              label={`Linear ${issue.linearIdentifier ?? ''}`.trim()}
+              url={issue.linearUrl}
+            />
+          ) : issue.linearIdentifier ? (
+            <KeyRow label="Linear" value={issue.linearIdentifier} />
+          ) : null}
+        </View>
       </Disclosure>
     </View>
+  )
+})
+
+const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1)
+
+/** A Settings row: label leading, value trailing, a chevron when it opens something. */
+const KeyRow = observer(function KeyRow({
+  label,
+  value,
+  busy = false,
+  onPress,
+  first = false,
+  mono: monospaced = false,
+}: {
+  label: string
+  value: string
+  busy?: boolean
+  onPress?: () => void
+  first?: boolean
+  mono?: boolean
+}) {
+  const { accessorySize: size, accessibility } = useDetailLayout()
+  const body = (
+    <>
+      <Text style={styles.kvLabel}>{label}</Text>
+      <Text
+        numberOfLines={accessibility ? 3 : 1}
+        style={[
+          styles.kvValue,
+          monospaced && styles.kvMono,
+          accessibility && styles.kvValueStacked,
+        ]}
+      >
+        {value}
+      </Text>
+      {onPress && !accessibility ? (
+        <Icon as={ChevronRight} size={size(13)} color={color.textFaint} />
+      ) : null}
+    </>
+  )
+  const style = [styles.kv, !first && styles.kvSeparated, accessibility && styles.kvStacked]
+  if (!onPress) return <View style={style}>{body}</View>
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={`${label}, ${value}`}
+      accessibilityState={{ disabled: busy }}
+      disabled={busy}
+      onPress={onPress}
+      style={({ pressed }) => [...style, (busy || pressed) && styles.pressed]}
+    >
+      {body}
+    </PressableScale>
+  )
+})
+
+/** An action row in accent ink (Settings' "Add…" rows); red when destructive. */
+const ActionRow = observer(function ActionRow({
+  label,
+  busy,
+  onPress,
+  destructive = false,
+  strong = false,
+}: {
+  label: string
+  busy: boolean
+  onPress: () => void
+  destructive?: boolean
+  strong?: boolean
+}) {
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: busy }}
+      disabled={busy}
+      onPress={onPress}
+      style={({ pressed }) => [styles.kv, styles.kvSeparated, (busy || pressed) && styles.pressed]}
+    >
+      <Text
+        style={[
+          styles.action,
+          destructive && styles.actionDestructive,
+          strong && styles.actionStrong,
+        ]}
+      >
+        {label}
+      </Text>
+    </PressableScale>
   )
 })
 
@@ -425,51 +512,15 @@ const Chip = observer(function Chip({
   )
 })
 
-const PropertyParentReference = observer(function PropertyParentReference({
-  id,
-  parent,
-  resolveEdge,
-  onOpenIssue,
-}: {
-  id: string | undefined | null
-  parent: IssueViewModel | undefined
-  resolveEdge: (id: string | undefined | null) => IssueEdge
-  onOpenIssue: (id: string) => void
-}) {
-  const { accessorySize: size, accessibility } = useDetailLayout()
-  const edge = resolveEdge(id)
-  return edge.render === 'issue' && parent ? (
-    <PressableScale
-      accessibilityRole="button"
-      accessibilityLabel={`Open parent ${issueDisplayRef(parent)}`}
-      onPress={() => onOpenIssue(parent.id)}
-      style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
-    >
-      <StageGlyph stage={parent.stage} size={size(13)} />
-      <View style={styles.referenceBody}>
-        <Text style={styles.linkRef}>{issueDisplayRef(parent)}</Text>
-        <Text lineBreakStrategyIOS="standard" style={styles.linkTitle}>
-          {'authoredTitle' in parent ? (parent as PageIssue).authoredTitle : parent.title}
-        </Text>
-      </View>
-      {parent.archived ? <Text style={styles.archived}>ARCHIVED</Text> : null}
-      {!accessibility ? <Icon as={ChevronRight} size={size(13)} color={color.textFaint} /> : null}
-    </PressableScale>
-  ) : edge.render === 'opaque' ? (
-    <Text style={styles.opaque}>an issue you do not have access to</Text>
-  ) : edge.render === 'pending' ? (
-    <Text style={styles.inert}>Referenced task is loading</Text>
-  ) : (
-    <Text style={styles.none}>None</Text>
-  )
-})
 const PropertyRelationRow = observer(function PropertyRelationRow({
+  section,
   entry,
   resolveEdge,
   busy,
   commands,
   onOpenIssue,
 }: {
+  section: string
   entry: RelationEntry
   resolveEdge: (id: string | undefined | null) => IssueEdge
   busy: boolean
@@ -480,29 +531,37 @@ const PropertyRelationRow = observer(function PropertyRelationRow({
   const edge = resolveEdge(entry.id)
   if (edge.render === 'hidden') return null
   const target = edge.render === 'issue' ? edge.resolution.value : undefined
+  const title = target
+    ? 'authoredTitle' in target
+      ? (target as PageIssue).authoredTitle
+      : target.title
+    : undefined
   return (
-    <View style={styles.relRow}>
+    <View style={[styles.kv, styles.kvSeparated]}>
       {target ? (
         <PressableScale
           accessibilityRole="button"
-          accessibilityLabel={`Open ${issueDisplayRef(target)} ${'authoredTitle' in target ? (target as PageIssue).authoredTitle : target.title}`}
+          accessibilityLabel={`${section}: open ${issueDisplayRef(target)} ${title}`}
           onPress={() => onOpenIssue(target.id)}
           style={({ pressed }) => [styles.relOpen, pressed && styles.pressed]}
         >
-          <StageGlyph stage={target.stage} size={size(13)} />
-          <View style={styles.referenceBody}>
-            <Text style={styles.linkRef}>{issueDisplayRef(target)}</Text>
-            <Text lineBreakStrategyIOS="standard" style={styles.linkTitle}>
-              {'authoredTitle' in target ? (target as PageIssue).authoredTitle : target.title}
-            </Text>
-          </View>
+          <Text style={styles.kvLabel}>{section}</Text>
+          <StageGlyph stage={target.stage} size={size(12)} />
+          <Text numberOfLines={1} style={styles.relValue}>
+            <Text style={styles.linkRef}>{`${issueDisplayRef(target)}  `}</Text>
+            {title}
+          </Text>
         </PressableScale>
       ) : (
-        <Text style={edge.render === 'opaque' ? styles.opaque : styles.inert}>
-          {edge.render === 'opaque'
-            ? 'an issue you do not have access to'
-            : 'Referenced task is loading'}
-        </Text>
+        <View style={styles.relOpen}>
+          <Text style={styles.kvLabel}>{section}</Text>
+          <Text
+            numberOfLines={1}
+            style={[styles.relValue, edge.render === 'opaque' ? styles.opaque : styles.inert]}
+          >
+            {edge.render === 'opaque' ? 'no access' : 'Loading'}
+          </Text>
+        </View>
       )}
       <PressableScale
         accessibilityRole="button"
@@ -512,7 +571,7 @@ const PropertyRelationRow = observer(function PropertyRelationRow({
         style={styles.removeRelation}
         onPress={() => commands.removeRelation(entry)}
       >
-        <Icon as={X} size={size(13)} color={color.textFaint} />
+        <Icon as={X} size={size(12)} color={color.textFaint} />
       </PressableScale>
     </View>
   )
@@ -524,74 +583,12 @@ const PropertySessionRow = observer(function PropertySessionRow({
   session: SessionView
   onOpenSession: (id: SessionId) => void
 }) {
-  const { accessorySize: size, accessibility } = useDetailLayout()
   return (
-    <PressableScale
-      accessibilityRole="button"
-      accessibilityLabel={`Open ${sessionTitle(session)}`}
+    <KeyRow
+      label={sessionTitle(session)}
+      value={session.status}
       onPress={() => onOpenSession(session.sessionId)}
-      style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
-    >
-      <View style={styles.referenceBody}>
-        <Text lineBreakStrategyIOS="standard" style={styles.linkTitle}>
-          {sessionTitle(session)}
-        </Text>
-        <Text style={styles.meta}>{session.status}</Text>
-      </View>
-      {!accessibility ? <Icon as={ChevronRight} size={size(13)} color={color.textFaint} /> : null}
-    </PressableScale>
-  )
-})
-
-const Row = observer(function Row({
-  label,
-  children,
-  first = false,
-}: {
-  label: string
-  children: ReactNode
-  first?: boolean
-}) {
-  return (
-    <View style={[styles.row, first && styles.firstRow]}>
-      <MachineLabel>{label}</MachineLabel>
-      <View style={styles.rowBody}>{children}</View>
-    </View>
-  )
-})
-
-const Ghost = observer(function Ghost({
-  label,
-  busy,
-  onPress,
-  icon,
-  primary,
-}: {
-  label: string
-  busy: boolean
-  onPress: () => void
-  icon?: boolean
-  primary?: boolean
-}) {
-  const { accessorySize: size } = useDetailLayout()
-  return (
-    <PressableScale
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled: busy }}
-      disabled={busy}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.ghost,
-        primary && styles.ghostPrimary,
-        (busy || pressed) && styles.pressed,
-      ]}
-    >
-      {icon ? (
-        <Icon as={Plus} size={size(12)} color={primary ? color.onAccent : color.textDim} />
-      ) : null}
-      <Text style={[styles.ghostText, primary && styles.ghostPrimaryText]}>{label}</Text>
-    </PressableScale>
+    />
   )
 })
 
@@ -602,10 +599,10 @@ const External = observer(function External({ label, url }: { label: string; url
       accessibilityRole="link"
       accessibilityLabel={`${label} (opens externally)`}
       onPress={() => void Linking.openURL(url).catch(() => {})}
-      style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.kv, styles.kvSeparated, pressed && styles.pressed]}
     >
-      <Text style={styles.link}>{label}</Text>
-      <Icon as={ExternalLink} size={size(12)} color={color.info} />
+      <Text style={styles.action}>{label}</Text>
+      <Icon as={ExternalLink} size={size(12)} color={color.accentTint} />
     </PressableScale>
   )
 })
@@ -613,6 +610,60 @@ const External = observer(function External({ label, url }: { label: string; url
 const styles = StyleSheet.create({
   section: {
     paddingBottom: 0,
+  },
+  // The rows belong to the Details header: indented under it, a hairline above.
+  nested: {
+    marginLeft: space.lg,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.hairline,
+  },
+  kv: {
+    minHeight: 44,
+    paddingVertical: space.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  kvSeparated: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.hairline,
+  },
+  kvStacked: { flexDirection: 'column', alignItems: 'flex-start', gap: 2 },
+  kvLabel: {
+    ...sans(400),
+    flexShrink: 0,
+    color: color.text,
+    fontSize: font.body,
+  },
+  kvValue: {
+    ...sans(400),
+    flex: 1,
+    minWidth: 0,
+    textAlign: 'right',
+    color: color.textDim,
+    fontSize: font.body,
+  },
+  kvValueStacked: { textAlign: 'left' },
+  kvMono: { ...mono(400), fontSize: font.small },
+  action: {
+    ...sans(400),
+    flex: 1,
+    color: color.accentTint,
+    fontSize: font.body,
+  },
+  actionDestructive: { color: color.dangerText },
+  actionStrong: { ...sans(600) },
+  labelsRow: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.hairline,
+  },
+  relValue: {
+    ...sans(400),
+    flex: 1,
+    minWidth: 0,
+    textAlign: 'right',
+    color: color.textDim,
+    fontSize: font.small,
   },
   // The board's header pills: 24pt fills on the control radius, no outline.
   bar: {
@@ -675,19 +726,22 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   labels: {
+    flex: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    gap: space.sm,
+    gap: space.xs,
   },
+  // Label chips: small capsules inside the 44pt row, not tall blocks.
   label: {
-    minHeight: 44,
-    paddingVertical: space.sm,
+    minHeight: 26,
+    paddingVertical: 3,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     paddingHorizontal: space.sm,
-    borderRadius: radius.control,
+    borderRadius: radius.full,
     backgroundColor: color.accentSoft,
   },
   labelText: {
@@ -698,18 +752,12 @@ const styles = StyleSheet.create({
   },
   labelField: {
     ...sans(400),
-    lineHeight: leading(font.body),
-    minHeight: 44,
-    paddingVertical: space.sm,
-    minWidth: 120,
-    flexGrow: 1,
+    minWidth: 56,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+    textAlign: 'right',
     color: color.text,
-    fontSize: font.body,
-    paddingHorizontal: space.sm,
-    borderRadius: radius.control,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.bgSunken,
+    fontSize: font.small,
   },
   labelFieldAccessible: { flexBasis: '100%', width: '100%' },
   linkRow: {
@@ -788,10 +836,8 @@ const styles = StyleSheet.create({
     minWidth: 0,
     flexDirection: 'row',
     gap: space.sm,
-    justifyContent: 'flex-start',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     minHeight: 44,
-    paddingVertical: space.sm,
   },
   ghostRow: {
     flexDirection: 'row',

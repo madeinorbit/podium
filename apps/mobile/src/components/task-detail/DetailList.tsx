@@ -68,12 +68,43 @@ export function DetailActionRow({
   )
 }
 
+/** The page's one primary action: a single tinted row, no section label. */
+export function DetailPrimaryRow({
+  label,
+  onPress,
+  testID,
+}: {
+  label: string
+  systemImage?: string
+  onPress: () => void
+  testID?: string
+}) {
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      testID={testID}
+      style={({ pressed }) => [styles.group, styles.primaryRow, pressed && styles.pressed]}
+    >
+      <Text style={[styles.actionText, styles.primaryText]}>{label}</Text>
+    </PressableScale>
+  )
+}
+
 const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 32, gap: 24 },
   reference: { gap: 16 },
   group: { backgroundColor: color.groupedCard, borderRadius: 12, overflow: 'hidden' },
   action: { minHeight: 44, paddingHorizontal: 16, paddingVertical: 12, justifyContent: 'center' },
   primary: { backgroundColor: color.accent },
+  primaryRow: {
+    minHeight: 44,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: color.accent,
+  },
   actionText: { ...sans(400), fontSize: font.body, color: color.accentTint },
   primaryText: { ...sans(600), color: color.onAccent },
   pressed: { opacity: 0.65 },

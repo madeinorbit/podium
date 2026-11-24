@@ -1,15 +1,13 @@
 import { Host } from '@expo/ui'
-import { Button, HStack, Spacer, Text } from '@expo/ui/swift-ui'
+import { Button } from '@expo/ui/swift-ui'
 import {
   accessibilityAddTraits,
-  accessibilityHint,
   accessibilityIdentifier,
   accessibilityLabel,
   accessibilityValue,
   buttonStyle,
   fixedSize,
   font,
-  foregroundStyle,
   frame,
   tint,
 } from '@expo/ui/swift-ui/modifiers'
@@ -17,9 +15,11 @@ import type { FullDeck } from '@podium/client-graph/mission-full-deck'
 import { settled } from '@podium/client-graph/mission-view'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { observer } from 'mobx-react-lite'
-import { color } from '../theme/theme'
+import { Pressable, StyleSheet, Text } from 'react-native'
+import { color, leading, sans, font as type } from '../theme/theme'
 import { deckColor } from './deck-colors'
-import { DeckGroup } from './MissionDeckList'
+import { DeckContent } from './MissionDeckList'
+import { doneHiddenLabel } from './mission-deck-done-label'
 
 /** Filled when done work is shown; outlined when hidden, with native toggle traits. */
 export const DoneToggle = observer(function DoneToggle({ full }: { full: FullDeck }) {
@@ -45,46 +45,46 @@ export const DoneToggle = observer(function DoneToggle({ full }: { full: FullDec
   )
 })
 
-/** The desktop done line supplies the count, including work in folded phases. */
+/**
+ * The quiet line at the END of the deck while done work is hidden, as Reminders
+ * shows "N Completed": footnote text on the grouped ground, never a card. The
+ * Show Done toggle at the top stays the control; this only says what is hidden.
+ * The desktop done line supplies the count, including work in folded phases.
+ */
 export const DoneHidden = observer(function DoneHidden({ full }: { full: FullDeck }) {
   const done = settled(() => (full.ready ? full.phoneDoneLine : null))
   if (!done || done === LOADING) return null
-  const label = done.tasks
-    ? `${done.tasks} done hidden`
-    : `${done.phases} ${done.phases === 1 ? 'phase' : 'phases'} hidden`
+  const label = doneHiddenLabel(done)
   return (
-    <DeckGroup testID="deck-done-footer">
-      <Button
+    <DeckContent>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${label}, hidden`}
+        accessibilityHint="Shows done tasks and completed phases"
+        testID="deck-done-hidden"
         onPress={() => full.setShowDone(true)}
-        modifiers={[
-          buttonStyle('borderless'),
-          tint(deckColor.live),
-          accessibilityIdentifier('deck-done-hidden'),
-          accessibilityLabel(label),
-          accessibilityHint('Show done tasks and completed phases'),
-        ]}
+        style={({ pressed }) => [styles.footer, pressed && styles.pressed]}
       >
-        <HStack spacing={12} modifiers={[frame({ minHeight: 44 })]}>
-          <Text
-            modifiers={[
-              font({ textStyle: 'subheadline' }),
-              foregroundStyle(color.textDim),
-              fixedSize({ horizontal: false, vertical: true }),
-            ]}
-          >
-            {label}
-          </Text>
-          <Spacer />
-          <Text
-            modifiers={[
-              font({ textStyle: 'subheadline' }),
-              fixedSize({ horizontal: false, vertical: true }),
-            ]}
-          >
-            Show
-          </Text>
-        </HStack>
-      </Button>
-    </DeckGroup>
+        <Text style={styles.label}>
+          {label}
+          <Text style={styles.separator}>{'  ·  '}</Text>
+          <Text style={styles.show}>Show</Text>
+        </Text>
+      </Pressable>
+    </DeckContent>
   )
+})
+
+const styles = StyleSheet.create({
+  // The inset-grouped footer position: under the cards, aligned with row text.
+  footer: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 24, minHeight: 44 },
+  pressed: { opacity: 0.5 },
+  label: {
+    ...sans(400),
+    fontSize: type.tiny,
+    lineHeight: leading(type.tiny),
+    color: color.textDim,
+  },
+  separator: { color: color.textFaint },
+  show: { color: deckColor.live },
 })

@@ -152,7 +152,7 @@ it('shows the native toggle state and reveals hidden work through the footer', a
   expect(screen.queryByTestId('task-done')).toBeNull()
   expect(screen.getByTestId('task-todo')).toBeTruthy()
   const footer = screen.getByTestId('deck-done-hidden')
-  expect(footer.getAttribute('aria-label')).toBe('1 done hidden')
+  expect(footer.getAttribute('aria-label')).toBe('1 Completed, hidden')
   await act(async () => fireEvent.click(footer))
   expect(toggle.dataset.symbol).toBe('checkmark.circle.fill')
   expect(screen.getByTestId('task-done')).toBeTruthy()
@@ -183,5 +183,5 @@ it('respects Reduce Motion while retaining both toggle directions', async () => 
 it('names a completed empty phase when there are no done task leaves', async () => {
   await mount(false, true)
   await act(async () => fireEvent.click(screen.getByTestId('deck-filter-done')))
-  expect(screen.getByTestId('deck-done-hidden').getAttribute('aria-label')).toBe('1 phase hidden')
+  expect(screen.getByTestId('deck-done-hidden').getAttribute('aria-label')).toBe('1 Phase Completed, hidden')
 })

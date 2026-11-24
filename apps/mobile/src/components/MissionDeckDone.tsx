@@ -8,6 +8,7 @@ import { deckColor } from './deck-colors'
 import { Icon } from './Icon'
 import { CheckCircle2, Circle } from './icons'
 import { DeckGroup } from './MissionDeckList'
+import { doneHiddenLabel } from './mission-deck-done-label'
 
 /** Both controls write the same FullDeck state used by desktop. */
 export const DoneToggle = observer(function DoneToggle({ full }: { full: FullDeck }) {
@@ -29,9 +30,7 @@ export const DoneToggle = observer(function DoneToggle({ full }: { full: FullDec
 export const DoneHidden = observer(function DoneHidden({ full }: { full: FullDeck }) {
   const done = settled(() => (full.ready ? full.phoneDoneLine : null))
   if (!done || done === LOADING) return null
-  const label = done.tasks
-    ? `${done.tasks} done hidden`
-    : `${done.phases} ${done.phases === 1 ? 'phase' : 'phases'} hidden`
+  const label = doneHiddenLabel(done)
   return (
     <DeckGroup testID="deck-done-footer">
       <Pressable

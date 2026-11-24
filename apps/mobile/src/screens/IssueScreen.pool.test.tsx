@@ -614,7 +614,7 @@ it('keeps parent target order literal and row reads bounded by its visible choic
     fireEvent.click(screen.getByRole('button', { name: 'Open task' }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Details' })).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Details' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Set parent' })).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Parent, None' })).toBeTruthy())
     const row = state.pool!.row.bind(state.pool!)
     const spy = vi.spyOn(state.pool!, 'row').mockImplementation(((
       ...args: Parameters<MobxPool['row']>
@@ -626,7 +626,7 @@ it('keeps parent target order literal and row reads bounded by its visible choic
     census.enter('open parent targets')
     state.measuring = true
     try {
-      fireEvent.click(screen.getByRole('button', { name: 'Set parent' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Parent, None' }))
       await waitFor(() => expect(screen.getByLabelText('Search parent')).toBeTruthy())
       const choices = screen.getAllByRole('button', { name: /^POD-\d+ Historical task / })
       expect(choices).toHaveLength(14)

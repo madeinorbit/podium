@@ -221,7 +221,6 @@ export const MissionDeck = observer(function MissionDeck({
           onAction={rowActions.onAction}
           onStatus={rowActions.onStatus}
         />
-        {acceptedTree?.filterable ? <DoneHidden full={full} /> : null}
       </DeckTasks>
 
       {full.ready && rowIds.length === 0 && acceptedTree?.filterable && full.filter !== 'all' ? (
@@ -307,6 +306,8 @@ export const MissionDeck = observer(function MissionDeck({
             ))
           : null}
       </DeckProposals>
+      {/* What Show Done would add, said once at the end of the list (POD-2666). */}
+      {acceptedTree?.filterable ? <DoneHidden full={full} /> : null}
     </MissionDeckList>
   )
 })

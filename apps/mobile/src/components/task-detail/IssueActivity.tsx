@@ -86,6 +86,7 @@ export const MailSection = observer(function MailSection({
 export const IssueActivitySection = observer(function IssueActivitySection({
   feed,
   history,
+  headless = false,
 }: {
   issue: IssueWithBodies
   busy: boolean
@@ -93,11 +94,20 @@ export const IssueActivitySection = observer(function IssueActivitySection({
   feed: ActivityItem[] | typeof LOADING
   revision?: number
   history?: IssueHistoryView
+  /** Inside the page's Activity fold: no second heading, no card of its own;
+   *  the rows nest under the fold's header (POD-2666). */
+  headless?: boolean
 }) {
   if (feed === LOADING)
     return (
       <View testID="issue-activity" accessibilityState={{ busy: true }} aria-busy>
-        <GroupHeading label="Activity" />
+        {headless ? (
+          <View style={styles.nested}>
+            <Text style={styles.emptyInCard}>Loading activity…</Text>
+          </View>
+        ) : (
+          <GroupHeading label="Activity" />
+        )}
       </View>
     )
   // The board's activity list: newest first, one line per entry, in one card.
@@ -108,17 +118,18 @@ export const IssueActivitySection = observer(function IssueActivitySection({
   const entries = groupActivityFeed(feed, Date.now())
     .flatMap((day) => day.entries)
     .reverse()
+  const card = headless ? styles.nested : styles.card
   return (
     <View testID="issue-activity">
-      <GroupHeading label="Activity" />
+      {headless ? null : <GroupHeading label="Activity" />}
       {entries.length === 0 && !history?.hasEarlier && !history?.error ? (
-        <View style={styles.card}>
+        <View style={card}>
           <Text style={styles.emptyInCard}>
             Nothing has happened on this task yet. Comments and state changes land here.
           </Text>
         </View>
       ) : (
-        <View style={styles.card} testID="activity-feed">
+        <View style={card} testID="activity-feed">
           {entries.map((entry, index) => (
             <EntryRow key={entry.id} entry={entry} first={index === 0} />
           ))}
@@ -343,6 +354,12 @@ function Row({
 }
 
 const styles = StyleSheet.create({
+  // In the fold: indented under its header with a hairline above, like Details.
+  nested: {
+    marginLeft: space.lg,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: color.hairline,
+  },
   card: {
     borderCurve: 'continuous',
     borderRadius: 8,
