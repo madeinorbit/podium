@@ -891,6 +891,7 @@ export class SessionLifecycle {
       reapParked?: boolean
       stopReason?: 'self' | 'parent' | 'forced'
       principal?: CommandPrincipal
+      keepWorktree?: boolean
     },
     issues: SessionIssueWorkflowPort,
   ): Promise<{

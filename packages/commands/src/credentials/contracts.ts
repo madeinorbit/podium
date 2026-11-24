@@ -313,7 +313,8 @@ export const credentialsUnshareContract = {
     resource: 'secret',
     confirmation: 'none',
     rationale:
-      'Takes a grant back; the next launch or call by that person is refused. Owner or `manage`.',
+      'Takes a grant back; the next launch or call by that person is refused, and a session ' +
+      'of theirs running on it stops at its next turn boundary. Owner or `manage`.',
   },
   redaction: NO_SECRET,
   ownership: NO_NEW_ROWS('Deletes grant edges of an existing credential.'),
@@ -350,7 +351,8 @@ export const credentialsDisallowMachineContract = {
     resource: 'secret',
     confirmation: 'none',
     rationale:
-      'Takes an allowed machine back; the next launch there is refused. Owner or `manage`.',
+      'Takes an allowed machine back; the next launch there is refused, and a session running ' +
+      'on it there stops at its next turn boundary. Owner or `manage`.',
   },
   redaction: NO_SECRET,
   ownership: NO_NEW_ROWS('Deletes one allowed machine of an existing credential.'),

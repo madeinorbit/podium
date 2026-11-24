@@ -87,6 +87,21 @@ export interface SessionLifecycleDeps {
   bus: EventBus
   /** Lazy source-message re-authorization; resolved on every inbox drain. */
   authorizeQueuedMessage?(messageId: string): Promise<import('./inbox').InboxAuthorizationDecision>
+  /**
+   * A bound process's credential was refused when judged again (POD-7591):
+   * credential health flags and stops the session at its next turn boundary
+   * when the refusal withdraws its right.
+   */
+  credentialAccessRefused?(
+    sessionId: SessionId,
+    credentialId: import('@podium/model').CredentialId,
+    refusal: import('@podium/model').AccessRefusal,
+  ): Promise<void>
+  /**
+   * Why a session takes no input now: a stop for a withdrawn or removed
+   * credential waits for its turn boundary (POD-7591). Undefined: it takes input.
+   */
+  credentialInputHold?(sessionId: SessionId): string | undefined
   /** Dead-letter the durable source intent after a drain-time refusal or a
    *  daemon failure; `cause` names why when the daemon said (POD-4775). */
   rejectQueuedMessage?(

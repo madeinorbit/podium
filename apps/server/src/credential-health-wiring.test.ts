@@ -39,7 +39,7 @@ describe('the bound session port inside a credential command', () => {
   it('flags a session on a removed credential: one ask on the session, naming it', async () => {
     const health = f.handle.registry.modules.credentialHealth
     await withPlainCommand('credentials.remove', async () => {
-      await health.sessions.flagRemoved(f.sessions.alice, CREDENTIAL)
+      await health.sessions.flagWithdrawn(f.sessions.alice, CREDENTIAL, 'revoked', 'now')
     })
     const open = await f.handle.registry.sessionStore.interactions.listOpen(f.sessions.alice)
     const flags = open.filter((row) => JSON.stringify(row).includes('Work key'))

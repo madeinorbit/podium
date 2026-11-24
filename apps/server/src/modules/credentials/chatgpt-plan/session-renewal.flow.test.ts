@@ -147,7 +147,8 @@ async function world() {
         return { ok: true }
       },
       stop: async () => {},
-      flagRemoved: async () => {},
+      flagWithdrawn: async () => {},
+      accessOf: async () => ({ ok: true }),
     },
   })
   const settle = async () => {

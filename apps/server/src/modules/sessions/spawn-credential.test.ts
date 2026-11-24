@@ -29,6 +29,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type DaemonLink, daemonLinkFactsOf } from '../../gateway/daemon-link-kind'
+import { withPlainCommand } from '../../plain-command-scope'
 import { SessionRegistry } from '../../relay'
 import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { resolveTrustedProxyHops } from '../../server'
@@ -40,6 +41,7 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { seedRows } from '../../test-support/seed-rows'
 import { ACCESS_REFUSAL_MESSAGES } from '../credentials/access'
 import type { ChatgptTokenSet } from '../credentials/chatgpt-plan/openai'
+import { CREDENTIAL_COMMANDS_TRPC } from '../credentials/commands'
 import { CREDENTIAL_RESOURCE_KIND, mayUse } from '../credentials/may-use'
 import { sealCredentialSecret } from '../credentials/vault'
 import { CredentialRefusal } from './launch-config'
@@ -1046,6 +1048,199 @@ describe('after the daemon reconnects (Task 5)', () => {
       expect(JSON.stringify(after)).not.toContain(FAKE_A)
       expect(await audit('credentials.deliver')).toHaveLength(0)
       expect((await audit('credentials.refuse')).length).toBeGreaterThan(0)
+    })
+  })
+
+  // POD-7591: a refusal for a process that still runs stops it; it does not
+  // carry on with the secret it already holds.
+  describe('a running session whose credential is withdrawn', () => {
+    const BOB = asUserId('user:spawn-credential-withdrawn-bob')
+    const stopRequests = (frames: ControlMessage[], sessionId: SessionId) =>
+      frames.filter(
+        (m) =>
+          m.type === 'runtimeLifecycleRequest' && m.sessionId === sessionId && m.verb === 'stop',
+      )
+    const refuses = async (store: SessionStore, sessionId: SessionId) =>
+      (await store.settingsAudit.list(200)).filter(
+        (row) =>
+          row.command === 'credentials.refuse' &&
+          (row.detail as { sessionId?: string } | null)?.sessionId === sessionId,
+      )
+    const flags = async (store: SessionStore, sessionId: SessionId, label: string) =>
+      (await store.interactions.listOpen(sessionId)).filter((row) =>
+        JSON.stringify(row).includes(label),
+      )
+    const statusOf = async (store: SessionStore, sessionId: SessionId) =>
+      (await store.sessions.getSession(sessionId))?.status
+
+    it('a survivor revoked while its daemon was away is stopped when it binds again', async () => {
+      const store = await openTestStore(':memory:')
+      const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
+      const { reg } = await makeRegistry(store)
+      const host = store.hostMachine!.id
+      const keyed = await liveSession(reg, id)
+      await store.credentials.setStatus(id, 'revoked')
+      const after = await reconnect(reg)
+      // The reattach still goes out, so the daemon binds what survives; no secret does.
+      expect(indexOf(after, 'reattach', keyed)).toBeGreaterThanOrEqual(0)
+      expect(indexOf(after, 'sessionAccessRefresh', keyed)).toBe(-1)
+      expect(stopRequests(after, keyed)).toHaveLength(0)
+      await reg.gateway.routeDaemonFrame(host, {
+        type: 'bind',
+        sessionId: keyed,
+        cmd: 'claude',
+        cwd: '/p',
+        agentKind: 'claude-code',
+        geometry: { cols: 80, rows: 24 },
+      })
+      // Between turns: it stops now, flagged with the reason, the worktree untouched.
+      expect(stopRequests(after, keyed)).toHaveLength(1)
+      expect(await statusOf(store, keyed)).not.toBe('live')
+      expect(await flags(store, keyed, 'anthropic.api-key')).toHaveLength(1)
+      expect(await refuses(store, keyed)).toHaveLength(1)
+      expect(JSON.stringify(after)).not.toContain(FAKE_A)
+    })
+
+    it('an exited PTY revoked after its probe is stopped at its bind, refused once (review N2)', async () => {
+      const store = await openTestStore(':memory:')
+      const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
+      const { reg } = await makeRegistry(store)
+      const host = store.hostMachine!.id
+      const bindFrame = {
+        type: 'bind' as const,
+        cmd: 'claude',
+        cwd: '/p',
+        agentKind: 'claude-code' as const,
+        geometry: { cols: 80, rows: 24 },
+        driverId: 'generic-pty',
+      }
+      const { sessionId } = await reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/p',
+        credentialId: id,
+      })
+      await reg.gateway.routeDaemonFrame(host, { ...bindFrame, sessionId })
+      await reg.gateway.routeDaemonFrame(host, { type: 'agentExit', sessionId, code: 0 })
+      const after = await reconnect(reg)
+      expect(indexOf(after, 'reattach', sessionId)).toBeGreaterThanOrEqual(0)
+      await store.credentials.setStatus(id, 'revoked')
+      await reg.gateway.routeDaemonFrame(host, { ...bindFrame, sessionId })
+      await reg.gateway.routeDaemonFrame(host, { ...bindFrame, sessionId })
+      expect(after.filter((m) => m.type === 'sessionAccessRefresh')).toHaveLength(0)
+      expect(stopRequests(after, sessionId).length).toBeGreaterThanOrEqual(1)
+      expect(await refuses(store, sessionId)).toHaveLength(1)
+      expect(JSON.stringify(after)).not.toContain(FAKE_A)
+    })
+
+    /** Alice (first admin, custodian of the host) and Bob, a member, on one registry. */
+    async function twoMembers() {
+      const store = await openTestStore(':memory:')
+      const alice = await firstAdminMemberId(store)
+      await memberFacts(store).create(
+        {
+          id: BOB,
+          displayName: 'Bob',
+          email: null,
+          role: 'member',
+          createdAt: AT,
+          disabledAt: null,
+        },
+        'not-a-real-hash',
+      )
+      const { reg, daemon } = await makeRegistry(store)
+      const host = store.hostMachine!.id
+      const as = (callerUserId: UserId) =>
+        ({ store, callerUserId, health: reg.modules.credentialHealth }) as const
+      const sessionOf = async (ownerUserId: UserId, credentialId: CredentialId) => {
+        const { sessionId } = await reg.modules.sessions.createSession({
+          agentKind: 'claude-code',
+          cwd: '/p',
+          credentialId,
+          ownerUserId,
+        })
+        await reg.gateway.routeDaemonFrame(host, {
+          type: 'bind',
+          sessionId,
+          cmd: 'claude',
+          cwd: '/p',
+          agentKind: 'claude-code',
+          geometry: { cols: 80, rows: 24 },
+        })
+        return sessionId
+      }
+      const phase = async (sessionId: SessionId, next: 'working' | 'idle', since: string) =>
+        await reg.gateway.routeDaemonFrame(host, {
+          type: 'agentState',
+          sessionId,
+          state: { phase: next, since, nativeSubagentCount: 0 },
+        })
+      const bobsSession = (credentialId: CredentialId) => sessionOf(BOB, credentialId)
+      const alicesSession = (credentialId: CredentialId) => sessionOf(alice, credentialId)
+      return { store, alice, reg, daemon, host, as, bobsSession, alicesSession, phase }
+    }
+
+    it('unshare stops a member session on the grant at once, a running turn cut', async () => {
+      const { store, alice, daemon, as, bobsSession, alicesSession, phase } = await twoMembers()
+      const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
+      await withPlainCommand('credentials.share', async () => {
+        await CREDENTIAL_COMMANDS_TRPC.share.handler(as(alice), {
+          credentialId: id,
+          grantee: { userId: BOB },
+          verb: 'use',
+          acknowledgeDisclosure: true,
+        })
+      })
+      const idle = await bobsSession(id)
+      const busy = await bobsSession(id)
+      await phase(busy, 'working', '2999-01-01T00:00:00.000Z')
+      // Alice's own session on her key is not touched.
+      const alices = await alicesSession(id)
+      await withPlainCommand('credentials.unshare', async () => {
+        await CREDENTIAL_COMMANDS_TRPC.unshare.handler(as(alice), {
+          credentialId: id,
+          grantee: { userId: BOB },
+          verb: 'use',
+        })
+      })
+      for (const sessionId of [idle, busy]) {
+        expect(stopRequests(daemon, sessionId)).toHaveLength(1)
+        expect(await statusOf(store, sessionId)).not.toBe('live')
+        expect(await flags(store, sessionId, 'anthropic.api-key')).toHaveLength(1)
+        expect(await refuses(store, sessionId)).toHaveLength(1)
+      }
+      expect(stopRequests(daemon, alices)).toHaveLength(0)
+      expect(await statusOf(store, alices)).toBe('live')
+    })
+
+    it('a machine withdrawn lets the running turn end, takes no input meanwhile, then stops', async () => {
+      const { store, reg, daemon, host, as, bobsSession, phase } = await twoMembers()
+      // Bob's own key, sent by him to a machine Alice looks after.
+      const id = await credential(store, {
+        type: 'anthropic.api-key',
+        secret: FAKE_B,
+        owner: BOB,
+      })
+      await store.credentials.allowMachine(id, host, BOB)
+      const busy = await bobsSession(id)
+      await phase(busy, 'working', '2999-01-01T00:00:00.000Z')
+      await withPlainCommand('credentials.disallowMachine', async () => {
+        await CREDENTIAL_COMMANDS_TRPC.disallowMachine.handler(as(BOB), {
+          credentialId: id,
+          machineId: host,
+        })
+      })
+      expect(await flags(store, busy, 'anthropic.api-key')).toHaveLength(1)
+      expect(stopRequests(daemon, busy)).toHaveLength(0)
+      expect(reg.modules.credentialHealth.holdsInput(busy)).toBe(true)
+      const input = await reg.modules.sessions.authorizeQueuedInputAtApply({
+        sessionId: busy,
+        principal: { kind: 'system' } as never,
+        sourceMessageId: null,
+      })
+      expect(input).toEqual({ ok: false, reason: expect.stringContaining('credential') })
+      await phase(busy, 'idle', '2999-01-01T00:00:01.000Z')
+      await vi.waitFor(() => expect(stopRequests(daemon, busy)).toHaveLength(1))
+      expect(reg.modules.credentialHealth.holdsInput(busy)).toBe(false)
     })
   })
 

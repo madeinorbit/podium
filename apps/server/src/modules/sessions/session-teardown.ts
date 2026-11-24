@@ -361,6 +361,13 @@ export class SessionTeardown {
        * jobs) — those fall back to `systemPrincipal('stop')`.
        */
       principal?: CommandPrincipal
+      /**
+       * End the process and park the row, and leave the worktree as it is: no
+       * unsaved-work guard, because nothing is freed or discarded. A stop the
+       * server makes for a withdrawn credential (POD-7591) must not be refused
+       * by a dirty tree, nor free an issue's worktree.
+       */
+      keepWorktree?: boolean
     },
     issues: SessionIssueWorkflowPort,
   ): Promise<{
@@ -386,7 +393,9 @@ export class SessionTeardown {
       },
       session,
     )
-    const issueId = ownerIssueId ?? (await this.ports.issueAccess.issueForCwd(session.cwd))
+    const issueId = input.keepWorktree
+      ? undefined
+      : (ownerIssueId ?? (await this.ports.issueAccess.issueForCwd(session.cwd)))
     const issue = issueId ? await this.ports.issueAccess.getMeta(issueId) : undefined
     const worktreePath = issue?.worktreePath ?? null
 

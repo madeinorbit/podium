@@ -20,7 +20,7 @@
  *  - REMOVE EVERYWHERE: the secrets go, the record becomes `revoked`, each
  *    placement is removed (or stays `removal-pending` until its machine
  *    confirms), and each session still running on it is flagged and stopped at
- *    its next turn boundary.
+ *    once, its turn cut (POD-7591; before, at its next turn boundary).
  *
  * It reaches sessions, notices and machines only through the ports below, which
  * the composition root binds; a port left out does nothing, so a hand-built
@@ -30,7 +30,17 @@
  * intent, not a copy of a table: if the server restarts first it is lost, and the
  * session keeps its old process until it is revived (when it gets the new secret).
  * A stop after removal is not lost: every turn boundary of a session also checks
- * whether its credential was removed.
+ * whether its credential was removed. A stop after a withdrawn grant or machine
+ * (POD-7591) is: but a restarted server probes every survivor again when its
+ * daemon reattaches, with a refresh that the resolver refuses, and that refusal
+ * stops it.
+ *
+ *  - WITHDRAWN: a grant that ends or a machine withdrawn re-judges each running
+ *    session on the credential; a refresh refused for a running process does the
+ *    same. A withdrawal (`WITHDRAWS_ACCESS`) flags and stops it: at once, its
+ *    turn cut, when the credential is gone or its grant was taken back
+ *    (`STOPS_AT_ONCE`); otherwise at its next turn boundary. Until the stop has
+ *    run, no queued input reaches it.
  */
 
 import { createLogger, describeError } from '@podium/logger'
@@ -45,6 +55,7 @@ import {
 } from '@podium/model'
 import type { SessionStore } from '../../store'
 import type { CredentialRecord } from '../../store/credentials'
+import { type AccessRefusal, STOPS_AT_ONCE, WITHDRAWS_ACCESS } from './access'
 import { recordCredentialEvent } from './events'
 import { CREDENTIAL_RESOURCE_KIND } from './may-use'
 import type { Placements } from './placements'
@@ -114,8 +125,24 @@ export interface CredentialSessionPort {
   /** Stop the harness and start it again with resume, under the same session. */
   restartWithResume(sessionId: SessionId): Promise<{ ok: boolean; reason?: string }>
   stop(sessionId: SessionId): Promise<void>
-  /** Tell the people watching the session that its credential was removed. */
-  flagRemoved(sessionId: SessionId, credential: { id: CredentialId; label: string }): Promise<void>
+  /**
+   * Tell the people watching the session that it may no longer use its
+   * credential: `revoked` when it was removed, otherwise the withdrawal the
+   * resolver refused with (POD-7591). `stops` says whether it stops now, its
+   * turn cut, or at the end of its current turn.
+   */
+  flagWithdrawn(
+    sessionId: SessionId,
+    credential: { id: CredentialId; label: string },
+    refusal: AccessRefusal,
+    stops: 'now' | 'at-turn-end',
+  ): Promise<void>
+  /**
+   * Judge a running session's credential again for its owner and machine, as a
+   * launch would: no secret is read and nothing is delivered. A refusal is
+   * recorded on the trail by the resolver.
+   */
+  accessOf(sessionId: SessionId): Promise<{ ok: true } | { ok: false; refusal: AccessRefusal }>
 }
 
 export const NO_SESSIONS: CredentialSessionPort = {
@@ -123,7 +150,8 @@ export const NO_SESSIONS: CredentialSessionPort = {
   standing: async () => 'not-running',
   restartWithResume: async () => ({ ok: false, reason: 'no session runtime' }),
   stop: async () => {},
-  flagRemoved: async () => {},
+  flagWithdrawn: async () => {},
+  accessOf: async () => ({ ok: true }),
 }
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
@@ -330,6 +358,12 @@ export class CredentialHealth {
   placements: Pick<Placements, 'removePlacement'> | undefined
   /** Restarts and stops waiting for a session's next turn boundary. */
   private readonly pending = new Map<SessionId, PendingAction>()
+  /**
+   * Sessions that take no input until their credential stop has run (POD-7591):
+   * from the flag until the stop succeeds or the session is found not running.
+   * Kept through a failed stop, which is tried again at the next turn boundary.
+   */
+  private readonly holding = new Set<SessionId>()
 
   constructor(deps: CredentialHealthDeps) {
     this.store = deps.store
@@ -458,7 +492,7 @@ export class CredentialHealth {
   /**
    * Remove everywhere (§8): secrets deleted and the record `revoked`, its grants
    * gone, every placement removed or left `removal-pending`, every running
-   * session flagged and stopped at its next turn boundary, and the event.
+   * session flagged and stopped at once, its turn cut (POD-7591), and the event.
    */
   async removeEverywhere(credentialId: CredentialId, actorUserId: UserId): Promise<void> {
     const record = await this.store.credentials.get(credentialId)
@@ -482,8 +516,53 @@ export class CredentialHealth {
       }
     }
     for (const sessionId of await this.sessions.liveSessionIds(credentialId)) {
-      await this.flagAndStop(sessionId, record)
+      await this.flagAndStop(sessionId, record, 'revoked')
     }
+  }
+
+  /**
+   * A grant on the credential ended or a machine was withdrawn from it
+   * (`credentials.unshare`, `credentials.disallowMachine`), POD-7591. Each
+   * session running on it is judged again; one the resolver now refuses with a
+   * withdrawal is flagged and stopped: at once when the grant was taken back,
+   * at its next turn boundary when a machine was withdrawn.
+   * A session that does not run holds no secret: its next revival is judged
+   * then.
+   */
+  async afterWithdraw(record: Pick<CredentialRecord, 'id' | 'label'>): Promise<void> {
+    for (const sessionId of await this.sessions.liveSessionIds(record.id)) {
+      try {
+        if ((await this.sessions.standing(sessionId)) === 'not-running') continue
+        const access = await this.sessions.accessOf(sessionId)
+        if (access.ok || !WITHDRAWS_ACCESS.has(access.refusal)) continue
+        await this.flagAndStop(sessionId, record, access.refusal)
+      } catch (err) {
+        log.warn('could not judge a running session after its access was withdrawn', {
+          err,
+          sessionId,
+        })
+      }
+    }
+  }
+
+  /**
+   * A running session's credential was refused when it was judged again (a
+   * refresh to a daemon that reattached it, POD-7591). A withdrawal flags it and
+   * stops it, at once or at its next turn boundary by the refusal; any other
+   * refusal leaves the process alone.
+   */
+  async accessWithdrawn(
+    sessionId: SessionId,
+    credentialId: CredentialId,
+    refusal: AccessRefusal,
+  ): Promise<void> {
+    if (!WITHDRAWS_ACCESS.has(refusal)) return
+    const record = await this.store.credentials.get(credentialId)
+    await this.flagAndStop(
+      sessionId,
+      { id: credentialId, label: record?.label ?? 'its credential' },
+      refusal,
+    )
   }
 
   /** A member was removed: each of their credentials is removed everywhere. */
@@ -558,14 +637,44 @@ export class CredentialHealth {
     return this.pending.get(sessionId)?.kind
   }
 
-  private async flagAndStop(sessionId: SessionId, record: CredentialRecord): Promise<void> {
+  /**
+   * Whether the session must take no input: its credential was withdrawn or
+   * removed and its stop has not run yet (POD-7591). The inbox refuses queued
+   * input to it at drain.
+   */
+  holdsInput(sessionId: SessionId): boolean {
+    return this.holding.has(sessionId)
+  }
+
+  private async flagAndStop(
+    sessionId: SessionId,
+    credential: Pick<CredentialRecord, 'id' | 'label'>,
+    refusal: AccessRefusal,
+  ): Promise<void> {
+    const now = STOPS_AT_ONCE.has(refusal)
     try {
-      await this.sessions.flagRemoved(sessionId, { id: record.id, label: record.label })
+      await this.sessions.flagWithdrawn(
+        sessionId,
+        { id: credential.id, label: credential.label },
+        refusal,
+        now ? 'now' : 'at-turn-end',
+      )
     } catch (err) {
-      log.warn('could not flag a session on a removed credential', { err, sessionId })
+      log.warn('could not flag a session on a withdrawn credential', { err, sessionId })
     }
-    this.pending.set(sessionId, { kind: 'stop', credential: { id: record.id } })
-    await this.actIfBetweenTurns(sessionId)
+    this.pending.set(sessionId, { kind: 'stop', credential: { id: credential.id } })
+    this.holding.add(sessionId)
+    if (!now) {
+      await this.actIfBetweenTurns(sessionId)
+      return
+    }
+    // Removed, or the grant taken back: the turn in flight is cut (POD-7591).
+    if ((await this.sessions.standing(sessionId)) === 'not-running') {
+      this.pending.delete(sessionId)
+      this.holding.delete(sessionId)
+      return
+    }
+    await this.run(sessionId, { kind: 'stop', credential: { id: credential.id } })
   }
 
   private async actIfBetweenTurns(sessionId: SessionId): Promise<void> {
@@ -576,6 +685,7 @@ export class CredentialHealth {
     if (standing === 'not-running') {
       // Nothing holds the old secret; the next revival resolves afresh.
       this.pending.delete(sessionId)
+      this.holding.delete(sessionId)
       return
     }
     await this.run(sessionId, action)
@@ -583,11 +693,19 @@ export class CredentialHealth {
 
   private async run(sessionId: SessionId, action: PendingAction): Promise<void> {
     this.pending.delete(sessionId)
-    try {
-      if (action.kind === 'stop') {
+    if (action.kind === 'stop') {
+      try {
         await this.sessions.stop(sessionId)
-        return
+        this.holding.delete(sessionId)
+      } catch (err) {
+        // Fail closed: the input stays held and the stop is tried again at the
+        // next turn boundary, unless another action took its place meanwhile.
+        log.warn('a session on a withdrawn credential did not stop', { err, sessionId })
+        if (!this.pending.has(sessionId)) this.pending.set(sessionId, action)
       }
+      return
+    }
+    try {
       const restarted = await this.sessions.restartWithResume(sessionId)
       if (!restarted.ok) {
         // A turn began between the check and the stop: wait for its end.

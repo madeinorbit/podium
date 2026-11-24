@@ -126,6 +126,7 @@ import { DeliveredMessageWatch } from './modules/concertmaster/delivered'
 import { makeConcertmasterFeedCapture } from './modules/concertmaster/records'
 import { ConcertmasterService } from './modules/concertmaster/service'
 import { CostService } from './modules/cost/service'
+import { ACCESS_REFUSAL_MESSAGES, resolveSessionAccess } from './modules/credentials/access'
 import type { AttachAccessDeps } from './modules/credentials/attach-access'
 import {
   type ChatgptPlanService,
@@ -2154,6 +2155,9 @@ export class SessionRegistry {
     // A ChatGPT plan's session token (epic Task 15). Late-bound: the keeper and
     // credential health are composed further down.
     let issueSessionToken: AttachAccessDeps['issueToken'] | undefined
+    // Credential health, for what a refused refresh does to a running session
+    // and for the input hold while its stop waits (POD-7591). Late-bound too.
+    let credentialStops: Pick<CredentialHealth, 'accessWithdrawn' | 'holdsInput'> | undefined
     const issueUploads = new LifecyclePort<
       Pick<IssueService['crud'], 'chatUploadBytes' | 'chatUploadOwner'>
     >('session issue uploads')
@@ -2176,6 +2180,13 @@ export class SessionRegistry {
       bus: this.bus,
       daemonLinkKind: (machineId) => this.daemonLinks.daemonLinkKind(machineId),
       authorizeQueuedMessage: (messageId) => queuedMessageApply.authorize(messageId),
+      credentialAccessRefused: async (sessionId, credentialId, refusal) => {
+        await credentialStops?.accessWithdrawn(sessionId, credentialId, refusal)
+      },
+      credentialInputHold: (sessionId) =>
+        credentialStops?.holdsInput(sessionId)
+          ? 'This session may no longer use its credential and is being stopped.'
+          : undefined,
       handOffQueuedMessage: async (writer, messageId, sessionId) =>
         (await queuedApplyHooks.handingOn?.(writer, messageId, sessionId)) ?? true,
       recordSpawnPrompt: async (writer, input) => {
@@ -3090,16 +3101,46 @@ export class SessionRegistry {
         // session write inside is the server's (`asSystemWrite`, below).
         restartWithResume: async (sessionId) =>
           await credentialRestarts.read().restartWithResume(sessionId),
+        // The process ends and the row parks; the worktree stays as it is (a
+        // dirty tree must not refuse this stop, nor a clean one be freed). A stop
+        // that did not happen throws, so the session's input stays held and the
+        // stop is tried again at its next turn boundary (POD-7591).
         stop: async (sessionId) => {
-          await asSystemWrite(async () => await issueSessionLifecycle.stopSession({ sessionId }))
+          const stopped = await asSystemWrite(
+            async () => await issueSessionLifecycle.stopSession({ sessionId, keepWorktree: true }),
+          )
+          if (!stopped.ok) throw new Error(stopped.reason ?? 'the session did not stop')
         },
-        flagRemoved: async (sessionId, credential) => {
+        // Judged as a launch is, from the durable row: no secret is read
+        // (POD-7591). The driver is the one a revival would ask for.
+        accessOf: async (sessionId) => {
+          const row = await this.store.sessions.getSession(sessionId)
+          if (!row?.credentialId || !row.ownerUserId) return { ok: true }
+          const selected = row.selectedDriverId ?? undefined
+          const driverId =
+            row.requestedDriverId ??
+            (selected && driverFamilyForId(selected) === 'server' ? selected : undefined)
+          const access = await resolveSessionAccess(this.store, {
+            harness: row.agentKind as AgentKind,
+            ...(driverId ? { driverId } : {}),
+            credentialId: row.credentialId,
+            actingUserId: row.ownerUserId,
+            machineId: row.machineId,
+            sessionId,
+          })
+          return access.ok ? { ok: true } : { ok: false, refusal: access.refusal }
+        },
+        flagWithdrawn: async (sessionId, credential, refusal, stops) => {
+          const why =
+            refusal === 'revoked'
+              ? `The credential "${credential.label}" this session runs on was removed.`
+              : `This session may no longer use the credential "${credential.label}": ${ACCESS_REFUSAL_MESSAGES[refusal]}`
           const spec = {
             kind: 'recovery' as const,
             payload: {
               v: 1 as const,
               reason: 'unknown' as const,
-              prompt: `The credential "${credential.label}" this session runs on was removed, so the session stops at the end of its current turn. Choose another credential to continue.`,
+              prompt: `${why} ${stops === 'now' ? 'The session was stopped, its current turn cut short; its conversation and worktree are kept.' : 'The session stops at the end of its current turn.'} Choose another credential to continue.`,
               offered: ['abandon' as const],
             },
           }
@@ -3120,6 +3161,7 @@ export class SessionRegistry {
       },
     })
     planHealth.install(credentialHealth)
+    credentialStops = credentialHealth
     this.bus.on('superagent.turnEnded', async (event) => {
       if (event.ok || event.harnessErrorKind !== 'provider-auth' || !event.harness) return
       const session = await sessionsSvc.sessionById(asSessionId(event.podiumSessionId))

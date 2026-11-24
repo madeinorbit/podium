@@ -217,7 +217,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         machineId,
         sessionId: session.sessionId,
       })
-      if (!stored.ok || stored.credentialId === null) return undefined
+      if (!stored.ok) return { refused: stored.refusal, credentialId: null }
+      if (stored.credentialId === null) return undefined
       const resolved = await bag.launchConfig.access({
         harness: session.agentKind,
         ...(session.lifecycleDriverRequest() ? { driverId: session.lifecycleDriverRequest() } : {}),
@@ -227,8 +228,17 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         sessionId: session.sessionId,
         refresh: true,
       })
-      if (!resolved.ok || !resolved.access) return undefined
+      if (!resolved.ok) return { refused: resolved.refusal, credentialId: stored.credentialId }
+      if (!resolved.access) return undefined
       return { type: 'sessionAccessRefresh', sessionId: session.sessionId, access: resolved.access }
+    },
+    // A bound process whose credential was refused (POD-7591): credential
+    // health flags and stops it at its next turn boundary when the refusal
+    // withdraws its right. A legacy account that resolved to no Podium
+    // credential holds no Podium secret, so nothing is stopped for it.
+    accessRefused: async (session, refused) => {
+      if (refused.credentialId === null) return
+      await deps.credentialAccessRefused?.(session.sessionId, refused.credentialId, refused.refused)
     },
     parkedOn: async (machineId) =>
       (await bag.records.onMachine(machineId, 'machineReconciler')).filter(
