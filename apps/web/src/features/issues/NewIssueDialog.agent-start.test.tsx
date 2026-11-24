@@ -321,7 +321,9 @@ describe('NewIssueDialog start-work band', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))
     expect(await screen.findByRole('menuitem', { name: 'Auto' })).toBeTruthy()
     expect(screen.getAllByRole('menuitem')).toHaveLength(1)
-    expect(screen.getByText(/has not reported its models/)).toBeTruthy()
+    expect(
+      screen.getByText('The model list is unavailable. Use Auto to let the agent choose a model.'),
+    ).toBeTruthy()
   })
 
   it('scopes the header to repo and stage — branch, type, labels and assignee are gone', async () => {

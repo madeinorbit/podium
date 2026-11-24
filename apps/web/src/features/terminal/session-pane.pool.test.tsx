@@ -26,9 +26,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueReferenceSource } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
-import {
-  SESSION_PANE_ENTITIES,
-} from '@podium/client-graph/session-pane-schema'
+import { SESSION_PANE_ENTITIES } from '@podium/client-graph/session-pane-schema'
 import { SessionPaneSource } from '@podium/client-graph/session-pane-source'
 import { sessionPaneView } from '@podium/client-graph/session-pane-view'
 import { asIssueId, asRepoId } from '@podium/model/browser'
@@ -472,6 +470,12 @@ it('keeps native reference underlines equal and live without legacy issue reads 
     f.pool!.hydrate()
     expect(stages).toEqual(['in_progress', 'in_progress', 'review', null, null, null, null, null])
   })
+  // POD-7532 replaced the provisional Auto explanation (126 bytes) with
+  // actionable model readout help (151 bytes). Only its accessible label grew;
+  // the native reference stages above and the live updates below stay pinned.
+  expect(actual.getByTestId('session-model').getAttribute('aria-label')).toBe(
+    'Auto. The agent chooses which model generates its replies. Model changes are not available yet; you can choose a model in the new-task box for a new session.',
+  )
   expectPoolOutput({ ...view(actual.container), stages }, 'reference underlines')
   expect(readRuntimeStoreStats(f.owner)?.slices['sessionPane.referenceIssues'] ?? 0).toBe(0)
 

@@ -420,19 +420,36 @@ describe('machine presence and service states', () => {
   })
 
   it.each([
-    'inventory pending',
-    '2 quarantined',
-    'retrying handshake',
-  ])('keeps recovery reason %s distinct from online', (reason) => {
+    { reason: 'inventory pending', label: 'inventory pending' },
+    // Older daemons repeated the diagnostic count in the recovery reason.
+    { reason: '2 quarantined', label: 'recovering bindings' },
+    { reason: 'retrying handshake', label: 'retrying handshake' },
+  ])('keeps recovery reason $reason distinct from online', ({ reason, label }) => {
     client()
     state.machines = [
       machine({ daemonReadiness: { state: 'recovering', reason, quarantinedBindings: 2 } }),
     ]
     render()
-    expect(screen.getByText(`Not ready · ${reason}`)).toBeTruthy()
+    expect(screen.getByText(`Not ready · ${label}`)).toBeTruthy()
     expect(screen.queryByText('Online')).toBeNull()
     open()
     expect(detail().getByText('2 quarantined')).toBeTruthy()
+    expect(detail().queryByText(/Restart Podium on this machine/)).toBeNull()
+  })
+
+  it.each([
+    '',
+    '2 quarantined',
+  ])('keeps a ready machine online with one quarantine diagnostic (reason: %s)', (reason) => {
+    client()
+    state.machines = [
+      machine({ daemonReadiness: { state: 'ready', reason, quarantinedBindings: 2 } }),
+    ]
+    render()
+    expect(within(machineRow()).getByText('Online')).toBeTruthy()
+    expect(screen.queryByText(/Not ready/)).toBeNull()
+    open()
+    expect(detail().getAllByText('2 quarantined')).toHaveLength(1)
     expect(detail().queryByText(/Restart Podium on this machine/)).toBeNull()
   })
 })

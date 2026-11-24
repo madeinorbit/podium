@@ -118,23 +118,53 @@ describe('the pwa-register wrapper', () => {
     )
   })
 
-  it('visibly pauses a library reload when an editor cannot be preserved', async () => {
+  it('pauses a hidden library reload without a toast when an editor cannot be preserved', async () => {
     const detach = registerReloadGuard(() => 'Save or discard the unsaved file before reloading.')
     useRegisterSW()
     try {
       captured.current?.onNeedReload?.()
       await vi.waitFor(() =>
-        expect(toast.error).toHaveBeenCalledWith(
-          'Save or discard the unsaved file before reloading.',
-        ),
+        expect(messages()).toContain('reload paused to preserve local changes'),
       )
       expect(navigateReload).not.toHaveBeenCalled()
+      expect(toast.error).not.toHaveBeenCalled()
     } finally {
       detach()
     }
     captured.current?.onNeedReload?.()
     await withReloadPreparation(vi.fn())
     expect(navigateReload).toHaveBeenCalledOnce()
+  })
+
+  it('keeps an editor guard across a held reload and retries after saving on the next hide', async () => {
+    visibility = 'visible'
+    let unsaved = true
+    const detach = registerReloadGuard(() => (unsaved ? 'Save the unsaved file.' : undefined))
+    useRegisterSW()
+    try {
+      captured.current?.onNeedReload?.()
+      expect(messages()).toContain(
+        'a new build took control; the reload waits until this page is hidden',
+      )
+      expect(navigateReload).not.toHaveBeenCalled()
+
+      visibility = 'hidden'
+      document.dispatchEvent(new Event('visibilitychange'))
+      await vi.waitFor(() =>
+        expect(messages()).toContain('reload paused to preserve local changes'),
+      )
+      expect(navigateReload).not.toHaveBeenCalled()
+      expect(toast.error).not.toHaveBeenCalled()
+
+      visibility = 'visible'
+      document.dispatchEvent(new Event('visibilitychange'))
+      unsaved = false
+      visibility = 'hidden'
+      document.dispatchEvent(new Event('visibilitychange'))
+      await vi.waitFor(() => expect(navigateReload).toHaveBeenCalledOnce())
+    } finally {
+      detach()
+    }
   })
 
   it('keeps a visible signed-in screen until the page is hidden (POD-7539)', async () => {

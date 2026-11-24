@@ -2,8 +2,8 @@
 
 exports[`keeps native reference underlines equal and live without legacy issue reads on the pool path > reference underlines 1`] = `
 {
-  "bytes": 1342,
-  "sha256": "8e5dd894eba8c18ce0b2bef1732201d526bc5155967cd7094165e0a2238131be",
+  "bytes": 1367,
+  "sha256": "b19489b7a0dd25de21d6e16a22fb5467d853b123a47e334bc8e7b2439d149db2",
 }
 `;
 

@@ -30,7 +30,7 @@ vi.mock('@/app/store', () => {
   const makeSnapshot = () => ({
     trpc: {
       settings: {
-        get: { query: vi.fn(async () => ({ gitWorkflow: { } })) },
+        get: { query: vi.fn(async () => ({ gitWorkflow: {} })) },
       },
       issues: {
         // Activity feed loads transition events on mount; no events in this fixture.
@@ -75,7 +75,10 @@ vi.mock('@/app/store', () => {
   })
   // Keep ports stable without reading suite spies while vi.mock is hoisted.
   let snapshot: ReturnType<typeof makeSnapshot> | undefined
-  const state = () => (snapshot ??= makeSnapshot()) as never
+  const state = () => {
+    snapshot ??= makeSnapshot()
+    return snapshot as never
+  }
   return {
     useStore: () => state(),
     // Selector hooks (readFixture) reach the same mocked state.
@@ -222,7 +225,9 @@ describe('IssuePage agent start controls', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Model' })[0]!)
     expect(await screen.findByRole('menuitem', { name: 'Auto' })).toBeTruthy()
     expect(screen.getAllByRole('menuitem')).toHaveLength(1)
-    expect(screen.getByText(/has not reported its models/)).toBeTruthy()
+    expect(
+      screen.getByText('The model list is unavailable. Use Auto to let the agent choose a model.'),
+    ).toBeTruthy()
   })
 
   // POD-1266: a refused start used to land as a muted grey strip pinned under

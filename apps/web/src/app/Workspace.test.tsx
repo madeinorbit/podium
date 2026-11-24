@@ -5,7 +5,7 @@ import type { MobxPool } from '@podium/client-graph'
 // @vitest-environment happy-dom
 import type { SessionId, SessionMeta } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { JSX } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { REVEAL_IN_DECK_EVENT } from './shell-state'
@@ -238,7 +238,12 @@ const delayedDragRuntime = () => {
   )
   return {
     load,
-    release: async (): Promise<void> => resolve(await import('./workspace-tab-drag')),
+    release: async (): Promise<void> => {
+      // The ready attribute is committed before the runtime's passive replay
+      // effect. Flush both before a test sends the next physical input, so
+      // pointerup cannot race the buffered pointerdown/move replay.
+      await act(async () => resolve(await import('./workspace-tab-drag')))
+    },
     reject: async (reason = new Error('chunk request failed')): Promise<void> => {
       reject(reason)
       await Promise.resolve()

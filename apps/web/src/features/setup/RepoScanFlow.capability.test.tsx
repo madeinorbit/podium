@@ -135,16 +135,20 @@ describe('the empty state says WHICH situation the operator is in', () => {
     expect(screen.queryByText(/is offline — its folders/)).toBeNull()
   })
 
-  it('capable machine asleep: keeps it selected, and says to wake IT', async () => {
-    open([SLEEPING])
-    // NOT the empty state, and that is the distinction working rather than a
-    // gap in it. kiwi can host repos; it is merely asleep. So it stays selected
-    // and named, and the screen gives the advice that WOULD work — which is the
-    // opposite of what the coordinator gets one test up. The two situations must
-    // not produce the same sentence, and here they do not.
-    expect(await screen.findByText(/kiwi is offline — its folders/)).toBeTruthy()
+  it.each([
+    { presence: 'Offline', machine: SLEEPING },
+    { presence: 'Reconnecting', machine: { ...SLEEPING, onlineKnown: false } },
+  ])('capable machine $presence: keeps it selected and names its presence', async ({
+    presence,
+    machine,
+  }) => {
+    open([machine])
+    // A capable host stays selected. Fresh offline and stale presence have
+    // different labels (POD-7540), but neither may browse or suggest pairing.
+    const notice = await screen.findByText(/folders can't be browsed right now/)
+    expect(notice.textContent).toContain(`kiwi · ${presence}`)
+    expect(browse).not.toHaveBeenCalled()
     expect(screen.queryByText(/No machine can host a repository/)).toBeNull()
-    // NOT "pair a machine": one already exists and can do the job.
     expect(screen.queryByText(/Pair a machine that runs the Podium daemon/)).toBeNull()
   })
 })
