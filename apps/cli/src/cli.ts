@@ -1388,6 +1388,12 @@ async function runInProcess(
     return true
   }
 
+  // The server and daemon modules load BEFORE the claim below reclaims a live holder:
+  // during an update handover the predecessor keeps serving while they load, rather
+  // than its clients and daemons waiting on a closed port for the load too (POD-7541).
+  const wantsHost = roles.server || roles.daemon
+  let host: HostModules | undefined
+
   // Claim this component's role in the run registry BEFORE binding: reclaim() SIGKILLs a
   // stale holder (a force-killed desktop orphan, a crashed detached process) so we don't
   // collide on the port or run two daemons over the same ~/.podium, then write our pidfile
@@ -1423,6 +1429,8 @@ async function runInProcess(
         process.exit(1)
       }
     }
+    if (wantsHost) host = await loadHost()
+    if (await finishIfStopped()) return
     try {
       // Daemon-only mode hosts no local port; server/all-in-one record theirs.
       await registerProcess(plan.claimRole, {
@@ -1439,7 +1447,7 @@ async function runInProcess(
   let serverPort = port
   let localDaemonLink: LocalDaemonLink | undefined
   let recoveryOnly = false
-  const host = roles.server || roles.daemon ? await loadHost() : undefined
+  if (wantsHost && !host) host = await loadHost()
   if (await finishIfStopped()) return
   if (roles.server && host) {
     const { startServer, isAddressInUseError } = host
