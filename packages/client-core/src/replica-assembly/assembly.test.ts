@@ -137,7 +137,8 @@ describe('shared replica reconnect recovery', () => {
         httpSync: { origin: 'https://sync.test', streamingFetch: { fetch } },
       })
       assembly.feed.connected(false)
-      await vi.waitFor(() => expect(assembly.progress.getSnapshot().phase).toBe('ready'))
+      const progress = assembly.progress
+      await vi.waitFor(() => expect(progress.getSnapshot().phase).toBe('ready'))
       const loader = assembly.replica.loader?.()
       if (!loader) throw new Error('assembly did not attach its collection loader')
       const connections: boolean[] = []
