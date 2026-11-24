@@ -6366,25 +6366,6 @@
       "file": "apps/web/src/features/setup/ColdStartComposer.tsx",
       "holder": "ColdStartComposer",
       "rule": "reader-summary",
-      "tokens": "7c3be1e5a634bd7800354f86254652d3a1865ee2bd6eb8c1acd7dcd256caadd4",
-      "gate": [],
-      "origin": [
-        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
-        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
-      ],
-      "fingerprint": "90c76974b4b9ede764065546794199607f004b84db6ceea19f117791fbfa9a1e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5833",
-      "trigger": "ColdStartComposer",
-      "bound": "Opening catalog or repository choices; no cardinality cap is claimed.",
-      "reason": "This path retains declared catalog traversal. Moving it into the opening action does not establish an addressed or capped acquisition.",
-      "guard": "ColdStartComposer.order.test.tsx and CommandPalette.runtime.test.tsx prove frozen opening order, live visible labels and closed-view isolation; this entry makes no scan repair claim."
-    },
-    {
-      "file": "apps/web/src/features/setup/ColdStartComposer.tsx",
-      "holder": "ColdStartComposer",
-      "rule": "reader-summary",
       "tokens": "37c0299a05659be83e8b5705a5a87839f9f9daa160a3900b62d23d9c7c7fed44",
       "gate": [],
       "origin": [
@@ -30930,144 +30911,6 @@
     },
     {
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/feed",
-      "rule": "reader-summary",
-      "tokens": "d65e4a2e7af280488004db178b56115543c0640e67485ecf14c73055faebadd0",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
-        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
-        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
-        "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
-        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed",
-        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
-      ],
-      "fingerprint": "caef4a3bc8a2836dd677961a0f30ce2ff08d3fbc5d67e3158db7c56bdbec879b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of PulseScreen/feed through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/useMemo:callback/capacity",
-      "rule": "helper-consumer",
-      "tokens": "69188547aa4c083f7d94891f8de0cf3869be95948a8f6b0e95c6845dbec84f1a",
-      "gate": [],
-      "origin": [
-        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
-        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed"
-      ],
-      "fingerprint": "f159a22ad9b5e2266d8cba9a9858806373bff96fd527cdc6b204476e1a24f622",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-7406",
-      "trigger": "A machine or checkout record change, a live quota update, or the first read of my fleet",
-      "bound": "One instance's machine and checkout records plus live quota windows for configured accounts and provider pools: tens per instance, never sessions, issues or history",
-      "reason": "Independent provider quota pools change the capacity helper's dependency fingerprint. It still consumes only the instance's fleet and current configured-account quota readings; no global session, issue or history collection is introduced.",
-      "guard": "quota.test.ts, header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
-    },
-    {
-      "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/useMemo:callback/fleet",
-      "rule": "helper-consumer",
-      "tokens": "202c1448bc4f9615c6b6710ae7598e83d30a81be800945ee6c3a3f759d9fb18f",
-      "gate": [],
-      "origin": [
-        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
-        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed"
-      ],
-      "fingerprint": "86caad88a53275c597787e3db300c98c5b31496c59a99b12ac31a2e97fe09f04",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6644",
-      "trigger": "A machine or checkout record change, or the first read of my fleet",
-      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
-      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
-    },
-    {
-      "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/useMemo:callback/grantedHistory",
-      "rule": "helper-consumer",
-      "tokens": "1eb52d17754ba9f20b9439a3e6ba7b42f05bf3a0700b4a9313b7fcb1318ca3c7",
-      "gate": [],
-      "origin": [
-        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
-        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed"
-      ],
-      "fingerprint": "1cfd90195462bf16ea6d89a33ce239532f824d46eeb646414f87af03c6a8aede",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6644",
-      "trigger": "A machine or checkout record change, or the first read of my fleet",
-      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
-      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
-    },
-    {
-      "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/useMemo:callback/grantedHosts",
-      "rule": "reader-summary",
-      "tokens": "ebf71bcd3dd06856a5e8cd6d731a5f086c1e9f1c308672343a755fc7120be90a",
-      "gate": [],
-      "origin": [
-        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
-        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed"
-      ],
-      "fingerprint": "3b484e08d406fad18ae1dc12239f2c0a99e7726bad7a2ec5e4a26c2ecb82606c",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6644",
-      "trigger": "A machine or checkout record change, or the first read of my fleet",
-      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
-      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
-    },
-    {
-      "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/useMemo:callback/grantedHosts",
-      "rule": "helper-consumer",
-      "tokens": "cc6a110c53c3927edfe02b5901886fb9eb6d060cf9c8656d98bea4786013764e",
-      "gate": [],
-      "origin": [
-        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
-        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed"
-      ],
-      "fingerprint": "886248d982e2695072fa31644505379381e3e47496611804f13ee7ebcce9f102",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6644",
-      "trigger": "A machine or checkout record change, or the first read of my fleet",
-      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
-      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
-    },
-    {
-      "file": "apps/mobile/src/screens/PulseScreen.tsx",
-      "holder": "PulseScreen/useMemo:callback/grantedQuota",
-      "rule": "helper-consumer",
-      "tokens": "11eee47a57c68ceb47211056ce5c9a883325aeeb6b297529e8c2c1eebca25e8f",
-      "gate": [],
-      "origin": [
-        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
-        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed"
-      ],
-      "fingerprint": "9be904cf6c26a21f77438c20c01a5ced204ebd5b71d88640770c99b560b8b792",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6644",
-      "trigger": "A machine or checkout record change, or the first read of my fleet",
-      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
-      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
-    },
-    {
-      "file": "apps/mobile/src/screens/PulseScreen.tsx",
       "holder": "EMPTY_SUMMARY",
       "rule": "reader-summary",
       "tokens": "3d1d22b17d1a6d1314923b195e5b921372a8ce85dfa7ccb2716c02fc80958b40",
@@ -31112,38 +30955,38 @@
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
-        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
+        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
-        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7",
+        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "a2a0e01aea25d7ccb534ed6dd0808919c1a4574b04c1924157111ae48aaea88a",
+      "fingerprint": "b8db04734b21ad1b6b8420576badef8e5718c4be185644ef704b578357960ca8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Pulse reading in LiveMachines.",
       "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: 14ce25f65f6dd859009a289343af3efb4c583e1f4aa67fc1e9a694080d447733. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 2ae006d45c6e5593389be70e20af342644b6ed8db679d48b2ea8ac7f8bacabe3. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 8f43f11c39795a61a386d9ba749038f57b504687bd26d3b6a92221a6c8c731a9. Predecessor: f24bfe8bd4d394dda8446e79754d1aeb9ec2366934a6b65f4d3fff2f255aae66.",
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: 14ce25f65f6dd859009a289343af3efb4c583e1f4aa67fc1e9a694080d447733. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 2ae006d45c6e5593389be70e20af342644b6ed8db679d48b2ea8ac7f8bacabe3. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 8f43f11c39795a61a386d9ba749038f57b504687bd26d3b6a92221a6c8c731a9. Predecessor: f24bfe8bd4d394dda8446e79754d1aeb9ec2366934a6b65f4d3fff2f255aae66. Fingerprint refreshed when dev/mw and upstream main were merged (POD-7578).",
       "guard": "scripts/check-interaction-scans.ts"
     },
     {
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
       "holder": "LiveMachines/fleet",
       "rule": "helper-consumer",
-      "tokens": "5fcf31809af2dd0a46885f4dacb1f5c00aa2963157d8bc7212600ed088760510",
+      "tokens": "9378694f7956579a99af094b0dbf538800f19a5366e0a86b9bca8335c4cfd669",
       "gate": [],
       "origin": [
-        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
-        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
+        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
+        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed"
       ],
-      "fingerprint": "98a7bd07b03943be1a6d4dc03a3b2695217c3fb721966a95062118980c196cb1",
+      "fingerprint": "c89b2e416a1e02df521e37cbfaad3dc86c0d65c8a34716754e5014cc7bca1a0c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "bound": "No per-interaction bound established for this existing collection origin.",
       "guard": "scripts/check-interaction-scans.ts",
       "trigger": "Pulse reading in LiveMachines/fleet.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: f185aaf5d6538dffc4a7854993dc9a52f56c7a491818a1123a805a04b6233199. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 7d221a88afede7906ec3e92bcefaf5670dc4cd5d3fcbddfe896bd313348d13e0. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 6b28ec53e7d9f660f1c280db46a291e24e39a58a2e73a0472e94e1db7a88fd17. POD-2647 moves relativeTime into the shared age formatter module without changing its answers, collection origins, demand, classification or multiplicity; age.test.ts covers former-answer parity. The consumer source is unchanged. Predecessor: 30b2df138086c36d324c8a8bb1a95c01da2e3d3bfee5a0256a59d83b3db5d272."
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: f185aaf5d6538dffc4a7854993dc9a52f56c7a491818a1123a805a04b6233199. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 7d221a88afede7906ec3e92bcefaf5670dc4cd5d3fcbddfe896bd313348d13e0. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 6b28ec53e7d9f660f1c280db46a291e24e39a58a2e73a0472e94e1db7a88fd17. POD-2647 moves relativeTime into the shared age formatter module without changing its answers, collection origins, demand, classification or multiplicity; age.test.ts covers former-answer parity. The consumer source is unchanged. Predecessor: 30b2df138086c36d324c8a8bb1a95c01da2e3d3bfee5a0256a59d83b3db5d272. Fingerprint refreshed when dev/mw and upstream main were merged (POD-7578)."
     },
     {
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
@@ -31155,39 +30998,39 @@
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
-        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
+        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
-        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7",
+        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "d29d8b47a6ca55083bb19bc7ad95fed4cc9bca51fde5c1bf1b322b88a3b57f85",
+      "fingerprint": "61787f9d6f2181fe8ce010cd762c9039186dc455115542fb44560c7dc08a1176",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Pulse reading in LiveQuotaHeader.",
       "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: 14ce25f65f6dd859009a289343af3efb4c583e1f4aa67fc1e9a694080d447733. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 2ae006d45c6e5593389be70e20af342644b6ed8db679d48b2ea8ac7f8bacabe3. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 8f43f11c39795a61a386d9ba749038f57b504687bd26d3b6a92221a6c8c731a9. Predecessor: b598da2b1c4da167b1863b820337bf9cc237f4386c40b872cfd58cd769436fad.",
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: 14ce25f65f6dd859009a289343af3efb4c583e1f4aa67fc1e9a694080d447733. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 2ae006d45c6e5593389be70e20af342644b6ed8db679d48b2ea8ac7f8bacabe3. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 8f43f11c39795a61a386d9ba749038f57b504687bd26d3b6a92221a6c8c731a9. Predecessor: b598da2b1c4da167b1863b820337bf9cc237f4386c40b872cfd58cd769436fad. Fingerprint refreshed when dev/mw and upstream main were merged (POD-7578).",
       "guard": "scripts/check-interaction-scans.ts"
     },
     {
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
       "holder": "LiveQuotaHeader/verdict",
       "rule": "helper-consumer",
-      "tokens": "49f6bfa76630d6957732bd25363b816fe051a55fa7afa4725c7b9078b9fc213d",
+      "tokens": "2a06052ded5c3c917867b799aa246424113efd645be30224141b7256f64f903f",
       "gate": [
         "else:c3e3fd9044162e4c53fb34547b94862f1dc9d21c2003898bd438bff132c2d182"
       ],
       "origin": [
-        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
-        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
+        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
+        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed"
       ],
-      "fingerprint": "1fdfd68a80ebaa237c097563a80151e3ef641ecd8d2f9e04ef05561df2f63d07",
+      "fingerprint": "a78a8786d3e5d9ef34d9e0c49e39c931124fbdbd93890e55417cb9c527abf6c0",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Pulse reading in LiveQuotaHeader/verdict.",
       "bound": "The granted per-machine quota and host lists the Pulse feed already holds; no new collection origin.",
-      "reason": "POD-2385 feeds the existing Pulse quota/host collections into the shared capacityView for the Quota header verdict. Same origin and debt as the fleet/grantedHosts entries beside it; this does not repair it. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: fe8c11e87ca9221b75b37fcea31f133898565b886da1b89f5dd5c6258a04e402. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 1cb9d03905a704cb051e1261ef904a930a0b360d18c1c3d7a6cb2fae6dc0cf8e. Predecessor: 260cac31fcaf20a982f4d48db8bb24c5b1a6ffa7a4104fabd31b71be78262d4a.",
+      "reason": "POD-2385 feeds the existing Pulse quota/host collections into the shared capacityView for the Quota header verdict. Same origin and debt as the fleet/grantedHosts entries beside it; this does not repair it. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: fe8c11e87ca9221b75b37fcea31f133898565b886da1b89f5dd5c6258a04e402. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 1cb9d03905a704cb051e1261ef904a930a0b360d18c1c3d7a6cb2fae6dc0cf8e. Predecessor: 260cac31fcaf20a982f4d48db8bb24c5b1a6ffa7a4104fabd31b71be78262d4a. Fingerprint refreshed when dev/mw and upstream main were merged (POD-7578).",
       "guard": "scripts/check-interaction-scans.ts"
     },
     {
@@ -31199,16 +31042,16 @@
         "else:c3e3fd9044162e4c53fb34547b94862f1dc9d21c2003898bd438bff132c2d182"
       ],
       "origin": [
-        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
-        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
+        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
+        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed"
       ],
-      "fingerprint": "a09f5432e3eee7ada7db5f28cefb2f0e6a3030567cc4f5f88da64efe6ad41270",
+      "fingerprint": "6b06f4a20515e3f523c8888cdc3b16bab4a0af8bf00bb59bfdc60812ee295cea",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-2630",
       "trigger": "Invocation of LiveQuotaHeader/verdict/machines",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint at a site the rebase onto upstream introduced while porting this feature onto upstream's records and live values; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint at a site the rebase onto upstream introduced while porting this feature onto upstream's records and live values; a caller bound or an addressed replacement is still required. Fingerprint refreshed when dev/mw and upstream main were merged (POD-7578).",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -31241,19 +31084,19 @@
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
-        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
+        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
-        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7",
+        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "0ac79626a717168b6c0075f75a19e70006ed7c6518f470a307472e222a89b00c",
+      "fingerprint": "f674aab04d13c1158a03dc1ab90774345bc834f895b2e5fc6fa56a7968676e09",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "bound": "No per-interaction bound established for this existing collection origin.",
       "guard": "scripts/check-interaction-scans.ts",
       "trigger": "Pulse reading in PulseScreen/PulseScreen/feed.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: 14ce25f65f6dd859009a289343af3efb4c583e1f4aa67fc1e9a694080d447733. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 2ae006d45c6e5593389be70e20af342644b6ed8db679d48b2ea8ac7f8bacabe3. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 8f43f11c39795a61a386d9ba749038f57b504687bd26d3b6a92221a6c8c731a9. POD-2396 separates shared reading errors and removes the unused quota-history request; existing machine collection scope is unchanged. Predecessor: d68580d53f9d328ce194431028062c058fb25657f756776258ca5d52c08f26ad. POD-2401 routes retries to independent quota or sequenced usage/cost requests; existing machine collection scope is unchanged. Predecessor: 72cbc8ddda387eab78442d91bace3b65e0149b168b964449796f2fe0eb34c549. POD-2638 pauses polling while content is hidden or the app is inactive; only the helper body changed, with the same five collection origins and occurrence count. Collection cardinality debt is unchanged. Predecessor: e10376998936b85cc0fa9e1eb95c9cee348f2548f4a32330d8a0a4ecae2ff037. Predecessor: c2b843e7b8cdc4e8743a7ff30adf965320f33df8e4ac4bd6f84f33a876f1ab62."
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: 14ce25f65f6dd859009a289343af3efb4c583e1f4aa67fc1e9a694080d447733. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 2ae006d45c6e5593389be70e20af342644b6ed8db679d48b2ea8ac7f8bacabe3. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 8f43f11c39795a61a386d9ba749038f57b504687bd26d3b6a92221a6c8c731a9. POD-2396 separates shared reading errors and removes the unused quota-history request; existing machine collection scope is unchanged. Predecessor: d68580d53f9d328ce194431028062c058fb25657f756776258ca5d52c08f26ad. POD-2401 routes retries to independent quota or sequenced usage/cost requests; existing machine collection scope is unchanged. Predecessor: 72cbc8ddda387eab78442d91bace3b65e0149b168b964449796f2fe0eb34c549. POD-2638 pauses polling while content is hidden or the app is inactive; only the helper body changed, with the same five collection origins and occurrence count. Collection cardinality debt is unchanged. Predecessor: e10376998936b85cc0fa9e1eb95c9cee348f2548f4a32330d8a0a4ecae2ff037. Predecessor: c2b843e7b8cdc4e8743a7ff30adf965320f33df8e4ac4bd6f84f33a876f1ab62. Fingerprint refreshed when dev/mw and upstream main were merged (POD-7578)."
     },
     {
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
@@ -31262,16 +31105,16 @@
       "tokens": "debf112dcb5610410b7cef5567014c0cb8c2d1831a5d4806628e52cb5ad8d557",
       "gate": [],
       "origin": [
-        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
-        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
+        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
+        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed"
       ],
-      "fingerprint": "caa90eacf0274dad6dc3b207232e47bed5b6f41ff08398fc482182be0ad710fb",
+      "fingerprint": "dfb1969f67b11cc976f86eb61bfc012928823820020a69b545127dcc8071ab04",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-2630",
       "trigger": "Invocation of PulseScreen/PulseScreen/grantedQuota/useMemo:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint at a site the rebase onto upstream introduced while porting this feature onto upstream's records and live values; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint at a site the rebase onto upstream introduced while porting this feature onto upstream's records and live values; a caller bound or an addressed replacement is still required. Fingerprint refreshed when dev/mw and upstream main were merged (POD-7578).",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -31296,19 +31139,19 @@
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
       "holder": "PulseScreen/PulseScreen/quota/useMemo:callback",
       "rule": "helper-consumer",
-      "tokens": "9e6e57a684b5fb2c484d6c7bd7b4ffebf902ca0881715f304ae8ee63620bbcca",
+      "tokens": "5e416fafb59d433b98364c23a41bbff9994179cf8eb027ee57945f7a94d8d242",
       "gate": [],
       "origin": [
-        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
-        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
+        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
+        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed"
       ],
-      "fingerprint": "82970d1fc12892edd8e9ff0deecd44267c66bba4c959622b69915663a3589b9d",
+      "fingerprint": "22feaec54bc4601909035b796f267d8162e80ffd9828d45cbd1f92b77643fdcd",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-2630",
       "trigger": "Invocation of PulseScreen/PulseScreen/quota/useMemo:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint at a site the rebase onto upstream introduced while porting this feature onto upstream's records and live values; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint at a site the rebase onto upstream introduced while porting this feature onto upstream's records and live values; a caller bound or an addressed replacement is still required. Fingerprint refreshed when dev/mw and upstream main were merged (POD-7578).",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -31318,16 +31161,16 @@
       "tokens": "2daedbf20a3fbc80c10b84caed30b5c2df24e6d7686f28fab809cadb02b06e78",
       "gate": [],
       "origin": [
-        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
-        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
+        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
+        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed"
       ],
-      "fingerprint": "031ba9bee344bcea8f49f20c959ea5c92c7af021d34a7a754ab4560f7154d466",
+      "fingerprint": "de7ade82cf5c3dcb6ce8dc10fce820f73612e38e6ef00bbadf1431a7bd696400",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Pulse reading in useHostReadings/hosts.",
       "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: b1592881cd314882e3e9e337a559d9959afaf95c69dc98d40795e46779c0b924. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 182fb572af4a9081ca4fa0bd8c6363e34e987808ba9714791599184cd8569c1c. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 5dc98c0cb6a2345891baf047670b96236753823641a53b7abc4556195f0727a1. Predecessor: 0b2403d11337cdc679028b3069800dc62cc7c359c387e40b34927b72e6aa09b9.",
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: b1592881cd314882e3e9e337a559d9959afaf95c69dc98d40795e46779c0b924. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 182fb572af4a9081ca4fa0bd8c6363e34e987808ba9714791599184cd8569c1c. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 5dc98c0cb6a2345891baf047670b96236753823641a53b7abc4556195f0727a1. Predecessor: 0b2403d11337cdc679028b3069800dc62cc7c359c387e40b34927b72e6aa09b9. Fingerprint refreshed when dev/mw and upstream main were merged (POD-7578).",
       "guard": "scripts/check-interaction-scans.ts"
     },
     {
@@ -31337,16 +31180,16 @@
       "tokens": "87c8bec228429df0b27bad592233ebbae1266f557fd6c6fbe454503b614d478a",
       "gate": [],
       "origin": [
-        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
-        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
+        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
+        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed"
       ],
-      "fingerprint": "cc25c1d58830cbacc2d3e021c103af2002a7c8eb7f4f2dee2cc3899157263e9d",
+      "fingerprint": "cbf3aa30f4df10424d021723cff2ef539aa8b93d3d1e1bcdb3c9f9977de49c25",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Pulse reading in useHostReadings/hosts.",
       "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: 48081c5ed6016b9fbc2fdfd69f2aa0a9823465d0787e189fa2ed54c0ce3f9f0e. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 105cd0e67f91d3188026e79db3bf62a9f44a4e7e6291b3430bffeebabc38220d. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 83ba59ee4c6da82f9c7e62316fb78e12253cd6d23fe7c9ee02e2655e042dd0e3. Predecessor: a6ba268dc86a7c2cca45cccd3f1208b9f9698e4d7e18a03b6de234ad713d32d7.",
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. Predecessor: 48081c5ed6016b9fbc2fdfd69f2aa0a9823465d0787e189fa2ed54c0ce3f9f0e. POD-2385 moved this reading into the shared view model / split the screen memo. Predecessor: 105cd0e67f91d3188026e79db3bf62a9f44a4e7e6291b3430bffeebabc38220d. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 83ba59ee4c6da82f9c7e62316fb78e12253cd6d23fe7c9ee02e2655e042dd0e3. Predecessor: a6ba268dc86a7c2cca45cccd3f1208b9f9698e4d7e18a03b6de234ad713d32d7. Fingerprint refreshed when dev/mw and upstream main were merged (POD-7578).",
       "guard": "scripts/check-interaction-scans.ts"
     },
     {
@@ -31359,84 +31202,19 @@
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
-        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
-        "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
-        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7",
-        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
-      ],
-      "fingerprint": "e5f39748658dd6d19d0f7ba4cd660e48dd9e24a97381a300e37803334e6ed83c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Pulse reading in useHostReadings/live.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 186133b5d08fed3360ebf59ee939df32bfe9e529161e3d1fcd242bb513706079. Predecessor: 8e88811fd5243e5342fd183f14c4cbb458fa393ae832bd18363c7be477326b66.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/mobile/src/screens/usePulseFeed.ts",
-      "holder": "usePulseFeed",
-      "rule": "reader-summary",
-      "tokens": "6b424e66ded74b499d5c8e085c744f9e9a7336c083af22f7cb237248af7334b5",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
-        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "c17fea840b8f89e8302945a05d19cb4f629974ead22fc5b73eab7aa431653671",
+      "fingerprint": "792028b33a30c0903f03f42ffda5f0adf84c5b78bbd6183067c3c89db82e4459",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of usePulseFeed through the direct screen factory.",
+      "trigger": "Pulse reading in useHostReadings/live.",
       "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
+      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt. POD-2391 moves the same reading to the shared opening or a host-only component; collection cardinality debt is unchanged. Predecessor: 186133b5d08fed3360ebf59ee939df32bfe9e529161e3d1fcd242bb513706079. Predecessor: 8e88811fd5243e5342fd183f14c4cbb458fa393ae832bd18363c7be477326b66. Fingerprint refreshed when dev/mw and upstream main were merged (POD-7578).",
       "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/mobile/src/screens/usePulseFeed.ts",
-      "holder": "usePulseFeed/useCallback:callback/runBreakdowns/callback/views",
-      "rule": "helper-consumer",
-      "tokens": "67d53901f61de38ffbc0aa387c146d47ed82cc4eaded379c734135c9d617896c",
-      "gate": [
-        "exit:then:1c6c0f5c421c8a17ba34df17570a6a77621c2b95b1ee8f552da664170b5a2ed3",
-        "exit:then:d0dfd78657813021f10d145f2d8d515913747c90efddf040b9d146974b150dd2"
-      ],
-      "origin": [
-        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
-        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed"
-      ],
-      "fingerprint": "acfe1fa9428e48de4d472970e52a2de543cf00afebd68ebe0986d28cf5c0e892",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6644",
-      "trigger": "A machine or checkout record change, or the first read of my fleet",
-      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
-      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
-    },
-    {
-      "file": "apps/mobile/src/screens/usePulseFeed.ts",
-      "holder": "usePulseFeed/machines",
-      "rule": "reader-summary",
-      "tokens": "92876f963a61dbe94047c4b2ffe546d2f0553b946aa2bcf45e5590b0acf4e07d",
-      "gate": [],
-      "origin": [
-        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
-        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
-      ],
-      "fingerprint": "f92e1732be8a37602ffc2899ae3cbf65a1b777bfcd9ed01d110bf1a49463cee3",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-2630",
-      "trigger": "Invocation of usePulseFeed/machines",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint at a site the rebase onto upstream introduced while porting this feature onto upstream's records and live values; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/mobile/src/screens/usePulseFeed.ts",
@@ -31449,17 +31227,36 @@
         "exit:then:d0dfd78657813021f10d145f2d8d515913747c90efddf040b9d146974b150dd2"
       ],
       "origin": [
-        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
-        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
+        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
+        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed"
       ],
-      "fingerprint": "6b13a1fe232397b14072d4975447ae516c628aeabb801b2e9e11d7b090343e95",
+      "fingerprint": "524cbb9fc85b8d4ce868b567d8674889479d4a968a3fb8a33425d6a921d8f28a",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "A machine or checkout record change, or the first read of my fleet",
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. Predecessor: c9aa234e8e5fc6c46bcc0659dc299d5d79db11086bd3fdb0381f5a5051b08620.",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. Fingerprint refreshed when dev/mw and upstream main were merged (POD-7578).",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
+    },
+    {
+      "file": "apps/mobile/src/screens/usePulseFeed.ts",
+      "holder": "usePulseFeed/machines",
+      "rule": "reader-summary",
+      "tokens": "92876f963a61dbe94047c4b2ffe546d2f0553b946aa2bcf45e5590b0acf4e07d",
+      "gate": [],
+      "origin": [
+        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
+        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed"
+      ],
+      "fingerprint": "b71ca2bbc3553896b671ac06b48035c03177d997ddcea95ca618db4464b9ba48",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-2630",
+      "trigger": "Invocation of usePulseFeed/machines",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint at a site the rebase onto upstream introduced while porting this feature onto upstream's records and live values; a caller bound or an addressed replacement is still required. Fingerprint refreshed when dev/mw and upstream main were merged (POD-7578).",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/app/FlightDeckPool.tsx",
@@ -35793,6 +35590,25 @@
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
+      "file": "apps/mobile/src/client/mobile-pool.ts",
+      "holder": "useMobilePoolProjection",
+      "rule": "reader-summary",
+      "tokens": "dc23d861eab8781d165fffdc44460474d6398b7edf88363074ed0cbe0def7857",
+      "gate": [],
+      "origin": [
+        "66271b0d5fb98ae83bae1aee920a657a33724fa472f6e3a87aaa8183761b0b84",
+        "c3683be70ffb7e2175631fa4e0e5ff8c1046935cbfee86e98954b313b136eb37"
+      ],
+      "fingerprint": "8006a7af174bd45f63b2093b74429f3891f1106e0b91042ff6e2c90c386a9619",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7578",
+      "trigger": "Opening a task page, or its issue record arriving or leaving",
+      "bound": "One addressed issue's lookup answer (here, loading, offline or gone); no collection is walked.",
+      "reason": "The projection hook carries useIssueReading's single addressed lookup answer.",
+      "guard": "packages/client-graph/src/mobile-tasks-empty-device.test.ts, apps/mobile/src/screens/IssueScreen.pool.test.tsx"
+    },
+    {
       "file": "apps/web/src/app/header-data.ts",
       "holder": "readMachineIds/callback",
       "rule": "reader-summary",
@@ -36634,20 +36450,20 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/deliver/callback/composer",
       "rule": "helper-consumer",
-      "tokens": "8a6f0784aab25dafe6dff625b10db804a9db7567bf1854b6aeb000a121453d69",
+      "tokens": "42a9c9d4d2aa8b785ef0c7d4e11ba9a1b856c064293c5dced039a6edccd7421c",
       "gate": [
         "exit:then:4e48948f05e1290c048944d1faf74bd4699a0319c090fa4e904e864ac4e04670"
       ],
       "origin": [
         "b279be7dc67d756b5fbf2245dde03c772c01716513259bdacfbb0774291eb296"
       ],
-      "fingerprint": "e22284dd48ae0fd60cc8ea4a86b81861aed94cdffc24c5538fe4a799bb0f8ba8",
+      "fingerprint": "bc0d94bb93b20ee5bd60f868f6cbe2a749dbaed269c1eb644073ea306e489a41",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Compute composer state immediately before one addressed delivery.",
       "bound": "Composer state is scalar, but the helper inherits the session/context taint previously held in the React send hook.",
-      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 8cb8c08cce444f4545e166ce4bbb082edbe8026c494a5d7d9a8f6e083b0e15e2. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 54ee6cc52ad003b794c32c0a781ced6c08f06ea5f2be7bfa30da9a392ef2c585. POD-2109: composer placeholders are rewritten as sentences without em dashes; collection demand is unchanged. Predecessor: 4081e5af4b05943809b6caf1efc125e48f41d1046d331a9e21df08c0dc472c0e. POD-2151 changed only scalar helpers on this path (landing copy, composer placeholder); no collection read was added. Predecessor: 02ce3305fd8bde13cb4c4a3a75877ee50f8f6b7f0621b57569bc365d18937b78. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: baa2b8a8f92aaf0ab4bf9a276313fd000ad7e87b43d6224251a868f00afca022. Predecessor: 6f2d2d156e06950b24f23ec9f7577551c8c241a0aa09060df2ac4d3236d6d67c (POD-6397: the conversation's Stop writes a turn-scoped effect record through the store; collection demand is unchanged). Predecessor: 50ec6b650a287e6ca7feb962d12c7e5a4094edf6afc7af909508775eba802808 (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged). Predecessor: e0120132707ad2a8e503d754f10bdbd51d38bf96a963146bb641a0dfb56421af (POD-6646: a session's reconnecting is now derived from its machine's LiveStore condition, so the retired status left these session-status checks; collection demand is unchanged). POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-7393 checks the current resume failure before reporting wake activity. This adds scalar session reads only. Predecessor: 93386e07b38140d81f4d1114dd3f53ef8f3f28b5590d96c7483b2dcf5ba474bc.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 8cb8c08cce444f4545e166ce4bbb082edbe8026c494a5d7d9a8f6e083b0e15e2. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 54ee6cc52ad003b794c32c0a781ced6c08f06ea5f2be7bfa30da9a392ef2c585. POD-2109: composer placeholders are rewritten as sentences without em dashes; collection demand is unchanged. Predecessor: 4081e5af4b05943809b6caf1efc125e48f41d1046d331a9e21df08c0dc472c0e. POD-2151 changed only scalar helpers on this path (landing copy, composer placeholder); no collection read was added. Predecessor: 02ce3305fd8bde13cb4c4a3a75877ee50f8f6b7f0621b57569bc365d18937b78. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: baa2b8a8f92aaf0ab4bf9a276313fd000ad7e87b43d6224251a868f00afca022. Predecessor: 6f2d2d156e06950b24f23ec9f7577551c8c241a0aa09060df2ac4d3236d6d67c (POD-6397: the conversation's Stop writes a turn-scoped effect record through the store; collection demand is unchanged). Predecessor: 50ec6b650a287e6ca7feb962d12c7e5a4094edf6afc7af909508775eba802808 (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged). Predecessor: e0120132707ad2a8e503d754f10bdbd51d38bf96a963146bb641a0dfb56421af (POD-6646: a session's reconnecting is now derived from its machine's LiveStore condition, so the retired status left these session-status checks; collection demand is unchanged). POD-6682 moved the command or transport home; its collection strategy is unchanged. POD-7393 checks the current resume failure before reporting wake activity. This adds scalar session reads only. Predecessor: 93386e07b38140d81f4d1114dd3f53ef8f3f28b5590d96c7483b2dcf5ba474bc. Fingerprint refreshed when dev/mw and upstream main were merged (POD-7578).",
       "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
     },
     {
@@ -36725,26 +36541,6 @@
       "trigger": "Acquire a web conversation through the shared React lifecycle hook.",
       "bound": "One session identity is acquired; initialization may restore all held sends for that session and has no new collection cap.",
       "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: cec908acc386d397ab1e0e27148d4eef65403317848ae5fba7c5a9f407312c52. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: a711a0ea1c6fc8be0a850e43345510cc896125b94d7642d558ebdc94c911b25b. POD-2257: Native first prompts adopt their existing server record; factory ownership and collection origins, gates and multiplicity are unchanged. Predecessor: 6bf0589d085f9a2ae626946d642e2188f1b14ffb9b705c712a8f7d5964f0bba9. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 86b228537a5884c5559cd0d342fd4b8097a36d03dc20f05c90c5cf97fefb4884. Predecessor: c3a1782fed8024a994b04bd279e3949551e21658cd906a4c34d4f367322b4e2b (POD-6397: the conversation's Stop writes a turn-scoped effect record through the store; collection demand is unchanged). Predecessor: 611695d441a274f4bbcb5c1cc7df3cc1ed5247bc67281068ec04ddf42e802bf4 (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged). POD-6682 moved the command or transport home; its collection strategy is unchanged.",
-      "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
-    },
-    {
-      "file": "apps/web/src/features/chat/use-conversation.ts",
-      "holder": "createWebConversation/sends/deliver/callback/composer",
-      "rule": "helper-consumer",
-      "tokens": "eb419c3eb46808d3131dad50e0cedaf0405265415729fba5e6141853236db5c1",
-      "gate": [
-        "exit:then:4e48948f05e1290c048944d1faf74bd4699a0319c090fa4e904e864ac4e04670"
-      ],
-      "origin": [
-        "b279be7dc67d756b5fbf2245dde03c772c01716513259bdacfbb0774291eb296"
-      ],
-      "fingerprint": "9280ae9e82f0354fe4223f94465b26a9ba9ec37d92de8c0eccc0a4dcca5af02e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Compute composer state immediately before one addressed delivery.",
-      "bound": "Composer state is scalar, but the helper inherits the session/context taint previously held in the React send hook.",
-      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 8cb8c08cce444f4545e166ce4bbb082edbe8026c494a5d7d9a8f6e083b0e15e2. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 54ee6cc52ad003b794c32c0a781ced6c08f06ea5f2be7bfa30da9a392ef2c585. POD-2109: composer placeholders are rewritten as sentences without em dashes; collection demand is unchanged. Predecessor: 4081e5af4b05943809b6caf1efc125e48f41d1046d331a9e21df08c0dc472c0e. POD-2151 changed only scalar helpers on this path (landing copy, composer placeholder); no collection read was added. Predecessor: 02ce3305fd8bde13cb4c4a3a75877ee50f8f6b7f0621b57569bc365d18937b78. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: baa2b8a8f92aaf0ab4bf9a276313fd000ad7e87b43d6224251a868f00afca022. Predecessor: 6f2d2d156e06950b24f23ec9f7577551c8c241a0aa09060df2ac4d3236d6d67c (POD-6397: the conversation's Stop writes a turn-scoped effect record through the store; collection demand is unchanged). Predecessor: 50ec6b650a287e6ca7feb962d12c7e5a4094edf6afc7af909508775eba802808 (POD-6419: the superagent's writes go through sync.submit with the old route as fallback; collection demand is unchanged). Predecessor: e0120132707ad2a8e503d754f10bdbd51d38bf96a963146bb641a0dfb56421af (POD-6646: a session's reconnecting is now derived from its machine's LiveStore condition, so the retired status left these session-status checks; collection demand is unchanged). POD-6682 moved the command or transport home; its collection strategy is unchanged. Predecessor: 93386e07b38140d81f4d1114dd3f53ef8f3f28b5590d96c7483b2dcf5ba474bc.",
       "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
     },
     {
@@ -37253,6 +37049,25 @@
       "bound": "No cardinality bound is newly claimed for this transitive collection path.",
       "reason": "POD-6682 exposes this existing command/helper path through explicit command modules and root readers. The command bodies and collection operations are unchanged; this entry preserves the existing scan debt rather than claiming a bounded replacement.",
       "guard": "Exact fingerprint and multiplicity only. This move is not a scan repair; the whole-data scan sweep remains responsible for proving or replacing this path."
+    },
+    {
+      "file": "apps/mobile/src/screens/IssueScreen.tsx",
+      "holder": "IssueScreenBody/IssueScreenBody/reading",
+      "rule": "reader-summary",
+      "tokens": "0488b593dff783ec3438f6880c9bfac77d168cde8dffd21aae8585077c31d600",
+      "gate": [],
+      "origin": [
+        "66271b0d5fb98ae83bae1aee920a657a33724fa472f6e3a87aaa8183761b0b84",
+        "c3683be70ffb7e2175631fa4e0e5ff8c1046935cbfee86e98954b313b136eb37"
+      ],
+      "fingerprint": "184c6ec3e45ab9a73693009a1b88417ee0ebb690d2debaccd0e089c2e170b3f1",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7578",
+      "trigger": "Opening a task page, or its issue record arriving or leaving",
+      "bound": "One addressed issue's lookup answer (here, loading, offline or gone); no collection is walked.",
+      "reason": "The page reads the one addressed issue's lookup answer from useIssueReading.",
+      "guard": "packages/client-graph/src/mobile-tasks-empty-device.test.ts, apps/mobile/src/screens/IssueScreen.pool.test.tsx"
     },
     {
       "file": "apps/mobile/src/screens/SuperagentScreen.tsx",
@@ -38896,16 +38711,16 @@
       "tokens": "28229925c46c7460f61789e07d2aa3f5196b6f9d06791d90f001ce590bbae24f",
       "gate": [],
       "origin": [
-        "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
-        "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
+        "3bdb0405ec1c72c55f6d4bd80a31302c2a522bb6301b4406e9097cce5315182b",
+        "d779962db7a7b2e762478ca3ca6b3c6892e22e5fd84475a61637dff86b3683ed"
       ],
-      "fingerprint": "6d46761f60306fd82cb4644b4ae52add7e4fad5fb8d4968c7603865cfbaed9bf",
+      "fingerprint": "9e26300a95a4e0527a15e9aaff33f725658e3d1597afdd5132e82c140436024f",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6644",
       "trigger": "A machine or checkout record change, or the first read of my fleet",
       "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged. Phone Pulse root reads the same fleet projection through usePulseMachines (dev/tf, ported in the POD-2656 merge).",
+      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change. POD-7088: the surrounding readers moved onto collections and stubs (or the file was renamed from use-inbox-data.ts), which changes this fingerprint; the collection bound and classification are unchanged. Phone Pulse root reads the same fleet projection through usePulseMachines (dev/tf, ported in the POD-2656 merge). Fingerprint refreshed when dev/mw and upstream main were merged (POD-7578).",
       "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
@@ -40352,54 +40167,57 @@
       "file": "packages/client-graph/src/mobile-tasks.ts",
       "holder": "MobileTasksBoard/stageCounts",
       "rule": "loop:for-of",
-      "tokens": "4d830a5db9abd9185791bae293f20f979bb2eb8237403f7753ba05d820287acd",
+      "tokens": "0bb1bcae2ccc01a3c96d03b5c8304501e93dbf36d72c5e120c505eea0c869162",
       "gate": [],
       "origin": [
         "8d086ede97b90c6e2f2a690b574cfaf365751bed61bd5cdd9890126a2ead7314"
       ],
-      "fingerprint": "6dca5655fe13f80e151ee6341e1efb4710c7244635b6b88f4114fa1eebf79d97",
+      "fingerprint": "6fece823da22971f1834e815a61c160c49d016a68fff2691f58f6637b9ca8d70",
       "count": 1,
       "classification": "bounded local work",
       "trigger": "Phone Tasks lane membership changes",
       "bound": "The six fixed board lanes (MOBILE_TASK_STAGES), each reading its own memoized rootIds",
-      "reason": "Counts per lane for the Tasks subtitle and headers; no issue-domain walk beyond what the lanes already hold.",
+      "reason": "Counts per lane for the Tasks subtitle and headers; no issue-domain walk beyond what the lanes already hold. Fingerprint refreshed when dev/mw and upstream main were merged (POD-7578).",
       "guard": "mobile-tasks.test.ts",
       "owner": "POD-2378"
     },
     {
-      "file": "apps/mobile/src/client/test-replica.ts",
-      "holder": "createMobileTestReplica/replica",
+      "file": "packages/client-graph/src/mobile-tasks.ts",
+      "holder": "MobileTasksBoard/proposals/total",
       "rule": "reader-summary",
-      "tokens": "72e87a94b9570fddf3912ae9bfbbda7beb40a0c87a6d46b656afeda0389fecb7",
-      "gate": [],
-      "origin": [
-        "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
+      "tokens": "3ccc2085849e3338bf1820ef1316bd445ffc5a0ccb476bad482a372d6d17f2a9",
+      "gate": [
+        "exit:then:b7b6b468ca62db140aa985749a36aa73a6078bd2929eb4a757069cd378a86794",
+        "exit:then:a8ad97e1d1746ee36ddef2e24ff8597087591498773db308c41615401fd62d0d"
       ],
-      "fingerprint": "cd43a93a408623dd8cf693b330c244b43975a687515103dc57cd19a3fb6e73d8",
+      "origin": [
+        "efd2129bf6f6de5dc5e7b2910b054059edc625fbbb1cd04d2d4fac48bed8a547"
+      ],
+      "fingerprint": "9a733855e0636cec774b2dd78c23184ba23b6677b45039f12dd0f8b0b735e527",
       "count": 1,
       "classification": "bounded local work",
-      "owner": "POD-5801",
-      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
-      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7159: the Replica gains its disk layer (disk reads, unload, the record-level disk load the loader batches, the unloaded event the facade reads), which changes this composition fingerprint; the collection bound and classification are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged. POD-7211: the replica gains the concertmasterEntries collection (a Concertmaster's curated conversation), which changes this composition fingerprint; the collection bound and classification are unchanged.",
-      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
+      "owner": "POD-7578",
+      "trigger": "The issue stubs changing while the Tasks board is observed",
+      "bound": "One memoized tally over the issue stubs per stub-set change (pool.collections.countStubs), the guide's path for counts over all history.",
+      "reason": "The Proposed group counts every screenable proposal over all history, as the screening deck does (screeningTotal).",
+      "guard": "packages/client-graph/src/mobile-tasks-empty-device.test.ts, apps/mobile/src/screens/IssueScreen.pool.test.tsx"
     },
     {
       "file": "apps/mobile/src/client/test-replica.ts",
       "holder": "createMobileTestReplica/replica",
       "rule": "reader-summary",
-      "tokens": "1533d9c5d70bcbd825fff4e0ac11a121ba550e9e0226f98d383261b549ef09c9",
+      "tokens": "62984a059a53bd1c15431e887769a518f20a45706e38765c986825b02dbb3885",
       "gate": [],
       "origin": [
         "6f11c75cfd59086594ade3cce541105aa89e50bdeacf7b6418f676ea43226c12"
       ],
-      "fingerprint": "48865b650944c6c54a30fc4550dca4d6061fe477e838d59985ffbd887d970a9b",
+      "fingerprint": "c9be19ea31a6025d8654e475a5e0f66d1ad571468bb45f7ac529100f60ec66d8",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7159: the Replica gains its disk layer (disk reads, unload, the record-level disk load the loader batches, the unloaded event the facade reads), which changes this composition fingerprint; the collection bound and classification are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged. Predecessor: b90bd9bfa5ddb91ed32612f1eeb915ac25d45559004a07e2038819cc400d5f95.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7159: the Replica gains its disk layer (disk reads, unload, the record-level disk load the loader batches, the unloaded event the facade reads), which changes this composition fingerprint; the collection bound and classification are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged. POD-7211: the replica gains the concertmasterEntries collection (a Concertmaster's curated conversation), which changes this composition fingerprint; the collection bound and classification are unchanged. Fingerprint refreshed when dev/mw and upstream main were merged (POD-7578).",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
@@ -40424,94 +40242,56 @@
       "file": "apps/mobile/src/client/test-replica.ts",
       "holder": "createMobileTestReplica/replica",
       "rule": "helper-consumer",
-      "tokens": "114718b207ab6e4eb994e80e5d5492c89ab266d922197137eec6098457c7567d",
+      "tokens": "f487cb737fe3f0f393794c600dabde043d225a193c3a2317594e08135d097b72",
       "gate": [],
       "origin": [
         "6f11c75cfd59086594ade3cce541105aa89e50bdeacf7b6418f676ea43226c12"
       ],
-      "fingerprint": "ce4b5b65fe4ecef5610f8b2e0c976d88e9434d7d1630f4fdc5eff3b2458f7dc2",
+      "fingerprint": "313aacc28e468dfd108ed80c510c0cd785a024e77a0f29c33052a3816df19084",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Building a mobile test replica, optionally with a transcript cache.",
       "bound": "Constant work: an optional transcript cache is handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "Test-only wiring: the rebase onto upstream (POD-2630) lets a test replica take upstream's per-user transcript cache; the scan follows the transcript-named port through the spread. Predecessor: e7ebff15b4907f4b339b5ccbc4843b9395a701bd1f86da915fd4fbbc4f915237.",
+      "reason": "Test-only wiring: the rebase onto upstream (POD-2630) lets a test replica take upstream's per-user transcript cache; the scan follows the transcript-named port through the spread. Predecessor: e7ebff15b4907f4b339b5ccbc4843b9395a701bd1f86da915fd4fbbc4f915237. Fingerprint refreshed when dev/mw and upstream main were merged (POD-7578).",
       "guard": "Exact fingerprint and multiplicity only."
     },
     {
       "file": "apps/web/src/lib/kernelReplica.ts",
       "holder": "openKernelAssembly/assembly",
       "rule": "helper-consumer",
-      "tokens": "1f7bc3911eb4e7b0534aa0b1a50c746f535abfa65803c393c3de6877a8ba69b8",
+      "tokens": "755abce9685872ed71c95e55f4566309f839ba60bbfba4e637ae506b6c4c3488",
       "gate": [
         "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
       ],
       "origin": [
         "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
       ],
-      "fingerprint": "5b1fdb3b693d88eea1ec7e8c7a8aaae66f310826b90108e67f4eea29cd44cf64",
+      "fingerprint": "624954fba12337cfa2e09093605ac66e8f7baa9bf877a11e98f436c9f334206a",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-6947: the feed sink's access-move listener (onAccessMoved) in the assembly's feed port changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7165: the Replica's `batchEvents` composes the loader's burst around the facade's (each kind of change told once per burst), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7159: the Replica gains its disk layer (disk reads, unload, the record-level disk load the loader batches, the unloaded event the facade reads), which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7161: the assembly hands the Replica the browser's memory signals (idle moments and the page going hidden), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7193: storage open/upgrade diagnostics add constant logging to replica composition; the forwarded transcript port and collection bound are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged. POD-7211: the replica gains the concertmasterEntries collection (a Concertmaster's curated conversation), which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7480: namespace retention now requires an empty outbox and no unsent drafts, and reclaims only cache data. This changes the composition fingerprint; transcript ports and their collection bounds are unchanged.",
-      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
-    },
-    {
-      "file": "apps/web/src/lib/kernelReplica.ts",
-      "holder": "openKernelAssembly/assembly",
-      "rule": "helper-consumer",
-      "tokens": "9dc76a8bbfe72007362c53f9dde3a3e547ed67e03d9834fd43cf005bd0fc30ab",
-      "gate": [
-        "exit:then:5e2a14e1fded6dcf5bd2bbeb0a38680fd681e01937e3beb0794cbfbe6fbfbbad"
-      ],
-      "origin": [
-        "6eaa0385ee25575a2b8641ff25b6cd72ef2fa78aca967cd7f17f5c096194a7f4"
-      ],
-      "fingerprint": "215e0d4bbe7bee27cf5083121a50462e7eb0413959dc67f39a9ac93a13babf86",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5801",
-      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
-      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-6947: the feed sink's access-move listener (onAccessMoved) in the assembly's feed port changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7165: the Replica's `batchEvents` composes the loader's burst around the facade's (each kind of change told once per burst), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7159: the Replica gains its disk layer (disk reads, unload, the record-level disk load the loader batches, the unloaded event the facade reads), which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7161: the assembly hands the Replica the browser's memory signals (idle moments and the page going hidden), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7193: storage open/upgrade diagnostics add constant logging to replica composition; the forwarded transcript port and collection bound are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged. Predecessor: 3a83cc30a1a0f2208a12620f89c698fac431696045148294a4699905665f3cd1.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-6947: the feed sink's access-move listener (onAccessMoved) in the assembly's feed port changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7165: the Replica's `batchEvents` composes the loader's burst around the facade's (each kind of change told once per burst), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7159: the Replica gains its disk layer (disk reads, unload, the record-level disk load the loader batches, the unloaded event the facade reads), which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7161: the assembly hands the Replica the browser's memory signals (idle moments and the page going hidden), which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7193: storage open/upgrade diagnostics add constant logging to replica composition; the forwarded transcript port and collection bound are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged. POD-7211: the replica gains the concertmasterEntries collection (a Concertmaster's curated conversation), which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7480: namespace retention now requires an empty outbox and no unsent drafts, and reclaims only cache data. This changes the composition fingerprint; transcript ports and their collection bounds are unchanged. Fingerprint refreshed when dev/mw and upstream main were merged (POD-7578).",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
       "file": "packages/client-core/src/demo/demo-replica.ts",
       "holder": "createDemoReplica",
       "rule": "reader-summary",
-      "tokens": "35a58171d86d0b2e0c6053b7936799d3aeb9a6624484557b7277e4563a63cec1",
+      "tokens": "55900e6957f1f50a8203de74491b439477c5e4763c4da80b3ee49397a77e1348",
       "gate": [],
       "origin": [
         "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
       ],
-      "fingerprint": "9cad427ac6baa53ad8737d00cdeac1b8ad708bd158285c0c04c1b2de6272a7e5",
+      "fingerprint": "327eae41b3ee9b484a1c856166c85a966578e5b9faa4fc4c3c4596e4ab7d4fe6",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5801",
       "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
       "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7159: the Replica gains its disk layer (disk reads, unload, the record-level disk load the loader batches, the unloaded event the facade reads), which changes this composition fingerprint; the collection bound and classification are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged. POD-7211: the replica gains the concertmasterEntries collection (a Concertmaster's curated conversation), which changes this composition fingerprint; the collection bound and classification are unchanged.",
-      "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
-    },
-    {
-      "file": "packages/client-core/src/demo/demo-replica.ts",
-      "holder": "createDemoReplica",
-      "rule": "reader-summary",
-      "tokens": "1524c00d59b82777a6fd2e5eeaaa4facfa5e5df271b79f375f3432abcc026aea",
-      "gate": [],
-      "origin": [
-        "6a38dd81c5dae2ff245d1a2187718e0367d4b389f2610fbbf87b1b2efaae894a"
-      ],
-      "fingerprint": "091a0628de9e8635c7126be8469820ad0b8a147ccea1fa0159bbf74fd5f74cdb",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5801",
-      "trigger": "Opening a signed-in user's replica assembly, building a replica, or mounting one chat.",
-      "bound": "Constant work: the per-user chat history store is created once and handed on by reference; no transcript collection is read or iterated at this site.",
-      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7159: the Replica gains its disk layer (disk reads, unload, the record-level disk load the loader batches, the unloaded event the facade reads), which changes this composition fingerprint; the collection bound and classification are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged. Predecessor: 8d7731d0961d078b6db098835d274c9791cdf841912157789b866c5f8dd110b9.",
+      "reason": "The scan follows transcript-named ports (TranscriptStore, the replica's transcripts cache) through composition and erase wiring; nothing here enumerates messages. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-6772: per-kind replacement and IndexedDB range wiring change this composition fingerprint; transcript access and its collection bound are unchanged. POD-7086: the facade gains the device's collection reads (markers and stubs) and the assembly hands it the kernel Replica's, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7087: the facade gains the one loader (`loader()`, and `stubRows` among the collection reads) and the assembly builds it beside the kernel Replica and pipes it the Replica's events, which changes this composition fingerprint; transcript access and its collection bound are unchanged. POD-7122: the Replica gains a `load-installed` event (the first download is in memory) that the facade, the loader and the sync progress read, which changes this composition fingerprint; the collection bound and classification are unchanged. POD-7159: the Replica gains its disk layer (disk reads, unload, the record-level disk load the loader batches, the unloaded event the facade reads), which changes this composition fingerprint; the collection bound and classification are unchanged. The credential epic merge with the workspace store (POD-6857) moved its tokens; the classification is unchanged. POD-7211: the replica gains the concertmasterEntries collection (a Concertmaster's curated conversation), which changes this composition fingerprint; the collection bound and classification are unchanged. Fingerprint refreshed when dev/mw and upstream main were merged (POD-7578).",
       "guard": "assembly.test.ts \"chat history database (POD-5801)\" opens one database per user and erases it on sign-out; transcript-log.stored.test.ts drives the wired cache end to end."
     },
     {
@@ -42383,6 +42163,25 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 85efd32c8a3788ced2609b6a72ce186aa68670250ed42200c0f35c9a2577753c. POD-2393 shares the request opening across routes without changing the roster cardinality. The rows map over the same device sign-in answer (DeviceSignInView since the POD-2656 merge).",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/mobile/src/client/use-issue-model.ts",
+      "holder": "useIssueReading",
+      "rule": "reader-summary",
+      "tokens": "bd5cc3dcc10d36e2222378144868aa55087a85cac02cfe7828a9c2f8dd52beca",
+      "gate": [],
+      "origin": [
+        "66271b0d5fb98ae83bae1aee920a657a33724fa472f6e3a87aaa8183761b0b84",
+        "c3683be70ffb7e2175631fa4e0e5ff8c1046935cbfee86e98954b313b136eb37"
+      ],
+      "fingerprint": "57988506d2b522f45d282ef462a4ff78f6fe7f8a551982140ed0bd8d4232957e",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7578",
+      "trigger": "Opening a task page, or its issue record arriving or leaving",
+      "bound": "One addressed issue's lookup answer (here, loading, offline or gone); no collection is walked.",
+      "reason": "collections.reading() classifies one addressed lookup so the task page can tell loading, offline and gone apart, as the desktop does.",
+      "guard": "packages/client-graph/src/mobile-tasks-empty-device.test.ts, apps/mobile/src/screens/IssueScreen.pool.test.tsx"
     }
   ]
 }
