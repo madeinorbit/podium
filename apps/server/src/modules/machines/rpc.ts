@@ -2767,15 +2767,18 @@ const GIT_DIR_WRITE = 'refusing to write inside .git'
  * repository. A save from the app has no business there. The daemon judges the
  * resolved path again (a symlink can hide the segment from this text); this
  * refusal only keeps the request from leaving. Compared as Windows compares
- * names: case-insensitively, without trailing dots and spaces, and with the
- * 8.3 short name `GIT~1` on a Windows root.
+ * names: case-insensitively, cut at an NTFS stream suffix, without trailing
+ * dots and spaces, and with the 8.3 short name `GIT~1` on a Windows root.
  */
 export function writesIntoGitDir(root: string, path: string): boolean {
   // Every segment, the root's too: a root may itself name `<repo>/.git`. No
   // repository is registered under a folder named `.git`.
   const windows = machinePathSeparator(root) === '\\'
   return machinePathSegments(resolveMachinePath(root, path), root).some((segment) => {
-    const name = segment.toLowerCase().replace(/[. ]+$/u, '')
+    // A Windows name ends at its first `:` (an NTFS stream: `.git::$DATA` is
+    // `.git`, as git's `is_ntfs_dotgit` reads it).
+    const cut = windows ? (segment.split(':')[0] ?? '') : segment
+    const name = cut.toLowerCase().replace(/[. ]+$/u, '')
     return name === '.git' || (windows && /^git~\d+$/u.test(name))
   })
 }

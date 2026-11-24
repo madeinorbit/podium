@@ -28,6 +28,7 @@ import { privateResourceAccess } from '../../private-resources'
 import type { RegistryModules } from '../../relay'
 import { inferRepoFromRoots } from '../../repo-registry'
 import type { SessionStore } from '../../store'
+import { normalizeRepoPath } from '../../store/repos'
 import { agentCommandPrincipal } from '../effects/writer'
 import { answerThroughEffect, settledResult } from '../interactions/answer-effect'
 import { superagentFrom, superagentSender } from './send'
@@ -968,8 +969,25 @@ export async function buildSuperagentTools(
         // checkouts: it is scanned, and the new `checkout` record reaches every
         // device (POD-6644; the same rescan issues.start() asks for). Awaited: the
         // record is what lets the `git` tool find the new worktree, which lives
-        // outside its repository (POD-7505).
-        await modules.checkouts.rescan(target.machineId).catch(() => [])
+        // outside its repository (POD-7505). A scan that failed or did not record
+        // it is said, not answered as success: the worktree exists, but the git
+        // tool cannot reach it until a later scan records it.
+        const scanError = await modules.checkouts.rescan(target.machineId).then(
+          () => undefined,
+          (err: unknown) => (err instanceof Error ? err.message : String(err)),
+        )
+        const recorded = (await store.checkouts.ofMachine(target.machineId)).some(
+          (row) =>
+            row.kind === 'worktree' &&
+            machinePathsEqual(normalizeRepoPath(row.path), normalizeRepoPath(path)),
+        )
+        if (!recorded) {
+          return (
+            `failed: created the worktree ${path} (branch ${branch}), but the machine scan ` +
+            `${scanError ? `failed (${scanError})` : 'did not record it'}; ` +
+            'the git tool cannot reach it until a later scan records it'
+          )
+        }
         return JSON.stringify({ worktreePath: path, branch })
       },
     },

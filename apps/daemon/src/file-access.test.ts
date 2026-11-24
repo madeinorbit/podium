@@ -411,6 +411,13 @@ describe('a root-addressed write never lands inside .git', () => {
     expect(hasGitSegment('/r/.GIT/config', '/r')).toBe(true)
     expect(hasGitSegment('/r/sub/.Git', '/r')).toBe(true)
     expect(hasGitSegment('/r/.gitignore', '/r')).toBe(false)
+    // Windows ends a name at its first ':' (an NTFS stream), as git's is_ntfs_dotgit does.
+    expect(hasGitSegment('/r/x/.git::$DATA', '/r', true)).toBe(true)
+    expect(hasGitSegment('/r/.GIT. :stream/config', '/r', true)).toBe(true)
+    expect(hasGitSegment('/r/GIT~1/config', '/r', true)).toBe(true)
+    // POSIX names may hold ':' and '~': there they are other names.
+    expect(hasGitSegment('/r/x/.git::$DATA', '/r', false)).toBe(false)
+    expect(hasGitSegment('/r/GIT~1/config', '/r', false)).toBe(false)
     // Only the part inside the repository counts.
     expect(hasGitSegment('/home/.git-things/r/a.txt', '/home/.git-things/r')).toBe(false)
   })

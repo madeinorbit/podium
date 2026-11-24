@@ -507,6 +507,21 @@ describe('POD-7505: the superagent git tools run only on the thread owner’s ma
     expect(opsSince('alice', aliceFrom)).toEqual([`status ${REPO_PATH}`])
   })
 
+  it('create_worktree says so when the scan that records the new worktree fails', async () => {
+    const bob = await toolsFor('bob')
+    vi.spyOn(registry().modules.checkouts, 'rescan').mockRejectedValue(new Error('scan timed out'))
+    const answer = await bob('create_worktree', { repoPath: BOB_ONLY, branch: 'feat/unscanned' })
+    expect(answer).toBe(
+      `failed: created the worktree ${BOB_ONLY}-feat-unscanned (branch feat/unscanned), but the ` +
+        'machine scan failed (scan timed out); the git tool cannot reach it until a later scan records it',
+    )
+    // A scan that answers but does not record it is said too.
+    vi.spyOn(registry().modules.checkouts, 'rescan').mockResolvedValue([])
+    expect(await bob('create_worktree', { repoPath: BOB_ONLY, branch: 'feat/missed' })).toMatch(
+      /machine scan did not record it/,
+    )
+  })
+
   it('create_worktree runs on the owner’s machine, and git then works in the new worktree', async () => {
     const bob = await toolsFor('bob')
     const alice = await toolsFor('alice')
@@ -550,6 +565,8 @@ describe('POD-7505: a root-addressed save never goes into .git', () => {
     ['/repo/.git', 'config', true],
     [String.raw`C:\repo`, String.raw`C:\repo\.GIT.\config`, true],
     [String.raw`C:\repo`, String.raw`C:\repo\GIT~1\config`, true],
+    [String.raw`C:\repo`, String.raw`C:\repo\x\.git::$DATA`, true],
+    [String.raw`C:\repo`, String.raw`C:\repo\.git:stream\config`, true],
     ['/repo', '/repo/.gitignore', false],
     ['/repo', '/repo/.github/workflows/ci.yml', false],
     ['/repo', '/repo/git~1', false],

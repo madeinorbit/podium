@@ -77,15 +77,22 @@ export async function sandboxRoot(
  * file in any subfolder (`gitdir: …`) points git at another repository. A save
  * from the app has no business there, so a root-addressed write refuses any
  * path whose part inside the repository has such a segment. Compared the way
- * Windows and macOS compare names: case-insensitively, and on Windows without
- * the trailing dots and spaces it drops and with the 8.3 short name `GIT~1`.
+ * Windows and macOS compare names: case-insensitively, and on Windows cut at
+ * the first `:` (an NTFS stream suffix: `.git::$DATA` is `.git`, as git's own
+ * `is_ntfs_dotgit` reads it), without the trailing dots and spaces it drops,
+ * and with the 8.3 short name `GIT~1`.
  */
-export function hasGitSegment(real: string, repo: string): boolean {
+export function hasGitSegment(
+  real: string,
+  repo: string,
+  windows: boolean = process.platform === 'win32',
+): boolean {
   return relative(repo, real)
     .split(/[\\/]/)
     .some((segment) => {
-      const name = segment.toLowerCase().replace(/[. ]+$/, '')
-      return name === '.git' || (process.platform === 'win32' && /^git~\d+$/.test(name))
+      const cut = windows ? (segment.split(':')[0] ?? '') : segment
+      const name = cut.toLowerCase().replace(/[. ]+$/, '')
+      return name === '.git' || (windows && /^git~\d+$/.test(name))
     })
 }
 
@@ -348,6 +355,12 @@ export async function writeFileSandboxed(opts: {
       // created there is removed again (by the name the kernel gave it).
       if (!existed && at) await unlink(at).catch(() => {})
       return { ok: false, error: at === undefined ? UNVERIFIABLE_OPEN : 'outside workspace' }
+    }
+    // The same swap can land the open inside `.git` (a folder along the path
+    // replaced by a link to it), so the opened file is judged again.
+    if (at && sandbox.repo !== undefined && hasGitSegment(at, sandbox.repo)) {
+      if (!existed) await unlink(at).catch(() => {})
+      return { ok: false, error: 'refusing to write inside .git' }
     }
     if (baseHash && existed && sig(st) !== baseHash) return { ok: false, conflict: true }
     await fh.truncate(0)
