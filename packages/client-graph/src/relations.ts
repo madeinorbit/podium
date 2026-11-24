@@ -76,6 +76,8 @@ export interface PoolRelationsOptions {
   readonly schema?: ModelSchema
   /** Development diagnostics: whether this view holds a relation's collection. */
   readonly heldBy?: (instance: LoaderInstance, view: object) => boolean
+  /** Row-only graph fixtures do not model demand; check devices with a loader. */
+  readonly warningsEnabled?: () => boolean
   /**
    * POD-4678 — a bucket's net member move (inside the publication's action):
    * the collection (`issue.sessions`), the target, the member and whether it
@@ -113,7 +115,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     member: string,
     added: boolean,
   ) => void
-  private readonly rawReadWarnings: RawRelationWarnings | undefined
+  private declare readonly rawReadWarnings?: RawRelationWarnings
   /** List holders and atoms belong to the same demand-scoped slot index. */
   // side-state: signal: list holders beside their demand atoms; a holder is dropped with its atom
   private readonly lists = new Map<string, RelationList>()
@@ -134,10 +136,13 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     this.index = options.index
     this.present = options.present
     this.onBucket = options.onBucket ?? (() => {})
-    this.rawReadWarnings =
-      process.env.NODE_ENV !== 'production'
-        ? new RawRelationWarnings(this.schema, options.heldBy ?? (() => false))
-        : undefined
+    if (process.env.NODE_ENV !== 'production' && options.heldBy !== undefined)
+      this.rawReadWarnings = new RawRelationWarnings(
+        this.schema,
+        options.heldBy,
+        undefined,
+        options.warningsEnabled,
+      )
     for (const from of Object.keys(this.schema) as EntityName[]) {
       for (const [name, spec] of Object.entries(this.schema[from].relations)) {
         const key = `${from}.${name}`

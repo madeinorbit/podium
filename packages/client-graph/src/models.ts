@@ -70,6 +70,7 @@ import type { PoolCollections } from './collections'
 import type { Residence } from './pool'
 import type { SeatRelation } from './session-seats'
 import { holdingInstanceOf } from './shared/holding-relations'
+import { modelRelationRead } from './shared/model-relation-read'
 import type { CollectionName, IsLazy, SingleName, SubsetName, TargetOf } from './shared/links'
 import type { RelationReader } from './shared/relation-reader'
 import type { LoaderInstance } from './shared/source'
@@ -277,9 +278,13 @@ function installRelations(prototype: EntityModel, entity: EntityName): void {
     // collection for this source, from the declarations (POD-7545).
     const holding = holdingInstanceOf(SCHEMA, entity, name)
     class Members extends ModelCollection {}
-    const members = (host: ModelHost, owner: string) => host.relations.many(entity, owner, name)
+    const members = modelRelationRead((host: ModelHost, owner: string) =>
+      host.relations.many(entity, owner, name),
+    )
     for (const subset of spec.kind === 'hasMany' ? Object.keys(spec.subsets ?? {}) : []) {
-      const subsetMembers = (host: ModelHost, owner: string) => host.relations.subset(entity, owner, name, subset)
+      const subsetMembers = modelRelationRead((host: ModelHost, owner: string) =>
+        host.relations.subset(entity, owner, name, subset),
+      )
       Object.defineProperty(Members.prototype, subset, {
         configurable: false,
         enumerable: false,

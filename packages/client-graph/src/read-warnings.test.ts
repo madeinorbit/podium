@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { lazy } from '@podium/mobx-helpers'
@@ -274,6 +275,11 @@ describe('raw on-demand relation reads', () => {
 })
 
 it('rejects stale raw-reader exceptions and entries without a follow-up issue', () => {
+  expect(
+    rawRelationReaderProblems((file) =>
+      readFileSync(new URL(file, new URL('../../../', import.meta.url)), 'utf8'),
+    ),
+  ).toEqual([])
   const entry: RawRelationReader = {
     reader: 'IssueList.descriptions',
     relation: 'issue.descriptionRecords',
@@ -302,6 +308,7 @@ it('production builds remove both diagnostics and reading 30 bodies never warns'
       contents: `
         import { PoolCollections } from './collections'
         import { PoolRelations } from './relations'
+        import { modelRelationRead } from './shared/model-relation-read'
         import { autorun } from 'mobx'
         export function read() {
           let holds = 0
@@ -311,7 +318,10 @@ it('production builds remove both diagnostics and reading 30 bodies never warns'
             isComplete: () => undefined, wasRefused: () => false,
           }
           const collections = new PoolCollections(() => loader)
-          const graph = new PoolRelations({ index: () => ({ members: () => new Set() }), present: () => true })
+          const graph = new PoolRelations({
+            index: () => ({ members: () => new Set() }), present: () => true,
+            heldBy: () => false, warningsEnabled: () => true,
+          })
           const stop = autorun(() => {
             for (let i = 0; i < 30; i++)
               collections.held({ collection: 'issueDescription.ofIssue', args: { issueId: String(i) }, part: 'main' })
@@ -321,19 +331,26 @@ it('production builds remove both diagnostics and reading 30 bodies never warns'
           stop()
           collections.dispose()
           graph.clear()
-          return { held, remaining: holds }
+          const raw = () => graph.many('issue', 'i0', 'sessions')
+          return {
+            held, remaining: holds, sameReader: modelRelationRead(raw) === raw,
+            diagnosticFields: Object.keys(collections).concat(Object.keys(graph)).filter((key) => key.includes('ReadWarnings')),
+          }
         }
       `,
       loader: 'ts',
     },
     bundle: true,
+    conditions: ['@podium/source'],
     format: 'cjs',
     platform: 'node',
     define: { 'process.env.NODE_ENV': '"production"' },
+    logOverride: { 'empty-import-meta': 'silent' },
     write: false,
     treeShaking: true,
   })
-  const code = output.outputFiles[0]!.text
+  const code = output.outputFiles[0]?.text
+  if (code === undefined) throw new Error('the production build returned no output')
   for (const diagnostic of [
     'Body read misuse:',
     'Raw on-demand relation read:',
@@ -348,7 +365,12 @@ it('production builds remove both diagnostics and reading 30 bodies never warns'
     module.exports,
     createRequire(import.meta.url),
   )
-  expect(module.exports.read()).toEqual({ held: 30, remaining: 0 })
+  expect(module.exports.read()).toEqual({
+    held: 30,
+    remaining: 0,
+    sameReader: true,
+    diagnosticFields: [],
+  })
   await Promise.resolve()
   expect(warn).not.toHaveBeenCalled()
 })

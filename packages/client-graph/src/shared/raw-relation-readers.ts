@@ -8,11 +8,183 @@ export interface RawRelationReader {
   readonly declaration: string
 }
 
-export const RAW_RELATION_READERS: readonly RawRelationReader[] = []
+/** Every tuple is a reader and its explicit relations, never a whole screen exemption. */
+function reader(
+  name: string,
+  relations: readonly string[],
+  followUp: RawRelationReader['followUp'],
+  file: string,
+  declaration: string,
+): RawRelationReader[] {
+  return relations.map((relation) => ({
+    reader: name,
+    relation,
+    followUp,
+    file: file.startsWith('apps/') ? file : `packages/client-graph/src/${file}`,
+    declaration,
+  }))
+}
+
+export const RAW_RELATION_READERS: readonly RawRelationReader[] = [
+  ...reader(
+    'Mission@*.members',
+    ['issue.children', 'issue.missionSessions', 'session.missionStartedIssues'],
+    'POD-7580',
+    'mission.ts',
+    "const members = cachedKey('Mission', 'members',",
+  ),
+  ...reader(
+    'MissionDeckModel@*.topology',
+    ['issue.children'],
+    'POD-7580',
+    'mission-view.ts',
+    'get topology() { return topology(this) }',
+  ),
+  ...reader(
+    'MissionDeckModel@*.progress',
+    ['issue.children'],
+    'POD-7580',
+    'mission-view.ts',
+    'get progress() { return progress(this) }',
+  ),
+  ...reader(
+    'MissionDeckModel@*.continuation',
+    ['issue.canonicalIssue', 'issue.supersedingIssue', 'issue.spinOffs', 'issue.discoveredFrom'],
+    'POD-7580',
+    'mission-view.ts',
+    'get continuation() { return rootContinuation(this) }',
+  ),
+  ...reader(
+    'MissionDeckModel@*.note',
+    ['issue.canonicalIssue', 'issue.supersedingIssue', 'issue.spinOffs', 'issue.discoveredFrom'],
+    'POD-7580',
+    'mission-view.ts',
+    'get note() { return rootNote(this) }',
+  ),
+  ...reader(
+    'MissionDeckModel@*.presence',
+    ['issue.canonicalIssue', 'issue.supersedingIssue', 'issue.spinOffs', 'issue.discoveredFrom'],
+    'POD-7580',
+    'mission-view.ts',
+    'get presence() { return rootPresence(this) }',
+  ),
+  ...reader(
+    'MissionDeckModel@*.departures',
+    ['issue.spinOffs'],
+    'POD-7580',
+    'mission-view.ts',
+    'get departures() { return rootDepartures(this) }',
+  ),
+  ...reader(
+    'MissionIssueReader@*.rules',
+    ['issue.pageDependents'],
+    'POD-7580',
+    'mission-view.ts',
+    'get rules() { return this.view.readRulesIssue(this.id) }',
+  ),
+  ...reader(
+    'MissionIssueReader@*.issue',
+    ['issue.treeChildren', 'issue.pageDependents'],
+    'POD-7580',
+    'mission-view.ts',
+    'get issue() { return this.view.readIssue(this.id) }',
+  ),
+  ...reader(
+    'MissionIssueReader@*.progressUnit',
+    ['issue.spinOffs', 'issue.discoveredFrom'],
+    'POD-7580',
+    'mission-view.ts',
+    'get progressUnit(): boolean',
+  ),
+  ...reader(
+    'MissionIssueReader@*.spinOffDependent',
+    ['issue.pageDependents'],
+    'POD-7580',
+    'mission-view.ts',
+    'get spinOffDependent(): boolean',
+  ),
+  ...reader(
+    'Seats.missionSessions@*.partition',
+    ['issue.missionSessions'],
+    'POD-7579',
+    'session-seats.ts',
+    "'partition', (issueId)",
+  ),
+  ...reader(
+    'Seats.pageSessions@*.partition',
+    ['issue.pageSessions'],
+    'POD-7579',
+    'session-seats.ts',
+    "'partition', (issueId)",
+  ),
+  ...reader(
+    'IssuePageRow.continuation',
+    ['issue.canonicalIssue', 'issue.supersedingIssue', 'issue.spinOffs', 'issue.discoveredFrom'],
+    'POD-7579',
+    'issue-page.ts',
+    'get continuation() { return missionView(this.pool).continuation(this.issue, false) }',
+  ),
+  ...reader(
+    'IssueModel@*.relationGroups',
+    ['issue.pageDependents'],
+    'POD-7579',
+    'models.ts',
+    'get relationGroups()',
+  ),
+  ...reader(
+    'IssueModel@*.memberSessionIds',
+    ['issue.pageSessions'],
+    'POD-7579',
+    'models.ts',
+    'get memberSessionIds(): ReturnType<typeof asSessionId>[]',
+  ),
+  ...reader(
+    'IssueModel@*.liveSeatId',
+    ['issue.pageSessions'],
+    'POD-7579',
+    'models.ts',
+    'get liveSeatId(): string | undefined',
+  ),
+  ...reader(
+    'IssueModel@*.live',
+    ['issue.missionSessions'],
+    'POD-7579',
+    'models.ts',
+    'get live(): boolean',
+  ),
+  ...reader(
+    'IssueModel@*.missionWorking',
+    ['issue.missionSessions'],
+    'POD-7579',
+    'models.ts',
+    'get missionWorking(): boolean',
+  ),
+  ...reader(
+    'IssueModel@*.missionBucket',
+    ['issue.missionSessions'],
+    'POD-7579',
+    'models.ts',
+    'get missionBucket(): MissionTaskBucket | null',
+  ),
+  ...reader(
+    'IssueModel@*.missionBucket',
+    ['issue.bornSessions'],
+    'POD-7582',
+    'models.ts',
+    'get missionBucket(): MissionTaskBucket | null',
+  ),
+  ...reader(
+    'observerIssueNow',
+    ['issue.missionSessions'],
+    'POD-7579',
+    'apps/web/src/features/issues/issue-page/IssueNow.tsx',
+    'export const IssueNow = observer(function IssueNow(',
+  ),
+]
 
 /** Names can carry an instance id; the reader's declared name is stable. */
 export const rawReaderName = (name: string): string =>
-  name.replace(/@\d+$/, '').replace(/:[^.]*/g, ':*')
+  name.replace(/@[^.]+/g, '@*').replace(/:[^.]*/g, ':*')
 
 export function rawRelationReader(reader: string, relation: string): RawRelationReader | undefined {
   return RAW_RELATION_READERS.find(

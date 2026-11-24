@@ -202,7 +202,7 @@ class BodyReadWarnings {
   private active = false
   private readonly warned = new WeakSet<object>()
   // side-state: declaration: collection-to-kind metadata for development diagnostics only
-  private readonly kinds = new Map(
+  private readonly kinds = new Map<string, string>(
     RECORDS.filter((record) => record.group === 'body').flatMap((record) =>
       Object.values(record.collections).map((collection) => [collection.id, record.kind] as const),
     ),
@@ -320,10 +320,7 @@ export class PoolCollections {
     onUnobserved: (key) => this.releaseRead(key),
   })
 
-  private readonly bodyReadWarnings =
-    process.env.NODE_ENV !== 'production'
-      ? new BodyReadWarnings(() => this.observedInstances())
-      : undefined
+  private declare readonly bodyReadWarnings?: BodyReadWarnings
 
   /** Development diagnostics only: the live views retaining this instance. */
   observedBy(spec: LoaderInstance, view: object): boolean {
@@ -332,13 +329,6 @@ export class PoolCollections {
       return atom !== undefined && observingViews(atom).some((entry) => entry.view === view)
     }
     return false
-  }
-
-  private *observedInstances(): Iterable<{ spec: LoaderInstance; atom: IAtom }> {
-    for (const [key, atom] of this.readDemand) {
-      const read = this.reads.get(key)
-      if (read !== undefined) yield { spec: read.spec, atom }
-    }
   }
 
   /** POD-7165: the instances whose markers views read, by key, each told only when it moved. */
@@ -380,6 +370,16 @@ export class PoolCollections {
     this.markers = createAtom('pool.collections.markers')
     this.stubs = createAtom('pool.collections.stubs')
     this.connection = createAtom('pool.collections.connection')
+    if (process.env.NODE_ENV !== 'production') {
+      this.bodyReadWarnings = new BodyReadWarnings(() => {
+        const held: { spec: LoaderInstance; atom: IAtom }[] = []
+        for (const [key, atom] of this.readDemand) {
+          const read = this.reads.get(key)
+          if (read !== undefined) held.push({ spec: read.spec, atom })
+        }
+        return held
+      })
+    }
   }
 
   /**

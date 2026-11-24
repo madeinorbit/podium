@@ -575,6 +575,7 @@ export class MobxPool {
       index: () => this.deviceIndex().relations,
       ...(process.env.NODE_ENV !== 'production'
         ? {
+            warningsEnabled: () => this.collections.available,
             heldBy: (instance: LoaderInstance, view: object) =>
               this.collections.observedBy(instance, view),
           }

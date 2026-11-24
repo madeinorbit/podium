@@ -2,6 +2,7 @@
 import { currentDerivation, observingViews } from '@podium/mobx-helpers'
 import { getDebugName } from 'mobx'
 import { holdingInstanceOf } from './holding-relations'
+import { readingModelRelation } from './model-relation-read'
 import { rawReaderName, rawRelationReader } from './raw-relation-readers'
 import { type RelationReadRow, relationReads } from './relation-reads'
 import type { EntityName, ModelSchema } from './schema'
@@ -34,7 +35,9 @@ export class RawRelationWarnings {
     schema: ModelSchema,
     private readonly heldBy: (instance: LoaderInstance, view: object) => boolean,
     private readonly knownReader = rawRelationReader,
+    private readonly enabled: () => boolean = () => true,
   ) {
+    // side-state: declaration: classification of the fixed schema for diagnostics only
     this.relations = new Map(
       relationReads(schema).map((row) => [
         row.relation,
@@ -50,6 +53,7 @@ export class RawRelationWarnings {
   }
 
   read(from: EntityName, id: string, relation: string): void {
+    if (readingModelRelation() || !this.enabled()) return
     const row = this.relations.get(`${from}.${relation}`)
     if (row === undefined || row.read.kind === 'present') return
     const caller = currentDerivation()
