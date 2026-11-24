@@ -26,13 +26,17 @@ import {
 import { openDatabase } from '@podium/runtime/sqlite'
 import { collectRecords } from '@podium/sync/record-builders'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { sql } from 'drizzle-orm'
+import { and, eq, type SQL, sql } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { SQLiteDialect } from 'drizzle-orm/sqlite-core'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runDrizzleMigrations } from '../migrations'
 import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
+import * as pgSchema from '../migrations/pg/schema'
 import { sqliteAskingSchema } from '../migrations/session-asks-user'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import type { SessionStore } from '../store'
+import { captureWrite } from '../sync/capture-pg'
 import { ASKS_USER_CLAUSES } from '../sync/collection-sql'
 import { type RecordReads, serverRecordBuilders } from '../sync/record-builders'
 import { issueRowFixture } from '../test-support/issue-row'
@@ -40,6 +44,7 @@ import { openTestStore } from '../test-support/open-test-store'
 import { testStoreEngine } from '../test-support/pg-test-database'
 import { countRoundTrips } from '../test-support/round-trip-count'
 import { storeSql } from '../test-support/store-sql'
+import type { LegacyWorkspaceQueries } from './executor/sync-drizzle'
 import type { SessionRow } from './types'
 
 const NOW = Date.parse('2026-11-17T12:00:00.000Z')
@@ -428,6 +433,159 @@ describe('sessions.asks_user follows every writer of its inputs', () => {
       }
     },
   )
+})
+
+describe.runIf(testStoreEngine() === 'pg')('asks_user maintenance on Postgres (POD-7587)', () => {
+  /** Every node of an `EXPLAIN (FORMAT JSON)` plan, subplans and CTEs included. */
+  type PlanNode = { 'Node Type': string; 'Actual Loops'?: number; Plans?: PlanNode[] }
+  const nodesOf = (node: PlanNode): PlanNode[] => [node, ...(node.Plans ?? []).flatMap(nodesOf)]
+
+  it('computes the value for the written sessions only, however low the row estimates are', async () => {
+    const store = await openTestStore(':memory:')
+    try {
+      const raw = storeSql(store)
+      const owner = await firstAdminMemberId(store)
+      const host = store.hostMachine
+      if (host === undefined || host === null) throw new Error('the test store has no host machine')
+      const machineId = asMachineId(host.id)
+      const session = (id: string): SessionRow => ({
+        id: asSessionId(id),
+        ownerUserId: owner,
+        agentKind: 'codex',
+        cwd: '/workspace',
+        title: id,
+        name: null,
+        nameSource: null,
+        originKind: 'spawn',
+        conversationId: null,
+        resumeKind: null,
+        resumeValue: null,
+        status: 'exited',
+        exitCode: 0,
+        spawnFailure: null,
+        durableLabel: `podium-${id}`,
+        createdAt: at(-600),
+        lastActiveAt: at(-1),
+        geometry: { cols: 120, rows: 40 },
+        archived: false,
+        workState: null,
+        machineId,
+        lastOutputAt: null,
+        lastInputAt: null,
+        lastResumedAt: null,
+        spawnedBy: 'user',
+        headless: false,
+        issueId: null,
+        refIssueId: null,
+        refLetter: null,
+        refDraft: null,
+        stoppedAt: null,
+        stopReason: null,
+        workflowRunId: null,
+        workflowStepId: null,
+        agentProfileId: null,
+        deletedAt: null,
+        deletionSource: null,
+        deletedByIssueId: null,
+        createdBy: { actor: actorUser(owner), onBehalfOf: owner },
+      })
+      const sessions = (from: number, to: number) =>
+        Array.from({ length: to - from }, (_, n) => session(`estimate-${from + n}`))
+      const leases = async (from: number, to: number) => {
+        for (let n = from; n < to; n++)
+          await store.observationCheckpoints.advanceGeneration(
+            asSessionId(`estimate-${n}`),
+            'codex',
+            null,
+          )
+      }
+      await store.sessions.upsertSessions(fixtureWriteScope(), sessions(0, 304))
+      await leases(0, 304)
+      // Statistics that call both tables nearly empty while they hold 304 rows each, as they
+      // stay through a transaction that grew them: no ANALYZE sees uncommitted rows, and a
+      // plan made early keeps its estimates (POD-7587). Four rows over a thousand pages put
+      // the planner's estimate for the tables' present size at about one row. No
+      // autovacuum may correct them before the statement is planned.
+      for (const table of ['sessions', 'session_observation_checkpoints'])
+        await raw.run(sql.raw(`ALTER TABLE ${table} SET (autovacuum_enabled = false)`))
+      await raw.run(
+        sql`UPDATE pg_class SET reltuples = 4, relpages = 1000 WHERE oid IN ('sessions'::regclass, 'session_observation_checkpoints'::regclass)`,
+      )
+
+      // A satellite write: one session's checkpoint saved over its lease, as `save` writes
+      // it. The store's drizzle is typed as SQLite's; on this engine it builds Postgres writes.
+      const { queries } = store as unknown as { queries: LegacyWorkspaceQueries }
+      const pg = queries.rootDb as unknown as {
+        update(table: unknown): {
+          set(values: Record<string, unknown>): {
+            where(condition: SQL | undefined): { getSQL(): SQL }
+          }
+        }
+      }
+      const checkpoints = pgSchema.sessionObservationCheckpoints
+      const write = captureWrite(
+        pg
+          .update(checkpoints)
+          .set({
+            checkpointJson: JSON.stringify({ schemaVersion: 1, turnState: state('needs_user') }),
+            updatedAt: at(0),
+          })
+          .where(
+            and(
+              eq(checkpoints.workspaceId, SELF_HOSTED_WORKSPACE_ID),
+              eq(checkpoints.sessionId, asSessionId('estimate-7')),
+            ),
+          ),
+      )
+      // Run it as the driver does: a prepared statement on its generic plan, the plan
+      // Postgres keeps after five executions, made without the parameter values.
+      const { sql: text, params } = new PgDialect().sqlToQuery(write.getSQL())
+      const literal = (value: unknown): string =>
+        value === null
+          ? 'NULL'
+          : typeof value === 'number'
+            ? String(value)
+            : `'${String(value).replaceAll("'", "''")}'`
+      const plan = await raw.transaction(async () => {
+        await raw.run(sql`SET LOCAL plan_cache_mode = force_generic_plan`)
+        await raw.run(sql.raw(`PREPARE asks_estimate_probe AS ${text}`))
+        try {
+          const [row] = await raw.all<{ 'QUERY PLAN': unknown }>(
+            sql.raw(
+              `EXPLAIN (ANALYZE, FORMAT JSON) EXECUTE asks_estimate_probe(${params.map(literal).join(', ')})`,
+            ),
+          )
+          const value = row?.['QUERY PLAN']
+          return (typeof value === 'string' ? JSON.parse(value) : value) as [{ Plan: PlanNode }]
+        } finally {
+          await raw.run(sql`DEALLOCATE asks_estimate_probe`)
+        }
+      })
+      // One updated row: nothing that computes the value runs more than once for it and its
+      // old image. Inlined, the value and its lookups ran once per session of the table
+      // (POD-7587). Reading a materialized one-row CTE once per row of a sequential scan is
+      // that scan's own cost, linear in the table; the driver's re-planning removes it once
+      // the transaction has grown (`pg-driver.test.ts`).
+      const readsCte = (node: PlanNode): boolean =>
+        node['Node Type'] === 'CTE Scan' ||
+        (node['Node Type'] === 'Append' && (node.Plans ?? []).every(readsCte))
+      const repeated = nodesOf(plan[0].Plan)
+        .filter((node) => (node['Actual Loops'] ?? 0) > 2 && !readsCte(node))
+        .map((node) => `${node['Node Type']} x${node['Actual Loops']}`)
+      expect(repeated).toEqual([])
+      // The write applied, and the flag follows the checkpoint's turn state.
+      expect(await column(store, 'estimate-7')).toBe(1)
+    } finally {
+      await store.close()
+    }
+  })
+
+  const column = async (store: SessionStore, id: string) =>
+    (
+      await storeSql(store).get<{ asks: number }>(
+        sql`SELECT CASE WHEN asks_user THEN 1 ELSE 0 END AS asks FROM sessions WHERE id = ${id}`,
+      )
+    )?.asks
 })
 
 describe.runIf(testStoreEngine() === 'sqlite')(

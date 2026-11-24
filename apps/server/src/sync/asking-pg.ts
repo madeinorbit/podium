@@ -200,7 +200,13 @@ export function askingSatelliteCtes(
   const from = sql.raw(`"sessions" AS r inner join (${targets}) AS affected
     on r.workspace_id = affected.workspace_id and r.id = affected.session_id`)
   const values = askingSelect(PG_RULE_SQL, from, askingRef('r'), relation)
-  return sql`, ${sql.raw(VALUES)} as (${values}), ${sql.raw(ASKING_UPDATE_CTE)} as (
+  // MATERIALIZED, so the value is computed for the affected sessions only (POD-7587).
+  // Inlined, the planner may turn the UPDATE's `IS DISTINCT FROM` into a join filter on
+  // `sessions` joined to itself, evaluating the value (a lookup in every input) for every
+  // session before the join to the written rows narrows it: it does so whenever its row
+  // estimates are low, as they are in a transaction that grew the tables, and the
+  // statement then costs the table size times the lookups.
+  return sql`, ${sql.raw(VALUES)} as materialized (${values}), ${sql.raw(ASKING_UPDATE_CTE)} as (
     update "sessions" set "asks_user" = ${sql.raw(VALUES)}.asks from ${sql.raw(VALUES)}
       where "sessions".workspace_id = ${sql.raw(VALUES)}.workspace_id
         and "sessions".id = ${sql.raw(VALUES)}.session_id
