@@ -84,7 +84,12 @@ import { useRowPrime } from '../lib/use-row-prime'
 import { sectionAnimationValue, useSettledOrder } from '../lib/use-settled-order'
 import { VisibleContent } from '../lib/visible-content'
 import { color } from '../theme/theme'
-import { type TasksSurfaceProps, taskRowFigure, tasksSubtitle } from './TasksSurface.types'
+import {
+  subTaskMenuLabel,
+  type TasksSurfaceProps,
+  taskRowFigure,
+  tasksSubtitle,
+} from './TasksSurface.types'
 import { useStageFolds } from './tasks-folds'
 import { workPaper as paper } from './work-paper'
 
@@ -609,7 +614,9 @@ const TaskRow = taskObserver(function TaskRow({
         <ContextMenu.Items>
           {row.childCount > 0 ? (
             <Button
-              label={row.expanded ? 'Hide Sub-tasks' : `Show Sub-tasks (${row.childCount})`}
+              label={
+                row.expanded ? 'Hide Sub-tasks' : subTaskMenuLabel(row.childCount, issue.childCount)
+              }
               systemImage={row.expanded ? 'chevron.up' : 'chevron.down'}
               onPress={() => board.toggleExpanded(issue.id)}
             />

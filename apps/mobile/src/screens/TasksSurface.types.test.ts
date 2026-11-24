@@ -6,7 +6,7 @@ import { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { autorun, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
-import { compactAge, taskRowFigure, tasksSubtitle } from './TasksSurface.types'
+import { compactAge, subTaskMenuLabel, taskRowFigure, tasksSubtitle } from './TasksSurface.types'
 
 const counts = { in_progress: 5, review: 11, planning: 0, backlog: 0, proposed: 0, done: 0 }
 
@@ -144,4 +144,10 @@ it('matches desktop and deck leaf progress for a TFT-88-shaped task across live 
     opening.close()
     pool.dispose()
   }
+})
+
+it('counts every sub-task in the row menu, as the row figure does, and says how many show', () => {
+  // POD-2666: the row read 1/3 while the menu offered "Show Sub-tasks (2)".
+  expect(subTaskMenuLabel(3, 3)).toBe('Show Sub-tasks (3)')
+  expect(subTaskMenuLabel(2, 3)).toBe('Show 2 of 3 Sub-tasks')
 })

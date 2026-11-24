@@ -70,3 +70,13 @@ export function compactAge(age: string | null | undefined): string {
   if (!age) return ''
   return age.replace(/ ago$/, '').replace('just now', 'now')
 }
+
+/**
+ * The menu counts what the row's figure counts: every sub-task (the "1/3"
+ * total, from the stubs). When the board hides some of them (done work), it
+ * says how many will show (POD-2666).
+ */
+export function subTaskMenuLabel(shown: number, total: number): string {
+  if (total <= shown) return `Show Sub-tasks (${shown})`
+  return `Show ${shown} of ${total} Sub-tasks`
+}
