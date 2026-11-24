@@ -52,6 +52,13 @@ const MACHINE = asMachineId(manifest.daemon.machineId)
 const HEALTHY = asSessionId('session-healthy')
 const RETIRED = manifest.retiredPrincipal
 const RESIDUE = ['session-moved-peer-a', 'session-moved-peer-b', 'session-exported-stale'] as const
+/**
+ * The strays the machine counts as unresolved. The exported residue stays fenced
+ * but is retained handoff history (POD-7533), so it is not counted.
+ */
+const UNRESOLVED = manifest.daemon.expectedQuarantined.filter(
+  (id) => !(RESIDUE as readonly string[]).includes(id),
+)
 
 const roots: string[] = []
 afterEach(async () => {
@@ -199,7 +206,7 @@ describe('customer upgrade fixture: daemon', () => {
     expect(
       manifest.daemon.expectedQuarantined.filter((id) => store.isQuarantined(asSessionId(id))),
     ).toEqual(manifest.daemon.expectedQuarantined)
-    expect(store.quarantinedCount).toBe(manifest.daemon.expectedQuarantined.length)
+    expect(store.quarantinedCount).toBe(UNRESOLVED.length)
     expect(store.isQuarantined(HEALTHY)).toBe(false)
 
     // The connected daemon's recovery, exactly as host-runtime runs it.
@@ -241,7 +248,7 @@ describe('customer upgrade fixture: daemon', () => {
     })
     expect(await store.read(fresh.sessionId)).not.toBeNull()
     expect(store.isQuarantined(fresh.sessionId)).toBe(false)
-    expect(store.quarantinedCount).toBe(manifest.daemon.expectedQuarantined.length)
+    expect(store.quarantinedCount).toBe(UNRESOLVED.length)
   })
 
   it('live process on a moved binding: retained while alive, counted; removed only after closed and gone', async () => {
@@ -254,7 +261,7 @@ describe('customer upgrade fixture: daemon', () => {
     const alive = async () => true
     await store.reapQuarantined(alive, receiptDir)
     expect(await snapshotFiles(join(storeDir, 'bindings'))).toEqual(before)
-    expect(store.quarantinedCount).toBe(manifest.daemon.expectedQuarantined.length)
+    expect(store.quarantinedCount).toBe(UNRESOLVED.length)
 
     // The server later says one moved session is closed; its process is still alive: kept.
     await store.inventory(receiptDir)
@@ -272,7 +279,7 @@ describe('customer upgrade fixture: daemon', () => {
     expect(await readFile(join(receiptDir, 'session-deleted.json'), 'utf8')).toContain(
       'native-thread-deleted',
     )
-    expect(store.quarantinedCount).toBe(manifest.daemon.expectedQuarantined.length - 1)
+    expect(store.quarantinedCount).toBe(UNRESOLVED.length)
   })
 
   it('new daemon + old server: no confirmations means recovery is skipped, never quarantine', async () => {
