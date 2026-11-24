@@ -217,7 +217,9 @@ it('lists startable agents followed by setup with an installing count', () => {
       },
     } satisfies MachineWire,
   ]
-  const menu = vi.spyOn(menus, 'ComposeMenu').mockImplementation(({ children }) => children(undefined))
+  const menu = vi
+    .spyOn(menus, 'ComposeMenu')
+    .mockImplementation(({ children }) => children(undefined))
   render(
     <LaunchConfigurationFields
       repoPath="/synthetic"

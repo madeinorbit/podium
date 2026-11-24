@@ -38,7 +38,11 @@ import {
 import { color } from '../theme/theme'
 import { ActionSheet } from './ActionSheet'
 import { AgentMark } from './AgentMark'
-import { installingAgentsHint, pickerHarnessStartable, SET_UP_AGENTS } from './AgentSetupPickerEntry'
+import {
+  installingAgentsHint,
+  pickerHarnessStartable,
+  SET_UP_AGENTS,
+} from './AgentSetupPickerEntry'
 import { PhoneAgentSetupSheet } from './AgentSetupSheet'
 import type { NativePickerOption } from './action-sheet-spec'
 import { ComposeMenu } from './compose/ComposeMenu'
@@ -261,95 +265,99 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
 
   return (
     <>
-    <InsetGroup
-      header={header}
-      footer={
-        plan.refusal ? (
-          <Text accessibilityLiveRegion="polite" style={insetRow.footerError}>
-            {plan.refusal}
-          </Text>
-        ) : undefined
-      }
-    >
-      {rows.map((row) => {
-        // Inert values reserve the same scaled indicator as the menu rows, so
-        // Effort stays aligned even while its model's choices are unavailable.
-        // An inert row reads like a disabled SwiftUI menu picker: same chevron,
-        // value and chevron dimmed to tertiary, so it never looks tappable.
-        const inert = row.options.length === 0
-        const content = (
-          <>
-            <Text style={insetRow.label}>{row.label}</Text>
-            <View style={[insetRow.trail, stacked && styles.stackedTrail]}>
-              {row.agent ? (
-                <AgentMark kind={row.agent} size={16 * fontScale} ink={color.textDim} />
-              ) : null}
-              <Text
-                style={[insetRow.value, stacked && styles.stackedValue, inert && styles.inert]}
-                numberOfLines={stacked ? undefined : 2}
-              >
-                {row.valueLabel}
-              </Text>
-              <View style={inert ? styles.inertIndicator : undefined}>
-                <Icon as="chevron.up.chevron.down" size={11 * fontScale} color={color.textFaint} />
-              </View>
-            </View>
-          </>
-        )
-        return inert ? (
-          <View
-            key={row.key}
-            accessible
-            accessibilityLabel={`${row.label}, ${row.valueLabel}`}
-            accessibilityState={{ disabled: true }}
-            aria-disabled={true}
-            style={rowStyle}
-          >
-            {content}
-          </View>
-        ) : (
-          <ComposeMenu
-            key={row.key}
-            label={row.label}
-            style={styles.menu}
-            items={row.options.map((option) => ({
-              id: option.value,
-              label: option.group ? `${option.group} · ${option.label}` : option.label,
-              ...(option.caption ? { subtitle: option.caption } : {}),
-              selected: option.value === SET_UP_AGENTS ? false : option.value === row.selected,
-              disabled: option.disabled,
-              onPress: () => row.select(option.value),
-            }))}
-          >
-            {(onPress) => {
-              // The SwiftUI Menu owns iOS touches. An RN Pressable inside its
-              // label would compete for the responder, as in ComposeFieldRow.
-              return onPress ? (
-                <PressableScale
-                  accessibilityRole="button"
-                  accessibilityLabel={`${row.label}, ${row.valueLabel}`}
-                  accessibilityHint="Opens a menu"
-                  onPress={onPress}
-                  style={({ pressed }) => [rowStyle, pressed && insetRow.pressed]}
+      <InsetGroup
+        header={header}
+        footer={
+          plan.refusal ? (
+            <Text accessibilityLiveRegion="polite" style={insetRow.footerError}>
+              {plan.refusal}
+            </Text>
+          ) : undefined
+        }
+      >
+        {rows.map((row) => {
+          // Inert values reserve the same scaled indicator as the menu rows, so
+          // Effort stays aligned even while its model's choices are unavailable.
+          // An inert row reads like a disabled SwiftUI menu picker: same chevron,
+          // value and chevron dimmed to tertiary, so it never looks tappable.
+          const inert = row.options.length === 0
+          const content = (
+            <>
+              <Text style={insetRow.label}>{row.label}</Text>
+              <View style={[insetRow.trail, stacked && styles.stackedTrail]}>
+                {row.agent ? (
+                  <AgentMark kind={row.agent} size={16 * fontScale} ink={color.textDim} />
+                ) : null}
+                <Text
+                  style={[insetRow.value, stacked && styles.stackedValue, inert && styles.inert]}
+                  numberOfLines={stacked ? undefined : 2}
                 >
-                  {content}
-                </PressableScale>
-              ) : (
-                <View
-                  accessible
-                  accessibilityRole="button"
-                  accessibilityLabel={`${row.label}, ${row.valueLabel}`}
-                  accessibilityHint="Opens a menu"
-                  style={rowStyle}
-                >
-                  {content}
+                  {row.valueLabel}
+                </Text>
+                <View style={inert ? styles.inertIndicator : undefined}>
+                  <Icon
+                    as="chevron.up.chevron.down"
+                    size={11 * fontScale}
+                    color={color.textFaint}
+                  />
                 </View>
-              )
-            }}
-          </ComposeMenu>
-        )
-      })}
-    </InsetGroup>
+              </View>
+            </>
+          )
+          return inert ? (
+            <View
+              key={row.key}
+              accessible
+              accessibilityLabel={`${row.label}, ${row.valueLabel}`}
+              accessibilityState={{ disabled: true }}
+              aria-disabled={true}
+              style={rowStyle}
+            >
+              {content}
+            </View>
+          ) : (
+            <ComposeMenu
+              key={row.key}
+              label={row.label}
+              style={styles.menu}
+              items={row.options.map((option) => ({
+                id: option.value,
+                label: option.group ? `${option.group} · ${option.label}` : option.label,
+                ...(option.caption ? { subtitle: option.caption } : {}),
+                selected: option.value === SET_UP_AGENTS ? false : option.value === row.selected,
+                disabled: option.disabled,
+                onPress: () => row.select(option.value),
+              }))}
+            >
+              {(onPress) => {
+                // The SwiftUI Menu owns iOS touches. An RN Pressable inside its
+                // label would compete for the responder, as in ComposeFieldRow.
+                return onPress ? (
+                  <PressableScale
+                    accessibilityRole="button"
+                    accessibilityLabel={`${row.label}, ${row.valueLabel}`}
+                    accessibilityHint="Opens a menu"
+                    onPress={onPress}
+                    style={({ pressed }) => [rowStyle, pressed && insetRow.pressed]}
+                  >
+                    {content}
+                  </PressableScale>
+                ) : (
+                  <View
+                    accessible
+                    accessibilityRole="button"
+                    accessibilityLabel={`${row.label}, ${row.valueLabel}`}
+                    accessibilityHint="Opens a menu"
+                    style={rowStyle}
+                  >
+                    {content}
+                  </View>
+                )
+              }}
+            </ComposeMenu>
+          )
+        })}
+      </InsetGroup>
       {setupMachineId ? (
         <PhoneAgentSetupSheet
           machineId={setupMachineId}

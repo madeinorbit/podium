@@ -1,5 +1,5 @@
-import { settled } from '@podium/client-graph/mission-view'
 import { here } from '@podium/client-graph/lookup'
+import { settled } from '@podium/client-graph/mission-view'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { issueStatusOf } from '@podium/model'
 import {

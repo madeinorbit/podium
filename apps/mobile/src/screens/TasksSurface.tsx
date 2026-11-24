@@ -274,7 +274,9 @@ function GroupHeader({
         accessibilityState={{ expanded: !collapsed }}
         aria-expanded={!collapsed}
         accessibilityLabel={
-          count === null ? `${title}, counting tasks` : `${title}, ${count} task${count === 1 ? '' : 's'}`
+          count === null
+            ? `${title}, counting tasks`
+            : `${title}, ${count} task${count === 1 ? '' : 's'}`
         }
         accessibilityHint={collapsed ? 'Show this group' : 'Fold this group away'}
         onPress={onToggle}

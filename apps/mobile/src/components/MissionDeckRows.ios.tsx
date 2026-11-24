@@ -23,8 +23,8 @@ import {
   padding,
   shapes,
 } from '@expo/ui/swift-ui/modifiers'
-import { settled } from '@podium/client-graph/mission-view'
 import { here } from '@podium/client-graph/lookup'
+import { settled } from '@podium/client-graph/mission-view'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { type IssueStatus, issueStatusOf } from '@podium/model'
 import { SESSION_WORD_LABEL, type SessionWord, TASK_WORD_LABEL } from '@podium/model/browser'
