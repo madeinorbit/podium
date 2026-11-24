@@ -1,4 +1,5 @@
-import { open, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { lstat, open, readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import type {
   FileAssetResultMessage,
@@ -26,21 +27,60 @@ function isBinary(buf: Buffer): boolean {
 
 const sig = (s: { mtimeMs: number; size: number }): string => `${s.mtimeMs}:${s.size}`
 
+/**
+ * THE SANDBOX ROOT, realpath-resolved, or the refusal (POD-7501).
+ *
+ * A request addressed by root names the registered repository the server
+ * matched it to (`repoRoot`). The server's match is textual: a root such as
+ * `<repo>/escape`, where `escape` is a symlink to `/`, sits under `<repo>` as
+ * text. Only this machine can see what the root really is, so the root must
+ * resolve to the repository or a folder inside it, both resolved here. A
+ * session request carries no `repoRoot`: its sandbox is the session's own cwd.
+ */
+async function sandboxRoot(
+  root: string,
+  repoRoot: string | undefined,
+): Promise<{ ok: true; real: string } | { ok: false; error: string }> {
+  let real: string
+  try {
+    real = await realpath(root)
+  } catch {
+    return { ok: false, error: 'not found' }
+  }
+  if (repoRoot === undefined) return { ok: true, real }
+  let realRepo: string
+  try {
+    realRepo = await realpath(repoRoot)
+  } catch {
+    return { ok: false, error: 'repository not found' }
+  }
+  return isInside(real, realRepo) ? { ok: true, real } : { ok: false, error: 'outside repository' }
+}
+
+/** Refuses to follow a symlink at the final component when opening for write. 0 on
+ *  Windows, which has no such flag; there the target was resolved just before. */
+const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0
+
 export async function readFileSandboxed(opts: {
   cwd: string
   path: string
   knownPath: boolean
+  /** The registered repository the server matched `cwd` to; see {@link sandboxRoot}. */
+  repoRoot?: string
 }): Promise<ReadResult> {
-  const { cwd, path, knownPath } = opts
-  let realCwd: string
+  const { cwd, path, repoRoot } = opts
+  // The transcript-known exception belongs to a session; a repository root has none.
+  const knownPath = opts.knownPath && repoRoot === undefined
+  const sandbox = await sandboxRoot(cwd, repoRoot)
+  if (!sandbox.ok) return { ok: false, path, error: sandbox.error }
   let real: string
   try {
-    realCwd = await realpath(cwd)
     real = await realpath(path)
   } catch {
     return { ok: false, path, error: 'not found' }
   }
-  if (!isInside(real, realCwd) && !knownPath) return { ok: false, path, error: 'outside workspace' }
+  if (!isInside(real, sandbox.real) && !knownPath)
+    return { ok: false, path, error: 'outside workspace' }
   try {
     const st = await stat(real)
     if (!st.isFile()) return { ok: false, path, error: 'not a file' }
@@ -104,19 +144,22 @@ export async function readAssetSandboxed(opts: {
   cwd: string
   path: string
   knownPath: boolean
+  repoRoot?: string
   offset?: number
   length?: number
 }): Promise<AssetResult> {
-  const { cwd, path, knownPath } = opts
-  let realCwd: string
+  const { cwd, path, repoRoot } = opts
+  const knownPath = opts.knownPath && repoRoot === undefined
+  const sandbox = await sandboxRoot(cwd, repoRoot)
+  if (!sandbox.ok) return { ok: false, path, error: sandbox.error }
   let real: string
   try {
-    realCwd = await realpath(cwd)
     real = await realpath(path)
   } catch {
     return { ok: false, path, error: 'not found' }
   }
-  if (!isInside(real, realCwd) && !knownPath) return { ok: false, path, error: 'outside workspace' }
+  if (!isInside(real, sandbox.real) && !knownPath)
+    return { ok: false, path, error: 'outside workspace' }
   try {
     const st = await stat(real)
     if (!st.isFile()) return { ok: false, path, error: 'not a file' }
@@ -160,18 +203,30 @@ export async function writeFileSandboxed(opts: {
   path: string
   content: string
   baseHash?: string
+  repoRoot?: string
 }): Promise<WriteResult> {
-  const { cwd, path, content, baseHash } = opts
-  let realCwd: string
+  const { cwd, path, content, baseHash, repoRoot } = opts
+  const sandbox = await sandboxRoot(cwd, repoRoot)
+  if (!sandbox.ok) return { ok: false, error: sandbox.error }
   let realDir: string
   try {
-    realCwd = await realpath(cwd)
     realDir = await realpath(dirname(path))
   } catch {
     return { ok: false, error: 'not found' }
   }
-  const real = join(realDir, basename(path))
-  if (!isInside(real, realCwd)) return { ok: false, error: 'outside workspace' }
+  let real = join(realDir, basename(path))
+  // The file itself may be a link: writing through `<repo>/x -> ~/.bashrc` would
+  // land outside. Follow it here and judge where it points; a dangling link has
+  // nowhere inside to point to, so it is refused.
+  const link = await lstat(real).catch(() => null)
+  if (link?.isSymbolicLink()) {
+    try {
+      real = await realpath(real)
+    } catch {
+      return { ok: false, error: 'outside workspace' }
+    }
+  }
+  if (!isInside(real, sandbox.real)) return { ok: false, error: 'outside workspace' }
   if (baseHash) {
     const current = await stat(real)
       .then(sig)
@@ -179,7 +234,17 @@ export async function writeFileSandboxed(opts: {
     if (current && current !== baseHash) return { ok: false, conflict: true }
   }
   try {
-    await writeFile(real, content, 'utf8')
+    // No-follow: a link planted at `real` after the check is refused, not written through.
+    const fh = await open(
+      real,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | O_NOFOLLOW,
+      0o666,
+    )
+    try {
+      await fh.writeFile(content, 'utf8')
+    } finally {
+      await fh.close()
+    }
     const st = await stat(real)
     return { ok: true, baseHash: sig(st) }
   } catch {
@@ -187,17 +252,22 @@ export async function writeFileSandboxed(opts: {
   }
 }
 
-export async function listDirSandboxed(opts: { root: string; path?: string }): Promise<{
+export async function listDirSandboxed(opts: {
+  root: string
+  path?: string
+  repoRoot?: string
+}): Promise<{
   ok: boolean
   path: string
   entries: { name: string; isDir: boolean }[]
   error?: string
 }> {
   const target = opts.path ?? opts.root
-  let realRoot: string
+  const sandbox = await sandboxRoot(opts.root, opts.repoRoot)
+  if (!sandbox.ok) return { ok: false, path: target, entries: [], error: sandbox.error }
+  const realRoot = sandbox.real
   let real: string
   try {
-    realRoot = await realpath(opts.root)
     real = await realpath(target)
   } catch {
     return { ok: false, path: target, entries: [], error: 'not found' }

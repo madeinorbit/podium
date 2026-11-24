@@ -69,6 +69,7 @@ export const fileHandlers: Pick<
       cwd: msg.cwd,
       path: msg.path,
       knownPath: msg.knownPath,
+      ...(msg.repoRoot !== undefined ? { repoRoot: msg.repoRoot } : {}),
     })
       .then((r) => ctx.send({ type: 'fileReadResult', requestId: msg.requestId, ...r }))
       .catch((err) =>
@@ -86,6 +87,7 @@ export const fileHandlers: Pick<
       cwd: msg.cwd,
       path: msg.path,
       knownPath: msg.knownPath,
+      ...(msg.repoRoot !== undefined ? { repoRoot: msg.repoRoot } : {}),
       ...(msg.offset !== undefined ? { offset: msg.offset } : {}),
       ...(msg.length !== undefined ? { length: msg.length } : {}),
     })
@@ -106,6 +108,7 @@ export const fileHandlers: Pick<
       path: msg.path,
       content: msg.content,
       ...(msg.baseHash ? { baseHash: msg.baseHash } : {}),
+      ...(msg.repoRoot !== undefined ? { repoRoot: msg.repoRoot } : {}),
     })
       .then((r) => ctx.send({ type: 'fileWriteResult', requestId: msg.requestId, ...r }))
       .catch((err) =>
@@ -118,7 +121,11 @@ export const fileHandlers: Pick<
       )
   },
   dirListRequest: (ctx, msg) => {
-    void listDirSandboxed({ root: msg.root, path: msg.path })
+    void listDirSandboxed({
+      root: msg.root,
+      path: msg.path,
+      ...(msg.repoRoot !== undefined ? { repoRoot: msg.repoRoot } : {}),
+    })
       .then((r) => ctx.send({ type: 'dirListResult', requestId: msg.requestId, ...r }))
       .catch((err) =>
         ctx.send({

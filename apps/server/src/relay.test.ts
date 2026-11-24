@@ -7167,6 +7167,7 @@ describe('listDir routing', () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => daemon.push(m))
+    await reg.sessionStore.repos.addRepo('/w', reg.sessionStore.hostMachine!.id)
 
     const p = reg.modules.rpc.listDir({
       machineId: reg.sessionStore.hostMachine!.id,
@@ -7191,6 +7192,56 @@ describe('listDir routing', () => {
     const r = await p
     expect(r.ok).toBe(true)
     expect(r.entries).toEqual([{ name: 'src', isDir: true }])
+  })
+
+  // POD-7501: the daemon realpaths the root and this repository, so a root that is a
+  // symlink inside the repository (text match) still cannot leave it on disk.
+  it('hands every root-addressed file request the registered repository it matched', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    await attachHostDaemon(reg, (m) => daemon.push(m))
+    const machineId = reg.sessionStore.hostMachine!.id
+    await reg.sessionStore.repos.addRepo('/w', machineId)
+    await reg.sessionStore.repos.addRepo('/w/nested', machineId)
+    const root = '/w/nested/escape'
+    void reg.modules.rpc.listDir({ machineId, root })
+    void reg.modules.rpc.readFile({ machineId, root, path: `${root}/a` })
+    void reg.modules.rpc.readAsset({ machineId, root, path: 'a.png' })
+    void reg.modules.rpc.writeFile({ machineId, root, path: `${root}/a`, content: 'x' })
+    const types = ['dirListRequest', 'fileReadRequest', 'fileAssetRequest', 'fileWriteRequest']
+    await expect.poll(() => types.every((type) => daemon.some((m) => m.type === type))).toBe(true)
+    for (const type of types) {
+      const frame = daemon.find((m) => m.type === type) as { repoRoot?: string } | undefined
+      expect(frame?.repoRoot, type).toBe('/w/nested')
+    }
+  })
+
+  it('refuses a root under no registered repository without asking the daemon', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    await attachHostDaemon(reg, (m) => daemon.push(m))
+    const machineId = reg.sessionStore.hostMachine!.id
+    await reg.sessionStore.repos.addRepo('/w', machineId)
+    const root = '/elsewhere'
+    const refusal = 'root is not a known repository path'
+    expect(await reg.modules.rpc.listDir({ machineId, root })).toMatchObject({
+      ok: false,
+      error: refusal,
+    })
+    expect(await reg.modules.rpc.readFile({ machineId, root, path: `${root}/a` })).toMatchObject({
+      ok: false,
+      error: refusal,
+    })
+    expect(await reg.modules.rpc.readAsset({ machineId, root, path: `${root}/a` })).toMatchObject({
+      ok: false,
+      error: refusal,
+    })
+    expect(
+      await reg.modules.rpc.writeFile({ machineId, root, path: `${root}/a`, content: 'x' }),
+    ).toMatchObject({ ok: false, error: refusal })
+    expect(daemon.filter((m) => m.type.startsWith('file') || m.type === 'dirListRequest')).toEqual(
+      [],
+    )
   })
 })
 

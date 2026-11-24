@@ -99,6 +99,7 @@ import { contextReadFailure } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
 import { knownPathsFor } from '../../file-relay-policy'
 import type { RpcDaemonFrame, RpcDaemonFrameType } from '../../gateway/daemon-frame-routing'
+import { inferRepoFromRoots } from '../../repo-registry'
 import {
   DaemonRequestBroker,
   type DaemonRequestKind,
@@ -116,6 +117,8 @@ import type { ServerPlacement } from '../updates/service'
 
 const SCAN_TIMEOUT_MS = 10_000
 const FILE_RPC_TIMEOUT_MS = 10_000
+/** The refusal for a root under no registered repository (the allowlist's words). */
+const UNKNOWN_ROOT = 'root is not a known repository path'
 // A browse is one readdir, but it may hit a cold/spun-down disk on a remote
 // machine — generous enough to ride that out, short enough that the picker's
 // spinner doesn't outlive the user's patience.
@@ -246,6 +249,10 @@ interface DaemonRpcDeps {
   onlineMachineIds(): MachineId[]
   getSession(sessionId: SessionId): Promise<RpcSessionView | undefined>
   portableStateFence?: PortableStateWriteFence
+  /** The registered repository roots on a machine (POD-7501). A root-addressed file
+   *  request carries the one its root is under, for the daemon's realpath check;
+   *  absent, every root-addressed request is refused. */
+  repoPaths?(machineId: MachineId): Promise<string[]>
 }
 
 /** A daemon reply's payload: the message minus its wire plumbing. */
@@ -2059,18 +2066,43 @@ export class DaemonRpcService {
     return projected
   }
 
+  /**
+   * THE MACHINE AND REGISTERED REPOSITORY a root-addressed file request is for
+   * (POD-7501). The callers' allowlists match the root as text; the daemon is
+   * the one that can see a symlinked root, so it is handed the repository the
+   * root matched and checks both realpaths. A root under no registered
+   * repository is refused here, before any daemon is asked.
+   */
+  private async fileRoot(
+    root: string,
+    machineId: MachineId | undefined,
+  ): Promise<{ machineId: MachineId; repoRoot: string } | undefined> {
+    const target = machineId ?? asMachineId(await this.deps.defaultMachine())
+    const repoPaths = (await this.deps.repoPaths?.(target)) ?? []
+    const repoRoot = inferRepoFromRoots(repoPaths, root)
+    return repoRoot === undefined ? undefined : { machineId: target, repoRoot }
+  }
+
   async listDir(input: {
     machineId?: MachineId
     root: string
     path?: string
   }): Promise<Omit<DirListResultMessage, 'type' | 'requestId'>> {
     const path = input.path ?? input.root
+    const target = await this.fileRoot(input.root, input.machineId)
+    if (!target) return { ok: false, path, entries: [], error: UNKNOWN_ROOT }
     return await this.request(
       DIR_LIST,
       FILE_RPC_TIMEOUT_MS,
       () => ({ ok: false, path, entries: [], error: 'timeout' }),
-      (requestId) => ({ type: 'dirListRequest', requestId, root: input.root, path }),
-      input.machineId,
+      (requestId) => ({
+        type: 'dirListRequest',
+        requestId,
+        root: input.root,
+        path,
+        repoRoot: target.repoRoot,
+      }),
+      target.machineId,
     )
   }
 
@@ -2098,6 +2130,8 @@ export class DaemonRpcService {
         session.machineId,
       )
     }
+    const target = await this.fileRoot(input.root, input.machineId)
+    if (!target) return { ok: false, path: input.path, error: UNKNOWN_ROOT }
     return await this.request(
       FILE_READ,
       FILE_RPC_TIMEOUT_MS,
@@ -2108,8 +2142,9 @@ export class DaemonRpcService {
         cwd: input.root,
         path: input.path,
         knownPath: false,
+        repoRoot: target.repoRoot,
       }),
-      input.machineId,
+      target.machineId,
     )
   }
 
@@ -2150,6 +2185,8 @@ export class DaemonRpcService {
     // daemon sandbox as fileReadRequest — cwd = the worktree root. Artifact paths
     // may be worktree-relative; the daemon realpaths them, so absolutize here.
     const absPath = resolveMachinePath(input.root, input.path)
+    const target = await this.fileRoot(input.root, input.machineId)
+    if (!target) return { ok: false, path: input.path, error: UNKNOWN_ROOT }
     return await this.request(
       FILE_ASSET,
       FILE_RPC_TIMEOUT_MS,
@@ -2160,10 +2197,11 @@ export class DaemonRpcService {
         cwd: input.root,
         path: absPath,
         knownPath: false,
+        repoRoot: target.repoRoot,
         ...(input.offset !== undefined ? { offset: input.offset } : {}),
         ...(input.length !== undefined ? { length: input.length } : {}),
       }),
-      input.machineId,
+      target.machineId,
     )
   }
 
@@ -2172,13 +2210,14 @@ export class DaemonRpcService {
       | { sessionId: SessionId; path: string; content: string; baseHash?: string }
       | { machineId?: MachineId; root: string; path: string; content: string; baseHash?: string },
   ): Promise<Omit<FileWriteResultMessage, 'type' | 'requestId'>> {
-    const build = (requestId: string, cwd: string) => ({
+    const build = (requestId: string, cwd: string, repoRoot?: string) => ({
       type: 'fileWriteRequest' as const,
       requestId,
       cwd,
       path: input.path,
       content: input.content,
       ...(input.baseHash ? { baseHash: input.baseHash } : {}),
+      ...(repoRoot !== undefined ? { repoRoot } : {}),
     })
     if ('sessionId' in input) {
       const session = await this.deps.getSession(input.sessionId)
@@ -2191,12 +2230,14 @@ export class DaemonRpcService {
         session.machineId,
       )
     }
+    const target = await this.fileRoot(input.root, input.machineId)
+    if (!target) return { ok: false, error: UNKNOWN_ROOT }
     return await this.request(
       FILE_WRITE,
       FILE_RPC_TIMEOUT_MS,
       () => ({ ok: false, error: 'timeout' }),
-      (requestId) => build(requestId, input.root),
-      input.machineId,
+      (requestId) => build(requestId, input.root, target.repoRoot),
+      target.machineId,
     )
   }
 

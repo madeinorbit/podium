@@ -228,3 +228,151 @@ describe('listDirSandboxed', () => {
     expect(r.ok).toBe(false)
   })
 })
+
+/**
+ * POD-7501: the server matches a root against its registered repositories as
+ * text, so `<repo>/escape`, a symlink to a folder outside, passes it. The daemon
+ * is told which repository matched and must refuse a root that resolves outside
+ * it, for every root-addressed request.
+ */
+describe('a root-addressed request stays inside its repository on disk', () => {
+  async function machine() {
+    const base = await mkdtemp(join(tmpdir(), 'podium-fa-repo-'))
+    const repoRoot = join(base, 'repo')
+    const outside = join(base, 'home')
+    await mkdir(join(repoRoot, 'src'), { recursive: true })
+    await mkdir(outside)
+    await writeFile(join(repoRoot, 'src', 'a.ts'), 'inside')
+    await writeFile(join(outside, 'secret'), 'private')
+    await symlink(outside, join(repoRoot, 'escape'))
+    return { base, repoRoot, outside, link: join(repoRoot, 'escape') }
+  }
+
+  it('refuses a read, asset read, write and listing through a symlinked root', async () => {
+    const { repoRoot, outside, link } = await machine()
+    const secret = join(link, 'secret')
+    // Without the repository, the old sandbox (the root's own realpath) serves it.
+    expect(await readFileSandboxed({ cwd: link, path: secret, knownPath: false })).toMatchObject({
+      ok: true,
+      content: 'private',
+    })
+    const refused = { ok: false, error: 'outside repository' }
+    expect(
+      await readFileSandboxed({ cwd: link, path: secret, knownPath: false, repoRoot }),
+    ).toMatchObject(refused)
+    expect(
+      await readAssetSandboxed({ cwd: link, path: secret, knownPath: false, repoRoot }),
+    ).toMatchObject(refused)
+    expect(
+      await writeFileSandboxed({
+        cwd: link,
+        path: join(link, 'planted'),
+        content: 'x',
+        repoRoot,
+      }),
+    ).toMatchObject(refused)
+    expect(await listDirSandboxed({ root: link, repoRoot })).toMatchObject(refused)
+    expect(await readFile(secret, 'utf8')).toBe('private')
+    await expect(readFile(join(outside, 'planted'), 'utf8')).rejects.toThrow()
+  })
+
+  it('refuses a link to / as the root', async () => {
+    const { repoRoot } = await machine()
+    await symlink('/', join(repoRoot, 'root'))
+    expect(
+      await listDirSandboxed({
+        root: join(repoRoot, 'root'),
+        path: join(repoRoot, 'root', 'etc'),
+        repoRoot,
+      }),
+    ).toMatchObject({ ok: false, error: 'outside repository' })
+  })
+
+  it('serves the repository and a real folder inside it', async () => {
+    const { repoRoot } = await machine()
+    const file = join(repoRoot, 'src', 'a.ts')
+    for (const cwd of [repoRoot, join(repoRoot, 'src')]) {
+      expect(
+        await readFileSandboxed({ cwd, path: file, knownPath: false, repoRoot }),
+      ).toMatchObject({ ok: true, content: 'inside' })
+      expect(
+        await readAssetSandboxed({ cwd, path: file, knownPath: false, repoRoot }),
+      ).toMatchObject({ ok: true })
+      expect(await listDirSandboxed({ root: cwd, repoRoot })).toMatchObject({ ok: true })
+    }
+    expect(
+      await writeFileSandboxed({
+        cwd: repoRoot,
+        path: join(repoRoot, 'src', 'b.ts'),
+        content: 'b',
+        repoRoot,
+      }),
+    ).toMatchObject({ ok: true })
+    expect(await readFile(join(repoRoot, 'src', 'b.ts'), 'utf8')).toBe('b')
+  })
+
+  it('compares realpaths: a repository registered through a symlink still serves', async () => {
+    const { base, repoRoot } = await machine()
+    const alias = join(base, 'alias')
+    await symlink(repoRoot, alias)
+    // A root spelled through the real path, a repository spelled through the alias.
+    expect(
+      await readFileSandboxed({
+        cwd: join(repoRoot, 'src'),
+        path: join(repoRoot, 'src', 'a.ts'),
+        knownPath: false,
+        repoRoot: alias,
+      }),
+    ).toMatchObject({ ok: true, content: 'inside' })
+  })
+
+  it('a root-addressed read gets no transcript-known exception', async () => {
+    const { repoRoot, outside } = await machine()
+    expect(
+      await readFileSandboxed({
+        cwd: repoRoot,
+        path: join(outside, 'secret'),
+        knownPath: true,
+        repoRoot,
+      }),
+    ).toMatchObject({ ok: false, error: 'outside workspace' })
+  })
+
+  it('refuses when the repository itself does not resolve', async () => {
+    const { base, repoRoot } = await machine()
+    expect(await listDirSandboxed({ root: repoRoot, repoRoot: join(base, 'gone') })).toMatchObject({
+      ok: false,
+      error: 'repository not found',
+    })
+  })
+})
+
+describe('writeFileSandboxed follows a link at the file only to inside the sandbox', () => {
+  it('refuses to write through a file symlink that points outside', async () => {
+    const cwd = await repo()
+    const outside = await repo()
+    await writeFile(join(outside, 'bashrc'), 'orig')
+    await symlink(join(outside, 'bashrc'), join(cwd, 'rc'))
+    const r = await writeFileSandboxed({ cwd, path: join(cwd, 'rc'), content: 'pwned' })
+    expect(r).toMatchObject({ ok: false, error: 'outside workspace' })
+    expect(await readFile(join(outside, 'bashrc'), 'utf8')).toBe('orig')
+  })
+
+  it('refuses a dangling file symlink, which would create its target', async () => {
+    const cwd = await repo()
+    const outside = await repo()
+    await symlink(join(outside, 'new'), join(cwd, 'dangling'))
+    const r = await writeFileSandboxed({ cwd, path: join(cwd, 'dangling'), content: 'x' })
+    expect(r).toMatchObject({ ok: false, error: 'outside workspace' })
+    await expect(readFile(join(outside, 'new'), 'utf8')).rejects.toThrow()
+  })
+
+  it('writes through a file symlink that points inside', async () => {
+    const cwd = await repo()
+    await writeFile(join(cwd, 'real.md'), 'orig')
+    await symlink(join(cwd, 'real.md'), join(cwd, 'alias.md'))
+    const r = await writeFileSandboxed({ cwd, path: join(cwd, 'alias.md'), content: 'new' })
+    expect(r.ok).toBe(true)
+    expect(await readFile(join(cwd, 'real.md'), 'utf8')).toBe('new')
+  })
+})

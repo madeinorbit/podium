@@ -28,6 +28,7 @@ function setup(opts?: { predecessors?: boolean; online?: boolean }) {
     defaultMachine: () => machineId, resolveMachine: () => machineId,
     machineName: async () => 'machine', machineNames: async (ids) => new Map(ids.map((id) => [id, 'machine'])), onlineMachineIds: () => [machineId],
     getSession: async () => session,
+    repoPaths: async () => ['/repo', String.raw`C:\repo`],
   })
   const answerDaemon = (items: TranscriptItem[]) => {
     toMachine.mockImplementation((machine, message) => {
@@ -149,7 +150,7 @@ it.each([
 ])('machine paths: remote asset request resolves against %s', async (root, path, expected) => {
   const { rpc, toMachine } = setup()
   toMachine.mockImplementation((machine, message) => {
-    expect(message).toMatchObject({ type: 'fileAssetRequest', cwd: root, path: expected })
+    expect(message).toMatchObject({ type: 'fileAssetRequest', cwd: root, path: expected, repoRoot: root })
     rpc.settleDaemonReply(machine, { type: 'fileAssetResult', requestId: message.requestId, path: expected, ok: false, error: 'fixture' })
   })
   expect(await rpc.readAsset({ machineId, root, path })).toMatchObject({ path: expected, ok: false })

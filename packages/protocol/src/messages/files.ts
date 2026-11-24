@@ -10,6 +10,11 @@ export const FileReadRequestMessage = z.object({
   /** Server-asserted: this path is in the session transcript-known set, so the
    *  daemon may read it even if it resolves outside the cwd. Read-only. */
   knownPath: z.boolean(),
+  /** Root-addressed requests only: the registered repository the server matched
+   *  the root to. The daemon refuses unless the root's realpath is that
+   *  repository's realpath or inside it (a symlinked root escapes the text match).
+   *  Absent on session requests, which are sandboxed to the session's cwd. */
+  repoRoot: z.string().optional(),
 })
 export type FileReadRequestMessage = z.infer<typeof FileReadRequestMessage>
 
@@ -20,6 +25,8 @@ export const FileAssetRequestMessage = z.object({
   path: z.string(),
   /** Server-asserted transcript-known path; allows reading outside cwd. Read-only. */
   knownPath: z.boolean(),
+  /** As on {@link FileReadRequestMessage}. */
+  repoRoot: z.string().optional(),
   /** Ranged read: byte offset to start from. With `length`,
    *  bypasses the single-shot size cap so the server can pull large artifacts
    *  in chunks. */
@@ -36,6 +43,8 @@ export const FileWriteRequestMessage = z.object({
   path: z.string(),
   content: z.string(),
   baseHash: z.string().optional(),
+  /** As on {@link FileReadRequestMessage}. */
+  repoRoot: z.string().optional(),
 })
 export type FileWriteRequestMessage = z.infer<typeof FileWriteRequestMessage>
 
@@ -46,6 +55,10 @@ export const DirListRequestMessage = z.object({
   root: z.string(),
   /** Directory to list; equal to or nested under `root`. */
   path: z.string(),
+  /** The registered repository the server matched `root` to; the daemon refuses
+   *  unless `root` resolves to it or inside it. Optional only for servers that
+   *  predate it; this server sends it on every listing. */
+  repoRoot: z.string().optional(),
 })
 export type DirListRequestMessage = z.infer<typeof DirListRequestMessage>
 

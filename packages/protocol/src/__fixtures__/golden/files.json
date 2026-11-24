@@ -47,12 +47,13 @@
         "type": "dirListRequest",
         "requestId": "requestId",
         "root": "root",
-        "path": "path"
+        "path": "path",
+        "repoRoot": "repoRoot"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"dirListRequest\",\"requestId\":\"requestId\",\"root\":\"root\",\"path\":\"path\"}"
+      "encoded": "{\"type\":\"dirListRequest\",\"requestId\":\"requestId\",\"root\":\"root\",\"path\":\"path\",\"repoRoot\":\"repoRoot\"}"
     },
     {
       "schema": "DirListResultMessage",
@@ -115,13 +116,14 @@
         "cwd": "cwd",
         "path": "path",
         "knownPath": true,
+        "repoRoot": "repoRoot",
         "offset": 1,
         "length": 1
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"fileAssetRequest\",\"requestId\":\"requestId\",\"cwd\":\"cwd\",\"path\":\"path\",\"knownPath\":true,\"offset\":1,\"length\":1}"
+      "encoded": "{\"type\":\"fileAssetRequest\",\"requestId\":\"requestId\",\"cwd\":\"cwd\",\"path\":\"path\",\"knownPath\":true,\"repoRoot\":\"repoRoot\",\"offset\":1,\"length\":1}"
     },
     {
       "schema": "FileAssetResultMessage",
@@ -179,12 +181,13 @@
         "requestId": "requestId",
         "cwd": "cwd",
         "path": "path",
-        "knownPath": true
+        "knownPath": true,
+        "repoRoot": "repoRoot"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"fileReadRequest\",\"requestId\":\"requestId\",\"cwd\":\"cwd\",\"path\":\"path\",\"knownPath\":true}"
+      "encoded": "{\"type\":\"fileReadRequest\",\"requestId\":\"requestId\",\"cwd\":\"cwd\",\"path\":\"path\",\"knownPath\":true,\"repoRoot\":\"repoRoot\"}"
     },
     {
       "schema": "FileReadResultMessage",
@@ -243,12 +246,13 @@
         "cwd": "cwd",
         "path": "path",
         "content": "content",
-        "baseHash": "baseHash"
+        "baseHash": "baseHash",
+        "repoRoot": "repoRoot"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"fileWriteRequest\",\"requestId\":\"requestId\",\"cwd\":\"cwd\",\"path\":\"path\",\"content\":\"content\",\"baseHash\":\"baseHash\"}"
+      "encoded": "{\"type\":\"fileWriteRequest\",\"requestId\":\"requestId\",\"cwd\":\"cwd\",\"path\":\"path\",\"content\":\"content\",\"baseHash\":\"baseHash\",\"repoRoot\":\"repoRoot\"}"
     },
     {
       "schema": "FileWriteResultMessage",
