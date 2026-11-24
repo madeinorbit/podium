@@ -657,7 +657,9 @@ describe('oracle: denied frames never restore a parked session', () => {
       expect(acquire).not.toHaveBeenCalled()
       expect(replay).not.toHaveBeenCalled()
       expect(o.reg.modules.sessions.sessions.has(sessionId)).toBe(false)
-      expect(member.frames).toEqual([
+      // HTTP feed negotiation can finish after hello; its cursor carries no
+      // session content and is independent of the session-frame queue.
+      expect(member.frames.filter((m) => m.type !== 'feedResume')).toEqual([
         { type: 'terminalOutcome', sessionId, outcome: 'unauthorized' },
       ])
     } finally {
