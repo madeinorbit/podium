@@ -360,3 +360,22 @@ it('shows daemon recovery reasons and counts in the mobile machine list', () => 
   })
   expect(fleet.machines[0]?.statusLabel).toBe('not ready · retrying handshake · 3 quarantined')
 })
+
+it.each([
+  [{ state: 'ready', reason: '', quarantinedBindings: 3 }, 'online'],
+  [{ state: 'ready', reason: '3 quarantined', quarantinedBindings: 3 }, 'online'],
+  [
+    { state: 'recovering', reason: '3 quarantined', quarantinedBindings: 3 },
+    'not ready · recovering bindings · 3 quarantined',
+  ],
+  [
+    { state: 'recovering', reason: 'inventory pending', quarantinedBindings: 0 },
+    'not ready · inventory pending',
+  ],
+] as const)('keeps readiness separate from quarantine diagnostics: %j', (readiness, label) => {
+  const fleet = visibleFleetOperations({
+    machines: [machine('host', { daemonReadiness: readiness })],
+    hosts: [],
+  })
+  expect(fleet.machines[0]?.statusLabel).toBe(label)
+})

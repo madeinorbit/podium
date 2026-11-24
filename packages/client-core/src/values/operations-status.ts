@@ -11,6 +11,7 @@
  */
 
 import {
+  type DaemonReadiness,
   type HostMetricsWire,
   isMachineOfflineForLiveTerminal,
   type MachineFacts,
@@ -31,6 +32,28 @@ import {
   hostLoadView,
   hostMemoryView,
 } from './compose/machines/facts'
+
+/** Recovery progress and quarantine diagnostics are separate presentation facts. */
+export function daemonReadinessStatus(readiness: DaemonReadiness | undefined): {
+  pending: boolean
+  reason: string
+  detail?: string
+} {
+  const pending = readiness !== undefined && readiness.state !== 'ready'
+  // Older daemons put the count in reason as well as quarantinedBindings.
+  const reason = readiness?.reason.trim() ?? ''
+  return {
+    pending,
+    reason: pending
+      ? reason && !/^\d+ quarantined$/.test(reason)
+        ? reason
+        : 'recovering bindings'
+      : '',
+    ...(readiness && readiness.quarantinedBindings > 0
+      ? { detail: `${readiness.quarantinedBindings} quarantined` }
+      : {}),
+  }
+}
 
 export type MachineCapacityReading =
   | { state: 'loading'; value: HostMemoryBreakdown | null }
@@ -251,6 +274,7 @@ export function visibleFleetOperations(args: {
                   ? `Sampled ${relativeTime(breakdown.sampledAt, args.nowMs ?? Date.now())}`
                   : 'Capacity unavailable'
     const updateState = effectiveUpdateState(machine)
+    const readiness = daemonReadinessStatus(machine.daemonReadiness)
     return {
       id: machine.id,
       name: machine.name,
@@ -263,8 +287,8 @@ export function visibleFleetOperations(args: {
           ? 'online · agent execution disabled'
           : liveTerminalOffline
             ? 'online · daemon offline'
-            : machine.daemonReadiness && machine.daemonReadiness.state !== 'ready'
-              ? `not ready · ${machine.daemonReadiness.reason} · ${machine.daemonReadiness.quarantinedBindings} quarantined`
+            : readiness.pending
+              ? ['not ready', readiness.reason, readiness.detail].filter(Boolean).join(' · ')
               : availability === 'unauthorized'
                 ? 'online · view only'
                 : 'online',

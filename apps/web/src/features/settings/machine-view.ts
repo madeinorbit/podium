@@ -1,3 +1,4 @@
+import { daemonReadinessStatus } from '@podium/client-core/values'
 import type { MachineModel } from '@podium/client-graph'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { compareShallow } from 'mobx'
@@ -116,11 +117,12 @@ export class SettingsMachine {
     if (machine.revokedAt) return { label: 'Removed', tone: 'offline' }
     if (machine.onlineKnown === false) return { label: 'Status unknown', tone: 'offline' }
     if (!machine.online) return { label: 'Offline', tone: 'offline' }
-    if (machine.daemonReadiness && machine.daemonReadiness.state !== 'ready') {
+    const readiness = daemonReadinessStatus(machine.daemonReadiness)
+    if (readiness.pending) {
       return {
-        label: `Not ready · ${machine.daemonReadiness.reason}`,
+        label: `Not ready · ${readiness.reason}`,
         tone: 'degraded',
-        detail: `${machine.daemonReadiness.quarantinedBindings} quarantined`,
+        ...(readiness.detail ? { detail: readiness.detail } : {}),
       }
     }
     if (this.degradedServices.length > 0) {
@@ -156,7 +158,11 @@ export class SettingsMachine {
               : 'Disabled on this machine',
       }
     }
-    return { label: 'Online', tone: 'online' }
+    return {
+      label: 'Online',
+      tone: 'online',
+      ...(readiness.detail ? { detail: readiness.detail } : {}),
+    }
   }
 
   @lazy get componentsNote(): string | null {

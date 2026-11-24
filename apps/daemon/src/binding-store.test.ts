@@ -1,6 +1,7 @@
 import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { addSink, type LogRecord } from '@podium/logger'
 import {
   asAgentIdentityId,
   asIssueId,
@@ -31,6 +32,21 @@ import {
 } from './binding-store'
 
 const roots: string[] = []
+const logDisposers: Array<() => void> = []
+
+function recoveryLogs(): LogRecord[] {
+  const records: LogRecord[] = []
+  logDisposers.push(
+    addSink({
+      name: 'binding-recovery-test',
+      minLevel: 'info',
+      write(record) {
+        if (record.ns === 'daemon:binding-store') records.push(record)
+      },
+    }),
+  )
+  return records
+}
 
 async function tempRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'podium-binding-store-'))
@@ -39,6 +55,7 @@ async function tempRoot(): Promise<string> {
 }
 
 afterEach(async () => {
+  for (const dispose of logDisposers.splice(0)) dispose()
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
 
@@ -771,6 +788,241 @@ describe('server-resolved legacy owners', () => {
 })
 
 describe('connect inventory isolation', () => {
+  const destination = asMachineId('machine-b')
+  const handoff = asSessionId('handed-off')
+  const placement = {
+    owner: alice,
+    machineId: destination,
+    closed: false,
+    delegation: serverDelegation(handoff, alice),
+  }
+  const exportSource = async (store: BindingStore) => {
+    await store.ensureBinding({
+      sessionId: handoff,
+      agentKind: 'codex',
+      claimantMachineId: machine,
+      delegation: serverDelegation(handoff, alice),
+    })
+    await store.recordPendingCodexReceipt(handoff, 'source-thread', 'native-hook')
+    for (const phase of ['claim', 'commit'] as const) {
+      expect(
+        await store.transition({
+          event: 'adopt',
+          transitionId: `outbound:${phase}`,
+          sessionId: handoff,
+          machineAccess: 'allowed',
+          transferId: 'outbound',
+          role: 'source',
+          phase,
+          fromMachineId: machine,
+          toMachineId: destination,
+          at: '2026-07-31T12:00:00.000Z',
+        }),
+      ).toMatchObject({ status: 'applied' })
+    }
+    return requiredBinding(await store.read(handoff))
+  }
+
+  it('retains committed exports as fenced handoff history through recovery and deletion cleanup', async () => {
+    const root = await tempRoot()
+    const receipts = join(root, 'receipts')
+    await mkdir(receipts)
+    const store = await BindingStore.open({ dir: root })
+    await exportSource(store)
+    const sourceBytes = await readFile(store.pathFor(handoff), 'utf8')
+    const receipt = join(receipts, `${handoff}.json`)
+    await writeFile(receipt, JSON.stringify({ session_id: 'source-thread' }))
+    const logs = recoveryLogs()
+
+    expect(await store.inventory(receipts)).toEqual([handoff])
+    store.confirmInventory(machine, { [handoff]: placement })
+    expect(store.quarantinedCount).toBe(0)
+    expect(store.isQuarantined(handoff)).toBe(true)
+    expect(logs).toMatchObject([{ reason: 'retained handoff history' }])
+    expect(await store.pendingReceiptsForOwner(alice, handoff)).toEqual([])
+    expect(
+      await store.transition({
+        event: 'adopt',
+        transitionId: 'stale-source',
+        sessionId: handoff,
+        machineAccess: 'allowed',
+        transferId: 'unexpected-return',
+        role: 'target',
+        phase: 'claim',
+        fromMachineId: destination,
+        toMachineId: machine,
+        at: '2026-08-01T12:00:00.000Z',
+      }),
+    ).toMatchObject({ status: 'rejected', reason: 'binding-missing' })
+
+    await store.recoverLegacyState({
+      dir: root,
+      legacyStateDir: root,
+      legacyBindings: [{ sessionId: handoff, agentKind: 'codex' }],
+      codexReceiptDir: receipts,
+      legacyDelegationForSession: () => serverDelegation(handoff, alice),
+    })
+    await store.reapQuarantined(async () => false, receipts)
+    expect(store.quarantinedCount).toBe(0)
+    expect(await readFile(store.pathFor(handoff), 'utf8')).toBe(sourceBytes)
+    expect(await readFile(receipt, 'utf8')).toContain('source-thread')
+
+    // Reconnect still advertises history, without repeating the same diagnostic.
+    expect(await store.inventory(receipts)).toEqual([handoff])
+    store.confirmInventory(machine, { [handoff]: placement })
+    expect(logs).toHaveLength(1)
+    store.confirmInventory(machine, { [handoff]: { ...placement, closed: true } })
+    expect(store.quarantinedCount).toBe(1)
+    await store.reapQuarantined(async () => true, receipts)
+    expect(await store.read(handoff)).not.toBeNull()
+    await store.reapQuarantined(async () => false, receipts)
+    expect(await store.read(handoff)).toBeNull()
+    await expect(access(receipt)).rejects.toThrow()
+    expect(store.isQuarantined(handoff)).toBe(false)
+    expect(logs.map((entry) => entry.reason)).toEqual([
+      'retained handoff history',
+      'session closed',
+      'deletion confirmed',
+    ])
+  })
+
+  it('allows a server-confirmed return handoff to adopt the retained source record', async () => {
+    const root = await tempRoot()
+    const receipts = join(root, 'receipts')
+    const store = await BindingStore.open({ dir: root })
+    const source = await exportSource(store)
+    await store.inventory(receipts)
+    store.confirmInventory(machine, { [handoff]: placement })
+    expect(store.isQuarantined(handoff)).toBe(true)
+
+    await store.inventory(receipts)
+    store.confirmInventory(machine, { [handoff]: { ...placement, machineId: machine } })
+    expect(store.isQuarantined(handoff)).toBe(false)
+    expect(store.quarantinedCount).toBe(0)
+    for (const phase of ['claim', 'commit'] as const) {
+      expect(
+        await store.transition({
+          event: 'adopt',
+          transitionId: `return:${phase}`,
+          sessionId: handoff,
+          machineAccess: 'allowed',
+          transferId: 'return',
+          role: 'target',
+          phase,
+          fromMachineId: destination,
+          toMachineId: machine,
+          at: '2026-08-01T12:00:00.000Z',
+          ...(phase === 'claim'
+            ? {
+                adoption: {
+                  serverDelegation: placement.delegation,
+                  agentKind: 'codex',
+                  observationGeneration: source.observationGeneration + 1,
+                  delegation: placement.delegation,
+                  observations: [
+                    { channel: 'resume-ref', nativeKind: 'codex-thread', value: 'return-thread' },
+                  ],
+                },
+              }
+            : {}),
+        }),
+      ).toMatchObject({ status: 'applied' })
+    }
+    expect(await store.read(handoff)).toMatchObject({
+      state: 'bound',
+      claimantMachineId: machine,
+      transfer: { side: 'target', phase: 'committed', transferId: 'return' },
+    })
+    await store.inventory(receipts)
+    // A target copy subsequently placed elsewhere is unresolved, not source history.
+    store.confirmInventory(machine, { [handoff]: placement })
+    expect(store.quarantinedCount).toBe(1)
+    expect(store.isQuarantined(handoff)).toBe(true)
+  })
+
+  it.each([
+    ['omitted confirmation', undefined],
+    ['undisclosed confirmation', { owner: null, machineId: null, closed: false }],
+    ['missing owner', { ...placement, owner: null }],
+    ['legacy owner', { ...placement, owner: SOLE_USER_ID }],
+    ['missing placement', { ...placement, machineId: null }],
+    ['missing delegation', { ...placement, delegation: undefined }],
+    ['closed session', { ...placement, closed: true }],
+  ])('quarantines a committed export with %s', async (_name, fact) => {
+    const root = await tempRoot()
+    const store = await BindingStore.open({ dir: root })
+    await exportSource(store)
+    await store.inventory(join(root, 'receipts'))
+    store.confirmInventory(machine, fact ? { [handoff]: fact } : {})
+    expect(store.quarantinedCount).toBe(1)
+    expect(store.isQuarantined(handoff)).toBe(true)
+  })
+
+  it.each([
+    { state: 'exporting' },
+    { transfer: null },
+    { transfer: { side: 'target' } },
+    { transfer: { phase: 'claimed' } },
+    { transfer: { fromMachineId: 'wrong-source' } },
+    { transfer: { toMachineId: machine } },
+    { transfer: { transferId: '' } },
+    { transfer: { settledAt: null } },
+    { attemptId: 'still-running' },
+    { claimantMachineId: destination },
+  ])('requires complete committed source evidence for handoff history: %j', async (patch) => {
+    const root = await tempRoot()
+    const store = await BindingStore.open({ dir: root })
+    const source = await exportSource(store)
+    await writeFile(
+      store.pathFor(handoff),
+      JSON.stringify({
+        ...source,
+        ...patch,
+        ...('transfer' in patch && patch.transfer !== null
+          ? { transfer: { ...source.transfer, ...patch.transfer } }
+          : {}),
+      }),
+    )
+    await store.inventory(join(root, 'receipts'))
+    store.confirmInventory(machine, { [handoff]: placement })
+    expect(store.quarantinedCount).toBe(1)
+    expect(store.isQuarantined(handoff)).toBe(true)
+  })
+
+  it('logs changed reasons without disclosing session details or distinguishing missing from undisclosed', async () => {
+    const root = await tempRoot()
+    const store = await BindingStore.open({ dir: root })
+    await exportSource(store)
+    const logs = recoveryLogs()
+    const receipts = join(root, 'receipts')
+    await store.inventory(receipts)
+    store.confirmInventory(machine, {})
+    expect(logs).toMatchObject([{ reason: 'confirmation unavailable' }])
+    store.confirmInventory(machine, { [handoff]: { owner: null, machineId: null, closed: false } })
+    expect(logs).toHaveLength(1)
+    store.confirmInventory(machine, { [handoff]: { ...placement, delegation: undefined } })
+    expect(logs.at(-1)?.reason).toBe('missing delegation')
+    store.confirmInventory(machine, { [handoff]: placement })
+    expect(logs.at(-1)?.reason).toBe('retained handoff history')
+
+    const source = requiredBinding(await store.read(handoff))
+    await writeFile(store.pathFor(handoff), JSON.stringify({ ...source, state: 'bound' }))
+    await store.inventory(receipts)
+    store.confirmInventory(machine, { [handoff]: placement })
+    expect(logs.at(-1)?.reason).toBe('placement mismatch')
+    await writeFile(store.pathFor(handoff), '{malformed')
+    await store.inventory(receipts)
+    store.confirmInventory(machine, { [handoff]: { ...placement, machineId: machine } })
+    expect(logs.at(-1)?.reason).toBe('malformed state')
+    expect(store.quarantinedCount).toBe(1)
+    store.confirmInventory(machine, { [handoff]: { ...placement, machineId: machine } })
+    expect(logs).toHaveLength(5)
+    const serialized = JSON.stringify(logs)
+    for (const privateValue of [handoff, alice, destination, 'source-thread', 'outbound']) {
+      expect(serialized).not.toContain(privateValue)
+    }
+  })
+
   it('confirms one binding while retaining unknown, moved, and live closed bindings', async () => {
     const root = await tempRoot()
     const store = await BindingStore.open({ dir: root })

@@ -14,21 +14,43 @@ describe('daemon recovery readiness', () => {
     expect(states).toEqual(['attached', 'recovering', 'recovering', 'ready'])
   })
 
-  it('reports quarantine counts until they clear, independently of inventory order', () => {
+  it('finishes recovery with diagnostic quarantine counts, independently of inventory order', () => {
     const readiness = createRecoveryReadiness(() => {})
     const epoch = readiness.begin(2)
     readiness.recovered(epoch, 2)
     expect(readiness.snapshot().reason).toBe('inventory pending')
     readiness.inventoryReported()
     expect(readiness.snapshot()).toEqual({
-      state: 'recovering',
-      reason: '2 quarantined',
+      state: 'ready',
+      reason: '',
       quarantinedBindings: 2,
     })
     readiness.quarantined(1)
-    expect(readiness.snapshot().reason).toBe('1 quarantined')
+    expect(readiness.snapshot()).toEqual({ state: 'ready', reason: '', quarantinedBindings: 1 })
     readiness.quarantined(0)
     expect(readiness.snapshot().state).toBe('ready')
+  })
+
+  it('reports recovery progress and real handshake retries ahead of quarantine counts', () => {
+    const readiness = createRecoveryReadiness(() => {})
+    const epoch = readiness.begin(2)
+    readiness.inventoryReported()
+    expect(readiness.snapshot()).toEqual({
+      state: 'recovering',
+      reason: 'recovering bindings',
+      quarantinedBindings: 2,
+    })
+    readiness.recovered(epoch, 2)
+    expect(readiness.snapshot().state).toBe('ready')
+    readiness.failed(epoch)
+    readiness.quarantined(1)
+    expect(readiness.snapshot()).toEqual({
+      state: 'recovering',
+      reason: 'retrying handshake',
+      quarantinedBindings: 1,
+    })
+    readiness.recovered(epoch, 1)
+    expect(readiness.snapshot()).toEqual({ state: 'ready', reason: '', quarantinedBindings: 1 })
   })
 
   it('ignores completion and failure from superseded recovery attempts', () => {

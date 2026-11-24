@@ -61,6 +61,60 @@ test('presence, recovery and deliberate hosting-off remain distinct', () => {
   ).toMatchObject({ label: 'Online · Agent hosting off', tone: 'off' })
 })
 
+test('ready machines keep quarantine counts diagnostic and show each count once', () => {
+  expect(
+    new SettingsMachine(
+      machine({
+        daemonReadiness: { state: 'ready', reason: '', quarantinedBindings: 2 },
+      }),
+    ).status,
+  ).toEqual({ label: 'Online', tone: 'online', detail: '2 quarantined' })
+  expect(
+    new SettingsMachine(
+      machine({
+        daemonReadiness: { state: 'ready', reason: '2 quarantined', quarantinedBindings: 2 },
+      }),
+    ).status,
+  ).toEqual({ label: 'Online', tone: 'online', detail: '2 quarantined' })
+  expect(
+    new SettingsMachine(
+      machine({
+        daemonReadiness: { state: 'recovering', reason: '2 quarantined', quarantinedBindings: 2 },
+      }),
+    ).status,
+  ).toEqual({
+    label: 'Not ready · recovering bindings',
+    tone: 'degraded',
+    detail: '2 quarantined',
+  })
+  expect(
+    new SettingsMachine(
+      machine({
+        daemonReadiness: {
+          state: 'recovering',
+          reason: 'retrying handshake',
+          quarantinedBindings: 2,
+        },
+      }),
+    ).status,
+  ).toEqual({
+    label: 'Not ready · retrying handshake',
+    tone: 'degraded',
+    detail: '2 quarantined',
+  })
+  expect(
+    new SettingsMachine(
+      machine({
+        daemonReadiness: {
+          state: 'recovering',
+          reason: 'inventory pending',
+          quarantinedBindings: 0,
+        },
+      }),
+    ).status,
+  ).toEqual({ label: 'Not ready · inventory pending', tone: 'degraded' })
+})
+
 test('repository discovery needs execution consent as well as management and presence', () => {
   expect(new SettingsMachine(machine({ use: 'granted' })).canFindRepositories).toBe(true)
   expect(new SettingsMachine(machine({ use: 'denied' })).canFindRepositories).toBe(false)

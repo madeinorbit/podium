@@ -17,11 +17,9 @@ export function createRecoveryReadiness(changed: () => void) {
       ? 'retrying handshake'
       : !inventory
         ? 'inventory pending'
-        : count > 0
-          ? `${count} quarantined`
-          : !recovered
-            ? 'recovering bindings'
-            : ''
+        : !recovered
+          ? 'recovering bindings'
+          : ''
     const next: DaemonReadiness = {
       state: reason ? 'recovering' : 'ready',
       reason,

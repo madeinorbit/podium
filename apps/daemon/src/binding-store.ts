@@ -1,11 +1,10 @@
-import { readMachineState } from '@podium/runtime/local-machine'
-import { SessionDelegation } from '@podium/model'
 import { createHash, randomUUID } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import { chmod, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { manifestFor } from '@podium/harness'
 import type { TerminalProofWatch } from '@podium/harness/driver/host'
+import { createLogger } from '@podium/logger'
 import {
   AgentDelegation,
   type AgentIdentityId,
@@ -17,11 +16,13 @@ import {
   type ConversationId,
   type DelegationScope,
   type MachineId,
+  SessionDelegation,
   type SessionId,
   type UserId,
 } from '@podium/model'
 import type { BindingConfirmations } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
+import { readMachineState } from '@podium/runtime/local-machine'
 
 /**
  * This is the DAEMON binding-store version. It is deliberately unrelated to the
@@ -35,6 +36,9 @@ const MANIFEST_NAME = 'manifest.json'
 const BINDINGS_DIR = 'bindings'
 const RECEIPT_NAME = /^([\w.-]+)\.json$/
 const CLAIM_NAME = /^([\w.-]+?)\.json\.\d+\.[0-9a-f-]+\.ack$/
+const log = createLogger('daemon:binding-store')
+
+type BindingRecoveryState = 'confirmed' | 'quarantined' | 'retained-handoff-history'
 
 /**
  * `exporting` and `adopting` are deliberately NON-LIVE ownership states.
@@ -1019,33 +1023,92 @@ function migrationObservationId(parts: readonly string[]): string {
   return `legacy:${createHash('sha256').update(parts.join('\u0000')).digest('hex').slice(0, 24)}`
 }
 
+function committedSourceExport(binding: SessionBindingRecord): boolean {
+  const transfer = binding.transfer
+  return (
+    binding.state === 'exported' &&
+    binding.attemptId === null &&
+    transfer?.side === 'source' &&
+    transfer.phase === 'committed' &&
+    transfer.fromMachineId === binding.claimantMachineId &&
+    typeof transfer.toMachineId === 'string' &&
+    transfer.toMachineId.length > 0 &&
+    transfer.toMachineId !== binding.claimantMachineId &&
+    typeof transfer.transferId === 'string' &&
+    transfer.transferId.length > 0 &&
+    typeof transfer.claimedAt === 'string' &&
+    transfer.claimedAt.length > 0 &&
+    typeof transfer.settledAt === 'string' &&
+    transfer.settledAt.length > 0
+  )
+}
+
 export class BindingStore {
   private confirmedMachineId: MachineId | undefined
   private recoveryGeneration = 0
-  private recovery = new Map<SessionId, 'confirmed' | 'quarantined'>()
+  private recovery = new Map<SessionId, BindingRecoveryState>()
+  private recoveryReasons = new Map<SessionId, string>()
   private closedBindings = new Set<SessionId>()
+  /** Parsed evidence from this connect inventory, never execution authority. */
+  private inventoriedExports = new Map<SessionId, MachineId>()
+  private malformedBindings = new Set<SessionId>()
 
+  /** History keeps the same execution fence as unresolved recovery. */
   isQuarantined(sessionId: SessionId): boolean {
-    return this.recovery.get(sessionId) === 'quarantined'
+    const state = this.recovery.get(sessionId)
+    return state === 'quarantined' || state === 'retained-handoff-history'
   }
 
   get quarantinedCount(): number {
     return [...this.recovery.values()].filter((state) => state === 'quarantined').length
   }
 
+  private setRecovery(
+    id: SessionId,
+    state: BindingRecoveryState | undefined,
+    reason: string,
+  ): void {
+    if (state === undefined) this.recovery.delete(id)
+    else this.recovery.set(id, state)
+    const previous = this.recoveryReasons.get(id)
+    const next =
+      state === 'quarantined' || state === 'retained-handoff-history' ? reason : undefined
+    if (previous === next) return
+    if (next === undefined) this.recoveryReasons.delete(id)
+    else this.recoveryReasons.set(id, next)
+    // Machine-wide diagnostics carry reasons only. Session identities and local
+    // transfer evidence must not escape through a machine's health readout/logs.
+    log.info('binding recovery status changed', { state: state ?? 'removed', reason })
+  }
+
   async inventory(codexReceiptDir: string): Promise<SessionId[]> {
     const ids = new Set<SessionId>()
+    const committedExports = new Map<SessionId, MachineId>()
+    const malformed = new Set<SessionId>()
     this.confirmedMachineId = undefined
-    this.recoveryGeneration += 1
+    const generation = ++this.recoveryGeneration
     for (const entry of await readDirectory(join(this.dir, BINDINGS_DIR))) {
       if (!entry.isFile() || !entry.name.endsWith('.json')) continue
       const stem = entry.name.slice(0, -5)
       const id = asSessionId(Buffer.from(stem, 'base64url').toString('utf8'))
       if (!id || fileStem(id) !== stem) continue
       ids.add(id)
+      try {
+        const binding = await this.read(id)
+        if (binding && binding.sessionId !== id) throw new Error('binding identity mismatch')
+        if (binding && committedSourceExport(binding)) committedExports.set(id, binding.claimantMachineId)
+      } catch {
+        malformed.add(id)
+      }
     }
     for (const receipt of await legacyReceipts(codexReceiptDir)) ids.add(receipt.sessionId)
+    if (generation !== this.recoveryGeneration) return [...ids].sort()
+    this.inventoriedExports = committedExports
+    this.malformedBindings = malformed
     this.recovery = new Map([...ids].map((id) => [id, 'quarantined']))
+    for (const id of this.recoveryReasons.keys()) {
+      if (!ids.has(id)) this.setRecovery(id, undefined, 'binding removed')
+    }
     this.closedBindings.clear()
     return [...ids].sort()
   }
@@ -1054,23 +1117,40 @@ export class BindingStore {
     this.confirmedMachineId = facts === undefined ? undefined : machineId
     // A missing field means an old server: skip recovery, preserving its behavior.
     if (facts === undefined) {
-      this.recovery.clear()
+      for (const id of this.recovery.keys())
+        this.setRecovery(id, undefined, 'confirmation unavailable')
       this.closedBindings.clear()
       return
     }
     for (const id of this.recovery.keys()) {
       const fact = facts[id]
-      this.recovery.set(
-        id,
-        fact?.owner &&
-          fact.owner !== 'user:sole' &&
-          fact.machineId === machineId &&
-          !fact.closed &&
-          fact.delegation !== undefined
-          ? 'confirmed'
-          : 'quarantined',
-      )
       if (fact?.closed) this.closedBindings.add(id)
+      else this.closedBindings.delete(id)
+      if (!fact?.owner || fact.owner === 'user:sole' || !fact.machineId) {
+        this.setRecovery(id, 'quarantined', 'confirmation unavailable')
+        continue
+      }
+      if (fact.closed) {
+        this.setRecovery(id, 'quarantined', 'session closed')
+        continue
+      }
+      if (fact.delegation === undefined) {
+        this.setRecovery(id, 'quarantined', 'missing delegation')
+        continue
+      }
+      if (this.malformedBindings.has(id)) {
+        this.setRecovery(id, 'quarantined', 'malformed state')
+        continue
+      }
+      if (fact.machineId === machineId) {
+        this.setRecovery(id, 'confirmed', 'placement confirmed')
+        continue
+      }
+      if (this.inventoriedExports.get(id) === machineId) {
+        this.setRecovery(id, 'retained-handoff-history', 'retained handoff history')
+      } else {
+        this.setRecovery(id, 'quarantined', 'placement mismatch')
+      }
     }
   }
 
@@ -1094,7 +1174,7 @@ export class BindingStore {
         if (entry.isFile() && match?.[1] === id)
           await rm(join(receiptDir, entry.name), { force: true })
       }
-      this.recovery.delete(id)
+      this.setRecovery(id, undefined, 'deletion confirmed')
       this.closedBindings.delete(id)
     }
   }
@@ -2101,12 +2181,12 @@ export class BindingStore {
         if (!binding) {
           const delegation = input.legacyDelegationForSession?.(receipt.sessionId)
           if (!delegation) {
-            this.recovery.set(receipt.sessionId, 'quarantined')
+            this.setRecovery(receipt.sessionId, 'quarantined', 'missing delegation')
             unresolved = true
             continue
           }
           if (!machineId) {
-            this.recovery.set(receipt.sessionId, 'quarantined')
+            this.setRecovery(receipt.sessionId, 'quarantined', 'confirmation unavailable')
             unresolved = true
             continue
           }
@@ -2122,7 +2202,11 @@ export class BindingStore {
           !this.bindingAcceptsNativeKind(binding, 'codex-thread') ||
           this.bindingOwner(binding) === null
         ) {
-          this.recovery.set(receipt.sessionId, 'quarantined')
+          this.setRecovery(
+            receipt.sessionId,
+            'quarantined',
+            this.bindingOwner(binding) === null ? 'missing delegation' : 'malformed state',
+          )
           unresolved = true
           continue
         }
@@ -2262,8 +2346,16 @@ export class BindingStore {
 
     for (const snapshot of snapshots.values()) {
       const delegation = input.legacyDelegationForSession?.(snapshot.sessionId)
-      if (this.isQuarantined(snapshot.sessionId) || !machineId || !delegation) {
-        this.recovery.set(snapshot.sessionId, 'quarantined')
+      if (this.isQuarantined(snapshot.sessionId)) {
+        unresolved = true
+        continue
+      }
+      if (!machineId || !delegation) {
+        this.setRecovery(
+          snapshot.sessionId,
+          'quarantined',
+          !delegation ? 'missing delegation' : 'confirmation unavailable',
+        )
         unresolved = true
         continue
       }
