@@ -26,6 +26,7 @@ import type {
   HarnessRefEntry,
   IssueId,
   MachineId,
+  MessageDeliveryStatus,
   MessageHeld,
   MessageRecordWire,
   SessionId,
@@ -33,14 +34,10 @@ import type {
   ThreadId,
   TranscriptItemRef,
   UserId,
-} from '@podium/model'
-import {
-  type MessageDeliveryStatus,
-  spawnedByParentSessionId,
-  type WorkspaceId,
+  WorkspaceId,
 } from '@podium/model'
 import type { MutationLedgerPort } from '@podium/sync'
-import { type CommandPrincipal, resolvePrincipalAsync } from '../../command-principal'
+import type { CommandPrincipal } from '../../command-principal'
 import type { Capability } from '../../issue-authz'
 import type { MessageRow } from '../../store'
 import { spanOpen } from '../../store/executor/executor'
@@ -75,6 +72,10 @@ export interface MessageGateDeps {
    *  REQUIRED since POD-3857: the full-list port it used to fall back to is
    *  gone, so the compiler is what keeps the gate off the projection. */
   sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
+  /** The principal behind a capability, resolved in this store (POD-7558):
+   *  another workspace's capability, or a human who is not a member here, is
+   *  refused. The served gate passes the session service's `principalFor`. */
+  principalFor(capability: Capability): Promise<CommandPrincipal>
   /** The server's own daemon link to a machine, for the shown session status
    *  (`shownSessionStatus`, ADR 12 D1). Absent: not known. */
   machineOnline?(machineId: MachineId): boolean
@@ -495,17 +496,9 @@ export class MessageGate {
   private async principalOf(capability: Capability): Promise<CommandPrincipal> {
     return (
       (await this.principalForCapability?.(capability)) ??
-      // THE ASYNC TWIN, not a widened sync resolver. `resolvePrincipalAsync` is
-      // the existing sanctioned shape for a delegation walk whose parent lookup
-      // is a durable read; the composition root supplies
-      // `principalForCapability` and this fallback is what a fixture that does
-      // not gets. Using it here keeps `resolvePrincipal` — the synchronous
-      // delegation resolver — untouched, which is the boundary the ruling on
-      // rule 51 case 2 protects.
-      (await resolvePrincipalAsync(this.deps.workspaceId, capability, {
-        parentSessionOf: async (sessionId) =>
-          spawnedByParentSessionId((await this.deps.sessionById(sessionId))?.spawnedBy),
-      }))
+      // The message store's own resolver (POD-7558): the capability must be
+      // this workspace's and its human a member here.
+      (await this.deps.principalFor(capability))
     )
   }
 

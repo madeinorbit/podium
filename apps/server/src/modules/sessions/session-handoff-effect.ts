@@ -43,14 +43,9 @@ import {
   type MachineId,
   mintDeviceId,
   type SessionId,
-  spawnedByParentSessionId,
 } from '@podium/model'
 import type { z } from 'zod'
-import {
-  type CommandPrincipal,
-  resolvePrincipalAsync,
-  userCommandPrincipal,
-} from '../../command-principal'
+import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
 import type { EffectRow } from '../../store/effects'
 import type { UsersRepository } from '../../store/users'
@@ -132,10 +127,7 @@ export function registerSessionHandoffEffect(deps: SessionHandoffEffectDeps): vo
     const sessions = deps.modules().sessions
     if (!(await sessions.sessionRowExists(agent))) return undefined
     const capability = await sessions.capabilityForSession(agent)
-    const principal = await resolvePrincipalAsync(deps.modules().workspaceId, capability, {
-      parentSessionOf: async (sessionId) =>
-        spawnedByParentSessionId((await sessions.sessionById(sessionId))?.spawnedBy),
-    })
+    const principal = await sessions.principalFor(capability)
     return principal.kind === 'system' ? undefined : { capability, principal }
   }
 

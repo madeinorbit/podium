@@ -10,8 +10,11 @@ import { createLogger, describeError } from '@podium/logger'
 import type { MachineId, SessionId, UserId, WorkspaceId } from '@podium/model'
 import { asSessionId, asUserId, spawnedByParentSessionId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
+import { memberIn } from '../../capability-principal'
 import {
   type CommandPrincipal,
+  capabilityActsInOrReport,
+  foreignPrincipalRefusal,
   onBehalfOfUser,
   resolvePrincipalAsync,
   userCommandPrincipal,
@@ -144,16 +147,7 @@ export class SessionAuthz {
        */
       let delegated: CommandPrincipal
       try {
-        delegated = await resolvePrincipalAsync(
-          this.ports.store.workspaceId,
-          await this.capabilityForSession(actorSessionId),
-          {
-            parentSessionOf: async (sessionId) =>
-              spawnedByParentSessionId((await this.ports.sessionById(sessionId))?.spawnedBy),
-            onBehalfOfFor: async (sessionId) =>
-              (await this.sessionOwner(sessionId))?.owner ?? undefined,
-          },
-        )
+        delegated = await this.principalFor(await this.capabilityForSession(actorSessionId))
       } catch {
         return refused
       }
@@ -284,7 +278,24 @@ export class SessionAuthz {
   async capabilityForSession(
     sessionId: SessionId,
     senderMachineId?: MachineId,
+    /**
+     * The workspace the sending daemon's socket was bound to (POD-7558). The
+     * capability is stamped with it, so the checks it meets downstream compare
+     * the edge's binding with their store. A binding that is not this store's
+     * is a routing defect and is refused here, before any row is read. Absent
+     * for the in-process link and trusted internal callers, which are this
+     * store's own: those are stamped from the store.
+     */
+    boundWorkspace?: WorkspaceId,
   ): Promise<Capability> {
+    const storeWorkspace = this.ports.store.workspaceId
+    if (
+      boundWorkspace !== undefined &&
+      !capabilityActsInOrReport({ workspaceId: boundWorkspace }, storeWorkspace, 'relay-mint')
+    ) {
+      throw foreignPrincipalRefusal()
+    }
+    const workspaceId = boundWorkspace ?? storeWorkspace
     // The durable placement and the authority below come from ONE row. A live
     // object or transport binding can still name the old machine after a handoff;
     // checking it separately and then resolving ownership would split the snapshot.
@@ -299,14 +310,14 @@ export class SessionAuthz {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'not authorized' })
     }
     const s = relaySession ?? (await this.ports.records.ownershipOf(sessionId, 'capability'))
-    if (!s) return { role: 'worker', scope: { kind: 'none' } }
+    if (!s) return { workspaceId, role: 'worker', scope: { kind: 'none' } }
     // A DELEGATION ACTS ONLY WHILE ITS HUMAN CAN (POD-6293; design §2.3, §4.5).
     // A disabled or removed owner's agents keep running (POD-4152 lets them
     // finish), but every call they make answers like an unknown session's.
     if (s.ownerUserId && !(await this.ports.store.users.get(s.ownerUserId))) {
-      return { role: 'worker', scope: { kind: 'none' } }
+      return { workspaceId, role: 'worker', scope: { kind: 'none' } }
     }
-    const attribution = { onBehalfOf: s.ownerUserId }
+    const attribution = { workspaceId, onBehalfOf: s.ownerUserId }
     // Explicit attachment wins over cwd containment (issue-as-workspace): an
     // attached / draft-bound session is scoped to ITS issue even when its cwd
     // sits in another issue's worktree (or none).
@@ -347,6 +358,27 @@ export class SessionAuthz {
   }
 
   /**
+   * THE PRINCIPAL BEHIND A CAPABILITY, IN THIS STORE (POD-7558): the one
+   * store-bound resolver every capability-taking path uses. A capability of
+   * another workspace, a person who is not a member here, and an agent whose
+   * root session has no owner here (or one who is no longer a member) are
+   * refused; the delegation chain and its human are read from this store's
+   * rows at every call.
+   */
+  async principalFor(
+    capability: Capability,
+    /** Who reads the session rows, for the registry-miss log. */
+    reader = 'capability',
+  ): Promise<CommandPrincipal> {
+    return await resolvePrincipalAsync(this.ports.store.workspaceId, capability, {
+      parentSessionOf: async (id) =>
+        spawnedByParentSessionId((await this.ports.records.ownershipOf(id, reader))?.spawnedBy),
+      onBehalfOfFor: async (id) => (await this.sessionOwner(id))?.owner,
+      isMember: memberIn(this.ports.store.users),
+    })
+  }
+
+  /**
    * MAY THE CALLER BEHIND `capability` REACH THIS SESSION (design §2.3)? Only
    * when its human (the person, or the root of an agent's delegation chain,
    * read live) owns it. The one answer for paths that take a capability rather
@@ -356,15 +388,7 @@ export class SessionAuthz {
   async mayReachSession(capability: Capability, sessionId: SessionId): Promise<boolean> {
     let human: UserId | null
     try {
-      human = onBehalfOfUser(
-        await resolvePrincipalAsync(this.ports.store.workspaceId, capability, {
-          parentSessionOf: async (id) =>
-            spawnedByParentSessionId(
-              (await this.ports.records.ownershipOf(id, 'capability'))?.spawnedBy,
-            ),
-          onBehalfOfFor: async (id) => (await this.sessionOwner(id))?.owner,
-        }),
-      )
+      human = onBehalfOfUser(await this.principalFor(capability))
     } catch {
       return false
     }
@@ -426,16 +450,7 @@ export class SessionAuthz {
    * callers receive only the opaque reference that the inbox persists.
    */
   async inboxPrincipalForCapability(capability: Capability): Promise<InboxPrincipalReference> {
-    return inboxPrincipalFromCommand(
-      await resolvePrincipalAsync(this.ports.store.workspaceId, capability, {
-        parentSessionOf: async (sessionId) =>
-          spawnedByParentSessionId(
-            (await this.ports.records.ownershipOf(sessionId, 'inboxPrincipal'))?.spawnedBy,
-          ),
-        onBehalfOfFor: async (sessionId) =>
-          (await this.sessionOwner(sessionId))?.owner ?? undefined,
-      }),
-    )
+    return inboxPrincipalFromCommand(await this.principalFor(capability, 'inboxPrincipal'))
   }
 
   /** In-process agent identity; absence fails closed instead of inventing one. */

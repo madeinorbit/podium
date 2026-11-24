@@ -1,5 +1,7 @@
 import { createLogger } from '@podium/logger'
 import type {
+  AgentKind,
+  CredentialId,
   IssueId,
   MachineId,
   ResumeRef,
@@ -7,12 +9,8 @@ import type {
   SessionId,
   SessionMeta,
   TranscriptItem,
-} from '@podium/model'
-import {
-  type AgentKind,
-  type CredentialId,
-  spawnedByParentSessionId,
-  type UserId,
+  UserId,
+  WorkspaceId,
 } from '@podium/model'
 
 /**
@@ -46,7 +44,7 @@ import type {
 import type { ControlMessage, TurnEvent, TurnReceipt } from '@podium/protocol/daemon'
 import type { MutationLedgerPort } from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
-import { type CommandPrincipal, resolvePrincipalAsync } from '../../command-principal'
+import type { CommandPrincipal } from '../../command-principal'
 import type { BrowserOpenGateway } from '../../gateway/browser-open'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type {
@@ -600,6 +598,11 @@ export class SessionLifecycle {
   ): Promise<{ owner: UserId } | undefined> {
     return this.sessionAuthz.sessionOwner(sessionId, memo)
   }
+  /** The principal behind a capability, resolved in this store (POD-7558);
+   *  see {@link SessionAuthz.principalFor}. */
+  principalFor(capability: Capability): Promise<CommandPrincipal> {
+    return this.sessionAuthz.principalFor(capability)
+  }
   /** Sessions are private (POD-6283): does this caller's human own it? */
   mayReachSession(capability: Capability, sessionId: SessionId): Promise<boolean> {
     return this.sessionAuthz.mayReachSession(capability, sessionId)
@@ -656,8 +659,13 @@ export class SessionLifecycle {
   ): Promise<CredentialId | null | undefined> {
     return await credentialIdForRef(this.store, { ref, actingUserId: owner })
   }
-  capabilityForSession(sessionId: SessionId, senderMachineId?: MachineId): Promise<Capability> {
-    return this.sessionAuthz.capabilityForSession(sessionId, senderMachineId)
+  capabilityForSession(
+    sessionId: SessionId,
+    senderMachineId?: MachineId,
+    /** The sending socket's bound workspace; see {@link SessionAuthz.capabilityForSession}. */
+    boundWorkspace?: WorkspaceId,
+  ): Promise<Capability> {
+    return this.sessionAuthz.capabilityForSession(sessionId, senderMachineId, boundWorkspace)
   }
   inboxPrincipalForCapability(capability: Capability): Promise<InboxPrincipalReference> {
     return this.sessionAuthz.inboxPrincipalForCapability(capability)
@@ -1020,19 +1028,7 @@ export class SessionLifecycle {
   /** HOW A CALLER'S `use` RIGHTS ON A MACHINE ARE RESOLVED — the seam, deliberately */
   machineUseGate: (caller: HandoffCaller) => Promise<AssertMachineUse> = async (caller) =>
     machineUseGateFor({
-      principal: await resolvePrincipalAsync(this.store.workspaceId, caller.capability, {
-        // POD-381's delegation index, read from live rows: an agent's chain is
-        // walked from `spawnedBy`, so it roots at exactly one human and a sub-agent
-        // cannot carry a delegator its parent lacks (D16.2).
-        // One parser for the `session:<id>` tag (POD-362): it brands what it
-        // EXTRACTS while leaving the tag itself raw, which entities/session.ts
-        // records as deliberate. This was the third hand-rolled copy of the slice.
-        parentSessionOf: async (sessionId) =>
-          spawnedByParentSessionId(
-            // POD-1646: one field, one visibility check — not a full pass.
-            await this.sessionSpawnedBy(sessionId),
-          ),
-      }),
+      principal: await this.principalFor(caller.capability),
       ownership: await ownershipSnapshotFromMachines(this.machines),
     })
   /** Wake a hibernated/exited session under the same id. */

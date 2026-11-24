@@ -19,12 +19,7 @@ import type {
 } from '@podium/model'
 import { asMutationId, mintDeviceId } from '@podium/model'
 import type { SyncSubmitRefusal, SyncSubmitReply } from '@podium/protocol'
-import {
-  attributionOf,
-  type CommandPrincipal,
-  onBehalfOfUser,
-  resolvePrincipal,
-} from '../../command-principal'
+import { attributionOf, type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import {
   canManageMachineCustody,
   canSeeMachine,
@@ -413,13 +408,12 @@ export function lifecycleEditsFor(
  * behaviour-preserving; it is the seam POD-1079 fills, not a new policy.
  */
 export async function visibleMachinesFor(
-  modules: Pick<RegistryModules, 'machines' | 'workspaceId'>,
+  modules: Pick<RegistryModules, 'machines' | 'sessions'>,
   capability: Capability,
 ): Promise<Awaited<ReturnType<RegistryModules['machines']['listMachines']>>> {
-  return await machinesForPrincipal(
-    modules,
-    resolvePrincipal(modules.workspaceId, capability, { parentSessionOf: () => undefined }),
-  )
+  // Resolved in the modules' own store (POD-7558): an agent's human is its
+  // root session's owner here, never the on-behalf-of its capability names.
+  return await machinesForPrincipal(modules, await modules.sessions.principalFor(capability))
 }
 
 /**
@@ -498,7 +492,7 @@ export interface FleetRepoRow {
  * drift with nobody watching.
  */
 export async function fleetViewFor(
-  modules: Pick<RegistryModules, 'machines' | 'workspaceId'>,
+  modules: Pick<RegistryModules, 'machines' | 'sessions'>,
   capability: Capability,
   allRepos: FleetRepoRow[],
 ): Promise<{

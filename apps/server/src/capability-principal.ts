@@ -18,17 +18,36 @@ import {
   asSessionId,
   type Capability,
   spawnedByParentSessionId,
+  type UserId,
   type WorkspaceId,
 } from '@podium/model'
 import { type CommandPrincipal, resolvePrincipalAsync } from './command-principal'
 import { withReadScope } from './store/executor/read-scope'
 import type { SessionsRepository } from './store/sessions'
+import type { UsersRepository } from './store/users'
+
+/**
+ * Is `user` a member of the workspace whose `users` these are, who can act?
+ * Read live at every resolution: it is an authorization input, so a disabled
+ * member's next command is refused. The read goes through the per-operation
+ * account loader, so a second ask in the same operation is answered from its
+ * memo. A relayed command still pays one more `users` read than before
+ * (POD-7558, mail-send pins), because its resolution runs in a later
+ * operation than the capability's mint; never cache it beyond one operation.
+ */
+export const memberIn =
+  (users: Pick<UsersRepository, 'get'>) =>
+  async (user: UserId): Promise<boolean> =>
+    (await users.get(user)) !== undefined
 
 export function capabilityPrincipalResolver(
   /** The workspace whose session rows these are. */
   workspaceId: WorkspaceId,
   sessions: Pick<SessionsRepository, 'loadSession'>,
+  /** The same workspace's members. */
+  users: Pick<UsersRepository, 'get'>,
 ): (capability: Capability) => Promise<CommandPrincipal> {
+  const isMember = memberIn(users)
   return async (capability) =>
     await withReadScope(
       async () =>
@@ -39,6 +58,7 @@ export function capabilityPrincipalResolver(
             ),
           onBehalfOfFor: async (candidate) =>
             (await sessions.loadSession(asSessionId(candidate)))?.ownerUserId,
+          isMember,
         }),
     )
 }

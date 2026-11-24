@@ -8,7 +8,7 @@ import { isPersonCapability, type WorkspaceId } from '@podium/model'
 import { lockNameProblem } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { type CommandPrincipal, resolvePrincipal } from '../../command-principal'
+import type { CommandPrincipal } from '../../command-principal'
 import { authorize } from '../../issue-authz'
 import { HostedModeRefusal } from '../../server-mode'
 import type { FrontDoorTransport } from '../front-door'
@@ -292,12 +292,10 @@ export class LockCommandDispatcher {
     caller: IssueCaller,
     proc: string,
     rawInput: unknown,
-    /** Who is asking, for the front door; an in-process caller's capability
-     *  read as a principal when absent. */
-    principal: () => Promise<CommandPrincipal> = async () =>
-      resolvePrincipal(this.deps.workspaceId, caller.capability, {
-        parentSessionOf: () => undefined,
-      }),
+    /** Who is asking, for the front door: resolved by the caller's transport
+     *  in the store's own workspace (POD-7558), never read from the
+     *  capability alone. */
+    principal: () => Promise<CommandPrincipal>,
   ): Promise<unknown> {
     if (!Object.hasOwn(lockRegistry.defs, proc)) return NO_SUCH_PROCEDURE
     const def = (lockRegistry.defs as Record<string, AnyLockCommandDef>)[proc] as AnyLockCommandDef

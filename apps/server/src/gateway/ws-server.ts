@@ -158,8 +158,12 @@ export interface WsAuthOptions {
    * /daemon and /machine is bound to one workspace before anything else reads
    * it. A socket bound to a workspace other than this registry's is refused:
    * its machine rows, members and sessions are another workspace's.
+   *
+   * REQUIRED (POD-7558): a socket's binding is the workspace its relayed
+   * agent commands are stamped with, so a composition cannot leave it out and
+   * serve sockets bound to nothing.
    */
-  bindWorkspace?: (request: Request) => Promise<WsWorkspaceBinding>
+  bindWorkspace: (request: Request) => Promise<WsWorkspaceBinding>
   readinessForClient?: () => ServerReadiness
   authorizeClient?: (request: Request) => boolean
   userForClient?: (request: Request) => UserId | undefined
@@ -270,7 +274,7 @@ interface SocketData {
   kind: 'client' | 'daemon' | 'machine'
   url: string
   /** The workspace the upgrade was bound to; the registry's own. */
-  workspaceId?: WorkspaceId
+  workspaceId: WorkspaceId
   /** How a daemon's request reached the server (credential management §8). */
   link?: DaemonLinkFacts
   userId?: UserId
@@ -364,7 +368,7 @@ export class NativeGatewaySocket implements GatewaySocket {
  */
 export function attachWebSockets(
   registry: SessionRegistry,
-  auth: WsAuthOptions = {},
+  auth: WsAuthOptions,
   deps: WsTransportDeps = {},
 ): WsHandle {
   const clients = new Set<NativeGatewaySocket>()
@@ -434,7 +438,7 @@ export function attachWebSockets(
         daemons.add(socket)
         aliveDaemons.add(socket)
         if (native.data.kind === 'machine') wireMachineSocket(socket, registry)
-        else wireDaemonSocket(socket, registry, native.data.link)
+        else wireDaemonSocket(socket, registry, native.data.workspaceId, native.data.link)
         return
       }
       clients.add(socket)
@@ -562,23 +566,20 @@ export function attachWebSockets(
       // Bound before the credential is read: a daemon's handshake is checked
       // against this registry's machine rows, a client's member against its
       // memberships, so the registry must be the bound workspace's.
-      let workspaceId: WorkspaceId | undefined
-      if (auth.bindWorkspace) {
-        const binding = await auth.bindWorkspace(request)
-        if ('refused' in binding) {
-          return new Response(JSON.stringify(binding.refused.body), {
-            status: binding.refused.status,
-            headers: { connection: 'close', 'content-type': 'application/json' },
-          })
-        }
-        if (binding.workspaceId !== registry.sessionStore.workspaceId) {
-          return new Response(JSON.stringify({ error: 'workspace_not_served' }), {
-            status: 404,
-            headers: { connection: 'close', 'content-type': 'application/json' },
-          })
-        }
-        workspaceId = binding.workspaceId
+      const binding = await auth.bindWorkspace(request)
+      if ('refused' in binding) {
+        return new Response(JSON.stringify(binding.refused.body), {
+          status: binding.refused.status,
+          headers: { connection: 'close', 'content-type': 'application/json' },
+        })
       }
+      if (binding.workspaceId !== registry.sessionStore.workspaceId) {
+        return new Response(JSON.stringify({ error: 'workspace_not_served' }), {
+          status: 404,
+          headers: { connection: 'close', 'content-type': 'application/json' },
+        })
+      }
+      const workspaceId = binding.workspaceId
 
       let data: SocketData
       if (pathname === '/client') {
@@ -616,7 +617,7 @@ export function attachWebSockets(
         data = {
           kind: 'client',
           url: request.url,
-          ...(workspaceId ? { workspaceId } : {}),
+          workspaceId,
           userId,
           userRole,
           ...(resolved?.maintain ? { maintain: resolved.maintain } : {}),
@@ -642,7 +643,7 @@ export function attachWebSockets(
         data = {
           kind: pathname === '/machine' ? 'machine' : 'daemon',
           url: request.url,
-          ...(workspaceId ? { workspaceId } : {}),
+          workspaceId,
           ...(link !== undefined ? { link } : {}),
         }
       }

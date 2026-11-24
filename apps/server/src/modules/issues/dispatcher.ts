@@ -22,18 +22,18 @@ import {
   writesThroughEntry,
 } from '@podium/commands'
 import type { IssueProc, IssueTrpc } from '@podium/issue-client'
-import { spawnedByParentSessionId, type UserId } from '@podium/model'
+import type { UserId } from '@podium/model'
 import { SyncSubmitRefusedError } from '@podium/protocol'
 import type { MutationLedgerPort, ReceiptCompaction } from '@podium/sync'
 import { z } from 'zod'
 import {
   actsInOrReport,
   type CommandPrincipal,
+  capabilityActsInOrReport,
+  foreignPrincipalRefusal,
   onBehalfOfUser,
-  resolvePrincipalAsync,
 } from '../../command-principal'
 import type { Capability } from '../../issue-authz'
-import { foreignPrincipalRefusal } from '../front-door'
 import type { SyncWriteEntry } from '../sync-write/entry'
 import { ARTIFACT_TRANSPORT, type ArtifactCall } from './artifact-effect-record'
 import {
@@ -124,9 +124,10 @@ export class IssueCommandDispatcher {
     def: D,
     input: z.infer<D['input']>,
   ): Promise<Awaited<ReturnType<D['handler']>>> {
-    // The same check as `dispatch`: the tRPC and effect-run callers bring their
-    // principal, which must act in this store's workspace (POD-7483).
-    this.refuseForeignPrincipal(caller)
+    // The same check as `dispatch`: the tRPC and effect-run callers bring a
+    // capability and a principal, and both must be this store's workspace's
+    // (POD-7483, POD-7558).
+    this.refuseForeignCaller(caller)
     // A command that acts on machines runs as an effect record (POD-6414): on
     // every transport its old answer comes from the record once it settles, and
     // it never runs here (POD-6603). Only the record's own executor, through
@@ -212,27 +213,22 @@ export class IssueCommandDispatcher {
     rawInput: unknown,
     transport: 'relay' | 'mcp' = 'relay',
   ): Promise<unknown> {
+    // The capability names the workspace it was issued in (POD-7558): one of
+    // another workspace is refused before anything runs or is resolved from it,
+    // the repository lookup included.
+    this.refuseForeignCaller(caller)
     if (router === 'repos') {
       if (proc !== 'inferFromPath') return NO_SUCH_PROCEDURE
       const input = z.object({ path: z.string() }).parse(rawInput)
       return { repoPath: (await this.deps.inferRepoFromPath(input.path)) ?? null }
     }
     if (router !== 'issues' || !Object.hasOwn(issueRegistry.defs, proc)) return NO_SUCH_PROCEDURE
+    // A principal resolved here is this store's only if its capability is; the
+    // resolver refuses any other, and the check below holds both to this store.
     const effectiveCaller: IssueCaller = caller.principal
       ? caller
-      : {
-          ...caller,
-          principal: await resolvePrincipalAsync(this.deps.workspaceId, caller.capability, {
-            parentSessionOf: async (sessionId) =>
-              spawnedByParentSessionId((await this.deps.sessionById(sessionId))?.spawnedBy),
-          }),
-        }
-    // A caller's own principal must act in this store's workspace (POD-7483).
-    // Until capabilities carry their workspace (POD-7558), a principal resolved
-    // just above names this registry's workspace by construction, so the check
-    // can fail only for a principal the caller brought: the sync write family's.
-    // Relayed and MCP callers bring none today.
-    this.refuseForeignPrincipal(effectiveCaller)
+      : { ...caller, principal: await this.deps.principalFor(caller.capability) }
+    this.refuseForeignCaller(effectiveCaller)
     const def = (issueRegistry.defs as Record<string, AnyIssueCommandDef>)[
       proc
     ] as AnyIssueCommandDef
@@ -254,8 +250,23 @@ export class IssueCommandDispatcher {
     })
   }
 
-  /** Refuse a caller whose principal is another workspace's, as a non-member. */
-  private refuseForeignPrincipal(caller: IssueCaller): void {
+  /**
+   * Refuse a caller of another workspace, as a non-member: its capability, and
+   * its principal when it brings one, must both be this store's (POD-7558).
+   *
+   * WHAT THIS CHECK COMPARES, PER PATH. It is real where the stamp comes from
+   * the edge: tRPC (the bound workspace's member resolver) and the daemon
+   * relay (the socket's binding, `capabilityForSession`). For MCP and effect
+   * runs the capability is still minted from this registry's own store
+   * (`server.ts` MCP thread owner, `effects/writer.ts`), so there the check
+   * compares the store with itself and cannot fail. It becomes real for them
+   * when POD-7290 stamps them from the request's or the effect row's
+   * workspace.
+   */
+  private refuseForeignCaller(caller: IssueCaller): void {
+    if (!capabilityActsInOrReport(caller.capability, this.deps.workspaceId, 'issue-dispatch')) {
+      throw foreignPrincipalRefusal()
+    }
     const principal = caller.principal
     if (principal && !actsInOrReport(principal, this.deps.workspaceId, 'issue-dispatch')) {
       throw foreignPrincipalRefusal()

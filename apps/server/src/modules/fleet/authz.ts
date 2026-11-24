@@ -41,20 +41,10 @@
  */
 
 import { FLEET_CONTRACTS, type FleetContractName } from '@podium/commands'
-import {
-  asMachineId,
-  isAdminGrade,
-  type MachineId,
-  spawnedByParentSessionId,
-  type UserRole,
-} from '@podium/model'
+import { asMachineId, isAdminGrade, type MachineId, type UserRole } from '@podium/model'
 import type { MachineVerb } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
-import {
-  type CommandPrincipal,
-  onBehalfOfUser,
-  resolvePrincipalAsync,
-} from '../../command-principal'
+import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import {
   canManageMachineCustody,
   checkMachineVerb,
@@ -403,14 +393,9 @@ export async function machineRefusal(
  * calling" is what ADR 3 D7 exists to prevent.
  */
 export async function fleetAuthzDeps(ctx: Context): Promise<FleetAuthzDeps> {
-  const sessions = mods(ctx).sessions
-  const principal = await resolvePrincipalAsync(ctx.registry.workspaceId, ctx.capability, {
-    parentSessionOf: async (sessionId) =>
-      // POD-1646: the narrow read. Authorization runs on essentially every
-      // request, so the full reader-scoped pass this used to build was pure
-      // waste — `sessionSpawnedBy` reads the one field under the same check.
-      spawnedByParentSessionId(await sessions.sessionSpawnedBy(sessionId)),
-  })
+  // The capability's own workspace must be this registry's, and its human a
+  // member here (POD-7558).
+  const principal = await mods(ctx).sessions.principalFor(ctx.capability)
   return await fleetAuthzDepsFor(mods(ctx).machines, principal, await accountRoleOf(principal, ctx))
 }
 

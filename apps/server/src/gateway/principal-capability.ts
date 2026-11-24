@@ -21,15 +21,20 @@
  * a field, not adding a mechanism.
  */
 
-import type { Principal } from '@podium/protocol'
 import {
-  sessionIdFromAgentIdentity,
   type Capability,
   type IssueRole,
   type IssueScope,
+  sessionIdFromAgentIdentity,
+  type WorkspaceId,
 } from '@podium/model'
+import type { Principal } from '@podium/protocol'
 
 export interface CapabilityRequest {
+  /** The workspace the edge bound this call to (POD-7558): the capability
+   *  names it wherever it travels, and only that workspace's store resolves
+   *  it. Never taken from a frame. */
+  readonly workspaceId: WorkspaceId
   /** The role floor the policy layer minted for this principal (ADR 3 Am.1 D15). */
   readonly role: IssueRole
   /** Resolved live by the policy layer; never taken from a frame. */
@@ -45,7 +50,7 @@ export const capabilityFromPrincipal = (
   principal: Principal,
   request: CapabilityRequest,
 ): Capability => {
-  const base = { role: request.role, scope: request.scope }
+  const base = { workspaceId: request.workspaceId, role: request.role, scope: request.scope }
   switch (principal.kind) {
     case 'user':
       // D17.2: for a human, actor and on-behalf-of are the same person, and the

@@ -40,11 +40,10 @@ import {
   isSpawnedBy,
   type SessionId,
   type SessionMeta,
-  spawnedByParentSessionId,
   type WorkspaceId,
 } from '@podium/model'
 import { SyncSubmitInput, sessionTitleRule } from '@podium/protocol'
-import { resolvePrincipalAsync } from '../../command-principal'
+import { capabilityActsInOrReport, foreignPrincipalRefusal } from '../../command-principal'
 import type { getFeatureStates, isFeatureEnabled } from '../../features'
 import { type Capability, checkIssueAccess } from '../../issue-authz'
 import type { RegistryModules } from '../../relay'
@@ -188,12 +187,16 @@ export function makeAgentRelayDispatch(
   } = deps
 
   return async (capability, overrideScope, router, proc, input) => {
+    // The capability names the workspace its daemon's socket was bound to
+    // (POD-7558, stamped by `capabilityForSession`): a relayed call carrying
+    // another workspace's is refused before any arm reads anything, including
+    // the arms that resolve no principal. A capability minted over the
+    // in-process link is stamped from this store, which is its own.
+    if (!capabilityActsInOrReport(capability, workspaceId, 'relay')) {
+      throw foreignPrincipalRefusal()
+    }
     // The relay caller as a principal, resolved when an arm needs one.
-    const relayPrincipal = async () =>
-      await resolvePrincipalAsync(workspaceId, capability, {
-        parentSessionOf: async (sessionId) =>
-          spawnedByParentSessionId((await sessionsSvc.sessionById(sessionId))?.spawnedBy),
-      })
+    const relayPrincipal = async () => await sessionsSvc.principalFor(capability)
     // The relay write adapter (`write-routes/relay.ts`, POD-6593): a write whose
     // registration the relay reaches by name.
     const writeCall = {

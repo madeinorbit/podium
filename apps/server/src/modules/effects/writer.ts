@@ -7,12 +7,8 @@
  * capability. `undefined` means the writer may no longer act; the run refuses.
  */
 
-import { asUserId, type SessionId, spawnedByParentSessionId } from '@podium/model'
-import {
-  type CommandPrincipal,
-  resolvePrincipalAsync,
-  userCommandPrincipal,
-} from '../../command-principal'
+import { asUserId, type SessionId } from '@podium/model'
+import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
 import type { EffectRow } from '../../store/effects'
 import type { UsersRepository } from '../../store/users'
@@ -48,13 +44,6 @@ export async function agentCommandPrincipal(
 ): Promise<CommandPrincipal | undefined> {
   const sessions = modules.sessions
   if (!(await sessions.sessionRowExists(agent))) return undefined
-  const principal = await resolvePrincipalAsync(
-    modules.workspaceId,
-    await sessions.capabilityForSession(agent),
-    {
-      parentSessionOf: async (sessionId) =>
-        spawnedByParentSessionId((await sessions.sessionById(sessionId))?.spawnedBy),
-    },
-  )
+  const principal = await sessions.principalFor(await sessions.capabilityForSession(agent))
   return principal.kind === 'system' ? undefined : principal
 }

@@ -165,6 +165,13 @@ export interface IssueCommandDeps {
    *  REQUIRED since POD-3857 — the full-list port it used to fall back to is
    *  gone, so the compiler keeps issue commands off the projection. */
   sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
+  /**
+   * The principal behind a capability that arrives without one (relay, MCP),
+   * resolved in this store (POD-7558): the capability must be this
+   * workspace's, and its human a member here. The served dispatcher passes the
+   * session service's `principalFor`.
+   */
+  principalFor(capability: Capability): Promise<CommandPrincipal>
   /** The member sessions of ONE issue, wired [POD-1639]. `issues.get` embeds
    *  them in its reply, so these do cross to a reader — but only an issue's
    *  own handful, never the fleet. `forUser` is the reader: a read handed to a

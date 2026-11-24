@@ -26,6 +26,7 @@
 
 import { CREDENTIAL_PROPAGATION_HARNESSES } from '@podium/harness/metadata'
 import { createLogger } from '@podium/logger'
+import type { WorkspaceId } from '@podium/model'
 import {
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
@@ -164,6 +165,10 @@ function recoveryTransportOnly(registry: SessionRegistry): boolean {
 export function wireDaemonSocket(
   ws: GatewaySocket,
   registry: SessionRegistry,
+  /** The workspace the upgrade was bound to (POD-7558): every frame of this
+   *  socket is routed with it, and the agent relay stamps its capabilities
+   *  from it. */
+  boundWorkspace: WorkspaceId,
   link?: DaemonLink,
 ): void {
   // The AUTHENTICATED principal for this socket. Typed as the principal object,
@@ -461,7 +466,7 @@ export function wireDaemonSocket(
         registry.gateway.routeDaemonOutput(principal, output)
         return
       }
-      void registry.gateway.routeDaemonFrame(principal, message)
+      void registry.gateway.routeDaemonFrame(principal, message, boundWorkspace)
     } catch (err) {
       // Drop the malformed frame (don't let it tear down the connection) — but
       // never silently: a silent drop here hides protocol drift / poison frames.

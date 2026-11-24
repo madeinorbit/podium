@@ -49,7 +49,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import { asMachineId, type MachineId } from '@podium/model'
+import { asMachineId, type MachineId, type WorkspaceId } from '@podium/model'
 import type { DaemonPtyOutputBatch, MachinePrincipal } from '@podium/protocol'
 import { asCapabilityRef, asDeviceId } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
@@ -98,6 +98,9 @@ type Dispatcher = {
     ports: DaemonFeaturePorts,
     principal: MachinePrincipal,
     msg: DaemonFrame<K>,
+    /** The workspace the frame's socket was bound to; undefined for the
+     *  in-process link and test harnesses, which are the registry's own. */
+    boundWorkspace: WorkspaceId | undefined,
   ) => void | Promise<void>
 }
 
@@ -280,7 +283,10 @@ const DISPATCH: Dispatcher = {
   approvalExecResult: (ports, _p, msg) => ports.approvals.onExecResult(msg),
 
   // ---- THE AGENT COMMAND RELAY. Its own port; nothing else reaches it. ----
-  agentRelayRequest: (ports, principal, msg) => ports.agentRelay.run(principal.machine, msg),
+  // The socket's bound workspace goes with it (POD-7558): the relay stamps the
+  // caller's capability from the binding, not from the store that receives it.
+  agentRelayRequest: (ports, principal, msg, bound) =>
+    ports.agentRelay.run(principal.machine, msg, bound),
 
   // ---- topics: a daemon-produced value, checked against THIS machine ----
   topicPublish: (ports, principal, msg) => ports.topics.onTopicPublish(principal.machine, msg),
@@ -381,7 +387,12 @@ export class DaemonMux {
    * a frame classified in one and forgotten in the other cannot slip through as
    * a default.
    */
-  routeDaemonFrame(peer: DaemonPeer, msg: DaemonMessage): Promise<void> {
+  routeDaemonFrame(
+    peer: DaemonPeer,
+    msg: DaemonMessage,
+    /** The socket's bound workspace (POD-7558); absent for the in-process link. */
+    boundWorkspace?: WorkspaceId,
+  ): Promise<void> {
     const principal = principalOf(peer)
     if (daemonPlaneClassFor(msg.type) === null || daemonPortsFor(msg.type) === null) {
       log.warn('refused an unclassified daemon frame', { frameType: msg.type })
@@ -391,13 +402,16 @@ export class DaemonMux {
       ports: DaemonFeaturePorts,
       principal: MachinePrincipal,
       msg: DaemonMessage,
+      boundWorkspace: WorkspaceId | undefined,
     ) => void | Promise<void>
     // Production ingress deliberately does not wait. Return the catch-handled
     // completion so tests can observe handler effects without timers or polling.
     // One frame is one operation: memos that opt in (the grants loader) answer
     // a row once for all its phases, before, inside and after its write spans
     // (POD-6189, `store/executor/operation-scope.ts`).
-    const routed = Promise.resolve(withOperation(() => dispatch(this.deps.ports, principal, msg)))
+    const routed = Promise.resolve(
+      withOperation(() => dispatch(this.deps.ports, principal, msg, boundWorkspace)),
+    )
     return routed.catch((err: unknown) => {
       log.error('a daemon frame handler failed', { frameType: msg.type, err })
     })

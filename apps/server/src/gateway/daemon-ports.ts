@@ -25,6 +25,7 @@ import type {
   ConversationDiscoveryWire,
   MachineId,
   SessionId,
+  WorkspaceId,
 } from '@podium/model'
 import type { DaemonPtyInputBatch, DaemonPtyOutputBatch, MachinePrincipal } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
@@ -187,7 +188,13 @@ export interface ApprovalsDaemonPort {
  * separate port with exactly one frame reaching it.
  */
 export interface AgentRelayDaemonPort {
-  run(machineId: MachineId, msg: DaemonFrame<'agentRelayRequest'>): void
+  /** `boundWorkspace` is the workspace the daemon's socket was bound to
+   *  (POD-7558), absent for the in-process link. */
+  run(
+    machineId: MachineId,
+    msg: DaemonFrame<'agentRelayRequest'>,
+    boundWorkspace?: WorkspaceId,
+  ): void
 }
 
 /**

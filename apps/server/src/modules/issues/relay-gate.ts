@@ -1,5 +1,5 @@
 import { createLogger, describeError } from '@podium/logger'
-import type { MachineId, SessionId } from '@podium/model'
+import type { MachineId, SessionId, WorkspaceId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
 import type { Capability } from '../../issue-authz'
@@ -224,7 +224,13 @@ export interface AgentRelayGateDeps {
   ): Promise<unknown>
   /** Check this authenticated sender against the same session snapshot used
    * to derive authority. Missing or foreign sessions must mint no capability. */
-  capabilityForSession(sessionId: SessionId, machineId: MachineId): Capability | Promise<Capability>
+  capabilityForSession(
+    sessionId: SessionId,
+    machineId: MachineId,
+    /** The sending socket's bound workspace (POD-7558): the capability is
+     *  stamped with it, and refused if it is not this store's. */
+    boundWorkspace?: WorkspaceId,
+  ): Capability | Promise<Capability>
   toMachine(machineId: MachineId, msg: ControlMessage): void
   /**
    * After a successful agentRelayResult is on the wire. Used to arm self-stop
@@ -260,6 +266,8 @@ export class AgentRelayGate {
   async run(
     machineId: MachineId,
     msg: Extract<DaemonMessage, { type: 'agentRelayRequest' }>,
+    /** The workspace the sending daemon's socket was bound to (POD-7558). */
+    boundWorkspace?: WorkspaceId,
   ): Promise<void> {
     const reply = (r: { ok: boolean; result?: unknown; error?: string }): void =>
       this.deps.toMachine(machineId, { type: 'agentRelayResult', requestId: msg.requestId, ...r })
@@ -296,7 +304,7 @@ export class AgentRelayGate {
           ? bindEnvelopeContext(msg.input, msg.sessionId, machineId)
           : bindRelayContext(msg.router, msg.proc, msg.input, msg.sessionId, machineId)
       const result = this.deps.dispatch(
-        await this.deps.capabilityForSession(msg.sessionId, machineId),
+        await this.deps.capabilityForSession(msg.sessionId, machineId, boundWorkspace),
         msg.outsideScope,
         msg.router,
         msg.proc,

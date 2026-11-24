@@ -35,7 +35,6 @@ import {
   formatAgentError,
   machinePathsEqual,
   mintDeviceId,
-  spawnedByParentSessionId,
 } from '@podium/model'
 import type {
   LocalPortableStateControl,
@@ -88,7 +87,6 @@ import {
   attributionOf,
   type CommandPrincipal,
   onBehalfOfUser,
-  resolvePrincipalAsync,
   systemPrincipal,
   userCommandPrincipal,
 } from './command-principal'
@@ -965,6 +963,7 @@ export class SessionRegistry {
     const principalForCapability = capabilityPrincipalResolver(
       this.store.workspaceId,
       this.store.sessions,
+      this.store.users,
     )
     const workflowCallerForCapability = async (
       capability: import('@podium/model').Capability,
@@ -3884,6 +3883,7 @@ export class SessionRegistry {
         messages: messagesSvc,
         issues,
         sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
+        principalFor: async (capability) => await sessionsSvc.principalFor(capability),
         machineOnline: (machineId) => machines.hasDaemon(machineId),
         // A session's mail is its own owner's (POD-6284): the row, not its task.
         sessionOwnerUserId: async (sessionId) =>
@@ -4194,15 +4194,8 @@ export class SessionRegistry {
             throw new Error(`unknown target session: ${existingSessionId}`)
           }
           const fresh = op.target.kind === 'fresh' ? op.target : null
-          const principal = await resolvePrincipalAsync(
-            this.store.workspaceId,
+          const principal = await sessionsSvc.principalFor(
             await sessionsSvc.capabilityForSession(sessionId),
-            {
-              parentSessionOf: async (candidate) =>
-                spawnedByParentSessionId(await sessionsSvc.sessionSpawnedBy(candidate)),
-              onBehalfOfFor: async (candidate) =>
-                (await sessionsSvc.sessionOwner(candidate))?.owner,
-            },
           )
           // ONE ANSWER to "which agent, model and effort?" (POD-1107). This site
           // used to hardcode 'codex' and 'auto', so a one-off scheduled with no
@@ -4304,6 +4297,8 @@ export class SessionRegistry {
       mutations,
       // The by-id read [POD-1646]: one session, not the full pass.
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
+      // Relayed and MCP capabilities, resolved in this store (POD-7558).
+      principalFor: async (capability) => await sessionsSvc.principalFor(capability),
       // The narrow issue read [POD-1639] — `issues.get` embeds its members, as
       // its reader may read them (POD-6285).
       listSessionsForIssue: async (worktreePath, issueId, forUser) =>
@@ -5493,8 +5488,8 @@ export class SessionRegistry {
         workflowCallerForCapability,
         workflows,
       }),
-      capabilityForSession: (sessionId, machineId) =>
-        sessionsSvc.capabilityForSession(sessionId, machineId),
+      capabilityForSession: (sessionId, machineId, bound) =>
+        sessionsSvc.capabilityForSession(sessionId, machineId, bound),
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       // Self-stop kill only after agentRelayResult is on the wire.
       // POD-3989: graceful lifecycle(stop) first, kill frame as escalation.
@@ -5788,7 +5783,7 @@ export class SessionRegistry {
         headless,
         approvals,
         agentRelay: {
-          run: (machineId, msg) => void agentRelayGate.run(machineId, msg),
+          run: (machineId, msg, bound) => void agentRelayGate.run(machineId, msg, bound),
         },
         // FLEET DAEMON LOG CAPTURE (POD-3156). The machine comes from the mux's
         // authenticated principal, never from the frame — which carries no

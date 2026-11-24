@@ -59,13 +59,9 @@ import {
   SETTINGS_CONTRACTS,
   USER_PREFERENCES_RECORD,
 } from '@podium/commands'
-import { isAdminGrade, spawnedByParentSessionId, type UserRole } from '@podium/model'
+import { isAdminGrade, type UserRole } from '@podium/model'
 import { TRPCError } from '@trpc/server'
-import {
-  type CommandPrincipal,
-  onBehalfOfUser,
-  resolvePrincipalAsync,
-} from '../../command-principal'
+import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import { type Context, mods } from '../../trpc'
 import { coarselyPermitted, contractFrontDoor } from '../front-door'
 import { isSettingsCommand, type SettingsCommandName } from './registry'
@@ -164,14 +160,9 @@ export function settingsAuthzFailure(name: string, deps: SettingsAuthzDeps): TRP
  * effective-capability snapshot, because there is nothing here to serialize.
  */
 export async function settingsAuthzDeps(ctx: Context): Promise<SettingsAuthzDeps> {
-  const sessions = mods(ctx).sessions
-  const principal = await resolvePrincipalAsync(ctx.registry.workspaceId, ctx.capability, {
-    parentSessionOf: async (sessionId) =>
-      // POD-1646: the narrow read. Authorization runs on essentially every
-      // request, so the full reader-scoped pass this used to build was pure
-      // waste — `sessionSpawnedBy` reads the one field under the same check.
-      spawnedByParentSessionId(await sessions.sessionSpawnedBy(sessionId)),
-  })
+  // The capability's own workspace must be this registry's, and its human a
+  // member here (POD-7558).
+  const principal = await mods(ctx).sessions.principalFor(ctx.capability)
   const user = onBehalfOfUser(principal)
   return {
     principal,

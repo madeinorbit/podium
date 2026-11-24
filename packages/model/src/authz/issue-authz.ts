@@ -43,7 +43,7 @@
  */
 
 import { assertUnreachable } from '../exhaustive'
-import type { IssueId, SessionId, UserId } from '../ids/brands'
+import type { IssueId, SessionId, UserId, WorkspaceId } from '../ids/brands'
 
 export type IssueRole = 'viewer' | 'worker' | 'admin'
 
@@ -144,6 +144,16 @@ export type AuthTarget =
 export type AuthDecision = 'allow' | 'forbidden' | 'confirm-required'
 
 export interface Capability {
+  /**
+   * THE WORKSPACE THIS CAPABILITY WAS ISSUED IN (POD-7558). Stamped where the
+   * capability is minted, from the workspace the edge bound the call to or the
+   * store that minted it, and never read from payload. One server process
+   * serves many workspaces, and a capability crosses the transport seam on its
+   * own (relay, MCP, effects), so the workspace has to travel with it: the
+   * receiving store resolves a principal only from a capability of its own
+   * workspace (`resolvePrincipal` in the server), and refuses any other.
+   */
+  readonly workspaceId: WorkspaceId
   role: IssueRole
   scope: IssueScope
   /** The session behind this call, when the caller is an agent (relay path).
@@ -205,6 +215,14 @@ export interface Capability {
 }
 
 /**
+ * What a capability grants inside its workspace: everything but the workspace.
+ * {@link authorize} decides a role and scope question within one workspace and
+ * never reads which workspace that is; the server's principal resolver checks
+ * the workspace before any decision is asked (POD-7558).
+ */
+export type CapabilityRights = Omit<Capability, 'workspaceId'>
+
+/**
  * A PERSON IS CALLING (POD-6288): a member at the keyboard, admin or not, as
  * opposed to an agent, a machine or a system job. The class decisions that used
  * to read scope `all` as "the operator" ask this instead, because that scope no
@@ -263,7 +281,7 @@ export interface AttributionPair {
  *  module already exports `attributionOf` for the PRINCIPAL side of the same pair,
  *  and two same-named exports for the two sides is the redefinition the
  *  model-single-home boundary rule exists to stop. */
-export function capabilityAttribution(cap: Capability): AttributionPair {
+export function capabilityAttribution(cap: CapabilityRights): AttributionPair {
   return {
     actor: cap.actorSessionId ?? cap.actorUser ?? null,
     onBehalfOf: cap.onBehalfOf ?? null,
@@ -364,7 +382,7 @@ function memberDecision(human: UserId | undefined, issue: AuthTarget | undefined
  *  compile here until it declares its own rule, rather than inheriting whatever
  *  the last branch happened to return. */
 export function authorize(
-  cap: Capability,
+  cap: CapabilityRights,
   action: IssueAction,
   issue?: AuthTarget,
   opts?: { override?: boolean },

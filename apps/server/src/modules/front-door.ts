@@ -27,9 +27,12 @@ import {
   type RoleFloor,
 } from '@podium/commands'
 import { authorize, type WorkspaceId } from '@podium/model'
-import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
-import { actsInOrReport, type CommandPrincipal } from '../command-principal'
+import {
+  actsInOrReport,
+  type CommandPrincipal,
+  foreignPrincipalRefusal,
+} from '../command-principal'
 
 /** The transports with an adapter onto a front door. Each literal is spelled the
  *  same in both declaration formats' transport vocabularies. */
@@ -87,13 +90,10 @@ export function coarselyPermitted(
 
 /**
  * The answer to a principal of another workspace where a refusal is thrown
- * rather than returned (the tRPC context, the issue dispatcher): the same
- * FORBIDDEN a non-member gets, naming neither workspace. The defect itself is
- * logged by {@link actsInOrReport}.
+ * rather than returned (the tRPC context, the issue dispatcher, the principal
+ * resolver): the same FORBIDDEN a non-member gets, naming neither workspace.
  */
-export function foreignPrincipalRefusal(): TRPCError {
-  return new TRPCError({ code: 'FORBIDDEN', message: 'not_workspace_member' })
-}
+export { foreignPrincipalRefusal }
 
 export type ParsedCommandInput =
   | { readonly ok: true; readonly input: unknown }

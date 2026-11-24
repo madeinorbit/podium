@@ -57,6 +57,7 @@
 import { createLogger } from '@podium/logger'
 import type { Capability, SessionId, UserRole, WorkspaceId } from '@podium/model'
 import { firstAdminMemberId, type UserId } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 
 const log = createLogger('server:principal')
 
@@ -151,6 +152,7 @@ export function userCommandPrincipal(
     workspaceId,
     user,
     capability: {
+      workspaceId,
       role: role === 'admin' ? 'admin' : 'worker',
       // One member scope for every person (design §4.1, POD-6288): an admin is
       // a member plus the admin role's actions, never an unscoped bypass.
@@ -199,49 +201,102 @@ export function attributionOf(principal: CommandPrincipal): CommandAttribution {
 }
 
 /**
- * What the resolver needs to know about the world. Both members are read LIVE at
- * every resolution, which is the whole mechanism of D16: there is nothing to
- * invalidate because there is nothing cached.
+ * What the resolver needs to know about the store it resolves in. Every member
+ * is read LIVE at every resolution, which is the whole mechanism of D16: there
+ * is nothing to invalidate because there is nothing cached.
+ *
+ * Every member answers for THIS store's workspace only (POD-7558). That is why
+ * `onBehalfOfFor` and `isMember` are required: a capability that reaches a
+ * store is resolved from that store's own rows, never from what the capability
+ * says about itself.
  */
 export interface DelegationIndex {
   /** The session that spawned this one, if it was spawned by another session.
    *  Read with `spawnedByParentSessionId` — the one reader of the `spawnedBy`
    *  tag (POD-1133); nothing here matches the string itself. */
   parentSessionOf(sessionId: SessionId): SessionId | undefined
-  /** The human a root agent session was spawned for. Absent ⇒ the instance's
-   *  one account, which is the only answer available before POD-1075. */
-  onBehalfOfFor?(sessionId: SessionId): UserId | undefined
+  /** The human a root agent session in this store was spawned for. `undefined`
+   *  when this store holds no such session or it has no owner: the agent is
+   *  then refused, never given the on-behalf-of its capability names. */
+  onBehalfOfFor(sessionId: SessionId): UserId | undefined
+  /** Is `user` a member of this store's workspace who can act (a row that is
+   *  not disabled)? */
+  isMember(user: UserId): boolean
 }
 
 /** Chain depth ceiling. A cycle in `spawnedBy` would otherwise hang the resolve;
  *  this is a fail-loud bound, not a policy about how deep agents may nest. */
 const MAX_CHAIN_DEPTH = 64
 
+/** {@link DelegationIndex} over durable state read asynchronously. */
+export interface AsyncDelegationIndex {
+  parentSessionOf(sessionId: SessionId): SessionId | undefined | Promise<SessionId | undefined>
+  onBehalfOfFor(sessionId: SessionId): UserId | undefined | Promise<UserId | undefined>
+  isMember(user: UserId): boolean | Promise<boolean>
+}
+
 /**
- * Resolve the transport principal for a call that arrived with `capability`.
+ * The refusal for a caller who is nobody in this workspace: a capability or
+ * principal of another workspace, or a person who is not (or no longer) a
+ * member here. The same FORBIDDEN a non-member gets, naming neither workspace.
+ * A foreign workspace is a routing defect and is logged as one where it is
+ * detected ({@link actsInOrReport}, {@link capabilityActsInOrReport}).
+ */
+export function foreignPrincipalRefusal(): TRPCError {
+  return new TRPCError({ code: 'FORBIDDEN', message: 'not_workspace_member' })
+}
+
+/**
+ * Does `capability` belong to `workspaceId`? Logged as a routing defect when
+ * it does not: the edge stamps a capability with the workspace it bound the
+ * call to, so a capability of another workspace reaching this store means a
+ * call was routed to the wrong workspace's services.
+ */
+export function capabilityActsInOrReport(
+  capability: Pick<Capability, 'workspaceId'>,
+  workspaceId: WorkspaceId,
+  where: string,
+): boolean {
+  if (capability.workspaceId === workspaceId) return true
+  log.warn('a capability of another workspace reached this store', {
+    where,
+    capabilityWorkspace: capability.workspaceId,
+    storeWorkspace: workspaceId,
+  })
+  return false
+}
+
+/**
+ * Resolve the command principal for a call that arrived with `capability`, in
+ * the store of `workspaceId` (POD-7558).
+ *
+ * Every refusal is answered like a non-member ({@link foreignPrincipalRefusal}),
+ * whatever the path, so "your human cannot act here" has one answer:
+ *  - the capability was issued in another workspace;
+ *  - a capability that names no person (an unknown session's, or one whose
+ *    human can no longer act);
+ *  - a person who is not a member here (or is disabled);
+ *  - an agent whose root session has no owner in this store, or whose owner is
+ *    not a member here. The capability's own `onBehalfOf` is never used in its
+ *    place: only this store's rows say whom an agent acts for.
  *
  * Today's two shapes map exactly onto D14's table: a capability with an
  * `actorSessionId` is the daemon-authenticated relay path (an agent), and one
  * without is the cookie/in-process operator channel (a human). Neither reads
  * anything from payload.
  */
-export interface AsyncDelegationIndex {
-  parentSessionOf(sessionId: SessionId): SessionId | undefined | Promise<SessionId | undefined>
-  onBehalfOfFor?(sessionId: SessionId): UserId | undefined | Promise<UserId | undefined>
-}
-
-/** Resolve a principal where the live delegation index reads durable async state. */
 export async function resolvePrincipalAsync(
   workspaceId: WorkspaceId,
   capability: Capability,
   delegations: AsyncDelegationIndex,
 ): Promise<CommandPrincipal> {
+  if (!capabilityActsInOrReport(capability, workspaceId, 'resolve-principal')) {
+    throw foreignPrincipalRefusal()
+  }
   const actorSessionId = capability.actorSessionId
   if (actorSessionId === undefined) {
-    const user = capability.onBehalfOf
-    if (user === undefined || capability.actorUser !== user) {
-      throw new Error('human capability has no authenticated user attribution')
-    }
+    const user = humanOf(capability)
+    if (!(await delegations.isMember(user))) throw foreignPrincipalRefusal()
     return { kind: 'user', workspaceId, user, capability }
   }
   const chain: SessionId[] = []
@@ -252,31 +307,25 @@ export async function resolvePrincipalAsync(
     cursor = await delegations.parentSessionOf(cursor)
   }
   const root: SessionId = chain[chain.length - 1] ?? actorSessionId
-  const onBehalfOf = (await delegations.onBehalfOfFor?.(root)) ?? capability.onBehalfOf
-  if (onBehalfOf === undefined) {
-    throw new Error(`agent capability has no delegation owner: ${actorSessionId}`)
-  }
-  return {
-    kind: 'agent',
-    workspaceId,
-    agentSessionId: actorSessionId,
-    onBehalfOf,
-    capability,
-    chain,
-  }
+  const onBehalfOf = await delegations.onBehalfOfFor(root)
+  if (onBehalfOf === undefined) throw foreignPrincipalRefusal()
+  if (!(await delegations.isMember(onBehalfOf))) throw foreignPrincipalRefusal()
+  return agentPrincipal(workspaceId, capability, actorSessionId, onBehalfOf, chain)
 }
 
+/** {@link resolvePrincipalAsync} over an index that answers synchronously. */
 export function resolvePrincipal(
   workspaceId: WorkspaceId,
   capability: Capability,
   delegations: DelegationIndex,
 ): CommandPrincipal {
+  if (!capabilityActsInOrReport(capability, workspaceId, 'resolve-principal')) {
+    throw foreignPrincipalRefusal()
+  }
   const actorSessionId = capability.actorSessionId
   if (actorSessionId === undefined) {
-    const user = capability.onBehalfOf
-    if (user === undefined || capability.actorUser !== user) {
-      throw new Error('human capability has no authenticated user attribution')
-    }
+    const user = humanOf(capability)
+    if (!delegations.isMember(user)) throw foreignPrincipalRefusal()
     return { kind: 'user', workspaceId, user, capability }
   }
   const chain: SessionId[] = []
@@ -289,18 +338,32 @@ export function resolvePrincipal(
   // D16.2: exactly ONE human, at the ROOT of the chain. Reading it off the leaf
   // would let a sub-agent carry a delegator its parent does not have.
   const root: SessionId = chain[chain.length - 1] ?? actorSessionId
-  const onBehalfOf = delegations.onBehalfOfFor?.(root) ?? capability.onBehalfOf
-  if (onBehalfOf === undefined) {
-    throw new Error(`agent capability has no delegation owner: ${actorSessionId}`)
-  }
-  return {
-    kind: 'agent',
-    workspaceId,
-    agentSessionId: actorSessionId,
-    onBehalfOf,
-    capability,
-    chain,
-  }
+  const onBehalfOf = delegations.onBehalfOfFor(root)
+  if (onBehalfOf === undefined) throw foreignPrincipalRefusal()
+  if (!delegations.isMember(onBehalfOf)) throw foreignPrincipalRefusal()
+  return agentPrincipal(workspaceId, capability, actorSessionId, onBehalfOf, chain)
+}
+
+/**
+ * The person a human capability names as both actor and on-behalf-of. A
+ * capability that names nobody is refused like a non-member: it is what an
+ * unknown session, or an agent whose human can no longer act, is minted as
+ * (`capabilityForSession`).
+ */
+function humanOf(capability: Capability): UserId {
+  const user = capability.onBehalfOf
+  if (user === undefined || capability.actorUser !== user) throw foreignPrincipalRefusal()
+  return user
+}
+
+function agentPrincipal(
+  workspaceId: WorkspaceId,
+  capability: Capability,
+  agentSessionId: SessionId,
+  onBehalfOf: UserId,
+  chain: readonly SessionId[],
+): AgentCommandPrincipal {
+  return { kind: 'agent', workspaceId, agentSessionId, onBehalfOf, capability, chain }
 }
 
 /**
@@ -312,11 +375,19 @@ export function systemPrincipal(workspaceId: WorkspaceId, job: string): SystemCo
 }
 
 /** Does `principal` act in `workspaceId`? The one comparison every command makes. */
-export function actsIn(
-  principal: { readonly workspaceId: WorkspaceId },
-  workspaceId: WorkspaceId,
-): boolean {
-  return principal.workspaceId === workspaceId
+export function actsIn(principal: WorkspacePrincipal, workspaceId: WorkspaceId): boolean {
+  if (principal.workspaceId !== workspaceId) return false
+  // A user or agent principal also carries the capability it was resolved
+  // from, which names the workspace it was issued in (POD-7558). Both must be
+  // this one: a principal of this workspace holding another's capability was
+  // put together wrongly somewhere, and is refused like a foreign one.
+  return principal.capability === undefined || principal.capability.workspaceId === workspaceId
+}
+
+/** What {@link actsIn} reads of a principal. */
+export interface WorkspacePrincipal {
+  readonly workspaceId: WorkspaceId
+  readonly capability?: Pick<Capability, 'workspaceId'>
 }
 
 /**
@@ -331,7 +402,7 @@ export function actsIn(
  * `issue-dispatch`, `session-state`, `edge-member`.
  */
 export function actsInOrReport(
-  principal: { readonly workspaceId: WorkspaceId },
+  principal: WorkspacePrincipal,
   workspaceId: WorkspaceId,
   where: string,
 ): boolean {
@@ -339,6 +410,7 @@ export function actsInOrReport(
   log.warn('a principal of another workspace reached this store', {
     where,
     principalWorkspace: principal.workspaceId,
+    capabilityWorkspace: principal.capability?.workspaceId,
     storeWorkspace: workspaceId,
   })
   return false
