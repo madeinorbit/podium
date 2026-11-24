@@ -16,6 +16,7 @@ import {
   SUPERAGENT_SOURCE_KEY,
 } from '@podium/client-graph/superagent'
 import { startupTiming } from '../lib/startup-timing'
+import { afterFirstRoute } from './first-route'
 import { useProjectionFocus } from './projection-focus'
 
 export interface MobilePool {
@@ -52,6 +53,9 @@ export function createMobilePool(dev: boolean): MobilePool {
           const release = pool.worklist.retain()
           startupTiming.mark('pool.worklist.end')
           try {
+            // New Task's launch data is not on the first screen: it waits for
+            // the first route's layout, off the launch path (POD-2666).
+            await afterFirstRoute()
             const [{ CommandLaunchSource }, { commandLaunchViews }] = await Promise.all([
               import('@podium/client-graph/command-launch-source'),
               import('@podium/client-graph/command-launch-views'),
@@ -77,6 +81,9 @@ export function createMobilePool(dev: boolean): MobilePool {
           settings: true,
         }),
         async attach(runtime, pool) {
+          // Settings, superagent, notices, inbox and session context draw no
+          // part of the first screen: they attach after its layout (POD-2666).
+          await afterFirstRoute()
           const {
             createMobileSettingsSource,
             MOBILE_SETTINGS_SOURCE_KEY,

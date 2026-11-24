@@ -13,6 +13,7 @@ import { BootSplash } from '../components/BootSplash'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { startupTiming } from '../lib/startup-timing'
 import { color } from '../theme/theme'
+import { markFirstRoute } from './first-route'
 import {
   LaunchReadyProvider,
   LaunchSplashStatusProvider,
@@ -125,7 +126,10 @@ export function LaunchBoundary({
   }, [fontsReady, routeReady, reduceMotion, splashOpacity, transition])
 
   useEffect(() => {
-    if (!showSplash) startupTiming.mark('launch.overlay-hidden')
+    if (showSplash) return
+    startupTiming.mark('launch.overlay-hidden')
+    // Work that draws nothing on the first screen starts now, not alongside it.
+    markFirstRoute()
   }, [showSplash])
 
   const context = useMemo(() => markRouteReady, [markRouteReady])
