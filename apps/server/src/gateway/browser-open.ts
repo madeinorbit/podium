@@ -1,8 +1,13 @@
-import type { Attribution, SessionId, UserId, MachineId } from '@podium/model'
+import type { Attribution, MachineId, SessionId, UserId } from '@podium/model'
 import { actorSystem, actorUser } from '@podium/model'
-import type { ClientMessage, SessionOpenUrlMessage, SessionOpenUrlResultMessage, SubscriptionRegistry } from '@podium/protocol'
-import type { ControlMessage } from '@podium/protocol/daemon'
+import type {
+  ClientMessage,
+  SessionOpenUrlMessage,
+  SessionOpenUrlResultMessage,
+  SubscriptionRegistry,
+} from '@podium/protocol'
 import { asSubscriberId, roomRoutingKey } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { mayReachPrivate } from '../issue-authz'
 import type { ClientConn, ClientRegistry } from './client-registry'
 
@@ -127,14 +132,14 @@ export class BrowserOpenGateway {
     client: ClientConn,
     message: Extract<ClientMessage, { type: 'sessionOpenUrlDismiss' }>,
   ): Promise<void> {
+    // No session-room requirement here, unlike delivery: the pending-login card
+    // is shell-wide, while the room is joined only while that session's agent
+    // panel is open. Requiring the room made the X a silent no-op everywhere
+    // else, and the un-revoked request was re-offered on the next join.
+    // Visibility (the owner check) is the authorization.
     const maySee = await this.clientMaySeeSession(client, message.sessionId)
     const requestKey = this.key(message.sessionId, message.requestId)
-    if (
-      !this.pending.has(requestKey) ||
-      !this.clientInSessionRoom(client, message.sessionId) ||
-      !maySee
-    )
-      return
+    if (!this.pending.has(requestKey) || !maySee) return
     const session = this.deps.session(message.sessionId)
     const resolvedBy = this.resolutionActor(client)
     this.clear(message.sessionId, message.requestId)
@@ -146,13 +151,18 @@ export class BrowserOpenGateway {
         resolvedBy,
       })
     }
-    this.deliverResult({
+    const result: SessionOpenUrlResultMessage = {
       type: 'sessionOpenUrlResult',
       sessionId: message.sessionId,
       requestId: message.requestId,
       status: 'dismissed',
       resolvedBy,
-    })
+    }
+    this.deliverResult(result)
+    // Room delivery skips a dismisser outside the room; it still gets its answer.
+    if (!this.clientInSessionRoom(client, message.sessionId)) {
+      this.deps.clients.deliverAccountEvent(client, result)
+    }
   }
 
   private key(sessionId: SessionId, requestId: string): string {

@@ -1,7 +1,7 @@
 import {
-  asMachineId,
   type Attribution,
   actorUser,
+  asMachineId,
   asUserId,
   firstAdminMemberId,
   type SessionId,
@@ -50,11 +50,13 @@ async function setup() {
   const m2: ControlMessage[] = []
   await attachDaemonWithInventory(registry, 'm1', (message) => m1.push(message), inventory)
   await attachDaemonWithInventory(registry, 'm2', (message) => m2.push(message), inventory)
-  const sessionId = (await registry.modules.sessions.createSession({
-    agentKind: 'codex',
-    cwd: '/repo',
-    machineId: asMachineId('m1'),
-  })).sessionId
+  const sessionId = (
+    await registry.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/repo',
+      machineId: asMachineId('m1'),
+    })
+  ).sessionId
   m1.length = 0
   m2.length = 0
   return { registry, store, sessionId, m1, m2 }
@@ -278,6 +280,62 @@ describe('remote browser-open routing', () => {
       status: 'dismissed',
       resolvedBy: RESOLVER,
     })
+  })
+
+  it('lets the owner dismiss from outside the session room, and only the owner', async () => {
+    // The pending-login card is shell-wide, but the session room is joined only
+    // while that session's agent panel is open. A dismiss from anywhere else
+    // must still revoke, or the X does nothing and the request is re-offered on
+    // the next room join.
+    const { registry, sessionId, m1 } = await setup()
+    registry.gateway.routeDaemonFrame('m1', request(sessionId, 'open-elsewhere'))
+
+    const unrelated: ServerMessage[] = []
+    const unrelatedId = attachTestClient(registry.clientGateway, {
+      send: (message) => unrelated.push(message),
+      userId: asUserId('user:unrelated'),
+      userRole: 'member',
+    })
+    await registry.clientGateway.routeClientFrame(unrelatedId, {
+      type: 'sessionOpenUrlDismiss',
+      sessionId,
+      requestId: 'open-elsewhere',
+    })
+    expect(m1).not.toContainEqual(expect.objectContaining({ type: 'sessionOpenUrlDismiss' }))
+    expect(unrelated).not.toContainEqual(
+      expect.objectContaining({ type: 'sessionOpenUrlResult', requestId: 'open-elsewhere' }),
+    )
+
+    const messages: ServerMessage[] = []
+    const clientId = attachTestClient(registry.clientGateway, (message) => messages.push(message))
+    messages.length = 0
+    await registry.clientGateway.routeClientFrame(clientId, {
+      type: 'sessionOpenUrlDismiss',
+      sessionId,
+      requestId: 'open-elsewhere',
+    })
+    expect(m1).toContainEqual({
+      type: 'sessionOpenUrlDismiss',
+      sessionId,
+      requestId: 'open-elsewhere',
+      resolvedBy: RESOLVER,
+    })
+    expect(messages).toContainEqual({
+      type: 'sessionOpenUrlResult',
+      sessionId,
+      requestId: 'open-elsewhere',
+      status: 'dismissed',
+      resolvedBy: RESOLVER,
+    })
+
+    messages.length = 0
+    await registry.clientGateway.routeClientFrame(clientId, {
+      type: 'presenceSubscribe',
+      room: { kind: 'session', id: sessionId },
+    })
+    expect(messages).not.toContainEqual(
+      expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'open-elsewhere' }),
+    )
   })
 
   it('drops open intents forged by a daemon that does not own the session', async () => {

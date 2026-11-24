@@ -148,6 +148,40 @@ describe('BrowserOpenOverlay', () => {
     expect(h.hub.dismissOpenUrl).toHaveBeenCalledWith('s1', 'open-1')
   })
 
+  it('closes the login card on X without waiting for the server', () => {
+    // The server may never answer: the request expired, the server restarted,
+    // or this client is not in the session room. The X must close the card anyway.
+    render(<BrowserOpenOverlay />)
+    emit('openUrl', request)
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss pending login' }))
+
+    expect(h.hub.dismissOpenUrl).toHaveBeenCalledExactlyOnceWith('s1', 'open-1')
+    expect(h.toast.dismiss).toHaveBeenCalledWith('browser-open-s1:open-1')
+    expect(screen.queryByLabelText('Pending agent browser requests')).toBeNull()
+  })
+
+  it('drops the login card when its request expires', () => {
+    vi.useFakeTimers()
+    try {
+      render(<BrowserOpenOverlay />)
+      emit('openUrl', { ...request, expiresAt: Date.now() + 5_000 })
+      expect(screen.getByLabelText('Pending agent browser requests')).not.toBeNull()
+
+      act(() => vi.advanceTimersByTime(5_001))
+      expect(screen.queryByLabelText('Pending agent browser requests')).toBeNull()
+      expect(h.toast.dismiss).toHaveBeenCalledWith('browser-open-s1:open-1')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('ignores a request that has already expired', () => {
+    render(<BrowserOpenOverlay />)
+    emit('openUrl', { ...request, expiresAt: Date.now() - 1 })
+    expect(screen.queryByLabelText('Pending agent browser requests')).toBeNull()
+    expect(h.toast).not.toHaveBeenCalled()
+  })
+
   it('removes the overlay when the remote callback completes', () => {
     render(<BrowserOpenOverlay />)
     emit('openUrl', request)

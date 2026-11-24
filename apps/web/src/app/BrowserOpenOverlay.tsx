@@ -1,7 +1,7 @@
 import { observer } from '@podium/client-graph/react'
 import type { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from '@podium/protocol'
 import { Copy, ExternalLink, X } from 'lucide-react'
-import { type JSX, useEffect, useRef, useState } from 'react'
+import { type JSX, useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { copyToClipboard } from '@/lib/clipboard'
@@ -22,6 +22,9 @@ function requestKey(request: Pick<SessionOpenUrlMessage, 'sessionId' | 'requestI
 function isLogin(request: SessionOpenUrlMessage): boolean {
   return request.intent ? request.intent === 'login' : Boolean(request.callbackTarget)
 }
+
+/** `setTimeout` overflows past this and fires at once. */
+const MAX_TIMER_MS = 2 ** 31 - 1
 
 function displayHost(url: string): string {
   try {
@@ -63,21 +66,57 @@ export const BrowserOpenOverlay = observer(function BrowserOpenOverlay(): JSX.El
   const resolveSessionRef = useRef(resolveSession)
   resolveSessionRef.current = resolveSession
   const [pending, setPending] = useState<Map<string, PendingOpen>>(() => new Map())
+  const expiryTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+
+  /**
+   * Drop a request from this client: its toast, its card and its expiry timer.
+   * Local on purpose. The server answers a dismiss only while it still holds
+   * the request, so a card that waited for that answer stayed up forever after
+   * an expiry it never heard about or a server restart.
+   */
+  const forget = useCallback((key: string): void => {
+    const timer = expiryTimers.current.get(key)
+    if (timer) clearTimeout(timer)
+    expiryTimers.current.delete(key)
+    toast.dismiss(`browser-open-${key}`)
+    setPending((current) => {
+      if (!current.has(key)) return current
+      const next = new Map(current)
+      next.delete(key)
+      return next
+    })
+  }, [])
 
   useEffect(() => {
+    const timers = expiryTimers.current
     const dismiss = (request: SessionOpenUrlMessage): void => {
-      toast.dismiss(`browser-open-${requestKey(request)}`)
+      forget(requestKey(request))
       hub.dismissOpenUrl(request.sessionId, request.requestId)
     }
     const open = (request: SessionOpenUrlMessage): void => {
       openNewTab(request.url)
-      toast.dismiss(`browser-open-${requestKey(request)}`)
       // A plain link is done once opened — revoke the daemon-side request so
       // it neither replays nor lingers. Logins stay pending for the callback.
-      if (!isLogin(request)) hub.dismissOpenUrl(request.sessionId, request.requestId)
+      if (isLogin(request)) {
+        toast.dismiss(`browser-open-${requestKey(request)}`)
+      } else {
+        forget(requestKey(request))
+        hub.dismissOpenUrl(request.sessionId, request.requestId)
+      }
     }
     const offOpen = hub.on('openUrl', (request) => {
       const key = requestKey(request)
+      // Nothing can act on an expired request; the server would refuse it.
+      const remaining = request.expiresAt - Date.now()
+      if (remaining <= 0) return
+      // The server announces expiry only to clients in the session room, so
+      // every client also drops the request on its own clock.
+      if (!timers.has(key)) {
+        timers.set(
+          key,
+          setTimeout(() => forget(key), Math.min(remaining, MAX_TIMER_MS)),
+        )
+      }
       // Only login flows earn the persistent pending-login card; a plain link
       // gets the confirm toast alone.
       if (isLogin(request)) {
@@ -136,20 +175,16 @@ export const BrowserOpenOverlay = observer(function BrowserOpenOverlay(): JSX.El
         })
         return
       }
-      toast.dismiss(`browser-open-${key}`)
-      setPending((current) => {
-        if (!current.has(key)) return current
-        const next = new Map(current)
-        next.delete(key)
-        return next
-      })
+      forget(key)
       if (result.status === 'completed') toast.success('Login callback forwarded')
     })
     return () => {
       offOpen()
       offResult()
+      for (const timer of timers.values()) clearTimeout(timer)
+      timers.clear()
     }
-  }, [hub])
+  }, [hub, forget])
 
   if (pending.size === 0) return null
 
@@ -177,7 +212,10 @@ export const BrowserOpenOverlay = observer(function BrowserOpenOverlay(): JSX.El
                 type="button"
                 aria-label="Dismiss pending login"
                 className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={() => hub.dismissOpenUrl(item.request.sessionId, item.request.requestId)}
+                onClick={() => {
+                  forget(key)
+                  hub.dismissOpenUrl(item.request.sessionId, item.request.requestId)
+                }}
               >
                 <X size={15} aria-hidden="true" />
               </button>
