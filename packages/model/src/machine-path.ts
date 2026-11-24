@@ -21,13 +21,19 @@ export function machinePathSegments(path: string, root: string = path): string[]
 }
 
 /** Windows aliases with trailing dots/spaces are refused before any normalization or authorization.
- *  Ordinary dot/parent segments remain valid; POSIX names keep their literal spelling. */
+ *  Ordinary dot/parent segments remain valid; POSIX names keep their literal spelling.
+ *  The rule also holds for the name before an NTFS stream suffix: Windows trims
+ *  `.. ` and `...` to `..` there as well, so `.. ::$INDEX_ALLOCATION` and
+ *  `...::$INDEX_ALLOCATION` are parent steps no dot-segment test would see. */
 export function isValidMachinePath(path: string, root: string = path): boolean {
   return (
     machinePathSeparator(root) === '/' ||
-    machinePathSegments(path, root).every(
-      (part) => part === '.' || part === '..' || !/[ .]$/.test(part),
-    )
+    machinePathSegments(path, root).every((part) => {
+      if (part === '.' || part === '..') return true
+      if (/[ .]$/.test(part)) return false
+      const name = part.split(':', 1)[0] as string
+      return name === '.' || name === '..' || !/[ .]$/.test(name)
+    })
   )
 }
 

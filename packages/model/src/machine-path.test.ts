@@ -348,6 +348,21 @@ describe('machine path containment refuses dot segments with an NTFS stream suff
     expect(machinePathAncestors(path)).toEqual([])
   })
 
+  // POD-7503: Windows trims trailing dots and spaces from the name before the
+  // stream suffix too, so these are `..` with a stream, spelled past the dot test.
+  it.each([
+    String.raw`C:\repo\.. ::$INDEX_ALLOCATION\x`,
+    String.raw`C:\repo\...::$INDEX_ALLOCATION\x`,
+    String.raw`C:\repo\...::x`,
+    String.raw`C:\repo\name.::$DATA`,
+    String.raw`C:\repo\name ::$DATA`,
+  ])('refuses %s, a trailing dot or space before the stream suffix', (path) => {
+    const root = String.raw`C:\repo`
+    expect(isValidMachinePath(path)).toBe(false)
+    expect(isMachinePathWithinRoot(root, path)).toBe(false)
+    expect(machinePathRelativeToRoot(root, path)).toBeNull()
+  })
+
   it('refuses a stream-suffixed dot root and relative token', () => {
     const root = String.raw`C:\repo\..::$INDEX_ALLOCATION`
     expect(isMachinePathWithinRoot(root, String.raw`${root}\x`)).toBe(false)
@@ -361,9 +376,10 @@ describe('machine path containment refuses dot segments with an NTFS stream suff
     expect(isMachinePathWithinRoot(String.raw`C:\repo`, String.raw`C:\repo\a.txt::$DATA`)).toBe(
       true,
     )
-    expect(isMachinePathWithinRoot(String.raw`C:\repo`, String.raw`C:\repo\...::x`)).toBe(true)
     expect(machinePathHasDotSegment('/repo/..:x/.:y')).toBe(false)
     expect(isMachinePathWithinRoot('/repo', '/repo/..:x')).toBe(true)
+    expect(isMachinePathWithinRoot('/repo', '/repo/...::x')).toBe(true)
+    expect(isMachinePathWithinRoot('/repo', '/repo/.. ::$INDEX_ALLOCATION')).toBe(true)
   })
 })
 
