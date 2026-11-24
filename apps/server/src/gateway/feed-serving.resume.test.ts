@@ -621,9 +621,10 @@ describe('a prune during a heal', () => {
 
   it('stops a paged heal at the page the prune cut into, before yielding it', async () => {
     const { p, from, head, seqs } = await healing()
-    expect(seqs.length).toBeGreaterThanOrEqual(3)
+    const [first, second] = seqs
+    if (first === undefined || second === undefined || seqs.length < 3) throw new Error('short log')
     // After the first page, the prune deletes the second page's row and those below.
-    const prune = pruneAfterPage(p, seqs[1]!, 1)
+    const prune = pruneAfterPage(p, second, 1)
     const delivered: { fromSeq: number; throughSeq: number }[] = []
     const read = (async () => {
       for await (const page of p.authority.changesRange(DEVICE_GRADE_PRINCIPAL, from, head, 1))
@@ -633,7 +634,7 @@ describe('a prune during a heal', () => {
     expect(prune.pruned()).toBeGreaterThan(0)
     expect(prune.spy).toHaveBeenCalledTimes(2)
     // Nothing past the pages read before the prune was certified.
-    expect(delivered.every((page) => page.throughSeq <= seqs[0]!)).toBe(true)
+    expect(delivered.every((page) => page.throughSeq <= first)).toBe(true)
   })
 
   it('still serves the heal when the prune stays below its cursor', async () => {

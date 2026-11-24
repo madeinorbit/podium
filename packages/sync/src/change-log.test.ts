@@ -111,8 +111,33 @@ describe('bounded change-log ranges', () => {
     expect(pages.flatMap((p) => (p.kind === 'batch' ? p.changes.map((c) => c.seq) : []))).toEqual([
       1, 2, 3,
     ])
-    expect(f.store.minChangeSeq).toHaveBeenCalledTimes(1)
+    // The floor is read after each page (POD-7589).
+    expect(f.store.minChangeSeq).toHaveBeenCalledTimes(3)
     expect(f.store.changesInRange).toHaveBeenCalledTimes(3)
+  })
+
+  // POD-7589: a prune that commits between two pages deletes rows the second page
+  // would have returned. The read must refuse that page, never yield it short.
+  it('refuses the page a prune cut into, before yielding it', async () => {
+    const f = fixture(4)
+    let reads = 0
+    const read = f.store.changesInRange
+    f.store.changesInRange = vi.fn(async (from, through, limit) => {
+      const page = await read(from, through, limit)
+      // After the first page: the head prune deletes seqs 1 and 2.
+      if (++reads === 1) f.rows.splice(0, 2)
+      return page
+    })
+    const iterator = readChangesRange(f.store, 0, 4, 1)[Symbol.asyncIterator]()
+    expect((await iterator.next()).value).toMatchObject([{ seq: 1 }])
+    // Without the check this page would be seq 3, and seq 2 would be lost.
+    await expect(iterator.next()).rejects.toBeInstanceOf(ChangeRangeBootstrapRequired)
+    const f2 = fixture(4)
+    // A healed range above a prune that stays below it is still served.
+    f2.rows.splice(0, 1)
+    expect((await collect(readChangesRange(f2.store, 1, 4, 1))).flat().map((c) => c.seq)).toEqual([
+      2, 3, 4,
+    ])
   })
 
   it('certifies an empty range, including an empty log', async () => {
@@ -132,15 +157,16 @@ describe('bounded change-log ranges', () => {
     ])
   })
 
-  it('checks retention once and rejects pruned, empty retained, and future ranges', async () => {
+  it('rejects pruned, empty retained, and future ranges at the first page', async () => {
     for (const rows of [[], [row(3)]]) {
       const f = fixture()
       f.rows.splice(0, f.rows.length, ...rows)
       await expect(collect(readChangesRange(f.store, 0, 3, 1))).rejects.toBeInstanceOf(
         ChangeRangeBootstrapRequired,
       )
+      // One page is read, then its floor refuses it (POD-7589).
       expect(f.store.minChangeSeq).toHaveBeenCalledTimes(1)
-      expect(f.store.changesInRange).not.toHaveBeenCalled()
+      expect(f.store.changesInRange).toHaveBeenCalledTimes(1)
     }
     const f = fixture()
     await expect(collect(readChangesRange(f.store, 4, 3, 1))).rejects.toBeInstanceOf(
