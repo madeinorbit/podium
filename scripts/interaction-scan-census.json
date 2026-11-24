@@ -5923,39 +5923,19 @@
       "file": "apps/web/src/features/issues/issue-text-save.ts",
       "holder": "saveIssueText",
       "rule": "reader-summary",
-      "tokens": "5a78113f9ef5857b8ec70f526023d13737e08ad1e2b1ff0b06f644e967c9a49d",
-      "gate": [
-        "then:bf433bd12b497d461115fb9e8f0e06cc3f75369c704ab09dc429bb4af6bbc0b6"
-      ],
-      "origin": [
-        "a51465c064bd0c1d17a13b677b7d22ed8ccdd87a04cf9c9d2cac5b1a457969f9"
-      ],
-      "fingerprint": "a7eb8065c34198004dab2c9f8f5d9f93fc9b05ec69d91d4e2eb02b397189bfea",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6295",
-      "trigger": "A description edit on a shared task meets a revision conflict.",
-      "bound": "One issues.get answer for the edited task.",
-      "reason": "Reads the one task back to compare its text with the draft base.",
-      "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
-    },
-    {
-      "file": "apps/web/src/features/issues/issue-text-save.ts",
-      "holder": "saveIssueText",
-      "rule": "reader-summary",
-      "tokens": "9ae17dd9d6bac16872f7c87daed65429aa92df3ee8ae28864973840362c82c20",
+      "tokens": "ceefc45e9f2f09987af49e415475ea95b49936af10a4d32261ce8432bc323675",
       "gate": [],
       "origin": [
         "a51465c064bd0c1d17a13b677b7d22ed8ccdd87a04cf9c9d2cac5b1a457969f9"
       ],
-      "fingerprint": "c9e6b6226d889393173a917397d89252df754cbb604009cfd97a3a9235962520",
+      "fingerprint": "56a8bef96d47f2ae3541287bc1dca0bc6d4fd63e471e3c572c59b39af62c7d83",
       "count": 1,
       "classification": "bounded local work",
-      "owner": "POD-6295",
-      "trigger": "A description edit on a shared task meets a revision conflict.",
-      "bound": "One issues.get answer for the edited task.",
-      "reason": "Reads the one task back to compare its text with the draft base.",
-      "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
+      "owner": "POD-7556",
+      "trigger": "A title or description save on the issue page meets a revision conflict.",
+      "bound": "At most three issues.get answers for the edited task (one per rebase).",
+      "reason": "Reads the one task back to compare its text with the draft base before sending again on top or reporting the conflict.",
+      "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and apps/web/src/features/issues/empty-device-bodies.test.tsx (POD-6295, POD-7556)"
     },
     {
       "file": "apps/web/src/features/issues/issues-display.ts",
@@ -37686,7 +37666,7 @@
       "file": "apps/web/src/features/issues/IssuePage.tsx",
       "holder": "IssuePageBody/IssuePageBody/commands",
       "rule": "helper-consumer",
-      "tokens": "3f7601785868e0deb753e87330cc6a278e778226154b91cbcca7b1c839c13b97",
+      "tokens": "184184b3749ee98f315b41f717a025e95514a016a6e0df852535a6520ce4de18",
       "gate": [],
       "origin": [
         "065bcb7b97b42e62e276753da085d0dc22aaaa706e1c704471f3b30c550b63cc",
@@ -37698,7 +37678,7 @@
         "c4ab2970a0486aa35db00be78aba17f88c686f202f55f2081dc1285c8d73e794",
         "ee384eff0df7def189a8cadac4d88b2c55618b5e7c740f67b74770681e3a5084"
       ],
-      "fingerprint": "ea0669834339d311a8435e24031c51d9353c6b55268daeff76c3a8b98e96b2c6",
+      "fingerprint": "1cf3b1cbc9487d5fc1515460b9960e7341385df65cc446e881a00adedfe47cbc",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-6707",
