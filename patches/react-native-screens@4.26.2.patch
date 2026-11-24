@@ -188,10 +188,57 @@ index 8a41697223f6c4b5cb2dd6d450fc58cbb3b27536..41896f499a192ec8c205a09704326f09
  @property (nonatomic, retain) NSNumber *titleFontSize;
  @property (nonatomic, retain) NSString *titleFontWeight;
 diff --git a/ios/RNSScreenStackHeaderConfig.mm b/ios/RNSScreenStackHeaderConfig.mm
-index 1c844846a5c66e31cfa530ca462774d2fb6bbea1..fa16eba3621d1e173ff422642520f43f184fa8fe 100644
+index 1c844846a5c66e31cfa530ca462774d2fb6bbea1..689d7aa193c52afa8287d3b16e2b42757d4c831f 100644
 --- a/ios/RNSScreenStackHeaderConfig.mm
 +++ b/ios/RNSScreenStackHeaderConfig.mm
-@@ -513,7 +513,11 @@ RNS_IGNORE_SUPER_CALL_END
+@@ -365,6 +365,18 @@ RNS_IGNORE_SUPER_CALL_END
+   }
+ }
+ 
++// Podium (POD-2666): the content size category the header renders in. The
++// current trait collection during a props update is not the window's.
++static UITraitCollection *RNSHeaderTraits(UIViewController *vc)
++{
++  UITraitCollection *traits = vc.view.window.traitCollection ?: vc.traitCollection;
++  if (traits.preferredContentSizeCategory == UIContentSizeCategoryUnspecified) {
++    return [UITraitCollection traitCollectionWithPreferredContentSizeCategory:
++                                  UIApplication.sharedApplication.preferredContentSizeCategory];
++  }
++  return traits;
++}
++
+ + (UINavigationBarAppearance *)buildAppearance:(UIViewController *)vc withConfig:(RNSScreenStackHeaderConfig *)config
+ {
+   UINavigationBarAppearance *appearance = [UINavigationBarAppearance new];
+@@ -431,6 +443,13 @@ RNS_IGNORE_SUPER_CALL_END
+     } else {
+       attrs[NSFontAttributeName] = [UIFont boldSystemFontOfSize:[size floatValue]];
+     }
++    // Podium (POD-2666): at the default size the title follows Dynamic Type, as
++    // UIKit's own does; an explicit fontSize stays fixed.
++    if (config.titleFontSize == nil) {
++      attrs[NSFontAttributeName] = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleHeadline]
++                  scaledFontForFont:attrs[NSFontAttributeName]
++          compatibleWithTraitCollection:RNSHeaderTraits(vc)];
++    }
+     appearance.titleTextAttributes = attrs;
+   }
+ 
+@@ -459,6 +478,13 @@ RNS_IGNORE_SUPER_CALL_END
+     } else {
+       largeAttrs[NSFontAttributeName] = [UIFont systemFontOfSize:[largeSize floatValue] weight:UIFontWeightBold];
+     }
++    // Podium (POD-2666): at the default size the large title follows Dynamic
++    // Type, as UIKit's own does; an explicit fontSize stays fixed.
++    if (config.largeTitleFontSize == nil) {
++      largeAttrs[NSFontAttributeName] = [[UIFontMetrics metricsForTextStyle:UIFontTextStyleLargeTitle]
++                  scaledFontForFont:largeAttrs[NSFontAttributeName]
++          compatibleWithTraitCollection:RNSHeaderTraits(vc)];
++    }
+ 
+     appearance.largeTitleTextAttributes = largeAttrs;
+   }
+@@ -513,7 +539,11 @@ RNS_IGNORE_SUPER_CALL_END
      return;
    }
  
@@ -204,7 +251,7 @@ index 1c844846a5c66e31cfa530ca462774d2fb6bbea1..fa16eba3621d1e173ff422642520f43f
  
  #if !TARGET_OS_TV
    [config configureBackItem:prevItem withPrevVC:prevVC];
-@@ -648,6 +652,12 @@ RNS_IGNORE_SUPER_CALL_END
+@@ -648,6 +678,12 @@ RNS_IGNORE_SUPER_CALL_END
    // This assignment should be done after `navitem.titleView = ...` assignment (iOS 16.0 bug).
    // See: https://github.com/software-mansion/react-native-screens/issues/1570 (comments)
    navitem.title = config.title;
@@ -217,7 +264,7 @@ index 1c844846a5c66e31cfa530ca462774d2fb6bbea1..fa16eba3621d1e173ff422642520f43f
    navitem.leftBarButtonItems = [config barButtonItemsFromConfigs:config.headerLeftBarButtonItems
                                                  withCurrentItems:navitem.leftBarButtonItems];
    navitem.rightBarButtonItems = [config barButtonItemsFromConfigs:config.headerRightBarButtonItems
-@@ -1023,6 +1033,8 @@ static RCTResizeMode resizeModeFromCppEquiv(react::ImageResizeMode resizeMode)
+@@ -1023,6 +1059,8 @@ static RCTResizeMode resizeModeFromCppEquiv(react::ImageResizeMode resizeMode)
    }
  
    _title = RCTNSStringFromStringNilIfEmpty(newScreenProps.title);

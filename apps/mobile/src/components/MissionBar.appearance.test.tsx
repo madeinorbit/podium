@@ -180,8 +180,10 @@ const long = {
 it.each([
   { scale: 1, progress: true, upNext: true },
   { scale: 1.8, progress: true, upNext: false },
-  { scale: 2.35, progress: false, upNext: false },
-  { scale: 3.12, progress: false, upNext: false },
+  // POD-2666: the done/total count leads at every size; larger type drops the
+  // lower-priority counts from the tail instead.
+  { scale: 2.35, progress: true, upNext: false },
+  { scale: 3.12, progress: true, upNext: false },
 ])('keeps priority counts on one line at font scale $scale', ({ scale, progress, upNext }) => {
   appearance.fontScale = scale
   render(<MissionBar full={long} onOpen={() => {}} />)
@@ -205,7 +207,7 @@ it.each([
   { needsYou: 0, working: 0, reading: '106/112' },
   { needsYou: 1, working: 0, reading: '1 needs you' },
   { needsYou: 0, working: 2, reading: '2 working' },
-])('keeps a complete $reading without a leading separator at AX5', ({
+])('keeps the count and a complete $reading at AX5', ({
   needsYou,
   working,
   reading,
@@ -217,8 +219,9 @@ it.each([
     phoneCounts: { 'needs-you': needsYou, 'up-next': 33 },
   } as unknown as FullDeck
   render(<MissionBar full={single} onOpen={() => {}} />)
-  const label = visibleText(reading)
-  expect(label.parentElement?.textContent).toBe(reading)
+  const line = visibleText('106/112').parentElement?.textContent ?? ''
+  expect(line.startsWith('106/112')).toBe(true)
+  expect(line).toContain(reading)
   expect(Boolean(screen.queryByTestId('working-word'))).toBe(working > 0)
 })
 

@@ -105,7 +105,7 @@ vi.mock('@expo/ui/swift-ui/modifiers', () => ({
   ...Object.fromEntries(
     `accessibilityAddTraits accessibilityElement accessibilityHidden accessibilityHint accessibilityIdentifier
     accessibilityLabel accessibilityValue alignmentGuide animation background buttonStyle
-    clipped contentShape disabled font foregroundStyle frame lineLimit listRowBackground listRowInsets
+    clipped contentShape controlSize disabled font foregroundStyle frame labelsHidden lineLimit listRowBackground listRowInsets
     listRowSeparator listRowSeparatorTint listSectionMargins listSectionSpacing listStyle
     monospacedDigit onAppear onDisappear onGeometryChange opacity pickerStyle refreshable
     scrollContentBackground tag tint`

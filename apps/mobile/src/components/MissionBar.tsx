@@ -69,9 +69,9 @@ export const MissionBar = observer(function MissionBar({
             numberOfLines={1}
             maxFontSizeMultiplier={BAR_MAX_SCALE}
             showUpNext={fontScale <= BAR_MAX_SCALE}
-            showProgress={
-              fontScale < BAR_STATUS_ONLY_SCALE || (vitals.needsYou === 0 && vitals.working === 0)
-            }
+            // The "1/3" leads at every size (POD-2666); the line truncates at
+            // its tail, so larger type drops the lower-priority counts first.
+            showProgress
           />
         ) : (
           <Text
@@ -98,8 +98,6 @@ export const MissionBar = observer(function MissionBar({
 })
 
 const BAR_MAX_SCALE = 1.35
-/** At double text size, give the line to needs-you/working when either exists. */
-const BAR_STATUS_ONLY_SCALE = 2
 
 const styles = StyleSheet.create({
   // Transparent over Glass: the chat scrolls under the bar and the nav bar's

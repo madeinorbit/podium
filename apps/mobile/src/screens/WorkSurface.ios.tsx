@@ -25,9 +25,11 @@ import {
   background,
   buttonStyle,
   contentShape,
+  controlSize,
   font,
   foregroundStyle,
   frame,
+  labelsHidden,
   lineLimit,
   listRowBackground,
   listRowInsets,
@@ -98,6 +100,9 @@ import { WORK_LANE_LABELS, WORK_LANES, type WorkSurfaceProps } from './WorkSurfa
 import { workPaper as paper } from './work-paper'
 
 /** Card rows: 12 inset, 14 status column + 8 gap, so titles and separators share x=34. */
+/** Accessibility text sizes, as Tasks uses them: layouts switch, not just grow. */
+const ACCESSIBILITY_SCALE = 1.6
+
 const CARD_INSET = 12
 /** Header and card sections sit flush; the 44pt header rows carry the rhythm (as on Tasks). */
 const COMPACT_SECTION = [listSectionMargins({ edges: 'vertical', length: 0 })]
@@ -444,14 +449,27 @@ const NativeWorkSlot = observer(function NativeWorkSlot({
   )
 })
 
-/** Open / Snoozed / Closed as the system segmented control, with counts. */
+/**
+ * Open / Snoozed / Closed as the system segmented control, with counts. A
+ * segmented control keeps its font size, so it follows Dynamic Type through its
+ * control size, and at accessibility sizes, where three labels with counts no
+ * longer fit, it becomes a menu picker whose label scales (POD-2666).
+ */
 const WorkLanePicker = observer(function WorkLanePicker({ phone }: { phone: PhoneWorklist }) {
+  const { fontScale } = useWindowDimensions()
+  const style =
+    fontScale >= ACCESSIBILITY_SCALE
+      ? [pickerStyle('menu'), labelsHidden()]
+      : [
+          pickerStyle('segmented'),
+          controlSize(fontScale >= 1.3 ? 'extraLarge' : fontScale > 1.05 ? 'large' : 'regular'),
+        ]
   return (
     <Picker
       label="Work list"
       selection={phone.lane}
       onSelectionChange={(lane: PhoneWorkLane) => phone.setLane(lane)}
-      modifiers={[...quietRow, pickerStyle('segmented'), accessibilityIdentifier('work-lanes')]}
+      modifiers={[...quietRow, ...style, accessibilityIdentifier('work-lanes')]}
     >
       {WORK_LANES.map((lane) => (
         <Text key={lane} modifiers={[tag(lane)]}>

@@ -2303,13 +2303,15 @@ const styles = StyleSheet.create({
     fontSize: font.small,
     lineHeight: leading(font.small),
   },
-  // Operator turn — the ONLY elevated surface on the field.
+  // Operator turn — the ONLY elevated surface on the field. No fill of its own:
+  // the list paints the page colour, and a full-width copy of it here kept the
+  // old appearance's colour after a live dark/light switch, a band behind the
+  // bubble until the row re-rendered (POD-2666).
   userWrap: {
     alignSelf: 'stretch',
     alignItems: 'flex-end',
     gap: 4,
     paddingVertical: space.xs,
-    backgroundColor: color.bg,
   },
   // Board Chat's .you: card colour, card radius 8, 8/12 inset, no outline.
   userCard: {
