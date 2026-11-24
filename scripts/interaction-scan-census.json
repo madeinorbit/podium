@@ -6848,13 +6848,13 @@
       "file": "apps/web/src/features/setup/ColdStartComposer.tsx",
       "holder": "ColdStartComposer",
       "rule": "reader-summary",
-      "tokens": "3e583e8f2923833fd5bf08c8f30e61ff54fdcedaaab5d83ac44e06257c555c6a",
+      "tokens": "7c3be1e5a634bd7800354f86254652d3a1865ee2bd6eb8c1acd7dcd256caadd4",
       "gate": [],
       "origin": [
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
       ],
-      "fingerprint": "aef44f621d70126fbcaf66bf1a86d61ca0293e46a2f7175896c6b1ae2c19219f",
+      "fingerprint": "90c76974b4b9ede764065546794199607f004b84db6ceea19f117791fbfa9a1e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5833",
