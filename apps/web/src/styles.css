@@ -8178,17 +8178,43 @@ a.ref-link--session::before {
   font-variant-numeric: tabular-nums;
   margin: 1em 0;
 }
+/* COLUMNS SIZE BY THEIR WORDS, NOT BY THEIR LETTERS (POD-7564). `.chat-md`
+   breaks anywhere so a long path never pushes the feed sideways, but a table
+   cell that inherits that has a minimum width of ONE GLYPH. Auto layout then
+   paid the long columns first and left a row-label column one letter wide
+   ("S / o / c / k / et / s"). A cell breaks only between words, so its floor
+   is its longest word, and a cell that still cannot fit makes the table
+   scroll, never crush. Headers wrap like any other cell: a nowrap header
+   claimed its whole sentence as one unbreakable line and starved the rest. */
 .chat-md th,
 .chat-md td {
   border: 1px solid var(--border);
   padding: 5px 10px;
   text-align: left;
   vertical-align: top;
+  overflow-wrap: break-word;
+  /* A floor for many-column tables: past the pane they scroll, and a prose
+     column at its bare longest word would stack one word per line. */
+  min-width: 5em;
+}
+/* Code is the exception: a path or hash is one "word" as long as the pane,
+   and as a floor it took the table's whole width and crushed the prose
+   column beside it. It may break anywhere; the column floor keeps it legible. */
+.chat-md :is(th, td) code {
+  overflow-wrap: anywhere;
 }
 .chat-md th {
   background: var(--muted);
   font-weight: 600;
-  white-space: nowrap;
+  text-wrap: balance;
+}
+/* An empty corner cell makes the first column row labels (a comparison
+   table). They read as headings for their row, and get a wider floor so a
+   label like "Sockets per app and per machine" sets as a phrase. */
+.chat-md table:has(> thead > tr > th:first-child:empty) td:first-child {
+  min-width: 8em;
+  font-weight: 600;
+  color: var(--text-strong);
 }
 
 /* Firefox-snoozed-tab look: hibernated panels read as parked, not dead. Keyed on
