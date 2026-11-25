@@ -2,6 +2,7 @@ import type { SessionId, UserId } from '@podium/model'
 import { asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
+import { getErrorShape } from '@trpc/server/unstable-core-do-not-import'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   type CloudAgentRequest,
@@ -28,7 +29,6 @@ import { captureLogs } from './test-support/capture-logs'
 import { attachDaemonWithInventory } from './test-support/daemon-inventory'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openWorkspaceStores } from './test-support/workspace-stores'
-import { errorShapeWithCause } from './trpc'
 
 const geometry = { cols: 80, rows: 24 }
 
@@ -73,7 +73,19 @@ async function caller(
   return { call, registry, repos }
 }
 
-/** Assert the actual formatter boundary: createCaller alone never runs it. */
+/** The real tRPC shape, including HTTP status, dev stack, path and formatter. */
+function cloudErrorShape(error: TRPCError, path: string) {
+  return getErrorShape({
+    config: appRouter._def._config,
+    error,
+    type: path === 'cloud.capabilities' || path === 'cloud.runtime' ? 'query' : 'mutation',
+    path,
+    input: undefined,
+    ctx: undefined,
+  })
+}
+
+/** Assert the actual wire boundary: createCaller alone never runs it. */
 async function expectCloudFailure(
   attempt: () => Promise<unknown>,
   operation: string,
@@ -97,7 +109,7 @@ async function expectCloudFailure(
     expect(error.message).toBe(`${message} (reference: ${reference})`)
     expect(error.cause).toBeUndefined()
 
-    const shape = errorShapeWithCause({ message: error.message, data: { code: error.code } }, error)
+    const shape = cloudErrorShape(error, operation)
     expect(shape.data).not.toHaveProperty('causeChain')
     const wire = JSON.stringify(shape)
     expect(wire).not.toContain(detail.message)
@@ -112,6 +124,7 @@ async function expectCloudFailure(
     if (detail.cause instanceof Error) {
       expect(record?.err?.cause?.message).toBe(detail.cause.message)
     }
+    return error
   } finally {
     logs.restore()
   }
@@ -437,7 +450,7 @@ describe('cloud failures keep internal details in the server log', () => {
   })
 
   it.each([
-    ['UNAUTHORIZED', 'Your cloud token has expired; reconnect your provider account.'],
+    ['PRECONDITION_FAILED', 'Your cloud token has expired; reconnect your provider account.'],
     ['TOO_MANY_REQUESTS', 'Cloud quota reached; stop another runtime or increase your quota.'],
     ['PRECONDITION_FAILED', 'Your cloud billing limit was reached; update your billing settings.'],
     ['BAD_REQUEST', 'The selected region is unavailable; choose another region.'],
@@ -454,12 +467,10 @@ describe('cloud failures keep internal details in the server log', () => {
     expect(error).toBeInstanceOf(TRPCError)
     if (!(error instanceof TRPCError)) throw new Error('expected a tRPC refusal')
     expect(error).toMatchObject({ code, message, cause: undefined })
-    expect(
-      errorShapeWithCause({ message: error.message, data: { code: error.code } }, error),
-    ).toEqual({
-      message,
-      data: { code },
-    })
+    const shape = cloudErrorShape(error, 'cloud.createAgent')
+    expect(shape).toMatchObject({ message, data: { code } })
+    expect(shape.data.httpStatus).not.toBe(401)
+    expect(shape.data).not.toHaveProperty('causeChain')
   })
 
   it.each([
@@ -485,7 +496,7 @@ describe('cloud failures keep internal details in the server log', () => {
         return '/workspace/podium'
       })
     }
-    await expectCloudFailure(
+    const error = await expectCloudFailure(
       () =>
         call.cloud.moveSession({
           sessionId,
@@ -493,7 +504,16 @@ describe('cloud failures keep internal details in the server log', () => {
         }),
       'cloud.moveSession',
       detail,
+      path === 'hibernate'
+        ? { message: `${CLOUD_HIBERNATE_FAILED} (runtime: cloud-runtime-1)` }
+        : {},
     )
+    if (path === 'hibernate') {
+      expect(error.message).toContain('cloud runtime created')
+      expect(error.message).toContain('runtime: cloud-runtime-1')
+      expect(error.message).toContain('hibernate the local session separately')
+      expect(error.message).not.toContain('try again')
+    }
     expect(cloud.createdAgents).toHaveLength(path === 'hibernate' ? 1 : 0)
   })
 
@@ -518,19 +538,29 @@ describe('cloud failures keep internal details in the server log', () => {
     })
   })
 
-  it('logs a failed hibernation outcome without forwarding its reason', async () => {
+  it.each([
+    'INTERNAL_HIBERNATE_DETAIL: provider could not retire runtime',
+    'not running',
+  ])('identifies the created runtime after a failed hibernation: %s', async (reason) => {
     const { call, cloud, registry, sessionId } = await world()
-    const detail = new Error('INTERNAL_HIBERNATE_DETAIL: provider could not retire runtime')
+    const detail = new Error(reason)
     vi.spyOn(registry.modules.sessionLifecycleController, 'outcomeFor').mockReturnValue({
       ok: false,
       reason: detail.message,
     })
-    await expectCloudFailure(
+    const error = await expectCloudFailure(
       () => call.cloud.moveSession({ sessionId, repo, hibernateLocal: true }),
       'cloud.moveSession',
       detail,
-      { message: CLOUD_HIBERNATE_FAILED, code: 'PRECONDITION_FAILED' },
+      {
+        message: `${CLOUD_HIBERNATE_FAILED} (runtime: cloud-runtime-1)`,
+        code: 'PRECONDITION_FAILED',
+      },
     )
+    expect(error.message).toContain('cloud runtime created')
+    expect(error.message).toContain('runtime: cloud-runtime-1')
+    expect(error.message).toContain('hibernate the local session separately')
+    expect(error.message).not.toContain('try again')
     expect(cloud.createdAgents).toHaveLength(1)
   })
 })

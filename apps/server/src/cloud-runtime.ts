@@ -115,8 +115,9 @@ export interface CloudRuntime {
   metadata?: Record<string, unknown> | undefined
 }
 
-/** Expected provider refusals use CloudRuntimeUserError with text written
- * for the user. Other errors retain their internal detail for server logs. */
+/** Expected provider refusals use CloudRuntimeUserError with authored user
+ * guidance, never raw response bodies or exception text. Other errors retain
+ * their internal detail for server logs. */
 export interface CloudRuntimeProvider {
   capabilities(): Promise<CloudProviderCapabilities>
   createCloudMachine(request: CloudMachineRequest): Promise<CloudRuntime>
@@ -135,15 +136,11 @@ export interface HostedCloudRuntimeProviderOptions {
 /** A provider's deliberate, actionable refusal. The message is written for the
  * user (reconnect an expired token, change a plan/region, grant repo access),
  * never copied from a raw HTTP body, stack or driver error. Only these explicit
- * refusals may keep their text at the cloud service boundary. */
+ * refusals may keep their text at the cloud service boundary. Provider token
+ * problems use PRECONDITION_FAILED; UNAUTHORIZED means Podium's login expired. */
 export class CloudRuntimeUserError extends Error {
   constructor(
-    readonly code:
-      | 'BAD_REQUEST'
-      | 'UNAUTHORIZED'
-      | 'FORBIDDEN'
-      | 'PRECONDITION_FAILED'
-      | 'TOO_MANY_REQUESTS',
+    readonly code: 'BAD_REQUEST' | 'FORBIDDEN' | 'PRECONDITION_FAILED' | 'TOO_MANY_REQUESTS',
     message: string,
   ) {
     super(message)

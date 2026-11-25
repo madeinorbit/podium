@@ -121,7 +121,8 @@ type StatedSourceSession = NonNullable<CloudAgentInput['sourceSession']>
 class CloudRefusal extends TRPCError {}
 
 export const CLOUD_REQUEST_FAILED = 'cloud request failed; try again'
-export const CLOUD_HIBERNATE_FAILED = 'local session could not be hibernated; try again'
+export const CLOUD_HIBERNATE_FAILED =
+  'cloud runtime created; hibernate the local session separately'
 
 /** The one answer a failed read beneath the session gate gives the caller. */
 export const CLOUD_SESSION_READ_FAILED = 'could not read the session; try again'
@@ -350,20 +351,32 @@ export class CloudService {
       )
 
       if (input.hibernateLocal) {
-        const parked = await this.deps.hibernateLocal(session.sessionId)
-        if (!parked.ok) {
-          cloudFailure(
-            new Error(parked.reason ?? 'local session could not be hibernated'),
-            'cloud.moveSession',
-            CLOUD_HIBERNATE_FAILED,
-            'PRECONDITION_FAILED',
-          )
-        }
+        await this.hibernateAfterProvision(session.sessionId, runtime.id)
       }
 
       return runtime
     } catch (error) {
       cloudError(error, 'cloud.moveSession')
+    }
+  }
+
+  /** Provisioning already succeeded. A failed park must name that runtime and
+   * direct the caller to park locally, not repeat a move and create another. */
+  private async hibernateAfterProvision(sessionId: SessionId, runtimeId: string): Promise<void> {
+    const message = `${CLOUD_HIBERNATE_FAILED} (runtime: ${runtimeId})`
+    let parked: Awaited<ReturnType<CloudServiceDeps['hibernateLocal']>>
+    try {
+      parked = await this.deps.hibernateLocal(sessionId)
+    } catch (error) {
+      cloudFailure(error, 'cloud.moveSession', message)
+    }
+    if (!parked.ok) {
+      cloudFailure(
+        new Error(parked.reason ?? 'local session could not be hibernated'),
+        'cloud.moveSession',
+        message,
+        'PRECONDITION_FAILED',
+      )
     }
   }
 
