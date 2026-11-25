@@ -39,6 +39,7 @@ const pattern = process.argv.includes('--all-pins')
   ? allPins
   : [
       'a bootstrap for the owner: round trips',
+      'a delta over one rename of every issue: round trips',
       'makes a fixed number of round trips',
       'issue frame reads: Postgres measurement',
       'user focus: Postgres measurement',
@@ -126,6 +127,17 @@ try {
       ?.split('// END FOCUS CENSUS')[0]
     assert.ok(focusProbe, 'focus census probe missing')
     await appendFile(join(baseline, testPath), `\n// BEGIN FOCUS CENSUS${focusProbe}\n`)
+    const syncTestPath = files[3]!
+    const syncTest = await readFile(join(root, syncTestPath), 'utf8')
+    const deltaProbe = syncTest.split('// BEGIN DELTA CENSUS')[1]?.split('// END DELTA CENSUS')[0]
+    assert.ok(deltaProbe, 'delta census probe missing')
+    const oldSyncTest = await readFile(join(baseline, syncTestPath), 'utf8')
+    const deltaCase = "  it('a delta over one rename of every issue',"
+    assert.ok(oldSyncTest.includes(deltaCase), 'baseline delta fixture missing')
+    await writeFile(
+      join(baseline, syncTestPath),
+      oldSyncTest.replace(deltaCase, `${deltaProbe}\n${deltaCase}`),
+    )
     const beforeSamples = await measure(baseline, 'before')
     const afterSamples = await measure(root, 'after')
     const names = [...new Set(beforeSamples.map((sample) => sample.name))]

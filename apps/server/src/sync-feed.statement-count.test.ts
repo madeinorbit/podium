@@ -478,6 +478,12 @@ describe('sync worker: pinned statement counts at 5 and 200', { timeout: fixture
     await expectConstantStatements(delta, 6)
   })
 
+  // BEGIN DELTA CENSUS
+  it('a delta over one rename of every issue: round trips', async () => {
+    await expectConstantRoundTrips(delta, 7, (_w, go) => countWorkerTrips(go))
+  }, 90_000)
+  // END DELTA CENSUS
+
   it('a delta pin is armed', async () => {
     await expectArmed(delta, 6, plantPerAudienceRead)
   })
