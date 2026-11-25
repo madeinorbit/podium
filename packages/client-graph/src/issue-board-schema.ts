@@ -92,8 +92,12 @@ export interface IssueBoardSourceRows {
   issueBoardModel: PoolBoardData
   issueBoardPosition: BoardRowIssue & { closedReason?: string | null }
   issueBoardColumn: IssueId[]
-  /** A column's count over all history (POD-7088): local, stubs or its page. */
-  issueBoardColumnCount: { count: number }
+  /**
+   * A column's count over all history (POD-7088): local, stubs or its page.
+   * `unavailable` when the server refused the column's page (POD-7581);
+   * `count` is then null unless the stubs answer it.
+   */
+  issueBoardColumnCount: { count: number | null; unavailable?: true }
   issueBoardOpenIds: IssueId[]
   issueBoardMenu: MissionActionInputs
   issueBoardDropIndex: { index: number }

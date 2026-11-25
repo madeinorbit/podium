@@ -229,8 +229,11 @@ export function createIssueBoardSource(
       case 'issueBoardColumn':
         return layout.columnIds(JSON.parse(id) as BoardColumnOptions)
       case 'issueBoardColumnCount': {
-        const count = layout.columnCount(JSON.parse(id) as BoardColumnOptions)
-        return count === LOADING ? LOADING : { count: count ?? 0 }
+        const options = JSON.parse(id) as BoardColumnOptions
+        const count = layout.columnCount(options)
+        if (!layout.columnUnavailable(options))
+          return count === LOADING ? LOADING : { count: count ?? 0 }
+        return { count: count === LOADING ? null : (count ?? 0), unavailable: true }
       }
       case 'issueBoardOpenIds': {
         const options = JSON.parse(id)

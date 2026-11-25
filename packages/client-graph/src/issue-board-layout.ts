@@ -496,6 +496,21 @@ export function createBoardLayout(pool: MobxPool) {
     if (pool.collections.pageEnded(pageOf(options))) return true
     return false
   })
+  /**
+   * Whether the server refused the page a column reads (POD-7581): the
+   * column then shows "Not available", never "Nothing in" or a count from
+   * the cards the device happens to hold. A column the device holds whole
+   * is available.
+   */
+  const columnUnavailable = keyedComputed(
+    'IssueBoard.columnUnavailable',
+    (key: string): boolean => {
+      if (!pool.collections.available || columnHeld(key)) return false
+      const options: BoardColumnOptions = JSON.parse(key)
+      if (options.filter.archived || options.filter.deleted) return false
+      return pool.collections.refused(pageOf(options))
+    },
+  )
   /** The repositories at each filtered project path, by their own records. */
   const reposAt = (paths: readonly string[]): Set<string> => {
     const keys = new Set(paths.map(machinePathKey)),
@@ -619,6 +634,8 @@ export function createBoardLayout(pool: MobxPool) {
     columnCount: (options: BoardColumnOptions) => columnCount(columnKey(options)),
     /** Whether the device holds the whole column; otherwise its page is on its way. */
     columnHeld: (options: BoardColumnOptions) => columnHeld(columnKey(options)),
+    /** Whether the server refused the column's page: the column is not available. */
+    columnUnavailable: (options: BoardColumnOptions) => columnUnavailable(columnKey(options)),
     dropIndex(options: BoardColumnOptions & { id: string }) {
       const { id, ...columnOptions } = options
       const ids = columnIds(columnKey(columnOptions))
@@ -661,6 +678,7 @@ export function createBoardLayout(pool: MobxPool) {
         sortKey,
         columnIds,
         columnHeld,
+        columnUnavailable,
         columnCount,
         roots,
         inColumn,
@@ -686,6 +704,7 @@ export function createBoardLayout(pool: MobxPool) {
         sortKey,
         columnIds,
         columnHeld,
+        columnUnavailable,
         columnCount,
         roots,
         inColumn,

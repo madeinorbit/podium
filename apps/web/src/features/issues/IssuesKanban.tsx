@@ -445,8 +445,10 @@ const IssueColumn = memo(function IssueColumn({
   const issueIds = useBoardColumn({ stage, filter, ordering, showAgentTasks }, suppliedIds)
   // The column's count over all history: the cards the device holds show at
   // once, the count waits for the stubs or the page (POD-7088).
-  const pooledCount = useBoardColumnCount({ stage, filter, ordering, showAgentTasks })
-  const count = pooledCount === undefined ? issueIds.length : pooledCount
+  const pooled = useBoardColumnCount({ stage, filter, ordering, showAgentTasks })
+  // A refused page (POD-7581): the cards the device holds are not the column.
+  const unavailable = pooled.unavailable
+  const count = pooled.count === undefined ? issueIds.length : pooled.count
   const virtual = useBoundedVirtualList({
     keys: issueIds,
     scrollRef,
@@ -482,7 +484,9 @@ const IssueColumn = memo(function IssueColumn({
       >
         <StageGlyph stage={stage} size={13} />
         <h3 className="font-semibold text-[12px] text-foreground">{label}</h3>
-        <span className="font-mono text-[10px] text-text-dim tabular-nums">{count === 'loading' ? '…' : count}</span>
+        <span className="font-mono text-[10px] text-text-dim tabular-nums">
+          {count === 'loading' ? (unavailable ? '–' : '…') : count}
+        </span>
         <button
           data-pressable
           type="button"
@@ -509,7 +513,11 @@ const IssueColumn = memo(function IssueColumn({
         data-testid="column-scroll"
         onScroll={(event) => onScrollTop?.(stage, event.currentTarget.scrollTop)}
       >
-        {issueIds.length === 0 && !over ? (
+        {unavailable && !over ? (
+          <p className="pt-1 pb-4 text-[12px] text-text-faint" data-testid="column-unavailable">
+            Not available
+          </p>
+        ) : issueIds.length === 0 && !over ? (
           <EmptyColumn label={label} onCreate={createInStage} />
         ) : (
           <ul

@@ -380,7 +380,7 @@ class BoardLane {
     )
     if (count === LOADING) return LOADING
     // No board source (a standalone fixture pool): the rows here are all there is.
-    return count ? count.count : this.rootIds.length
+    return count ? (count.count ?? LOADING) : this.rootIds.length
   }
 
   @lazy({ equals: compareShallow }) get value(): MobileTaskIds {

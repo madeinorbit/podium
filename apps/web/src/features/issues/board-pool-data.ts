@@ -65,16 +65,24 @@ export function useBoardColumn(options: BoardColumnOptions, fallback: IssueId[])
   const ids = useWorklistPoolProjection(read, undefined)
   return ids && typeof ids !== 'symbol' ? ids : fallback
 }
-/** A column's count; `loading` while it is on its way (POD-7088); undefined without a pool. */
-export function useBoardColumnCount(options: BoardColumnOptions): number | 'loading' | undefined {
+/**
+ * A column's count; `loading` while it is on its way (POD-7088); undefined
+ * without a pool. `unavailable` when the server refused the column's page
+ * (POD-7581): the count is then null unless the stubs answer it.
+ */
+export function useBoardColumnCount(options: BoardColumnOptions): {
+  count: number | 'loading' | undefined
+  unavailable: boolean
+} {
   const key = JSON.stringify(options)
   const read = useCallback(
     (pool: MobxPool) => omitGone(pool.row('issueBoardColumnCount', key)),
     [key],
   )
   const value = useWorklistPoolProjection(read, undefined)
-  if (typeof value === 'symbol') return 'loading'
-  return value ? value.count : undefined
+  if (typeof value === 'symbol') return { count: 'loading', unavailable: false }
+  if (!value) return { count: undefined, unavailable: false }
+  return { count: value.count ?? 'loading', unavailable: value.unavailable === true }
 }
 export function useBoardCatalog(open: boolean, agents: boolean) {
   const read = useCallback((pool: MobxPool) => readBoardCatalog(pool, open, agents), [open, agents])

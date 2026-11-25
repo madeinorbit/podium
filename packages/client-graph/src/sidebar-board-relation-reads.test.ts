@@ -18,7 +18,11 @@ import { createIssueBoardSource } from './issue-board-source'
 import { LOADING } from './loading'
 import { navigationActivity } from './navigation-activity'
 import { closedValue, ISSUE, issueValue } from './test-support/device.test.fixture'
-import { type EmptyDevice, openEmptyDevice } from './test-support/empty-device.test.fixture'
+import {
+  type EmptyDevice,
+  openEmptyDevice,
+  refuseCollections,
+} from './test-support/empty-device.test.fixture'
 import { sidebarView } from './worklist/sidebar'
 import { worklistView } from './worklist/view-model'
 
@@ -64,8 +68,13 @@ function world(server: CollectionServer): void {
   put('sBorn', { issueId: 'C1', refIssueId: 'E', status: 'live', lastActiveAt: RECENT })
 }
 
-async function device(): Promise<EmptyDevice> {
-  const opened = await openEmptyDevice({ world })
+async function device(more: (server: CollectionServer) => void = () => {}): Promise<EmptyDevice> {
+  const opened = await openEmptyDevice({
+    world: (server) => {
+      world(server)
+      more(server)
+    },
+  })
   devices.push(opened)
   // Canaries: what no policy collection holds is not on the device.
   for (const id of ['C2', 'S2'])
@@ -169,6 +178,46 @@ describe('the board', () => {
     if (card === undefined || card === LOADING) throw new Error('the epic card is not shown')
     expect(card.memberSessionIds).toEqual(['sE'])
     expect(card.dependents.map((dependent) => dependent.id).sort()).toEqual(['B', 'S1'])
+    source.dispose()
+  })
+})
+
+describe('a board column whose page the server refused', () => {
+  const DONE = { filter: {}, ordering: 'priority', showAgentTasks: false, stage: 'done' } as const
+
+  /** The done column as the web column reads it: its ids and its count row. */
+  async function doneColumn(refused: boolean) {
+    const opened = await device((server) => {
+      if (refused)
+        refuseCollections(server, (instance) => instance.collection === 'issueProjection.byStage')
+    })
+    const source = createIssueBoardSource(opened.pool)
+    const answers: unknown[] = []
+    opened.observe(
+      () => source,
+      (board) => {
+        void board.columnHeld(DONE)
+        void board.columnIds(DONE)
+        answers.push(board.read('issueBoardColumnCount', JSON.stringify(DONE)))
+      },
+    )
+    await opened.untilIdle()
+    return { opened, source, answers }
+  }
+
+  it('says it is not available, keeping only the count the stubs answer, and asks once', async () => {
+    const { opened, source, answers } = await doneColumn(true)
+    // S2, closed long ago, is the column's one root: the stubs count it.
+    expect(answers.at(-1)).toEqual({ count: 1, unavailable: true })
+    expect(
+      opened.requestedKeys().filter((key) => key.startsWith('issueProjection.byStage')),
+    ).toHaveLength(1)
+    source.dispose()
+  })
+
+  it('is available when the server answers the page', async () => {
+    const { source, answers } = await doneColumn(false)
+    expect(answers.at(-1)).toEqual({ count: 1 })
     source.dispose()
   })
 })
