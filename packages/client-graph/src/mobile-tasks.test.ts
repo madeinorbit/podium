@@ -6,6 +6,7 @@ import {
   measureWork,
   type WorkCounts,
 } from '../../../tests/worklist/harness/src/work-meter'
+import { fullDevice } from './full-device-fixture'
 import { attachMobileScreens } from './mobile-screens'
 import type { MobileTasksOptions } from './mobile-screens-schema'
 import { MOBILE_TASK_WINDOW_SIZE, MobileTasksBoard } from './mobile-tasks'
@@ -61,10 +62,12 @@ async function setup(rows: ReturnType<typeof issue>[], seats: ReturnType<typeof 
       ? seats.find((row) => row.sessionId === id)
       : rows.find((row) => row.id === id),
   )
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
-    load,
-    schedule: () => () => {},
-  })
+  const pool = fullDevice(
+    new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
+      load,
+      schedule: () => () => {},
+    }),
+  )
   pool.apply({
     type: 'replace',
     rows: [

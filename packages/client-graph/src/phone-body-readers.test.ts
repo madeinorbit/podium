@@ -16,10 +16,20 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function emptyDevice() {
+async function emptyDevice(withUpload = false) {
   const device = await openEmptyDevice({
     world(server) {
       for (let i = 0; i < 30; i++) putIssueWithBodies(server, `i${i}`, { seq: i + 1 })
+      if (withUpload)
+        server.put('issuePanelArtifact', 'i0-upload', {
+          id: 'i0-upload',
+          issueId: 'i0',
+          position: 1,
+          path: 'photo.png',
+          addedAt: '2026-11-17T12:00:00.000Z',
+          chatUploadId: 'upload-id',
+          artifactId: 'stored-photo',
+        })
     },
   })
   devices.push(device)
@@ -29,7 +39,7 @@ async function emptyDevice() {
 it.each(
   Object.keys(PHONE_BODY_FIELDS) as (keyof typeof PHONE_BODY_FIELDS)[],
 )('%s requests and shows its body content on an empty phone', async (surface) => {
-  const device = await emptyDevice()
+  const device = await emptyDevice(surface === 'chatUpload')
   expect(device.pool.tables.issueDescription.size).toBe(0)
   const reader = phoneBodyReaders(device, 'i0', surface)
   const opened = device.observe(
@@ -53,7 +63,15 @@ it.each(
     chatUploads: new Map(),
   }
   for (const field of PHONE_BODY_FIELDS[surface]) {
-    if (typeof expected[field] === 'object') expect(content[field]).toMatchObject(expected[field])
+    if (field === 'chatUploads') {
+      const uploads = device.pool.issueObject('i0').chatUploads
+      if (uploads === LOADING) throw new Error('Uploads still loading')
+      expect(uploads.get('upload-id')).toMatchObject({
+        path: 'photo.png',
+        artifactId: 'stored-photo',
+      })
+    } else if (typeof expected[field] === 'object')
+      expect(content[field]).toMatchObject(expected[field])
     else expect(content[field]).toBe(expected[field])
   }
   expect(device.requested().length).toBeGreaterThan(0)

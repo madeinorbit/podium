@@ -21,7 +21,10 @@ vi.mock('../../client/server-profile-context', () => ({
   useServerProfile: () => ({ bearer: null, config: {} }),
 }))
 vi.mock('../../client/ServerProfileGate', () => ({ useServerProfile: () => ({ bearer: null }) }))
-vi.mock('expo-haptics', () => ({ impactAsync: vi.fn() }))
+vi.mock('expo-haptics', () => ({
+  ImpactFeedbackStyle: { Light: 'light', Medium: 'medium', Soft: 'soft' },
+  impactAsync: vi.fn(),
+}))
 vi.mock('../Icon', () => ({ Icon: () => null }))
 vi.mock('../ArtifactViewer', () => ({ ArtifactViewer: () => null }))
 vi.mock('./PromptSheet', () => ({ PromptSheet: () => null }))
@@ -36,6 +39,7 @@ const { TaskSummary, ArtifactStrip } = await import('./TaskOverview')
 const { IssueAgentPanel } = await import('./IssueAgentPanel')
 const { OfferArtifactStrip } = await import('../OfferArtifactStrip')
 const { issueCommands } = await import('../../lib/issue-detail')
+const { chatUploadUrl } = await import('../../client/chat-uploads')
 
 const devices: EmptyDevice[] = []
 afterEach(() => {
@@ -142,4 +146,46 @@ it('the description editor cannot start or save until the full text arrives', as
   fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Safe replacement' } })
   fireEvent.click(screen.getByRole('button', { name: 'Save' }))
   expect(f.updateIssue).toHaveBeenCalledWith('i1', { description: 'Safe replacement' })
+})
+
+it.each([
+  false,
+  true,
+])('chat uploads preserve the unanswered body until its stored URL arrives, offline=%s', async (offline) => {
+  const device = await openEmptyDevice({
+    world(server) {
+      putIssueWithBodies(server, 'i1')
+      server.put('session', 'chat', {
+        sessionId: 'chat',
+        issueId: 'i1',
+        agentKind: 'codex',
+        status: 'live',
+        cwd: '/synthetic',
+        createdAt: '2026-11-17T12:00:00.000Z',
+        lastActiveAt: '2026-11-17T12:00:00.000Z',
+      })
+      server.put('issuePanelArtifact', 'uploaded-photo', {
+        id: 'uploaded-photo',
+        issueId: 'i1',
+        position: 1,
+        path: 'photo.png',
+        addedAt: '2026-11-17T12:00:00.000Z',
+        chatUploadId: 'upload-id',
+        artifactId: 'stored-photo',
+      })
+    },
+  })
+  devices.push(device)
+  if (offline) device.offline()
+  const read = () => chatUploadUrl(device.pool, 'chat', 'upload-id', 'https://example.com')
+  const opened = device.observe(() => null, read)
+  expect(read()).toBe(LOADING)
+  await act(() => device.untilIdle())
+  if (offline) {
+    expect(device.pool.collections.reading(read())).toBe('offline')
+    device.online()
+    await act(() => device.untilIdle())
+  }
+  expect(read()).toContain('/files/artifact/stored-photo')
+  opened.close()
 })
