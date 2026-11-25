@@ -224,15 +224,13 @@ describe('the issue page of a closed issue opened from search', () => {
     await device.untilIdle()
     expect(page.answers).toContain('LOADING')
     expect(page.answers.at(-1)).toEqual(['dep'])
-    const EDGES = {
-      collection: 'issueDep.toIssue',
-      args: { issueId: 'old' },
-      part: 'main',
-    } as const
-    expect(device.requestedKeys()).toContain('issueDep.toIssue{"issueId":"old"}')
+    // The page holds the issue's tree, which comes with the edges into its
+    // issues and the issues they come from (POD-7580): no instance of its own.
+    expect(device.requestedKeys()).toContain('issueProjection.tree{"root":"old"}')
+    expect(device.requestedKeys()).not.toContain('issueDep.toIssue{"issueId":"old"}')
     page.close()
     await device.untilIdle()
-    expect(device.liveHolds(EDGES)).toBe(0)
+    expect(device.liveHolds(TREE)).toBe(0)
   })
 
   it('a superseded issue names its successor, looked up when absent', async () => {
