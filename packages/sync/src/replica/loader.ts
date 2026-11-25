@@ -444,8 +444,10 @@ export class CollectionLoader {
       // store's memory (POD-7122), not when they are durable.
       case 'load-installed':
       case 'bootstrap-installed':
-        // A rebootstrap (a rescope among its causes) may answer differently.
-        if (event.type === 'bootstrap-installed') this.accessChanged()
+        // A rescope: this viewer's rights changed (Amendment 1 D14.4). Other
+        // installs (the first download's durable commit, a policy walk, a
+        // resume) change no access and are no trigger.
+        if (event.type === 'bootstrap-installed' && event.cause === 'rescope') this.accessChanged()
         if (this.fresh) {
           this.fresh = false
           this.notify('markers')

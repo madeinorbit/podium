@@ -1078,6 +1078,16 @@ describe('a refused instance settles until a real trigger', () => {
     const { d } = await refusedTree()
     d.loader.onEvent({ type: 'evicted', entity: ISSUE, entityId: 'X' } as unknown as ReplicaEvent)
     expect(d.loader.wasRefused(tree('R'))).toBe(true)
+    // An install that is no rescope (a cold start's durable commit, a resume).
+    for (const cause of ['cold-start', 'resume', 'compacted'] as const)
+      d.loader.onEvent({
+        type: 'bootstrap-installed',
+        cause,
+        snapshotSeq: 1,
+        entityCount: 0,
+        bufferedFramesApplied: 0,
+      } as unknown as ReplicaEvent)
+    expect(d.loader.wasRefused(tree('R'))).toBe(true)
     d.loader.onEvent({
       type: 'upserted',
       record: { entity: ISSUE, entityId: 'R' },
