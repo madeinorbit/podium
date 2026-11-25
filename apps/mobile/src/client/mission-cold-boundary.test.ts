@@ -1,4 +1,5 @@
 import { createWorklistPool } from '@podium/client-graph/create'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { onReactionError } from 'mobx'
@@ -20,6 +21,7 @@ it('settles the phone mission for the closed corpus root i938', async () => {
   const ctx = await startScenarioEngine(1),
     feeds = openFenceFeeds(ctx, 'pooled')
   const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
+  fullDevice(handle.pool)
   const input = { selectedId: 'i938', mode: 'full' as const, tasks: null }
   let stop = () => {}
   try {

@@ -1,3 +1,4 @@
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { attachMissionTestPreferences } from '@podium/client-graph/mission-screen.test.fixture'
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
@@ -43,7 +44,7 @@ it('matches desktop and deck leaf progress for a TFT-88-shaped task across live 
     updatedAt: stamp,
     ...patch,
   })
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }))
   attachMissionTestPreferences(pool)
   pool.apply({
     type: 'replace',

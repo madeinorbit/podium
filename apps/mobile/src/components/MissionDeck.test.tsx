@@ -133,7 +133,7 @@ async function mount(
   const props = handlers()
   const view = await renderWithMobileStore(
     <Opened rootId={root.id} currentSessionId={currentSessionId} {...props} />,
-    { issues, sessions },
+    { issues, sessions, fullDevice: true },
   )
   return { ...view, props }
 }

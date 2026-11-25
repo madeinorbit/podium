@@ -241,7 +241,7 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     }
     return (
       <>
-        {!fixture.attachRuntime && <PoolReady />}
+        {(!fixture.attachRuntime || fixture.fullDevice) && <PoolReady />}
         {inner}
       </>
     )

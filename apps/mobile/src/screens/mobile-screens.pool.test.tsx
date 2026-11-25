@@ -485,6 +485,7 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
         </div>
       </ServerProfileContext.Provider>,
       {
+        fullDevice: true,
         replica: feed.replica,
         principal,
         repos: corpus.repos,

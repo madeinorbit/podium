@@ -179,6 +179,7 @@ const git = {
 } as IssueGitStateProjection
 const repo = { id: 'repo', prefix: 'POD', repoPath: '/normalized/podium' } as RepoProjection
 const fixture = {
+  fullDevice: true,
   issues: [],
   issueProjections: [projection],
   issueUserStates: [markers],

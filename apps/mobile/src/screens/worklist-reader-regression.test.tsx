@@ -294,6 +294,7 @@ describe('mobile pool-only worklist regressions', () => {
           <MissionDetailsScreen />
         </Profiler>,
         {
+          fullDevice: true,
           replica: feed.replica,
           principal,
           repos: corpus.repos,

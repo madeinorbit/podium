@@ -5,6 +5,7 @@ import { referenceState } from '../../../../tests/worklist/diagnostics/reference
 
 import { missionRootFor } from '@podium/client-core/values'
 import { createWorklistPool } from '@podium/client-graph/create'
+import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import { missionView, requireLoaded } from '@podium/client-graph/mission-view'
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import type { MobxPool } from '@podium/client-graph/pool'
@@ -63,6 +64,7 @@ it.each([
   const ctx = await startScenarioEngine(1),
     feeds = openFenceFeeds(ctx, 'pooled')
   const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {})
+  fullDevice(handle.pool)
   feeds.attachPool(handle.pool)
   await attachMobileScreens(handle.pool)
   try {
@@ -217,6 +219,7 @@ for (const scale of [1] as const) {
       ctx = await startScenarioEngine(scale)
       feeds = openFenceFeeds(ctx, 'pooled')
       handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {})
+      fullDevice(handle.pool)
       feeds.attachPool(handle.pool)
       await attachMobileScreens(handle.pool)
     }, 600_000)

@@ -321,6 +321,7 @@ async function mount(count = 1, reduceMotion = false, accepted = 0) {
       <Opened onPress={onPress} />
     </ReducedMotionContext>,
     {
+      fullDevice: true,
       issues: [
         root,
         ...Array.from({ length: accepted }, (_, index) => ({
@@ -485,6 +486,7 @@ it('keeps the POD-2403 completed leaf and hibernated seat readable through catch
   const open = vi.fn()
   const menu = vi.fn()
   const f = await renderWithMobileStore(<Opened onPress={open} onMenu={menu} />, {
+    fullDevice: true,
     issues: [
       root,
       ...Array.from({ length: 60 }, (_, index) => ({
@@ -792,7 +794,11 @@ it.each([
     <ReducedMotionContext value={true}>
       <Opened onPress={() => {}} />
     </ReducedMotionContext>,
-    { issues: [root, task], sessions: [worker('lead', root.id), worker('helper', task.id)] },
+    {
+      fullDevice: true,
+      issues: [root, task],
+      sessions: [worker('lead', root.id), worker('helper', task.id)],
+    },
   )
   const taskRow = screen.getByTestId('deck-task')
   const seatRow = screen.getByTestId('deck-seat')
