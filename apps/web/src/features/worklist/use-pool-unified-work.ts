@@ -83,7 +83,9 @@ export function poolMissionContains(
       issue.deps?.some((dep) => dep.type === 'discovered-from')
     )
       return false
-    const starter = pool.graph.one('issue', member, 'startedBy')
+    // The sender by the id the issue names, looked up: a sender the device
+    // does not hold answers LOADING and loads, never "no sender" (POD-7581).
+    const starter = issue.startedBySession
     if (!starter) return false
     const sender = omitGone(pool.row('session', starter))
     if (sender === LOADING) return LOADING
@@ -102,7 +104,10 @@ function sessionMembership(
 ): Map<string, SessionView[]> {
   const byIssue = new Map<string, SessionView[]>()
   // Navigation already has the mission. R2 supplies its retained, non-headless
-  // candidates without reading or grouping every other session's row.
+  // candidates without reading or grouping every other session's row. It
+  // reads what the policy holds (POD-7581): the pane a click opens is an
+  // unarchived session of an open issue, a live or asking one, or one active
+  // in the last N days; an older or archived one never becomes the pane.
   const retained = issueIds ? new Set<string>() : undefined
   if (issueIds && retained)
     for (const id of issueIds) {
@@ -131,6 +136,19 @@ function sessionMembership(
 
 export type ArchiveIssueTree = { rootId: string; ids: readonly string[]; queued: boolean }
 
+/** What the archive cascade reads of an issue: its stub on a device, its row in a fixture. */
+function archiveFacts(
+  pool: MobxPool,
+  id: string,
+): Pick<SliceIssue, 'archived' | 'deletedAt'> | typeof LOADING | undefined {
+  if (pool.collections.available) {
+    const stub = pool.collections.stubOf(id)
+    if (stub !== undefined) return { archived: stub.archived, deletedAt: stub.deletedAt ?? null }
+    return pool.collections.stubsComplete ? undefined : LOADING
+  }
+  return omitGone(pool.row('issue', id)) as SliceIssue | typeof LOADING | undefined
+}
+
 function poolArchiveBatch(
   pool: MobxPool,
   rootIds: readonly string[],
@@ -144,15 +162,20 @@ function poolArchiveBatch(
       const id = stack.pop()!
       if (seen.has(id)) continue
       seen.add(id)
-      // The relation index includes cold children. Their declared summaries
-      // provide archive state without warming the entire subtree.
-      const row = omitGone(pool.row('issue', id))
+      // The stubs answer every child over all history (POD-7581): the
+      // server's cascade archives a child the device holds no row of, so
+      // Undo must name it too. No child row is held or loaded.
+      const row = archiveFacts(pool, id)
       if (row === LOADING) return LOADING
       if (!row) throw new Error('Could not load all tasks to archive')
       // The server stops its cascade at an archived or deleted child too.
       if (row.archived || row.deletedAt) continue
       ids.push(id)
-      stack.push(...pool.graph.many('issue', id, 'treeChildren'))
+      const children = pool.collections.available
+        ? pool.collections.childIds(id)
+        : pool.graph.many('issue', id, 'treeChildren')
+      if (children === LOADING) return LOADING
+      stack.push(...children)
     }
     if (ids.length) trees.push({ rootId, ids, queued: false })
   }
