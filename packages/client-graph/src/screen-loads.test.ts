@@ -416,16 +416,21 @@ describe('back and forth within the grace (POD-7161)', () => {
 // ---------------------------------------------------------------------------
 
 /**
- * The brief's workspace has 1,000 issues. The deck alone, on integrate, takes
- * about 100 s of CPU in this harness at 1,000 rows and under 5 s at 950
- * (POD-7608), so the mission has 900 and the sidebar's open issues make the
- * workspace's 1,000.
+ * The brief's workspace: a mission of 1,000 issues, plus the sidebar's 100
+ * open ones. The deck at 1,000 rows opens in about 4 s of CPU in this harness
+ * (POD-7608); an earlier 100 s came from uncommitted code, not from the deck.
+ * Each screen logs its wall time (`SCREEN-OPEN`), the deck's being the
+ * 1,000-issue probe.
  */
-const WORKSPACE = { issues: 900, open: 100 } as const
+const WORKSPACE = { issues: 1000, open: 100 } as const
 
-describe('opening a main screen of a 1,000-issue workspace takes a fixed number of fetches (POD-7602)', () => {
+describe('opening a main screen of a 1,000-issue mission takes a fixed number of fetches (POD-7602)', () => {
   for (const screen of BUDGETS)
     it(`${screen.name}: at most ${screen.fetches} fetches and ${screen.wire} wire instances`, async () => {
+      const started = performance.now()
       await expectWithinBudget(screen, WORKSPACE, (world) => device({ world }))
+      console.log(
+        `SCREEN-OPEN screen=${screen.name} issues=${WORKSPACE.issues} ms=${(performance.now() - started).toFixed(0)}`,
+      )
     }, 60_000)
 })
