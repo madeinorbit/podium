@@ -650,6 +650,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: 'The interaction repository supplies its own prepared SQL write callbacks in this file, as MessagesRepository.query does; those callback bodies are checked where they are declared.',
   },
+  'apps/server/src/store/grants.ts#GrantsRepository.hasMemberRow': {
+    kind: 'contained',
+    why: "Answers which of the given people still have a member row while a removed member's credential grants are handed over (POD-7594): UsersRepository.hasMemberRow, a read through the per-operation account loader on the store's drizzle handle inside the removal's transaction. It writes nothing and publishes nothing.",
+  },
   'apps/server/src/store/users.ts#UsersRepository.memberCreated': {
     kind: 'contained',
     why: 'Creates the member default thread through the repository write funnel in the account transaction; its log capture joins the transaction and delivers to subscribers only after commit.',
