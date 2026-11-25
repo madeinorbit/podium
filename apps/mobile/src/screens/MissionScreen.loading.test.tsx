@@ -6,7 +6,8 @@
  * only the opening's settled answer.
  */
 
-import { MobxPool } from '@podium/client-graph/pool'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { openEmptyDevice } from '@podium/client-graph/test-support/empty-device.test.fixture'
 import { cleanup, render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -15,6 +16,7 @@ const opening = vi.hoisted(() => ({
   value: { screen: null as unknown, resolved: false },
   connected: true,
   pool: null as MobxPool | null,
+  dispose: null as (() => void) | null,
   router: { canGoBack: () => false, back: () => {}, replace: () => {}, push: () => {} },
   navigation: { addListener: () => () => {}, dispatch: () => {} },
   seatMemory: { recall: () => null, remember: () => {} },
@@ -69,15 +71,19 @@ afterEach(() => {
   cleanup()
   opening.value = { screen: null, resolved: false }
   opening.connected = true
-  opening.pool?.dispose()
+  opening.dispose?.()
+  opening.dispose = null
   opening.pool = null
 })
 
 it.each([
   ['mission', MissionScreen],
   ['mission details', MissionDetailsScreen],
-] as const)('%s shows offline availability while shared body readiness remains unresolved', (_name, Route) => {
-  opening.pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+] as const)('%s shows offline availability while shared body readiness remains unresolved', async (_name, Route) => {
+  const device = await openEmptyDevice()
+  opening.pool = device.pool
+  opening.dispose = () => device.dispose()
+  device.offline()
   opening.connected = false
   opening.value = { screen: null, resolved: false }
   const view = render(<Route />)
