@@ -451,18 +451,24 @@ async function worldOf(user: UserId) {
   return out
 }
 
-/** The records of one instance's own answer: those before its marker. */
+/**
+ * The records of one instance's own answer: those of its kind before its
+ * marker. A collection that comes with others sends its marker after them
+ * (POD-7580), so its own records are the ones before the first of their
+ * markers.
+ */
 function membersOf(lines: readonly Line[], collection: string): Change[] {
+  const kind = COLLECTIONS.get(collection)?.of
   const out: Change[] = []
+  let own = true
   for (const line of lines) {
     if (line.type === 'collectionComplete') {
-      const own = (line.instances as { collection: string; via?: string }[]).some(
-        (instance) => instance.collection === collection && instance.via === undefined,
-      )
-      if (own) return out
+      const instances = line.instances as { collection: string; via?: string }[]
+      if (instances.some((i) => i.collection === collection && i.via === undefined)) return out
+      if (instances.some((i) => i.via === collection)) own = false
     }
-    if (line.type === 'feedBootstrap' || line.type === 'feedStubs')
-      out.push(...(line.changes as Change[]))
+    if (own && (line.type === 'feedBootstrap' || line.type === 'feedStubs'))
+      out.push(...(line.changes as Change[]).filter((change) => change.entity === kind))
   }
   throw new Error(`no marker for ${collection}`)
 }
@@ -819,6 +825,14 @@ describe('a record arrives with what it comes with, each keyed instance marked',
     )
     // Each record once, though the edge and its source arrive two ways.
     expect(new Set(arrived).size).toBe(arrived.length)
+    // The tree's own marker comes last, after everything its issues come
+    // with: an answer that breaks off before it leaves the tree incomplete,
+    // never complete without its seats and edges (POD-7580, review S1).
+    const own = marked.indexOf('>issueProjection.tree:{"root":"iss_root"}')
+    expect(own).toBeGreaterThan(-1)
+    for (const [at, marker] of marked.entries())
+      if (marker.startsWith('issueProjection.tree>') || marker.startsWith('issueDep.toIssue>'))
+        expect(at, marker).toBeLessThan(own)
   })
 
   it("a tree's archive comes with each issue's archived sessions, the tree does not", async () => {

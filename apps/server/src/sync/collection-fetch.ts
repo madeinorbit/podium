@@ -317,6 +317,16 @@ export class CollectionAnswer {
         if (out.length > 0) yield { type: 'records', records: out }
       }
     }
+    const arrived = new Map<string, Visible[]>([[rule.kind, members]])
+    for (const entry of rule.collection.comesWith ?? []) {
+      const holder = resolveRule(entry.collection, rule.collection.id)
+      yield* this.comesWith(rule.kind, instance.declaration, members, entry, holder, arrived)
+    }
+    // The instance's marker comes after what its collection comes with
+    // (POD-7580): the device records a comes-with only at the answer's end,
+    // so a marker sent first left a tree complete without its seats and
+    // edges when the answer broke off after it. Now an answer that breaks off
+    // there leaves the instance incomplete, and it is asked again.
     yield {
       type: 'complete',
       instances: [
@@ -329,11 +339,6 @@ export class CollectionAnswer {
           ...(total === undefined ? {} : { total }),
         },
       ],
-    }
-    const arrived = new Map<string, Visible[]>([[rule.kind, members]])
-    for (const entry of rule.collection.comesWith ?? []) {
-      const holder = resolveRule(entry.collection, rule.collection.id)
-      yield* this.comesWith(rule.kind, instance.declaration, members, entry, holder, arrived)
     }
     yield* this.closure(arrived)
   }
@@ -379,13 +384,14 @@ export class CollectionAnswer {
         if (out.length > 0) yield { type: 'records', records: out }
       }
     }
-    for (const batch of chunks([...named, ...refused], 1000))
-      yield { type: 'complete', instances: batch.map(marker) }
     const arrived = new Map<string, Visible[]>([[rule.kind, members]])
     for (const entry of rule.collection.comesWith ?? []) {
       const holder = resolveRule(entry.collection, rule.collection.id)
       yield* this.comesWith(rule.kind, instance.declaration, members, entry, holder, arrived)
     }
+    // Each key's marker after what its collection comes with, as alone (POD-7580).
+    for (const batch of chunks([...named, ...refused], 1000))
+      yield { type: 'complete', instances: batch.map(marker) }
     yield* this.closure(arrived)
   }
 

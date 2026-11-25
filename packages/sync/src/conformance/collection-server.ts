@@ -316,8 +316,15 @@ export class CollectionServer implements AuthorityReadPort {
     const asked = new Set(queue.map((spec) => instanceKey(spec)))
     // A record goes out once per answer; a later instance names it in its marker.
     const sent = new Set<string>()
+    // A requested instance whose collection comes with others has its
+    // marker after them, as the real route sends it (POD-7580).
+    const requested: CompleteMarker[] = []
     for (let next = 0; next < queue.length; next += 1) {
       const spec = queue[next]!
+      const asRequested =
+        next < instances.length &&
+        this.answerComesWith &&
+        (COLLECTIONS.get(spec.collection)?.comesWith?.length ?? 0) > 0
       const stub = spec.part === 'stub'
       let rows = this.members(spec).filter((row) => row.seq <= at)
       const paged = this.page(spec as InstanceRequest, rows)
@@ -362,10 +369,11 @@ export class CollectionServer implements AuthorityReadPort {
         ...(paged === undefined ? {} : { range: paged.range }),
         ...(paged?.total === undefined ? {} : { total: paged.total }),
       }
-      if (envelopes.length === 0) chunks.push({ ...base, changes: [], complete: [marker] })
+      if (asRequested) requested.push(marker)
+      else if (envelopes.length === 0) chunks.push({ ...base, changes: [], complete: [marker] })
       for (let offset = 0; offset < envelopes.length; offset += this.chunkRows) {
         const slice = envelopes.slice(offset, offset + this.chunkRows)
-        const lastOfInstance = offset + this.chunkRows >= envelopes.length
+        const lastOfInstance = offset + this.chunkRows >= envelopes.length && !asRequested
         chunks.push({
           ...base,
           changes: stub ? [] : slice,
@@ -374,6 +382,7 @@ export class CollectionServer implements AuthorityReadPort {
         })
       }
     }
+    if (requested.length > 0) chunks.push({ ...base, changes: [], complete: requested })
     chunks.push({ ...base, changes: [], last: true })
     if (first)
       chunks[0] = {
