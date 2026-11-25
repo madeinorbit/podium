@@ -244,6 +244,8 @@ describe('durable session write ordering', () => {
         access: async () => ({ ok: true, credentialId: null }),
       },
       state: { draftSyncEnabled: () => false },
+      // The owner is read again right before the row becomes starting (POD-7594).
+      store: { users: { get: async (id: string) => ({ id }) } },
       broadcastSessions() {},
     } as unknown as SessionRevivalPorts)
   }
@@ -349,10 +351,12 @@ describe('async session port boundaries', () => {
     const control = new SessionClientControl({
       setDraft: write,
       editDraft: write,
+      // A draft frame is its session's readers' only (POD-7561).
+      sessionOwner: async () => ({ owner: firstAdminMemberId() }),
     } as unknown as SessionClientControlPorts)
     const pending = control
       .onFrame(
-        {} as Parameters<SessionClientControl['onFrame']>[0],
+        { user: firstAdminMemberId() } as Parameters<SessionClientControl['onFrame']>[0],
         { id: 'client' } as Parameters<SessionClientControl['onFrame']>[1],
         { type, sessionId: asSessionId('draft'), text: '', baseRev: 0 },
       )

@@ -40,6 +40,7 @@ import { SessionStore } from '../store'
 import { AgentProfilesRepository } from '../store/agent-profiles'
 import { AutomationsRepository } from '../store/automations'
 import { CheckoutsRepository } from '../store/checkouts'
+import { ConcertmasterRepository } from '../store/concertmaster'
 import { ConversationsRepository } from '../store/conversations'
 import { EffectsRepository } from '../store/effects'
 import { EventsRepository } from '../store/events'
@@ -270,6 +271,8 @@ function pgRecordReads(executor: RootStoreExecutor<QueryClient>): RecordReads {
     agentProfiles: new AgentProfilesRepository(queries),
     workflows: new WorkflowsRepository(queries),
     checkouts: new CheckoutsRepository(queries),
+    // The Concertmaster's conversation entries are a record kind (a1277c5057).
+    concertmaster: new ConcertmasterRepository(queries),
     settings: new SettingsRepository(queries),
     machines,
     grants,

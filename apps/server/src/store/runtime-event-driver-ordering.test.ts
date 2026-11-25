@@ -112,9 +112,15 @@ async function sessionWorld(agentKind: 'grok' | 'opencode' | 'codex', driverId: 
         forwarded.push(event)
         // A committed duplicate also gets an ack. Exact log equality proves
         // each new activity event was persisted once. Delivery reports are
-        // applied directly to inbox rows, outside the runtime activity log.
+        // applied directly to inbox rows, outside the runtime activity log, and
+        // a context observation is live telemetry folded into the session,
+        // never an event row (POD-6577, 40ac299b57).
         expect(await store.events.listRuntimeEvents(sessionId)).toEqual(
-          forwarded.filter((event) => event.t !== 'delivery'),
+          forwarded.filter(
+            (event) =>
+              event.t !== 'delivery' &&
+              !(event.t === 'metadata' && event.change.kind === 'context-observation'),
+          ),
         )
       }
       // The daemon bootstraps the driver's snapshot before forwarding live deltas.

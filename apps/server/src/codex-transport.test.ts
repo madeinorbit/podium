@@ -22,6 +22,7 @@ import type { CodexLoginMachineSource, CodexTurnResult } from './codex-machine'
 import { LlmConfigError } from './llm'
 import { complete, type OnMachineTransport } from './modules/inference/complete'
 import type { SessionStore } from './store'
+import { memberFacts } from './store/fixtures/test-support'
 import { openTestStore } from './test-support/open-test-store'
 
 const OWNER = asUserId('user:codex-owner')
@@ -67,6 +68,13 @@ async function openWith(
   custodians: Record<string, UserId> = {},
 ): Promise<SessionStore> {
   store = await openTestStore(':memory:')
+  // Only a member may use a credential (POD-7594, 837e0cc23c): both people are.
+  for (const id of [OWNER, OTHER]) {
+    await memberFacts(store).create(
+      { id, displayName: id, role: 'member', createdAt: NOW, disabledAt: null },
+      'not-a-real-hash',
+    )
+  }
   for (const r of records) {
     await store.machines.upsertMachine({
       id: r.id,

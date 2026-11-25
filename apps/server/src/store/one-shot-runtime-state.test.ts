@@ -166,10 +166,18 @@ async function fixture() {
         const ack = controls.find(
           (item) => item.type === 'runtimeEventAck' && item.deliveryId === deliveryId,
         )
-        expect(ack).toMatchObject(
+        // A context observation is live telemetry (POD-6577, 40ac299b57). The server
+        // admits it only on an observer binding it has verified, so a replacement
+        // generation's first status frame, sent before that, is dropped as stale.
+        // It never moves the session's state, which is what this file pins.
+        const telemetry =
+          frame.event.t === 'metadata' && frame.event.change.kind === 'context-observation'
+        expect(ack, `ack of ${JSON.stringify(frame.event)}`).toMatchObject(
           frame.event.turnEpoch === rejectedEpoch
             ? { outcome: 'rejected', rejectionReason: 'turn-epoch-regressed' }
-            : { outcome: 'committed' },
+            : telemetry && ack?.type === 'runtimeEventAck' && ack.outcome === 'rejected'
+              ? { rejectionReason: 'stale-observer-generation' }
+              : { outcome: 'committed' },
         )
       } else {
         await registry.gateway.routeDaemonFrame(machineId, frame)

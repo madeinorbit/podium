@@ -12,6 +12,7 @@
 import { asUserId, type CredentialId, type UserId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
+import { memberFacts } from '../../store/fixtures/test-support'
 import { captureLogs } from '../../test-support/capture-logs'
 import { openTestStore } from '../../test-support/open-test-store'
 import { ACCESS_REFUSAL_MESSAGES } from '../credentials/access'
@@ -36,6 +37,13 @@ afterEach(async () => {
 
 async function open(): Promise<SessionStore> {
   store = await openTestStore(':memory:')
+  // Only a member may use a credential (POD-7594, 837e0cc23c): both people are.
+  for (const id of [OWNER, OTHER]) {
+    await memberFacts(store).create(
+      { id, displayName: id, role: 'member', createdAt: NOW, disabledAt: null },
+      'not-a-real-hash',
+    )
+  }
   return store
 }
 
