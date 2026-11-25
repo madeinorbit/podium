@@ -601,7 +601,9 @@ describe('one full janitor scan', () => {
     expect(result).toEqual({
       expiry: 31,
       events: 2,
-      changes: 2,
+      // The head row is never pruned (POD-7593, 6fbc36945d): of seqs 1 and 2,
+      // only 1 is a batch.
+      changes: 1,
       commands: 1,
       receipts: 1,
       queued: 1,

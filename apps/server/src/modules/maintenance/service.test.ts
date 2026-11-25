@@ -329,7 +329,8 @@ describe('MaintenanceService', () => {
         tenantId,
         keepRows: CHANGE_KEEP_ROWS,
         maxAgeMs: CHANGE_MAX_AGE_MS,
-        thresholdSeq: 5,
+        // Never the head row (POD-7593): seqs 1..4 of a head at 5.
+        thresholdSeq: 4,
         batchSize: CHANGE_PRUNE_BATCH_ROWS,
         fromSeq: 1,
       }
@@ -348,10 +349,10 @@ describe('MaintenanceService', () => {
       reason: 'precondition',
     })
     expect(await store.sync.changesSince(0)).toHaveLength(5)
-    expect(await service.apply(commands[0]!)).toMatchObject({ status: 'applied', deleted: 5 })
-    expect(await store.sync.changesSince(0)).toEqual([])
+    expect(await service.apply(commands[0]!)).toMatchObject({ status: 'applied', deleted: 4 })
+    expect((await store.sync.changesSince(0)).map((change) => change.seq)).toEqual([5])
     expect(await service.apply(commands[0]!)).toMatchObject({ status: 'already-applied' })
-    expect(await store.sync.readFeedState()).toEqual({ headSeq: 5, floorSeq: 6 })
+    expect(await store.sync.readFeedState()).toEqual({ headSeq: 5, floorSeq: 5 })
   })
 
   it('[POD-925] issue auto-archive revalidates via issues seam at apply', async () => {

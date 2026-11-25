@@ -134,7 +134,7 @@ describe('SessionStore changes table', () => {
     expect(await store.sync.minChangeSeq()).toBe(3)
   })
 
-  it('keeps seq monotonic even after the whole table is pruned', async () => {
+  it('keeps seq monotonic after every aged row is pruned', async () => {
     const store = await openTestStore(':memory:')
     await store.sync.appendChanges(
       [{ entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{}' }],
@@ -145,7 +145,8 @@ describe('SessionStore changes table', () => {
       1000,
     )
     await pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000 })
-    expect(await store.sync.minChangeSeq()).toBeNull()
+    // The head row is never pruned (POD-7593, 6fbc36945d): the log keeps seq 2.
+    expect(await store.sync.minChangeSeq()).toBe(2)
     // A rewound seq here would silently corrupt every client cursor.
     expect(await store.sync.maxChangeSeq()).toBe(2)
     const next = await store.sync.appendChanges(
