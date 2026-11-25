@@ -122,7 +122,9 @@ describe('makeSpawnOnWake', () => {
     expect((await seam.spawn({ issueId: asIssueId('iss_nope'), message: row({}) })).ok).toBe(false)
     expect(await seam.spawn({ issueId: asIssueId(ISSUE.id), message: row({}) })).toMatchObject({
       ok: false,
-      reason: 'daemon offline',
+      reason: expect.stringMatching(
+        /^The server could not complete this request; the server log has the details \(reference: [0-9a-f-]{36}\)/,
+      ),
     })
   })
 
@@ -172,7 +174,7 @@ describe('wake → spawn → first prompt (service integration)', () => {
     const interrupted: { sessionId: SessionId; text: string }[] = []
     const deps: MessageDeliveryDeps = {
       writers: messageTestWriters(store),
-            soleActiveMember: async () => (await store.users.soleActiveMember())?.id as never,
+      soleActiveMember: async () => (await store.users.soleActiveMember())?.id as never,
       legacyRowOwner: () => firstAdminMemberId(store),
       messages: store.messages,
       notificationFacts: store.notificationFacts,
