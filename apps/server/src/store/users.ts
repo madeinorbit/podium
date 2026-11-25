@@ -859,7 +859,10 @@ export class UsersRepository {
         // removal's own transaction: nobody may use a removed member's key even
         // if the cleanup after the commit (secrets, placements,
         // credentialHealth.removeMemberCredentials) never runs (final review N1).
-        await this.grantsRepository.reparentCredentialGrantsGivenBy(memberId)
+        await this.grantsRepository.reparentCredentialGrantsGivenBy(memberId, async (ids) => {
+          const rows = await Promise.all(ids.map((id) => this.hasMemberRow(asUserId(id))))
+          return new Set(ids.filter((_, i) => rows[i]))
+        })
         await this.grantsRepository.removeAllForGrantee(memberId)
         await this.grantsRepository.removeCredentialGrantsOfOwner(memberId)
       }

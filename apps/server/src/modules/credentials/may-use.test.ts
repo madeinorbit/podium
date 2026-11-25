@@ -176,6 +176,30 @@ describe('mayUse', () => {
     expect(await mayUse(store, CAROL, credential)).toBeNull()
   })
 
+  // POD-7594, M1 check R1: a removal hands over only what still reaches the
+  // owner. A chain the owner had already cut stays cut.
+  it('a removal never revives a chain the owner had cut, not even after a re-invite', async () => {
+    // The owner gives the manager `manage`; the manager gives Carol `manage`;
+    // Carol gives Bob `use`. Then the owner takes the manager's edge back.
+    await grant(MANAGER, 'manage', OWNER)
+    await grant(CAROL, 'manage', MANAGER)
+    await grant(BOB, 'use', CAROL)
+    expect(await mayUse(store, BOB, credential)).toBe('use')
+    expect(await store.grants.remove('credential', credential.id, MANAGER, 'manage')).toBe(true)
+    expect(await mayUse(store, BOB, credential)).toBeNull()
+    await memberFacts(store).removeMember(CAROL, ADMIN)
+    // Nothing was handed to the owner: Bob stays refused, and no edge Carol
+    // gave is left to come back.
+    expect(await mayUse(store, BOB, credential)).toBeNull()
+    const edges = await store.grants.listForResource('credential', credential.id)
+    expect(edges.some((e) => e.owner === CAROL || e.grantee === CAROL)).toBe(false)
+    // Invited again and given `manage` afresh: what Carol gave before is gone.
+    await memberFacts(store).enable(CAROL, new Date().toISOString(), ADMIN)
+    await grant(CAROL, 'manage', OWNER)
+    expect(await mayUse(store, CAROL, credential)).toBe('manage')
+    expect(await mayUse(store, BOB, credential)).toBeNull()
+  })
+
   // POD-7594, review F2: a refresh or a re-judge for a person who left says no.
   it('a member who was removed may use nothing, through the all-members grant included', async () => {
     await grant(ALL_MEMBERS_GRANTEE, 'use', OWNER)

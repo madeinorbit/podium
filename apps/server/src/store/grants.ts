@@ -10,7 +10,7 @@ import { MachineRecordWrites } from './machine-record-writes'
  */
 
 import type { GrantVerb } from '@podium/model'
-import { GRANT_VERBS } from '@podium/model'
+import { ALL_MEMBERS_GRANTEE, GRANT_VERBS } from '@podium/model'
 import { asc, count, eq, type SQL, sql } from 'drizzle-orm'
 import type { grants } from '../migrations/schema'
 import { operationLoader } from './executor/operation-loader'
@@ -253,6 +253,9 @@ const deleteGrantsOfGrantee = prepared((db, t) =>
   ).prepare(),
 )
 
+/** The group grantee every member is in (`ALL_MEMBERS_GRANTEE`); never a manager. */
+const ALL_MEMBERS = ALL_MEMBERS_GRANTEE
+
 /** The resource kind of a credential's grant edges (`CREDENTIAL_RESOURCE_KIND`). */
 const CREDENTIAL_KIND = 'credential'
 
@@ -329,6 +332,27 @@ const reparentGrantsOnCredentials = preparedFamily((db, t, size: number) =>
     db
       .update(t.grants)
       .set({ owner: sql.placeholder('newOwner') })
+      .where(
+        inWorkspace(
+          t.grants,
+          eq(t.grants.resourceKind, param(t.grants.resourceKind, 'resourceKind')),
+          inListOf(t.grants.resourceId, size, 'resourceIds'),
+          eq(t.grants.owner, param(t.grants.owner, 'formerOwner')),
+        ),
+      )
+      .returning(),
+  ).prepare(),
+)
+
+/**
+ * The edges one person gave on these credentials that no longer reach the
+ * owner (POD-7594, M1 check R1): dead already, so they go with the person
+ * rather than come back on a re-invite. Through the primary key's prefix.
+ */
+const deleteGrantsGivenOnCredentials = preparedFamily((db, t, size: number) =>
+  captureWrite(
+    db
+      .delete(t.grants)
       .where(
         inWorkspace(
           t.grants,
@@ -724,30 +748,75 @@ export class GrantsRepository {
    * can revoke it, and no edge needs the removed person. Run before their
    * incoming grants are deleted; nothing they held then comes back if the
    * same member id is invited again.
+   *
+   * ONLY WHAT STILL REACHES THE OWNER (M1 check, R1). Per key, the managers are
+   * worked out from the owner as `accessFrom` does: the owner, then whoever a
+   * manager with a member row (`hasMemberRow`) gave `manage`. Where the person
+   * is one of them, their edges are handed over; where the owner had already
+   * cut the chain above them, their edges are dead and are deleted, so the
+   * removal never revives access the owner took back.
    */
-  async reparentCredentialGrantsGivenBy(formerOwner: string): Promise<void> {
-    const managed = (
-      await credentialsManagedBy(this.db).all({
-        grantee: formerOwner,
-        resourceKind: CREDENTIAL_KIND,
-        verb: 'manage',
-      })
-    ).map((row) => row.id)
+  async reparentCredentialGrantsGivenBy(
+    formerOwner: string,
+    hasMemberRow: (ids: readonly string[]) => Promise<ReadonlySet<string>>,
+  ): Promise<void> {
+    const managed = [
+      ...new Set(
+        (
+          await credentialsManagedBy(this.db).all({
+            grantee: formerOwner,
+            resourceKind: CREDENTIAL_KIND,
+            verb: 'manage',
+          })
+        ).map((row) => row.id),
+      ),
+    ]
     if (managed.length === 0) return
-    const byOwner = new Map<string, string[]>()
+    const ownerOf = new Map<string, string>()
     for (let at = 0; at < managed.length; at += 500) {
       const chunk = managed.slice(at, at + 500)
       const size = inListSize(chunk.length)
       for (const row of await ownersOfCredentials(this.db, size).all(
         inListValues(chunk, size, 'ids'),
       )) {
-        if (row.owner === formerOwner) continue
-        byOwner.set(row.owner, [...(byOwner.get(row.owner) ?? []), row.id])
+        if (row.owner !== formerOwner) ownerOf.set(row.id, row.owner)
       }
+    }
+    const edgesOf = await this.listForResources(CREDENTIAL_KIND, [...ownerOf.keys()])
+    const givers = new Set<string>()
+    for (const [id, edges] of edgesOf) {
+      givers.add(ownerOf.get(id) ?? '')
+      for (const edge of edges) givers.add(edge.owner)
+    }
+    givers.delete('')
+    const live = await hasMemberRow([...givers])
+    const handOver = new Map<string, string[]>()
+    const dead: string[] = []
+    for (const [id, owner] of ownerOf) {
+      const edges = edgesOf.get(id) ?? []
+      const managers = new Set<string>([owner])
+      let grew = true
+      while (grew) {
+        grew = false
+        for (const edge of edges) {
+          if (
+            edge.verb === 'manage' &&
+            edge.grantee !== ALL_MEMBERS &&
+            !managers.has(edge.grantee) &&
+            managers.has(edge.owner) &&
+            live.has(edge.owner)
+          ) {
+            managers.add(edge.grantee)
+            grew = true
+          }
+        }
+      }
+      if (managers.has(formerOwner)) handOver.set(owner, [...(handOver.get(owner) ?? []), id])
+      else dead.push(id)
     }
     await this.machineRecordWrites.compare(async () => {
       let changes = 0
-      for (const [newOwner, ids] of byOwner) {
+      for (const [newOwner, ids] of handOver) {
         for (let at = 0; at < ids.length; at += 500) {
           const chunk = ids.slice(at, at + 500)
           const size = inListSize(chunk.length)
@@ -765,6 +834,21 @@ export class GrantsRepository {
           )
           changes += result.changes
         }
+      }
+      for (let at = 0; at < dead.length; at += 500) {
+        const chunk = dead.slice(at, at + 500)
+        const size = inListSize(chunk.length)
+        const result = await this.committed.write(
+          async () =>
+            await deleteGrantsGivenOnCredentials(this.db, size).all(
+              inListValues(chunk, size, 'resourceIds', {
+                resourceKind: CREDENTIAL_KIND,
+                formerOwner,
+              }),
+            ),
+          'delete',
+        )
+        changes += result.changes
       }
       this.resourceGrants.invalidate()
       if (changes > 0) this.visibilityRevisionValue += 1
