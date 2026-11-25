@@ -1350,11 +1350,13 @@ export class StewardService {
     if (lastChildSeq == null) return
     // Full wire is intentional: the nudge reports derived child completion counts.
     const [fresh, lastChild] = await withReadBatch(
+      // Keep report dependencies in their original order. Each report batches
+      // its own independent joins, without coalescing across I/O-timed waves.
       async () =>
-        await Promise.all([
-          this.deps.issues.reports.get(parentId),
-          this.deps.issues.reports.getBySeq(parent.repoPath, lastChildSeq),
-        ]),
+        [
+          await this.deps.issues.reports.get(parentId),
+          await this.deps.issues.reports.getBySeq(parent.repoPath, lastChildSeq),
+        ] as const,
     )
     const total = fresh?.childCount ?? 0
     const remaining = Math.max(0, total - (fresh?.childDoneCount ?? 0))

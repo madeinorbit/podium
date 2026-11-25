@@ -202,7 +202,7 @@ describe('steward subscription matching (POD-6208)', () => {
   // each on hosted Postgres; docs/measurements/pod-6958-hosted-round-trips.md.
   it('makes a fixed number of round trips', async () => {
     // POD-7030: independent report joins share batches; all 76 statements remain.
-    await expectConstantRoundTrips(pin, 49)
+    await expectConstantRoundTrips(pin, 53)
   }, 60_000)
 
   it('reads the same subscription rows, however many cannot match', async () => {
