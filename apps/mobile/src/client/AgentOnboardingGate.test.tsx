@@ -123,7 +123,13 @@ describe('phone agent onboarding', () => {
     const ui = mount()
     await step()
     fireEvent.click(screen.getByRole('checkbox', { name: 'Install OpenCode' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Install 2 and continue' }))
+    // The gate opens asynchronously; await the observer's committed selection before submitting.
+    const install = await screen.findByRole('button', { name: 'Install 2 and continue' })
+    expect(
+      screen.getByRole('checkbox', { name: 'Install OpenCode' }).getAttribute('aria-checked'),
+    ).toBe('false')
+    expect(actions).toEqual([])
+    fireEvent.click(install)
     await work()
     expect(actions.map(({ harness, action }) => [harness, action])).toEqual([
       ['claude-code', 'install'],
@@ -200,7 +206,7 @@ describe('phone agent onboarding', () => {
     await step()
     act(() => machine.patch('codex', installed('codex')))
     expect(screen.getByRole('heading', { name: 'Set up your agents' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Continue without installing' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue without installing' }))
     await work()
     expect(actions).toEqual([])
     ui.unmount()
