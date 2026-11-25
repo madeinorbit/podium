@@ -27043,14 +27043,15 @@
       "file": "packages/client-graph/src/issue-board-layout.ts",
       "holder": "createBoardLayout/dispose",
       "rule": "loop:for-of",
-      "tokens": "39df8b0516bded93901808b3e466c38261faa359a1ca1107c6bedca7e3d54852",
+      "tokens": "42097d7d9775c7f5ea0850a96c6c5a13440d57b3d1cd315a9469acf55c4117e2",
       "gate": [],
       "origin": [
         "0f4c22afb8213bed43337f0e829fcab4b21d465596eaeed43e50361f98285881",
         "3384e5005fa3242c66cf11df7175a23b01deed0cc2ace87dd75d0bf21e1d4024",
+        "655ecee59e0ac12472656965399780c8897628aba2c547d4d39e85cc63a9471a",
         "921eee7a4cd72dbd92da67cc7c32c2249093e33f96027c8e6c7df28b69ce67e0"
       ],
-      "fingerprint": "f1bfe184a6c78a3c3e13ef8119246a86f37e26e85ec39514e30cba7ace373d03",
+      "fingerprint": "3dc6db391f0e876ab276fdd0a06e4f8ae911ace5d1124269e735263c3b6fe55f",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7088",
@@ -27081,15 +27082,16 @@
       "file": "packages/client-graph/src/issue-board-layout.ts",
       "holder": "createBoardLayout/stats/callback/cached",
       "rule": "consume:reduce",
-      "tokens": "1c8c96b003e9cbe68351a4ea484fabd2fbfda1a68bbf44bb79992b990dad0692",
+      "tokens": "7f9ba42a4427339a3ca75ed1fbef55258a5018191f89844352df46af40b0ae1d",
       "gate": [],
       "origin": [
         "0f4c22afb8213bed43337f0e829fcab4b21d465596eaeed43e50361f98285881",
+        "2589be72d192134705000cf34bdb37d310ee30ce1d8a2c8b71dee2059758c77a",
         "3384e5005fa3242c66cf11df7175a23b01deed0cc2ace87dd75d0bf21e1d4024",
-        "3d8df1a2747ea9f89f0940cbfe0db12fc08346a3b651934939631a9819b6c121",
+        "655ecee59e0ac12472656965399780c8897628aba2c547d4d39e85cc63a9471a",
         "921eee7a4cd72dbd92da67cc7c32c2249093e33f96027c8e6c7df28b69ce67e0"
       ],
-      "fingerprint": "1c10228989c8d9570e91af0536e0348940992733472a1007561f1b67874fcfb2",
+      "fingerprint": "720fec16d12ba0e6faad4b784e7e545cad71a8862b7a9d7abd2f7288f50dd3db",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7088",
@@ -31960,14 +31962,14 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useLayoutEffect:callback",
       "rule": "helper-consumer",
-      "tokens": "012310d91ac44b8d992c2006e88e58a5cfed83b1a7ac5d0e36fa1a3ff8dfec6b",
+      "tokens": "ed84da717b43e91dd5740877421732b4fbdc00c39a92a568b24299abd87aab72",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "ba07206feeb723f4bb17827fb6eff1324c468b88b7fc1605cd3244646feea4ae",
+      "fingerprint": "6b06cfd0fd1d263e14e966b3cab10b00471dd7a52daab5c2b65c0edce1f7ff70",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5872",
@@ -31980,14 +31982,14 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/records/callback",
       "rule": "helper-consumer",
-      "tokens": "920cc3b375cdfb18132cb531badba1678e0f62e0045c050875bb4fa9f73745a5",
+      "tokens": "c8261df42e17d9ef8156e283bcb338428623c9ff0fd0abf8d725118f0ce887ae",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "f9352b6e73a58845ef0978b057bdccb3f99931c8ca216eb0898e574c82e68edb",
+      "fingerprint": "bbaed9d9baf635a785032cc9856164aca7b3c042216dc204c1785295e8e2affd",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5888",
@@ -42509,6 +42511,237 @@
       "bound": "One marker read of session.ofIssue (or session.bornOf) for that issue.",
       "reason": "Whether the roster's hold is held; a refused one answers false and asks nothing more (POD-7595).",
       "guard": "refused-holds-empty-device.test.ts and issue-page-relation-reads.test.ts prove one request."
+    },
+    {
+      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
+      "holder": "poolArchiveBatch",
+      "rule": "spread",
+      "tokens": "d7c8159b01e6319416d4b047a19b2cd09de5d84699a6b433111dfa75d38f7330",
+      "gate": [
+        "loop:e16059182606df441f5771622c96ee0de4714c29bf3fdccdbfd307a93db87e19",
+        "exit:then:9806e064e0d688243d901bc93699923cebf0398faa307dd68c488a43bfe0867a",
+        "exit:then:a61a59c1a60175186a0a7f717485e08d9dc63ce2de515039936ce6f3e2a79aae",
+        "exit:then:fe2d1ab3df9841444290b8e5820746f2c7482e0d6fcddca4da1f2cead6c9e75f"
+      ],
+      "origin": [
+        "862baa021dda60afafe0ca4a7c7e37e29f72fa05897882e85b6d033b9b322854"
+      ],
+      "fingerprint": "1de43e62271b0e74a3c543376adedab5233aa8f3da9601876875a45bc056126d",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7581",
+      "trigger": "The closed lane's Archive all gesture.",
+      "bound": "The subtrees of the closed lane's rows, walked once over the stubs; the issues the server's archive cascade reaches. No record held or loaded.",
+      "reason": "Undo must name every issue the cascade archives, including children the device holds no row of; the stubs cover all history.",
+      "guard": "use-pool-unified-work.empty-device.test.ts asserts the captured tree and zero requests. Exact fingerprint and multiplicity remain enforced."
+    },
+    {
+      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
+      "holder": "poolArchiveBatch/row",
+      "rule": "reader-summary",
+      "tokens": "2b7b05a38027eeaa08316ea44336bbb23cd07599a84721baac8d7a1828967e81",
+      "gate": [
+        "loop:e16059182606df441f5771622c96ee0de4714c29bf3fdccdbfd307a93db87e19"
+      ],
+      "origin": [
+        "2d2f2a8da03eca5b208b75bcb4fd1534f895a65f69263d96474c0b27616ee915",
+        "bc0457ea926cf96254b34791d7b906f724e9158c32e8db5760d318360820db3b"
+      ],
+      "fingerprint": "0ec13aac2160a48e6a86c568abc17fd3e17466278b55f8aeaf98a814533a1c99",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7581",
+      "trigger": "The closed lane's Archive all gesture.",
+      "bound": "The subtrees of the closed lane's rows, walked once over the stubs; the issues the server's archive cascade reaches. No record held or loaded.",
+      "reason": "Undo must name every issue the cascade archives, including children the device holds no row of; the stubs cover all history.",
+      "guard": "use-pool-unified-work.empty-device.test.ts asserts the captured tree and zero requests. Exact fingerprint and multiplicity remain enforced."
+    },
+    {
+      "file": "packages/client-graph/src/issue-board-cards.ts",
+      "holder": "BoardCard/stageCounts",
+      "rule": "loop:for-of",
+      "tokens": "e34d1ef6c68a59af0e02ad89fc6baaa257069fca465c05c4169518af494ddd4a",
+      "gate": [
+        "exit:then:e808276f4faa206a492a6ff69a0fc91d5b85070d415f7471fb8abd2243fc13a0",
+        "exit:then:f21257141850c1261645b798322cbf8d3e294a2ac2ea076a701f861db75e5d68",
+        "exit:then:377050d5ca72b8de8ccd585427de1ff7e18e3e1d3e83ebc540cf64cfe8eb7075",
+        "then:767310b3ae0004715e96901a7f6449e2a8c76bf93becbf2288b31c498b99274f",
+        "exit:then:a8ad97e1d1746ee36ddef2e24ff8597087591498773db308c41615401fd62d0d"
+      ],
+      "origin": [
+        "37ebccdf2dece4e0d0589df3beb7f5741b6b9c7414bb7d179b2c9468494aba8d"
+      ],
+      "fingerprint": "67c1b398a2a10dfdd475699ee3254cba1f1dcdc3b879e61dbd1d956ecf05eb44",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7581",
+      "trigger": "Reading one board card's child stage counts.",
+      "bound": "One card's direct children, from the stub index by parent (pool.collections.childIds); one level, no record held or loaded.",
+      "reason": "The stub children of one card replace its in-memory children so counts cover all history; the loop reads each child stub once.",
+      "guard": "sidebar-board-relation-reads.test.ts asserts the counts and zero requests on an empty device. Exact fingerprint and multiplicity remain enforced."
+    },
+    {
+      "file": "packages/client-graph/src/issue-board-cards.ts",
+      "holder": "BoardCard/stageCounts",
+      "rule": "helper-consumer",
+      "tokens": "8fb6a5fdf80e891dd9fa3515ea9c77dae07e0fa9850f4485ed4400d7fcf51e43",
+      "gate": [
+        "exit:then:e808276f4faa206a492a6ff69a0fc91d5b85070d415f7471fb8abd2243fc13a0",
+        "exit:then:f21257141850c1261645b798322cbf8d3e294a2ac2ea076a701f861db75e5d68",
+        "exit:then:377050d5ca72b8de8ccd585427de1ff7e18e3e1d3e83ebc540cf64cfe8eb7075",
+        "then:767310b3ae0004715e96901a7f6449e2a8c76bf93becbf2288b31c498b99274f",
+        "exit:then:a8ad97e1d1746ee36ddef2e24ff8597087591498773db308c41615401fd62d0d"
+      ],
+      "origin": [
+        "5291395e38104cdcb8b9137de8aeecb13d94ec5f659fc9de138eb2451bc05aa6"
+      ],
+      "fingerprint": "940ecfbff03ea342e188cda8045fc0cafba7cde11e53579145feb7ae594a055f",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7581",
+      "trigger": "Reading one board card's child stage counts.",
+      "bound": "One card's direct children, from the stub index by parent (pool.collections.childIds); one level, no record held or loaded.",
+      "reason": "The stub children of one card replace its in-memory children so counts cover all history; the loop reads each child stub once.",
+      "guard": "sidebar-board-relation-reads.test.ts asserts the counts and zero requests on an empty device. Exact fingerprint and multiplicity remain enforced."
+    },
+    {
+      "file": "packages/client-graph/src/issue-board-layout.ts",
+      "holder": "createBoardLayout/columnUnavailable",
+      "rule": "reader-summary",
+      "tokens": "ea8463a1bcebc202d26f070c794dad9f82e99cf104bb1fffc4bbc86651a26a84",
+      "gate": [],
+      "origin": [
+        "655ecee59e0ac12472656965399780c8897628aba2c547d4d39e85cc63a9471a"
+      ],
+      "fingerprint": "a8c02269d4d24940037897c67ff3fc57956538a52cc79ae49551ea14b9230cab",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7581",
+      "trigger": "Reading whether the server refused one board stage page (a column's Not available state).",
+      "bound": "One boolean refusal read for the named page instance; this origin adds no record enumeration or history-sized collection.",
+      "reason": "The source-only census treats PoolCollections.refused as a collections table property, but this origin is a scalar boolean for one page and its keyed memo callers, as columnHeld.",
+      "guard": "PoolCollections.refused has a boolean return contract; sidebar-board-relation-reads.test.ts guards the refused column on an empty device. Exact fingerprint and multiplicity remain enforced."
+    },
+    {
+      "file": "packages/client-graph/src/issue-board-layout.ts",
+      "holder": "createBoardLayout/columnUnavailable/callback",
+      "rule": "reader-summary",
+      "tokens": "a5297bbeffe624fbea807f27de469748e0fb84f5ec744c4a0ae6ebb1ab887910",
+      "gate": [],
+      "origin": [
+        "655ecee59e0ac12472656965399780c8897628aba2c547d4d39e85cc63a9471a"
+      ],
+      "fingerprint": "7bd0dde4afecc6e2f051a915bcaf342961168da1fbc6c98bf88fe821dc3696ef",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7581",
+      "trigger": "Reading whether the server refused one board stage page (a column's Not available state).",
+      "bound": "One boolean refusal read for the named page instance; this origin adds no record enumeration or history-sized collection.",
+      "reason": "The source-only census treats PoolCollections.refused as a collections table property, but this origin is a scalar boolean for one page and its keyed memo callers, as columnHeld.",
+      "guard": "PoolCollections.refused has a boolean return contract; sidebar-board-relation-reads.test.ts guards the refused column on an empty device. Exact fingerprint and multiplicity remain enforced."
+    },
+    {
+      "file": "packages/client-graph/src/issue-board-layout.ts",
+      "holder": "createBoardLayout/columnUnavailable/keyedComputed:callback",
+      "rule": "reader-summary",
+      "tokens": "a6bb87e28ed667592089fb1c756c430a40e6eba717678da2499eb35dc369e8d4",
+      "gate": [
+        "||:f1513d788c5abc0aa6d29d56fccf5fe6323c1df88361a88870772eebda1088a4"
+      ],
+      "origin": [
+        "921eee7a4cd72dbd92da67cc7c32c2249093e33f96027c8e6c7df28b69ce67e0"
+      ],
+      "fingerprint": "b074d499a9ccac94b7f66934d5ba9a7835421c1332664266962a3fc16e944139",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7581",
+      "trigger": "Reading whether the server refused one board stage page (a column's Not available state).",
+      "bound": "One boolean refusal read for the named page instance; this origin adds no record enumeration or history-sized collection.",
+      "reason": "The source-only census treats PoolCollections.refused as a collections table property, but this origin is a scalar boolean for one page and its keyed memo callers, as columnHeld.",
+      "guard": "PoolCollections.refused has a boolean return contract; sidebar-board-relation-reads.test.ts guards the refused column on an empty device. Exact fingerprint and multiplicity remain enforced."
+    },
+    {
+      "file": "packages/client-graph/src/issue-board-source.ts",
+      "holder": "createIssueBoardSource/readById",
+      "rule": "reader-summary",
+      "tokens": "16b614fb4563b94d4d7a0cdc7fc240a70daf633c47be7230f85a10c91386c017",
+      "gate": [
+        "switch:3d1b5378db9f6e20f8d44a230983cc0b17e24eb952ec826ebb4eaa5941da752b",
+        "case:c9583458f9921ee2177e68992ae5a01d1791b640611a0b5d0042116e7d7f02a5"
+      ],
+      "origin": [
+        "655ecee59e0ac12472656965399780c8897628aba2c547d4d39e85cc63a9471a"
+      ],
+      "fingerprint": "24173ce5db26a87b38d0e7dd520477ea2915991d4b129acb4fcc9d9b62f90caf",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7581",
+      "trigger": "Reading whether the server refused one board stage page (a column's Not available state).",
+      "bound": "One boolean refusal read for the named page instance; this origin adds no record enumeration or history-sized collection.",
+      "reason": "The source-only census treats PoolCollections.refused as a collections table property, but this origin is a scalar boolean for one page and its keyed memo callers, as columnHeld.",
+      "guard": "PoolCollections.refused has a boolean return contract; sidebar-board-relation-reads.test.ts guards the refused column on an empty device. Exact fingerprint and multiplicity remain enforced."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e",
+        "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
+      ],
+      "origin": [
+        "655ecee59e0ac12472656965399780c8897628aba2c547d4d39e85cc63a9471a"
+      ],
+      "fingerprint": "8fca89104ae54ed35cc18ff9097878d9884e1efc672100353c4482ab714a6853",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7581",
+      "trigger": "Reading whether the server refused one board stage page (a column's Not available state).",
+      "bound": "One boolean refusal read for the named page instance; this origin adds no record enumeration or history-sized collection.",
+      "reason": "The source-only census treats PoolCollections.refused as a collections table property, but this origin is a scalar boolean for one page and its keyed memo callers, as columnHeld.",
+      "guard": "PoolCollections.refused has a boolean return contract; sidebar-board-relation-reads.test.ts guards the refused column on an empty device. Exact fingerprint and multiplicity remain enforced."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/derive/callback",
+      "rule": "reader-summary",
+      "tokens": "17a23fe41db751637eff783db7d8434821df7dd58be2f63141ae093ecfbb74e3",
+      "gate": [
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
+        "655ecee59e0ac12472656965399780c8897628aba2c547d4d39e85cc63a9471a"
+      ],
+      "fingerprint": "0e67ca3ac8ee33fba9bb650bb42ae6931c520b3bb53104ac255720795efbeac1",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7581",
+      "trigger": "Reading whether the server refused one board stage page (a column's Not available state).",
+      "bound": "One boolean refusal read for the named page instance; this origin adds no record enumeration or history-sized collection.",
+      "reason": "The source-only census treats PoolCollections.refused as a collections table property, but this origin is a scalar boolean for one page and its keyed memo callers, as columnHeld.",
+      "guard": "PoolCollections.refused has a boolean return contract; sidebar-board-relation-reads.test.ts guards the refused column on an empty device. Exact fingerprint and multiplicity remain enforced."
+    },
+    {
+      "file": "packages/mobx-helpers/src/keyed-computed.ts",
+      "holder": "keyedComputed/read/callback/value/computed:callback",
+      "rule": "reader-summary",
+      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
+      "gate": [
+        "exit:then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d",
+        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
+      ],
+      "origin": [
+        "655ecee59e0ac12472656965399780c8897628aba2c547d4d39e85cc63a9471a"
+      ],
+      "fingerprint": "1b945e6ecfca19a978903b2cd1f5e81f06495bed719870c6e622f70ea6237dfa",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7581",
+      "trigger": "Reading whether the server refused one board stage page (a column's Not available state).",
+      "bound": "One boolean refusal read for the named page instance; this origin adds no record enumeration or history-sized collection.",
+      "reason": "The source-only census treats PoolCollections.refused as a collections table property, but this origin is a scalar boolean for one page and its keyed memo callers, as columnHeld.",
+      "guard": "PoolCollections.refused has a boolean return contract; sidebar-board-relation-reads.test.ts guards the refused column on an empty device. Exact fingerprint and multiplicity remain enforced."
     }
   ]
 }

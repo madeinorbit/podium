@@ -345,6 +345,7 @@ export function policyRelationReader(
 }
 
 /** The collections the policy holds on every device (`apps/server/src/sync/policy.ts`). */
+// side-state: declaration: the policy's fixed collection ids, built once from the declarations
 export const POLICY_COLLECTIONS: ReadonlySet<string> = new Set([
   ...DESIGN_COLLECTIONS.always,
   ...RECORDS.filter((record) => record.group === 'windowed').map(
