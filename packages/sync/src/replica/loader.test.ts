@@ -1085,6 +1085,44 @@ describe('a refused instance settles until a real trigger', () => {
     expect(d.loader.wasRefused(tree('R'))).toBe(true)
   })
 
+  it("a retry or a reconnect during a failed fetch's wait waits for it: no burst", async () => {
+    const { server, d, refusal } = await refusedTree()
+    refusal.on = false
+    const collections = server.collections.bind(server)
+    let failures = 0
+    server.collections = (instances) => {
+      if (failures === 0) {
+        failures += 1
+        return (async function* () {
+          yield* []
+          throw new Error('queue-full')
+        })()
+      }
+      return collections(instances)
+    }
+    // Another instance's fetch fails: the wait starts.
+    d.loader.request([tree('Q')], 'visible')
+    d.timer.due()
+    await d.loader.flush().catch(() => undefined)
+    await d.replica.settled().catch(() => undefined)
+    expect(failures).toBe(1)
+    const failedAt = server.fetches.length
+    // A view retries the refused tree, and the connection comes back, inside the wait.
+    d.loader.retryRefused(tree('R'))
+    d.loader.request([tree('R')], 'visible')
+    d.replica.disconnect()
+    d.replica.connect()
+    await d.loader.flush()
+    await d.loader.flush()
+    expect(server.fetches.length).toBe(failedAt)
+    expect(requestsNaming(server, tree('R'))).toBe(1)
+    // The wait ends: the retried tree goes, once.
+    d.timer.due()
+    await settle(d)
+    expect(requestsNaming(server, tree('R'))).toBe(2)
+    expect(d.loader.isComplete(tree('R'))).toBeDefined()
+  })
+
   it('is asked again when a view retries it, that instance alone', async () => {
     const { server, d, refusal } = await refusedTree()
     d.loader.request([tree('Q')], 'visible')
