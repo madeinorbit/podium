@@ -895,3 +895,65 @@ describe('what an open view holds through a gap the feed cannot bridge (POD-7538
     release()
   })
 })
+
+describe('one fetch at a time, and a wait after a failed one (POD-6951 hotfix)', () => {
+  async function liveDevice(count: number) {
+    const server = new CollectionServer()
+    server.policy = POLICY
+    for (let i = 1; i <= count; i += 1)
+      server.put(ISSUE, `I${i}`, issue(`I${i}`, { stage: 'done', closedReason: 'completed' }))
+    const d = device(await inMemoryInstantiation.open(), server)
+    d.replica.connect()
+    await settle(d)
+    return { server, d }
+  }
+
+  it('a demand larger than one batch goes one fetch at a time', async () => {
+    const { server, d } = await liveDevice(450)
+    const before = server.fetches.length
+    d.loader.request(Array.from({ length: 450 }, (_, i) => oneRecord(ISSUE, `I${i + 1}`)))
+    d.timer.due()
+    await d.loader.flush()
+    // The first window sends one batch; the rest waits for its answer.
+    expect(server.fetches.length - before).toBe(1)
+    expect(server.fetches[before]?.length).toBe(200)
+    await settle(d)
+    for (let i = 1; i <= 450; i += 1)
+      expect(d.replica.isComplete(oneRecord(ISSUE, `I${i}`))).toBeDefined()
+  })
+
+  it('a failed fetch is not asked again until its wait ends', async () => {
+    const { server, d } = await liveDevice(3)
+    const collections = server.collections.bind(server)
+    let failures = 0
+    server.collections = (instances) => {
+      if (failures === 0) {
+        failures += 1
+        return (async function* () {
+          yield* []
+          throw new Error('queue-full')
+        })()
+      }
+      return collections(instances)
+    }
+    const before = server.fetches.length
+    d.loader.request([oneRecord(ISSUE, 'I1')])
+    d.timer.due()
+    await d.loader.flush().catch(() => undefined)
+    await d.replica.settled().catch(() => undefined)
+    expect(failures).toBe(1)
+    const failedAt = server.fetches.length
+    // More demand, and windows closing, while the wait runs: nothing is sent.
+    d.loader.request([oneRecord(ISSUE, 'I2')], 'visible')
+    await d.loader.flush()
+    await d.loader.flush()
+    expect(server.fetches.length).toBe(failedAt)
+    // The wait ends: both go in one fetch.
+    d.timer.due()
+    await d.loader.flush()
+    await d.replica.settled()
+    expect(server.fetches.length).toBeGreaterThan(before)
+    expect(d.replica.isComplete(oneRecord(ISSUE, 'I1'))).toBeDefined()
+    expect(d.replica.isComplete(oneRecord(ISSUE, 'I2'))).toBeDefined()
+  })
+})

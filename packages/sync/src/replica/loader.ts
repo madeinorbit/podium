@@ -162,6 +162,12 @@ export class CollectionLoader {
   /** POD-7538 — the timer of the next stale reload retry, and the wait after it. */
   private retryCancel: (() => void) | null = null
   private retryMs = STALE_RETRY_MS
+  /**
+   * One fetch to the server at a time. The server runs a few fetches for
+   * every client together and refuses the rest; sending every batch at once
+   * had a large screen's demand refused and asked again in a loop.
+   */
+  private sending = false
   /** Inside a burst of the Replica's events: what moved, told once when it ends. */
   private burst = 0
   private readonly moved = new SideSet<LoaderChange>('loader.moved')
@@ -456,6 +462,8 @@ export class CollectionLoader {
       .sort((a, b) => rank(a.priority) - rank(b.priority))
       .map((entry) => entry.request)
     const batch: InstanceRequest[] = []
+    // A fetch in flight, or the wait after a failed one: the queue waits.
+    const blocked = this.sending || this.retryCancel !== null
     for (const queuedRequest of queued) {
       let request = queuedRequest
       const key = instanceKey(request)
@@ -478,6 +486,8 @@ export class CollectionLoader {
         continue
       }
       if (offline && this.replica.onDevice?.(request) !== true) continue
+      // One batch per fetch; the rest goes when its answer is in.
+      if (blocked || batch.length >= MAX_INSTANCES) continue
       this.queue.delete(key)
       batch.push(request)
     }
@@ -485,8 +495,7 @@ export class CollectionLoader {
       await Promise.all(sends)
       return
     }
-    for (let at = 0; at < batch.length; at += MAX_INSTANCES)
-      sends.push(this.send(batch.slice(at, at + MAX_INSTANCES)))
+    sends.push(this.send(batch))
     await Promise.all(sends)
   }
 
@@ -527,6 +536,7 @@ export class CollectionLoader {
       requests.filter((request) => this.replica.onDevice?.(request) === true).map(instanceKey),
     )
     for (const request of requests) this.inFlight.set(instanceKey(request), request)
+    this.sending = true
     this.stats.requests += 1
     this.stats.instances += requests.length
     let failed = false
@@ -540,6 +550,7 @@ export class CollectionLoader {
       // Read the platform and feed state, never the browser's error text.
       if (!this.online) this.notify('connection')
     } finally {
+      this.sending = false
       for (const request of requests) {
         const key = instanceKey(request)
         if (this.inFlight.get(key) === request) this.inFlight.delete(key)
@@ -569,14 +580,20 @@ export class CollectionLoader {
         }
         continue
       }
-      // Queued again without arming: it goes with the next burst, cursor or
-      // connection, never in a loop of its own against a failing route.
+      // Queued again behind the wait that doubles from 1 s to 60 s: a failing
+      // route (the server's queue full) is never asked again on every burst
+      // or cursor move.
       if (failed) {
         if (!this.queue.has(key)) this.queue.set(key, { request, priority: 'background' })
+        retry = true
       } else this.refusedKeys.add(key)
     }
     if (retry) this.retryLater()
-    else if (!failed) this.retryMs = STALE_RETRY_MS
+    else {
+      if (!failed) this.retryMs = STALE_RETRY_MS
+      // The rest of the queue goes now that this answer is in.
+      if (this.queue.size > 0 && this.replica.canFetch) this.arm()
+    }
     this.notify('markers')
   }
 
@@ -627,7 +644,8 @@ export class CollectionLoader {
   }
 
   private arm(): void {
-    if (this.cancel !== null || this.disposed) return
+    // While a failed fetch's wait runs, its timer arms the queue when it ends.
+    if (this.cancel !== null || this.retryCancel !== null || this.disposed) return
     this.cancel = this.schedule(() => {
       this.cancel = null
       void this.flush()
