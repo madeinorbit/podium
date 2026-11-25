@@ -101,14 +101,15 @@ describe('explicit independent read batches', () => {
 
   it('refuses writes, including RETURNING and explicit batches, before they execute', async () => {
     const h = await open()
-    for (const write of [
+    const writes: (() => Promise<unknown>)[] = [
       () => h.db.run(insert, 'refused'),
       () => h.db.writeAll(`${insert} RETURNING body`, 'refused'),
       () =>
         h.db.batch([
           { sql: insert, params: ['refused'], intent: 'write' as const, method: 'run' as const },
         ]),
-    ]) {
+    ]
+    for (const write of writes) {
       await expect(withReadBatch(write)).rejects.toThrow('independent reads only')
     }
     expect(await h.db.all('SELECT body FROM notes')).toEqual([])
