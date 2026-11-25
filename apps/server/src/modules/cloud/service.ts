@@ -61,6 +61,7 @@ import { harnessSupportsCloud } from '../../harness-manifest'
 import type { RegistryModules, SessionRegistry } from '../../relay'
 import { canonicalizeRepoOrigin } from '../../repo-id'
 import type { RepoRegistry } from '../../repo-registry'
+import { SESSION_NOT_FOUND } from '../sessions/session-access'
 
 export interface CloudServiceDeps {
   /** Absent on deployments with no cloud provider; the disabled provider is
@@ -73,7 +74,14 @@ export interface CloudServiceDeps {
    * refuses rather than guess one.
    */
   readonly workspace: WorkspaceId | undefined
-  readonly sessions: RegistryModules['sessions']
+  /**
+   * The session `sessionId` names, read ONLY once the caller may command it: its
+   * owner, through the session commands' own target gate (POD-7606). `undefined`
+   * for a session that does not exist and for one that is not the caller's
+   * alike, so the move is no existence oracle. A refusal past the owner check
+   * (an agent's issue scope, machine `use` on the session's host) throws.
+   */
+  readonly commandableSession: (sessionId: SessionId) => Promise<CloudSourceSession | undefined>
   readonly repos: RepoRegistry
   readonly store: SessionRegistry['sessionStore']
   /**
@@ -83,6 +91,11 @@ export interface CloudServiceDeps {
    */
   readonly hibernateLocal: (sessionId: SessionId) => Promise<{ ok: boolean; reason?: string }>
 }
+
+/** The session row a move reads: the sessions service's own by-id type. */
+export type CloudSourceSession = NonNullable<
+  Awaited<ReturnType<RegistryModules['sessions']['sessionById']>>
+>
 
 /** A provisioning request as a command builds it: everything but the tenant,
  *  which the service adds from the bound workspace. */
@@ -209,7 +222,9 @@ export class CloudService {
    *
    * THE ORDER IS THE BEHAVIOUR and is preserved exactly:
    *
-   *  1. resolve the session, or NOT_FOUND;
+   *  1. resolve the session the caller may command, or NOT_FOUND: its owner
+   *     only, and one answer for a session that is missing and one that is
+   *     someone else's (POD-7606);
    *  2. check the manifest says the agent kind can go to cloud (#158);
    *  3. require a resume ref — a session with no resume cannot be reconstituted
    *     anywhere, so moving it would silently lose it;
@@ -230,9 +245,9 @@ export class CloudService {
     repo?: CloudRepoRequest | undefined
     hibernateLocal?: boolean | undefined
   }) {
-    const session = await this.deps.sessions.sessionById(input.sessionId as SessionId)
+    const session = await this.commandable(input.sessionId)
     if (!session) {
-      throw new TRPCError({ code: 'NOT_FOUND', message: 'session not found' })
+      throw new TRPCError({ code: 'NOT_FOUND', message: SESSION_NOT_FOUND })
     }
     const agent = this.cloudAgentKind(session.agentKind)
     if (!session.resume?.value) {
@@ -291,6 +306,22 @@ export class CloudService {
     }
   }
 
+  /** The gate's throw past the owner check (an agent's scope, machine `use`)
+   *  as the FORBIDDEN it is. Its own not-found, should the owner check throw
+   *  rather than answer, stays the one not-found every refusal gives. */
+  private async commandable(sessionId: SessionId): Promise<CloudSourceSession | undefined> {
+    try {
+      return await this.deps.commandableSession(sessionId)
+    } catch (error) {
+      if (error instanceof TRPCError) throw error
+      if (error instanceof Error && error.message === SESSION_NOT_FOUND) return undefined
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
   /** Capability lookup (#158): cloud-movable kinds are declared in their
    *  per-CLI manifests (claude-code, codex today), never hardcoded here. */
   private cloudAgentKind(agentKind: string): CloudAgentKind {
@@ -314,7 +345,7 @@ export class CloudService {
     // structural shape. The first draft wrote `{ cwd?: string }` and tsgo caught
     // it: `inferFromPath` takes a required path, so a looser local shape would
     // have been a second, wrong declaration of what a session is.
-    session: Awaited<ReturnType<RegistryModules['sessions']['listSessions']>>[number],
+    session: CloudSourceSession,
   ): Promise<CloudRepoRequest> {
     const repoPath = await this.deps.repos.inferFromPath(session.cwd, session.machineId)
     if (!repoPath) {

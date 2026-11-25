@@ -21,12 +21,40 @@
 
 import type { SessionId } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
+import { ownershipSnapshotFromMachines } from '../../machine-access'
 import { asSyncCommand } from '../../plain-command-scope'
 import type { FamilyState } from '../derived-family'
 import { definePlainFamily } from '../plain-command/declare'
 import { lifecycleEditsFor } from '../sessions/command-ctx'
+import { commandSessionTarget } from '../sessions/command-plane'
+import { asyncSessionIssueAccess } from '../sessions/session-access'
 import { CLOUD_COMMANDS_TRPC } from './registry'
-import { CloudService } from './service'
+import { CloudService, type CloudSourceSession } from './service'
+
+/**
+ * The session a move may read, as the caller (POD-7606): the session commands'
+ * own target gate, so a move reaches exactly the sessions the caller could
+ * hibernate or stop. That is the session's owner, and nobody else's, admin or
+ * not (design §2.3); an agent also needs its issue scope. The id is matched
+ * exactly, as before: a move never resolves a prefix. A call with no principal
+ * reaches nothing.
+ */
+const commandableAs =
+  (state: FamilyState, principal: CommandPrincipal | undefined) =>
+  async (sessionId: SessionId): Promise<CloudSourceSession | undefined> => {
+    if (principal === undefined) return undefined
+    const sessions = state.modules.sessions
+    const gated = await commandSessionTarget(principal, sessionId, 'cloud.moveSession', {
+      access: {
+        sessionById: async (id) => await sessions.sessionById(id),
+        ownerOf: async (id) => (await sessions.sessionOwner(id))?.owner,
+        issues: asyncSessionIssueAccess(state.modules.issues),
+      },
+      ownership: await ownershipSnapshotFromMachines(state.modules.machines),
+      sessionById: async (id) => await sessions.sessionById(id),
+    })
+    return gated?.row
+  }
 
 /** Park the local session as the caller, through `sync.submit` (see the header). */
 const hibernateAs =
@@ -51,7 +79,7 @@ export const CLOUD_PLAIN_FAMILY = definePlainFamily({
     new CloudService({
       provider: state.cloud,
       workspace: state.boundWorkspace,
-      sessions: state.modules.sessions,
+      commandableSession: commandableAs(state, principal),
       repos: state.repos,
       store: state.store,
       hibernateLocal: hibernateAs(state, principal),

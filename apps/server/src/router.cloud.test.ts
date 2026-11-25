@@ -1,5 +1,5 @@
-import type { SessionId } from '@podium/model'
-import { asMachineId, asUserId } from '@podium/model'
+import type { SessionId, UserId } from '@podium/model'
+import { asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import type {
@@ -8,14 +8,15 @@ import type {
   CloudRuntime,
   CloudRuntimeProvider,
 } from './cloud-runtime'
+import { userCommandPrincipal } from './command-principal'
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
-import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { SessionStore } from './store'
 import { memberFacts } from './store/fixtures/test-support'
-import { OPERATOR, permissiveFixturePrincipal } from './test-support/capabilities'
+import { permissiveFixturePrincipal } from './test-support/capabilities'
+import { attachDaemonWithInventory } from './test-support/daemon-inventory'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openWorkspaceStores } from './test-support/workspace-stores'
 
@@ -42,8 +43,12 @@ async function caller(
   await attachHostDaemon(registry, onDaemon)
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
-  // The operator as the edge of this registry's workspace mints it (POD-7558).
-  const operator = { ...OPERATOR, workspaceId: registry.workspaceId }
+  // The operator as the edge of this registry's workspace mints it (POD-7558):
+  // its first admin, who owns the sessions a test starts without naming an owner.
+  const admin = asUserId(
+    (await registry.sessionStore.users.earliestAdmin())?.id ?? firstAdminMemberId(),
+  )
+  const operator = userCommandPrincipal(registry.workspaceId, admin, 'admin').capability
   const call = appRouter.createCaller({
     registry,
     repos,
@@ -465,5 +470,141 @@ describe('cloud commands act on the bound workspace only', () => {
     await expect(
       call.cloud.createMachine({ displayName: 'Misrouted', size: 'small' }),
     ).rejects.toThrow('cloud provider answered with a runtime of another workspace')
+  })
+})
+
+/**
+ * A MOVE REACHES THE CALLER'S OWN SESSIONS ONLY (POD-7606). The contract's row
+ * gate is the machine; the session is gated by the session commands' own target
+ * check: its owner, and nobody else's, admin or not (design §2.3). A refusal
+ * reads exactly like a session that does not exist, and nothing is provisioned.
+ */
+describe('cloud.moveSession acts on the caller’s own sessions only', () => {
+  const open: SessionStore[] = []
+  afterEach(async () => {
+    await open[0]?.close()
+    open.length = 0
+  })
+
+  const ADMIN = asUserId('usr_move_admin')
+  const ALICE = asUserId('usr_move_alice')
+  const BOB = asUserId('usr_move_bob')
+  const repo = { provider: 'github', owner: 'madeinorbit', name: 'podium' } as const
+
+  async function world() {
+    const [store] = await openWorkspaceStores(['ws_cloud_move'], { path: ':memory:' })
+    open.push(store)
+    const people = [
+      [ADMIN, 'admin'],
+      [ALICE, 'member'],
+      [BOB, 'member'],
+    ] as const
+    for (const [id, role] of people) {
+      await memberFacts(store).create({
+        id,
+        displayName: id,
+        email: null,
+        role,
+        createdAt: '2026-11-25T10:00:00.000Z',
+        disabledAt: null,
+      })
+    }
+    const cloud = captureCloudProvider()
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const repos = new RepoRegistry(registry, registry.sessionStore)
+    const superagent = await SuperagentService.create(
+      registry.modules,
+      repos,
+      registry.sessionStore,
+    )
+
+    // Each person on a machine of their own: custody grants them `use` there.
+    const sessionOf = new Map<UserId, SessionId>()
+    for (const [id] of people) {
+      const machineId = asMachineId(`machine-${id}`)
+      await store.machines.upsertMachine({
+        id: machineId,
+        name: machineId,
+        hostname: machineId,
+        tokenHash: `${machineId}-token`,
+        ownerUserId: id,
+        assignment: { server: false, agentExecution: true },
+      })
+      await attachDaemonWithInventory(registry, machineId)
+      const { sessionId } = await registry.modules.issueSessionLifecycle.resumeSession({
+        ownerUserId: id,
+        agentKind: 'codex',
+        cwd: '/workspace/podium',
+        resume: { kind: 'codex-thread', value: `thread-${id}` },
+        conversationId: `conversation-${id}`,
+        title: `${id}'s session`,
+        machineId,
+        spawnedBy: 'user',
+      })
+      sessionOf.set(id, sessionId)
+    }
+
+    const as = async (user: UserId, role: 'admin' | 'member') => {
+      // As the edge mints a signed-in person's capability.
+      const { capability } = userCommandPrincipal(registry.workspaceId, user, role)
+      return appRouter.createCaller({
+        registry,
+        repos,
+        boundWorkspace: registry.sessionStore.workspaceId,
+        superagent,
+        cloud: cloud.provider,
+        capability,
+        // The served resolver, over this store's member rows (POD-7558).
+        principal: await registry.modules.sessions.principalFor(capability),
+      })
+    }
+    const session = (owner: UserId) => sessionOf.get(owner)!
+    return { cloud, registry, as, session }
+  }
+
+  const notFound = { code: 'NOT_FOUND', message: 'session not found' }
+
+  it('a member cannot move another member’s session, and learns nothing about it', async () => {
+    const { cloud, registry, as, session } = await world()
+    const bob = await as(BOB, 'member')
+
+    await expect(bob.cloud.moveSession({ sessionId: session(ALICE), repo })).rejects.toMatchObject(
+      notFound,
+    )
+    // With hibernateLocal too: Alice's session is neither provisioned nor parked.
+    await expect(
+      bob.cloud.moveSession({ sessionId: session(ALICE), repo, hibernateLocal: true }),
+    ).rejects.toMatchObject(notFound)
+    // The same answer as an id that names no session at all.
+    await expect(
+      bob.cloud.moveSession({ sessionId: 'ses_missing' as SessionId, repo }),
+    ).rejects.toMatchObject(notFound)
+    expect(cloud.createdAgents).toEqual([])
+    expect((await registry.modules.sessions.sessionById(session(ALICE)))?.status).not.toBe(
+      'hibernated',
+    )
+  })
+
+  it('an admin cannot move a member’s session either', async () => {
+    const { cloud, as, session } = await world()
+    const admin = await as(ADMIN, 'admin')
+    await expect(
+      admin.cloud.moveSession({ sessionId: session(ALICE), repo }),
+    ).rejects.toMatchObject(notFound)
+    expect(cloud.createdAgents).toEqual([])
+  })
+
+  it('the owner moves their own session, member or admin', async () => {
+    const { cloud, as, session } = await world()
+    await (await as(ALICE, 'member')).cloud.moveSession({ sessionId: session(ALICE), repo })
+    await (await as(ADMIN, 'admin')).cloud.moveSession({ sessionId: session(ADMIN), repo })
+    expect(cloud.createdAgents.map((request) => request.sourceSession?.sessionId)).toEqual([
+      session(ALICE),
+      session(ADMIN),
+    ])
+    expect(cloud.createdAgents.map((request) => request.sourceSession?.resumeRef)).toEqual([
+      `thread-${ALICE}`,
+      `thread-${ADMIN}`,
+    ])
   })
 })
