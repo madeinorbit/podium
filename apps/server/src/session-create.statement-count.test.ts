@@ -31,10 +31,11 @@ import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 import { testStoreEngine } from './test-support/pg-test-database'
-import { expectConstantRoundTrips } from './test-support/round-trip-count'
+import { countRoundTrips, expectConstantRoundTrips } from './test-support/round-trip-count'
 import {
   expectArmed,
   expectConstantStatements,
+  measureAtSizes,
   quietShipping,
   type StatementPin,
 } from './test-support/statement-count'
@@ -276,6 +277,39 @@ describe('session create: pinned statement counts at 5 and 200', () => {
   // size. On SQLite the commits coalesce the same way every run, and the round-trip pin
   // there is the Postgres driver's model of the same calls.
   const onSqliteFeedTiming = it.runIf(testStoreEngine() !== 'pg')
+
+  // The benchmark records the complete PG operation, including publications whose
+  // coalescing depends on I/O timing. The deterministic PG budget is pinned separately.
+  it.runIf(process.env.PODIUM_ROUND_TRIP_REPORT === '1' && testStoreEngine() === 'pg')(
+    'over tRPC: Postgres measurement',
+    async () => {
+      await measureAtSizes(trpc)
+    },
+    120_000,
+  )
+
+  it.runIf(process.env.PODIUM_ROUND_TRIP_REPORT === '1')(
+    'issue frame reads: Postgres measurement',
+    async () => {
+      const f = await fixture(50)
+      try {
+        const ids = (await f.store.sessions.getSessions(f.others as never)).values()
+        const counted = await countRoundTrips(f.store, async () => {
+          await f.reg.issues.reports.readyList('/repo')
+          for (const row of ids) if (row.issueId) await f.reg.issues.reports.get(row.issueId)
+        })
+        expect(counted.roundTrips).toBeGreaterThan(0)
+        console.log(
+          `OPERATION-SAMPLE ${JSON.stringify({ name: 'issue frame reads (50)', size: 50, engine: testStoreEngine(), statements: counted.statements, roundTrips: counted.roundTrips, byCall: Object.fromEntries(counted.byCall) })}`,
+        )
+      } finally {
+        await f.superagent.dispose()
+        await f.reg.dispose()
+        await f.store.close()
+      }
+    },
+    120_000,
+  )
 
   onSqliteFeedTiming('over tRPC', async () => {
     // POD-6890: the same removed accounts environment read applies over tRPC: 106 -> 105.

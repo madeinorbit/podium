@@ -28,6 +28,7 @@ import {
   withOwnOperation,
 } from '../store/executor/operation-scope'
 import {
+  probeRoundTrips,
   probeStatements,
   type StatementObservation,
   type StatementProbeHolder,
@@ -185,9 +186,28 @@ export async function measureAtSizes<Fixture>(pin: StatementPin<Fixture>): Promi
     const fixture = await pin.setup(size)
     try {
       const run = () => pin.run(fixture, size)
-      const counted = pin.count
-        ? await pin.count(fixture, run)
-        : await countStatements(pin.target(fixture), run)
+      const trips: string[] = []
+      const reporting = process.env.PODIUM_ROUND_TRIP_REPORT === '1' && !pin.count
+      const detach = reporting
+        ? probeRoundTrips(pin.target(fixture) as StatementProbeHolder, (trip) => {
+            trips.push(
+              `${trip.call} (${trip.root ? 'root' : trip.lane})${trip.key ? `: ${trip.key}` : ''}`,
+            )
+          })
+        : () => {}
+      let counted: { result: unknown } & StatementTally
+      try {
+        counted = pin.count
+          ? await pin.count(fixture, run)
+          : await countStatements(pin.target(fixture), run)
+      } finally {
+        detach()
+      }
+      if (reporting && !pin.name.includes('planted per-row loop')) {
+        console.log(
+          `OPERATION-SAMPLE ${JSON.stringify({ name: pin.name, size, engine: testStoreEngine(), statements: counted.statements, roundTrips: trips.length, byCall: Object.fromEntries(tallyOf(trips).byQuery) })}`,
+        )
+      }
       await pin.check?.(counted.result, fixture, size)
       return counted
     } finally {
