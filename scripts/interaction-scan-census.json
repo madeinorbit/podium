@@ -42336,58 +42336,57 @@
     },
     {
       "file": "packages/client-graph/src/issue-page.ts",
-      "holder": "createIssueDetailLists/seats/callback/get/callback",
+      "holder": "createIssueDetailLists/seats/callback/holding/callback",
       "rule": "reader-summary",
-      "tokens": "904eeded49e2f7e6fa7380866ab9f2d6831fdf197c40b434def131f3ed07c157",
+      "tokens": "08a1e55fea5005907fc41422fcbb9af1f75e49c75c59ae74c90636a7c9d7ce72",
       "gate": [
-        "then:0505447d635c7775f3b081ef21a4604c51456be68313c5d533bbb3abc9221b3f",
         "else:6f15a33b54cda63bda3f63c7f2acd07b257181db88b0d0e06f0939380122b383"
       ],
       "origin": [
-        "f82bcaa74a56dcdfea4297252ca9d1299dcede38be59974d327aaf6b2c366f97"
+        "1f50fdc57e480e96068c8c07ed016a656e21ba698813825ba64ffb867d1db279"
       ],
-      "fingerprint": "8b3c6b4496a1c804e68a5bbc5892934402efc8d8d55dc272e95233bd6c5ac65f",
+      "fingerprint": "aa4c475886c434f20e8ce7e70aa1c61dcf843136a16947a1c2eaa57126fc2f1b",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7579",
       "trigger": "The issue page or dock reads one issue's roster or roster count.",
       "bound": "One issue's sessions, behind the held marker of session.ofIssue for that issue; counts are declared subset sizes.",
-      "reason": "The roster answers LOADING until the issue sessions are held complete, then reads its incremental query result.",
+      "reason": "Which hold a list waits for: the issue sessions, or its tree; one marker read, no member walk (POD-7595 split it out of the list read).",
       "guard": "issue-page-relation-reads.test.ts proves the request, the held instance and the release on close."
     },
     {
       "file": "packages/client-graph/src/issue-page.ts",
       "holder": "createIssueDetailLists/seats/callback/get/callback",
       "rule": "reader-summary",
-      "tokens": "6f3c745ffe04ff3017e7f12a27a812debe1b30a02dd2fb0d79a250f4ae3476eb",
+      "tokens": "3e25d1671c2d73511efd19c4657b731f9e97f0cb235539c489c2f0aedb25a472",
       "gate": [
-        "then:0505447d635c7775f3b081ef21a4604c51456be68313c5d533bbb3abc9221b3f",
-        "then:6f15a33b54cda63bda3f63c7f2acd07b257181db88b0d0e06f0939380122b383"
+        "then:04d6dc3d3f7ee85b696477b3ac7b56d469a5bf181e528b7559da4048821e87af"
       ],
       "origin": [
-        "4cb95a10ceb8fe499cc578c2bbe8e1c1de97942bd07700439c0ca6fe12570a3d"
+        "1f50fdc57e480e96068c8c07ed016a656e21ba698813825ba64ffb867d1db279",
+        "766dd01b54553db3f3fa0a93b79b27c6011cb455df71f8d75802f2907b4d6979"
       ],
-      "fingerprint": "131295287ca9d81a4fee2107c8833cb85fb41b7af529220d619caa013a3cc41e",
+      "fingerprint": "a957525028ae5ce082632ad8c7d1ab2af71abdff724fc77954de7db70e888b3e",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7579",
-      "trigger": "A dock sub-task row, or show in deck, reads one issue's open seats.",
-      "bound": "One issue's open sessions, behind the held tree of its top-level issue (issueProjection.tree, whose comesWith brings the deck's sessions) and session.live.",
-      "reason": "The open-seat list answers LOADING until the tree is held complete, then reads its incremental query result; it never asks for the archived history.",
+      "trigger": "The issue page or dock reads one issue's roster, or a dock sub-task row (show in deck) its open seats.",
+      "bound": "One issue's sessions, behind the held marker of session.ofIssue for that issue, or for open seats the held tree of its top-level issue (issueProjection.tree) and session.live.",
+      "reason": "The list answers LOADING until what it waits for is held complete (a refused one stays LOADING and reads as unavailable, POD-7595), then reads its incremental query result.",
       "guard": "issue-page-relation-reads.test.ts proves the tree request, no session.ofIssue request and the release on close."
     },
     {
       "file": "packages/client-graph/src/issue-page.ts",
       "holder": "createIssuePageViews/attachedSessions",
       "rule": "reader-summary",
-      "tokens": "51fad36954b041cd61f5ace5575d8a8d44781ea5838c058fa5a9c2eb2b931f17",
+      "tokens": "47a71aa99cbfd13b228e87ceaeb88f160032bb37873fb513fa4b982e065b8990",
       "gate": [
         "||:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8"
       ],
       "origin": [
-        "f82bcaa74a56dcdfea4297252ca9d1299dcede38be59974d327aaf6b2c366f97"
+        "1f50fdc57e480e96068c8c07ed016a656e21ba698813825ba64ffb867d1db279"
       ],
-      "fingerprint": "d16cfd9bdae237b3a3ed7ccda1cda6977412211c67a6b34afa8f59d248b42ebc",
+      "fingerprint": "926e13759a4752715c6dc7b4cf1005304a3848124a2db67f3ae81b037fc5ae20",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7579",
@@ -42400,14 +42399,14 @@
       "file": "packages/client-graph/src/issue-page.ts",
       "holder": "createIssuePageViews/memberSessions",
       "rule": "reader-summary",
-      "tokens": "c3d3707aa11eb54a014bbf480b297704ccfea4cfc8b6a79260ddf63a0bc9fc87",
+      "tokens": "2cdda3a59541fc75ef4cbd5adeb0ada0695196ecdb6785c1b66f3e9d5212f265",
       "gate": [
         "||:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8"
       ],
       "origin": [
-        "f82bcaa74a56dcdfea4297252ca9d1299dcede38be59974d327aaf6b2c366f97"
+        "1f50fdc57e480e96068c8c07ed016a656e21ba698813825ba64ffb867d1db279"
       ],
-      "fingerprint": "e90d6173bcfe20e7c48efbee98b2c6d24c3b2ffd87bab4b08e6a39443ee65a35",
+      "fingerprint": "53af117d92ac3face10873daf062497a7b0c60f63fc1d01f4abbd008ecbb1a44",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7579",
@@ -42420,12 +42419,12 @@
       "file": "packages/client-graph/src/issue-page.ts",
       "holder": "IssuePageRow/retiredCount",
       "rule": "reader-summary",
-      "tokens": "0a021289feffaf6f415b40fdf1b9e56ff62e4e3cf7749dcaaeb5e7cacb922801",
+      "tokens": "610ae1330a19843a97c6dd7ecb39e58661980806035dc7e72d07bcd47967fbcb",
       "gate": [],
       "origin": [
-        "f82bcaa74a56dcdfea4297252ca9d1299dcede38be59974d327aaf6b2c366f97"
+        "1f50fdc57e480e96068c8c07ed016a656e21ba698813825ba64ffb867d1db279"
       ],
-      "fingerprint": "4e14ecc8af9a344962c02522af4aebd60e714dce8f5e13415c34da6b6a544d7b",
+      "fingerprint": "93003f94c76999edfeb2da3d224bdec8c565bb335df292bdf813f9ec33ee3332",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7579",
@@ -42438,12 +42437,12 @@
       "file": "packages/client-graph/src/issue-page.ts",
       "holder": "IssuePageRow/rosterCount",
       "rule": "reader-summary",
-      "tokens": "0a021289feffaf6f415b40fdf1b9e56ff62e4e3cf7749dcaaeb5e7cacb922801",
+      "tokens": "610ae1330a19843a97c6dd7ecb39e58661980806035dc7e72d07bcd47967fbcb",
       "gate": [],
       "origin": [
-        "f82bcaa74a56dcdfea4297252ca9d1299dcede38be59974d327aaf6b2c366f97"
+        "1f50fdc57e480e96068c8c07ed016a656e21ba698813825ba64ffb867d1db279"
       ],
-      "fingerprint": "2a8436c36de9e8b494abc163cd82f6ff671e4ead796471b924f0b6f979d9e210",
+      "fingerprint": "e0c88da7ac84d1be21d9d5da3d9f693cd67bf1434573d46dc71901c18a94b080",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7579",
@@ -42451,6 +42450,43 @@
       "bound": "One issue's sessions, behind the held marker of session.ofIssue for that issue; counts are declared subset sizes.",
       "reason": "The roster answers LOADING until the issue sessions are held complete, then reads its incremental query result.",
       "guard": "issue-page-relation-reads.test.ts proves the request, the held instance and the release on close."
+    },
+    {
+      "file": "packages/client-graph/src/issue-page.ts",
+      "holder": "createIssueDetailLists/seats/callback/unavailable/callback",
+      "rule": "reader-summary",
+      "tokens": "3e25d1671c2d73511efd19c4657b731f9e97f0cb235539c489c2f0aedb25a472",
+      "gate": [],
+      "origin": [
+        "1f50fdc57e480e96068c8c07ed016a656e21ba698813825ba64ffb867d1db279",
+        "766dd01b54553db3f3fa0a93b79b27c6011cb455df71f8d75802f2907b4d6979"
+      ],
+      "fingerprint": "26c030242c90aea06798395d7d479472a9a732d924e7a786d651984223e4c95f",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7595",
+      "trigger": "The issue page, dock or phone asks whether a list's hold was refused.",
+      "bound": "One marker read of the hold the list waits for (session.ofIssue, session.bornOf or the tree); no member walk.",
+      "reason": "A refused hold is not held and is not asked again because it is read; the screen says not available instead of loading (POD-7595).",
+      "guard": "refused-holds-empty-device.test.ts proves the flags and a single request."
+    },
+    {
+      "file": "packages/client-graph/src/issue-page.ts",
+      "holder": "sessionsHeld",
+      "rule": "reader-summary",
+      "tokens": "bb1855b3df130fd4a86867eb07640a5f037b4b02dc936e5726b749daa47686b0",
+      "gate": [],
+      "origin": [
+        "1f50fdc57e480e96068c8c07ed016a656e21ba698813825ba64ffb867d1db279"
+      ],
+      "fingerprint": "6b52f4c506827e870415fb9c303c4be0d57a93cc28cace94df9cf1164e7f6f86",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7595",
+      "trigger": "The issue page or dock reads one issue's roster or roster count.",
+      "bound": "One marker read of session.ofIssue (or session.bornOf) for that issue.",
+      "reason": "Whether the roster's hold is held; a refused one answers false and asks nothing more (POD-7595).",
+      "guard": "refused-holds-empty-device.test.ts and issue-page-relation-reads.test.ts prove one request."
     }
   ]
 }
