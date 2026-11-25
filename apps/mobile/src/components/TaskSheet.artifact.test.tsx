@@ -25,9 +25,18 @@ import { session } from '../../../../packages/sync/src/conformance/collection-se
  */
 
 afterEach(cleanup)
-const state = vi.hoisted(() => ({ pool: null as MobxPool | null }))
+const state = vi.hoisted(() => ({ pool: null as MobxPool | null, head: false }))
 vi.mock('../client/mobile-pool', () => ({ useMobilePool: () => state.pool }))
 vi.mock('../client/use-issue-close', () => ({ useIssueCloseGuard: () => () => false }))
+// The head's commands: a start from it would be a false Run now (POD-7595).
+const startIssueSession = vi.hoisted(() => vi.fn())
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<typeof import('@podium/client-core/react')>()),
+  useCommands: () => ({
+    issues: { update: vi.fn(async () => {}), close: vi.fn(async () => {}) },
+    sessions: { startIssueSession },
+  }),
+}))
 
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
@@ -61,8 +70,21 @@ vi.mock('expo-router', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 vi.mock('./BottomSheet', async () => {
   const { View } = await import('react-native')
   return {
-    BottomSheet: ({ visible, children }: { visible: boolean; children: React.ReactNode }) =>
-      visible ? <View testID="sheet">{children}</View> : null,
+    BottomSheet: ({
+      visible,
+      head,
+      children,
+    }: {
+      visible: boolean
+      head?: React.ReactNode
+      children: React.ReactNode
+    }) =>
+      visible ? (
+        <View testID="sheet">
+          {state.head ? head : null}
+          {children}
+        </View>
+      ) : null,
     dismissThen: (close: () => void, action: () => void) => () => {
       close()
       action()
@@ -133,6 +155,7 @@ it('a refused session history: no queued claim, no Run now or Answer (POD-7595)'
     },
   })
   state.pool = device.pool
+  state.head = true
   const view = render(
     <TaskSheet
       issue={device.pool.issueObject('sheet') as unknown as IssueViewModel}
@@ -146,14 +169,19 @@ it('a refused session history: no queued claim, no Run now or Answer (POD-7595)'
     expect(view.getByTestId('sheet-sessions-unavailable')).toBeTruthy()
     expect(view.queryByLabelText('Run now')).toBeNull()
     expect(view.queryByLabelText('Answer')).toBeNull()
+    expect(startIssueSession).not.toHaveBeenCalled()
     expect(view.getByLabelText('Agents and sessions: Not available')).toBeTruthy()
-    expect(
-      device.requestedKeys().filter((key) => key === 'session.ofIssue{"issueId":"sheet"}'),
-    ).toHaveLength(1)
+    // Each instance once: the history itself, and what the task's tree comes with.
+    const asked = device
+      .requested()
+      .filter((each) => each.collection === 'session.ofIssue')
+      .map((each) => each.via ?? 'own')
+    expect(asked.sort()).toEqual(['issueProjection.tree', 'own'])
   } finally {
     view.unmount()
     device.dispose()
     state.pool = null
+    state.head = false
   }
 })
 
