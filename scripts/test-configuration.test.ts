@@ -54,6 +54,7 @@ import {
 } from './parity-release-proof'
 import { diffAgainstPlan, verify } from './server-test-shards'
 import { runWithHeavyTestLease } from './test-heavy'
+import { LANES } from './test-lanes'
 import {
   footer,
   LEAN_GATE_FILES,
@@ -967,6 +968,11 @@ describe('test lane configuration', () => {
   })
 
   it('guards direct package validation and passes root ownership through Turbo', () => {
+    const laneEntry = new URL('./test-lane.ts', import.meta.url)
+    expect(readFileSync(laneEntry, 'utf8')).toContain('await runFocusedVitest(')
+    expect(readFileSync(new URL('./test-focused.ts', import.meta.url), 'utf8')).toContain(
+      'return runWithValidationAdmission(',
+    )
     const root = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       workspaces: string[]
     }
@@ -991,6 +997,17 @@ describe('test lane configuration', () => {
             script,
             `${pkg.name ?? file.pathname}#${name} must stay admission-free`,
           ).not.toContain('validation-admission.ts')
+          continue
+        }
+        const [runtime, entry, laneName, ...extra] = script.split(/\s+/)
+        if (entry && new URL(entry, file).href === laneEntry.href) {
+          expect(runtime).toBe('bun')
+          expect(extra).toEqual([])
+          const lane = laneName ? LANES[laneName] : undefined
+          expect(lane && resolve(fileURLToPath(new URL('../', import.meta.url)), lane.cwd)).toBe(
+            dirname(fileURLToPath(file)),
+          )
+          expect(lane?.admission).toMatch(/^(focused|heavy)$/)
           continue
         }
         expect(
