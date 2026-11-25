@@ -48,6 +48,11 @@ async function fixture(size: number): Promise<Oracle> {
     })
     await o.store.settings.applyPreferencePatch(other, { 'sidebar.repoSort': 'custom' }, AT)
   }
+  // The setup's own deliveries run before the count, not inside it (POD-7068).
+  // Each member's join is a delivery that, since POD-7552 (6ac0969a11), records
+  // the access moves it names: left queued, about a third of them ran inside the
+  // edit's window at 200 members and read as growth of the edit (27 -> 352).
+  await o.reg.changeLedger.authority.settled()
   return o
 }
 
@@ -56,8 +61,11 @@ const instanceEdit = {
   name: 'records.instancePreferences.edit',
   setup: fixture,
   target: (o) => o.store,
-  run: async (o) =>
-    appliedReply(
+  // The edit's own delivery runs inside the count, whole (POD-7068): it trails
+  // the commit, and a window that ended when the submit returned held as many of
+  // its reads as had started by then.
+  run: async (o) => {
+    const reply = appliedReply(
       await submit(
         o,
         envelope(
@@ -69,7 +77,10 @@ const instanceEdit = {
           `instance-${seq}`,
         ),
       ),
-    ),
+    )
+    await o.reg.changeLedger.authority.settled()
+    return reply
+  },
   // The edit must PUBLISH its record, not only write the blob: a source that stops
   // capturing the settings row costs about as many statements as the move that
   // broke it, so the count alone did not show the lost change (POD-7061).
@@ -91,11 +102,18 @@ describe('statement counts of the instance settings edit', () => {
     // (POD-7013) while its record source still named meta, so the edit published
     // no change and still ran 18. With the source on workspace_meta it publishes
     // again: the change row, the feed head and the record's read of the new blob.
-    await expectConstantStatements(instanceEdit, 21)
+    // POD-7604: re-measured with the setup's deliveries drained and the edit's own
+    // delivery counted whole: 18 at 5 and at 200 members. Undrained, the members'
+    // join deliveries (each recording access moves since POD-7552, 6ac0969a11) ran
+    // inside the window and read as growth, 27 at 5 and 352 at 200. The 18: the
+    // ledger's lookup and receipt, the caller's account and preferences, the
+    // settings and secret reads, the blob write and its audit, the capture and
+    // drain, the change row and the feed head; nothing per member.
+    await expectConstantStatements(instanceEdit, 18)
   })
 
   it('is armed: a read per member on the edit path fails it', async () => {
-    await expectArmed(instanceEdit, 21, (o, size) => {
+    await expectArmed(instanceEdit, 18, (o, size) => {
       const users = o.store.users
       const original = users.roleOf.bind(users)
       users.roleOf = async (user) => {
