@@ -74,6 +74,8 @@ import {
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import { isUnexpectedFailure } from '../../client-error-diagnostics'
+import { clientRefusalCode } from '../../client-refusal'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import { liveSessionsUsingWorktree } from '../../issue-util'
 import {
@@ -207,7 +209,11 @@ function failedOf(error: unknown): EffectOutcome {
   if (isIssueRefusal(error)) return failed(REFUSED, message)
   if (isIssueNotFound(error)) return failed(NOT_FOUND, message)
   if (isIssueForbidden(error)) return failed('FORBIDDEN', message)
-  if (error instanceof TRPCError) return failed(error.code, message)
+  // A fault tRPC wrapped stays a fault: rebuilt as a coded error its text
+  // would read as a sentence for the caller (POD-7617).
+  if (error instanceof TRPCError && !isUnexpectedFailure(error)) return failed(error.code, message)
+  const branded = clientRefusalCode(error)
+  if (branded !== undefined) return failed(branded, message)
   return failed('failed', message)
 }
 
@@ -433,8 +439,7 @@ export function registerIssueWorkEffects(deps: IssueWorkEffectDeps): void {
     const own = self === undefined ? undefined : members.find((m) => m.sessionId === self)
     if (own !== undefined) {
       stopped.push(own.sessionId)
-      deferredKill =
-        own.status === 'live' || own.status === 'starting'
+      deferredKill = own.status === 'live' || own.status === 'starting'
     }
     const kill = deferredKill
       ? {
@@ -849,9 +854,10 @@ function answerOf(name: IssueWorkCommand, id: string, row: EffectRow | undefined
     }
     case 'pending':
     case 'running':
-      throw new Error(
-        `issues.${name} is still running as effect ${id}${row.stage ? ` (${row.stage})` : ''}; its status shows on the issue`,
-      )
+      throw new TRPCError({
+        code: 'TIMEOUT',
+        message: `issues.${name} is still running as effect ${id}${row.stage ? ` (${row.stage})` : ''}; its status shows on the issue`,
+      })
     default:
       throw new Error(`issues.${name} ${row.status}: ${row.error?.message ?? ''}`.trim())
   }

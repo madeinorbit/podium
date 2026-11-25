@@ -1190,8 +1190,9 @@ describe('session handoff as an effect record (POD-6422)', () => {
       actor: `session:${sessionId}`,
       status: 'failed',
     })
-    // The relay names the error's class, as it did when the arm threw it itself.
-    expect(answer.error).toBe(`HandoffRefusalError: ${row?.error?.message}`)
+    // The relay answers the refusal in its own words (POD-7617): it is written
+    // for the caller, and a class name is the server's vocabulary.
+    expect(answer.error).toBe(row?.error?.message)
   })
 
   it('recovers from the session row: arrived, untouched on the source, or unknown', async () => {

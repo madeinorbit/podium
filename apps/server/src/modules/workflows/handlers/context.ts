@@ -56,6 +56,8 @@ import type {
   WorkflowRunWire,
   WorkflowWire,
 } from '@podium/protocol'
+import { TRPCError } from '@trpc/server'
+import { CLIENT_REFUSAL, type RefusalCode, refusalKindCode } from '../../../client-refusal'
 import { attributionOf, onBehalfOfUser } from '../../../command-principal'
 import type { WorkflowCaller, WorkflowEngine, WorkflowServiceDeps } from '../service'
 
@@ -90,6 +92,9 @@ import type { WorkflowCaller, WorkflowEngine, WorkflowServiceDeps } from '../ser
  * `Error` on purpose, so nothing that compared these errors before can tell.
  */
 export class WorkflowRefusal extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return refusalKindCode(this.kind)
+  }
   constructor(
     readonly kind: 'not-found' | 'unauthorized' | 'conflict' | 'invalid',
     message: string,
@@ -325,7 +330,11 @@ export class WorkflowAccess {
    */
   owner(caller: WorkflowCaller): string {
     const owner = this.principal(caller).onBehalfOf
-    if (owner === null) throw new Error('workflow caller has no live human owner')
+    if (owner === null)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'workflow caller has no live human owner',
+      })
     return owner
   }
 
@@ -689,7 +698,8 @@ export class WorkflowAccess {
     if (decision === 'unauthorized') {
       throw new WorkflowRefusal('unauthorized', machineUnauthorized(machineId))
     }
-    if (decision === 'unreachable') throw new Error(machineUnreachable(machineId))
+    if (decision === 'unreachable')
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: machineUnreachable(machineId) })
   }
 
   /** The machine a session sits on, for the assign-time placement check. */

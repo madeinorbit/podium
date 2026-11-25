@@ -1,4 +1,6 @@
 import { describeError } from '@podium/logger'
+import { TRPCError } from '@trpc/server'
+import { clientRefusalCode } from './client-refusal'
 
 /**
  * Whether an error a client receives may carry the server's own diagnostics: the
@@ -31,12 +33,94 @@ export const CLIENT_ERROR_DIAGNOSTICS = clientErrorDiagnostics({
   nodeEnv: process.env.NODE_ENV,
 })
 
+// ---------------------------------------------------------------------------
+// Refusals and faults (POD-7617)
+// ---------------------------------------------------------------------------
+
 /**
- * The text a client gets for an unexpected failure: the whole cause chain where
- * diagnostics go to clients, the error's own sentence otherwise. The caller logs
- * the error itself, which keeps the chain either way.
+ * Whether a tRPC error is a fault nobody wrote for the client: an
+ * `INTERNAL_SERVER_ERROR` with a cause. tRPC builds exactly that around any
+ * plain throw, and its message is then the thrown error's own (Drizzle's
+ * `Failed query: insert into …` with the statement). An internal error a
+ * procedure wrote itself, with a message and no cause, is a sentence for the
+ * caller and stays.
  */
-export function errorTextForClient(error: unknown, diagnostics: boolean): string {
-  if (diagnostics) return describeError(error)
-  return error instanceof Error ? error.message : String(error)
+export function isUnexpectedFailure(error: {
+  readonly code: string
+  readonly cause?: unknown
+}): boolean {
+  return error.code === 'INTERNAL_SERVER_ERROR' && error.cause !== undefined
+}
+
+/**
+ * The typed answer for a branded refusal tRPC took for a fault (a plain throw of
+ * one becomes `INTERNAL_SERVER_ERROR` with it as the cause); `undefined` leaves
+ * the error as it is.
+ */
+export function brandedRefusalInPlaceOfFault(error: TRPCError): TRPCError | undefined {
+  if (!isUnexpectedFailure(error)) return undefined
+  const code = clientRefusalCode(error.cause)
+  if (code === undefined || !(error.cause instanceof Error)) return undefined
+  return new TRPCError({ code, message: error.cause.message, cause: error.cause })
+}
+
+/** The first words of every unexpected failure's answer. */
+export const UNEXPECTED_FAILURE = 'The server could not complete this request'
+
+/** An unexpected failure's whole answer: the generic sentence and the reference
+ *  the server logged the error under. */
+export function unexpectedFailureMessage(reference: string): string {
+  return `${UNEXPECTED_FAILURE}; the server log has the details (reference: ${reference})`
+}
+
+const references = new WeakMap<object, string>()
+
+/**
+ * The reference an unexpected failure is logged and answered under. tRPC hands
+ * the same error object to `onError` (the log line) and to the formatter (the
+ * reply), so both read one reference whichever runs first.
+ */
+export function failureReference(error: object): string {
+  let reference = references.get(error)
+  if (reference === undefined) {
+    reference = crypto.randomUUID()
+    references.set(error, reference)
+  }
+  return reference
+}
+
+/**
+ * A refusal's own words, or `undefined` for a fault: a 4xx `TRPCError`, an
+ * internal error a procedure wrote without a cause, or a branded domain refusal
+ * (thrown as it is, or as the cause tRPC wrapped it in).
+ */
+export function refusalText(error: unknown): string | undefined {
+  if (error instanceof TRPCError) {
+    const typed = brandedRefusalInPlaceOfFault(error) ?? error
+    return isUnexpectedFailure(typed) ? undefined : typed.message
+  }
+  if (clientRefusalCode(error) !== undefined && error instanceof Error) return error.message
+  return undefined
+}
+
+/** Whether an error is a refusal written for the caller ({@link refusalText}). */
+export const isClientRefusal = (error: unknown): boolean => refusalText(error) !== undefined
+
+/**
+ * What the agent relay and MCP answer a failed call with. A refusal (a 4xx
+ * `TRPCError`, an internal error a procedure wrote without a cause, a branded
+ * domain refusal) keeps its own words; anything else is a fault and answers with
+ * the generic sentence and a `reference` the caller logs the error under. Where
+ * diagnostics go to clients (a server run from source) the cause chain follows
+ * the sentence.
+ */
+export function failureForClient(
+  error: unknown,
+  diagnostics: boolean,
+): { readonly text: string; readonly reference?: string } {
+  const refusal = refusalText(error)
+  if (refusal !== undefined) return { text: refusal }
+  const reference = crypto.randomUUID()
+  const text = unexpectedFailureMessage(reference)
+  return { text: diagnostics ? `${text}: ${describeError(error)}` : text, reference }
 }

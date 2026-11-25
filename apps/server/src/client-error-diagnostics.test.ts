@@ -26,6 +26,10 @@ function storeFailure(): TRPCError {
   })
 }
 
+/** An unexpected failure's answer (POD-7617). */
+const GENERIC =
+  /^The server could not complete this request; the server log has the details \(reference: [0-9a-f-]{36}\)$/
+
 /** Load-time env for each mode. The source mode states both values, because a
  *  runner may carry either one in its own environment. */
 const PACKAGED = { PODIUM_APP_VERSION: '1.2.3', NODE_ENV: undefined }
@@ -63,8 +67,12 @@ describe('the tRPC error shape on the wire', () => {
     expect(shape.data).not.toHaveProperty('stack')
     expect(shape.data).not.toHaveProperty('causeChain')
     expect(JSON.stringify(shape)).not.toMatch(/ECONNREFUSED|\.ts:\d|node_modules|\/src\//)
-    // What the client renders and branches on is unchanged.
-    expect(shape.message).toBe('Failed query: insert into "locks"')
+    // The message is not the store's: a generic sentence and a log reference
+    // (POD-7617). What the client branches on is unchanged.
+    expect(shape.message).toMatch(GENERIC)
+    expect(shape.message).toContain(
+      `(reference: ${String((shape.data as Record<string, unknown>).reference)})`,
+    )
     expect(shape.data.code).toBe('INTERNAL_SERVER_ERROR')
     expect(shape.data.httpStatus).toBe(500)
     expect(shape.data.path).toBe('issues.list')
@@ -85,6 +93,8 @@ describe('the tRPC error shape on the wire', () => {
       'causeChain',
       'Failed query: insert into "locks" ← connect ECONNREFUSED 10.0.0.9:5432',
     )
+    // The message is the generic one in either mode; the chain is the detail.
+    expect(shape.message).toMatch(GENERIC)
   })
 })
 
@@ -129,22 +139,54 @@ describe('a failed MCP tool call', () => {
     return body.result?.content?.[0]?.text
   }
 
-  it('tells a production agent the error, not what lies under it', async () => {
-    expect(await toolErrorText(false)).toBe('error: could not start the session')
+  it('tells a production agent a reference, not the error, and logs it under that reference', async () => {
+    const logs = captureLogs()
+    try {
+      const text = await toolErrorText(false)
+      expect(text?.replace(/^error: /, '')).toMatch(GENERIC)
+      expect(text).not.toMatch(/sessions|could not start/)
+      const logged = logs.at('warn').find((entry) => entry.msg === 'mcp tool call failed')
+      expect(text).toContain(`(reference: ${String(logged?.reference)})`)
+      expect(logged?.err).toMatchObject({
+        cause: { message: 'Failed query: select * from "sessions"' },
+      })
+    } finally {
+      logs.restore()
+    }
   })
 
   it('follows the production rule when the route is given no mode', async () => {
     stubLoadEnv(PACKAGED)
     const packaged = await import('./mcp-route')
-    expect(await toolErrorText(undefined, packaged.registerMcpRoute)).toBe(
-      'error: could not start the session',
-    )
+    expect(
+      (await toolErrorText(undefined, packaged.registerMcpRoute))?.replace(/^error: /, ''),
+    ).toMatch(GENERIC)
   })
 
-  it('keeps the chain in development', async () => {
-    expect(await toolErrorText(true)).toBe(
-      'error: could not start the session ← Failed query: select * from "sessions"',
-    )
+  it('keeps the chain after the reference in development', async () => {
+    const text = await toolErrorText(true)
+    expect(text).toMatch(/^error: The server could not complete this request; .*\(reference: /)
+    expect(text).toContain(': could not start the session ← Failed query: select * from "sessions"')
+  })
+
+  it('answers a refusal in its own words in either mode', async () => {
+    for (const diagnostics of [false, true]) {
+      expect(
+        await toolErrorText(diagnostics, (app, provider, token, opts) =>
+          registerMcpRoute(
+            app,
+            {
+              ...provider,
+              callMcpTool: async () => {
+                throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown tool: x' })
+              },
+            },
+            token,
+            opts,
+          ),
+        ),
+      ).toBe('error: unknown tool: x')
+    }
   })
 })
 

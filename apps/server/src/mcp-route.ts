@@ -1,7 +1,7 @@
 import { createLogger } from '@podium/logger'
 import type { ThreadId } from '@podium/model'
 import type { Hono } from 'hono'
-import { CLIENT_ERROR_DIAGNOSTICS, errorTextForClient } from './client-error-diagnostics'
+import { CLIENT_ERROR_DIAGNOSTICS, failureForClient } from './client-error-diagnostics'
 
 const log = createLogger('server:mcp')
 
@@ -53,8 +53,9 @@ export function registerMcpRoute(
   opts?: {
     resolveThread?: (threadToken: string) => ThreadId | undefined
     /** Whether a failed tool call's text carries its cause chain
-     *  ({@link CLIENT_ERROR_DIAGNOSTICS}, the default). Off, the agent gets the
-     *  error's own message and the server log keeps the chain (POD-7615). */
+     *  ({@link CLIENT_ERROR_DIAGNOSTICS}, the default). A fault answers with a
+     *  generic sentence and a log reference either way (POD-7617); on, the
+     *  chain follows it, and the server log keeps it always (POD-7615). */
     diagnostics?: boolean
   },
 ): void {
@@ -134,8 +135,14 @@ export function registerMcpRoute(
         const text = await provider.callMcpTool(name, body.params?.arguments ?? {}, threadId)
         return c.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text }] } })
       } catch (err) {
-        log.warn('mcp tool call failed', { tool: name, err })
-        const text = errorTextForClient(err, diagnostics)
+        // A refusal keeps its words; a fault answers with a generic sentence
+        // and the reference this line logs it under (POD-7617).
+        const { text, reference } = failureForClient(err, diagnostics)
+        log.warn('mcp tool call failed', {
+          tool: name,
+          ...(reference === undefined ? {} : { reference }),
+          err,
+        })
         return c.json({
           jsonrpc: '2.0',
           id,

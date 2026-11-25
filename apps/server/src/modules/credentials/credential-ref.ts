@@ -16,6 +16,7 @@
  */
 
 import { CREDENTIAL_ID_PREFIX, type CredentialId, type MachineId, type UserId } from '@podium/model'
+import { CLIENT_REFUSAL, type RefusalCode } from '../../client-refusal'
 import { type AccessRefusal, refuse } from './access'
 import { listCredentials } from './list'
 import { mayUse } from './may-use'
@@ -30,6 +31,9 @@ export type CredentialRefResult =
 
 /** A launch refused for the credential it named. The message is the sentence a person reads. */
 export class CredentialRefError extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return 'PRECONDITION_FAILED'
+  }
   override readonly name = 'CredentialRefError'
 
   constructor(

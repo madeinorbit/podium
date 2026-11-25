@@ -8,7 +8,12 @@
  * the target never saw the frame: a caller may treat the request as not begun.
  * Its own module so a caller can test for it without loading the machines service.
  */
+
+import { CLIENT_REFUSAL, type RefusalCode } from '../../client-refusal'
 export class RefusedSendError extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return 'PRECONDITION_FAILED'
+  }
   override readonly name = 'RefusedSendError'
 }
 

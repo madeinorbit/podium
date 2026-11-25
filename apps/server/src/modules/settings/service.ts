@@ -15,6 +15,8 @@ import {
 import type { PodiumSettings } from '@podium/runtime'
 import { configPath, onConfigChanged } from '@podium/runtime/config'
 import type { LedgerWriter } from '@podium/sync'
+import { TRPCError } from '@trpc/server'
+import { CLIENT_REFUSAL, type RefusalCode } from '../../client-refusal'
 import type { CommandPrincipal } from '../../command-principal'
 import { ModelCatalog, type ModelCatalogSnapshot, type ModelProbe } from '../../model-catalog'
 import type { TelegramConfig } from '../../notify'
@@ -102,7 +104,7 @@ async function telegramJson(
   const body = (await res.json().catch(() => ({}))) as TelegramApiBody
   if (res.ok && body.ok === true) return body
   const description = typeof body.description === 'string' ? body.description : `HTTP ${res.status}`
-  throw new Error(description)
+  throw new TRPCError({ code: 'BAD_REQUEST', message: description })
 }
 
 function telegramUpdateChatLabel(chat: {
@@ -146,7 +148,7 @@ const DEFAULT_TELEGRAM_SETUP_CLIENT: TelegramSetupClient = {
     const body = await telegramJson(botToken, 'getMe')
     const result = body.result as { username?: unknown } | undefined
     if (typeof result?.username !== 'string' || !result.username) {
-      throw new Error('Telegram bot username was missing')
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Telegram bot username was missing' })
     }
     return { username: result.username }
   },
@@ -295,6 +297,9 @@ export function bridgeConfigChanged(bus: EventBus): () => void {
  * write that can never apply (POD-6350).
  */
 export class SettingsPatchRefused extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return 'BAD_REQUEST'
+  }
   constructor(message: string) {
     super(message)
     this.name = 'SettingsPatchRefused'
@@ -444,10 +449,12 @@ export class SettingsService {
     if (changed.length === 0) return
     // Names the KEYS and never a value: the key vocabulary is public (the
     // presence projection publishes all five), the material is not.
-    throw new Error(
-      `settings.set may not write server-owned secrets (${changed.join(', ')}) — ` +
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message:
+        `settings.set may not write server-owned secrets (${changed.join(', ')}) — ` +
         'use settings.setSecret / settings.clearSecret, which are online-only and never queued (ADR 1 D6)',
-    )
+    })
   }
 
   /**
@@ -750,7 +757,11 @@ export class SettingsService {
    */
   async startTelegramSetup(userId: UserId): Promise<TelegramSetupStartResult> {
     const botToken = (await this.secrets.getOrEmpty('notifications.telegramBotToken')).trim()
-    if (!botToken) throw new Error('Telegram bot token is required before setup')
+    if (!botToken)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'Telegram bot token is required before setup',
+      })
 
     const { username } = await this.telegramSetup.getMe(botToken)
     const code = this.generateTelegramSetupCode()
@@ -797,7 +808,11 @@ export class SettingsService {
     }
 
     const botToken = (await this.secrets.getOrEmpty('notifications.telegramBotToken')).trim()
-    if (!botToken) throw new Error('Telegram bot token is required before setup')
+    if (!botToken)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'Telegram bot token is required before setup',
+      })
 
     const updates = await this.telegramSetup.getUpdates(botToken)
     // Disconnect can cancel a ceremony while the external request is in flight.

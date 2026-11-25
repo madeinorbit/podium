@@ -1,8 +1,7 @@
 import { createLogger } from '@podium/logger'
 import type { MachineId, SessionId, WorkspaceId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
-import { TRPCError } from '@trpc/server'
-import { CLIENT_ERROR_DIAGNOSTICS, errorTextForClient } from '../../client-error-diagnostics'
+import { CLIENT_ERROR_DIAGNOSTICS, failureForClient } from '../../client-error-diagnostics'
 import type { Capability } from '../../issue-authz'
 
 const log = createLogger('server:issues')
@@ -329,24 +328,20 @@ export class AgentRelayGate {
       // failing `podium lock` calls was invisible here (POD-3802 §2). `err`
       // rather than its message, because the logger walks `err.cause` and the
       // cause is where a store refusal lives.
+      // Expected refusals already carry their public message. Diagnostic class
+      // names and causes must not rewrite that contract. An unexpected failure
+      // answers with a generic sentence and the reference this line logs it
+      // under (POD-7617): its own message can be a store wrapper's SQL. Where
+      // diagnostics go to clients the chain follows the sentence (POD-7615).
+      const answer = failureForClient(err, this.deps.diagnostics ?? CLIENT_ERROR_DIAGNOSTICS)
       log.warn('agent command failed', {
         router: msg.router,
         proc: msg.proc,
         sessionId: msg.sessionId,
+        ...(answer.reference === undefined ? {} : { reference: answer.reference }),
         err,
       })
-      // Expected refusals already carry their public message. Diagnostic class
-      // names and causes must not rewrite that contract. Unexpected failures
-      // include the cause that explains an opaque database wrapper only where
-      // diagnostics go to clients; in production the log line above keeps it
-      // and the agent gets the error's own sentence (POD-7615).
-      reply({
-        ok: false,
-        error:
-          err instanceof TRPCError && err.code !== 'INTERNAL_SERVER_ERROR'
-            ? err.message
-            : errorTextForClient(err, this.deps.diagnostics ?? CLIENT_ERROR_DIAGNOSTICS),
-      })
+      reply({ ok: false, error: answer.text })
     }
   }
 }

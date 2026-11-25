@@ -38,6 +38,7 @@
  */
 
 import type { HandoffRefusalReason } from '@podium/model'
+import { CLIENT_REFUSAL, type RefusalCode } from '../../../client-refusal'
 import type { MachineAccessFailure } from '../../../machine-access'
 
 /**
@@ -51,6 +52,9 @@ import type { MachineAccessFailure } from '../../../machine-access'
  * additive (the same reason POD-643 could land the field as optional).
  */
 export class HandoffRefusalError extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return 'PRECONDITION_FAILED'
+  }
   constructor(
     message: string,
     readonly refusal: HandoffRefusalReason,
@@ -69,9 +73,8 @@ export class HandoffRefusalError extends Error {
  * mapping preserves that rather than re-deriving a distinction the layer below
  * deliberately refuses to make.
  */
-export const refusalForMachineAccess = (
-  failure: MachineAccessFailure,
-): HandoffRefusalReason => (failure === 'absent' ? 'unknown-target' : 'unauthorized')
+export const refusalForMachineAccess = (failure: MachineAccessFailure): HandoffRefusalReason =>
+  failure === 'absent' ? 'unknown-target' : 'unauthorized'
 
 /** The refusal reason on an error, when it carries one. */
 export const handoffRefusalOf = (error: unknown): HandoffRefusalReason | undefined =>

@@ -21,6 +21,7 @@
 
 import { createLogger } from '@podium/logger'
 import { asUserId, type MachineId, type UsageBucketWire, type UsageSourceWire } from '@podium/model'
+import { CLIENT_REFUSAL, type RefusalCode } from '../client-refusal'
 import type { PrivateResourceAccess } from '../private-resources'
 import type { SessionStore } from '../store'
 import { CostService } from './cost/service'
@@ -59,6 +60,9 @@ export interface UsageSummaryDeps {
  * person's usage to another, so the read fails closed.
  */
 export class UsageAttributionUnavailable extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return 'PRECONDITION_FAILED'
+  }
   constructor() {
     super(
       'Upgrade the answering daemon before viewing usage on a multi-member instance: it must report per-transcript usage buckets.',

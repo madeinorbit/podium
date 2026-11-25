@@ -42,8 +42,13 @@
  * for every caller. Both holes end here.
  */
 
+import { CLIENT_REFUSAL, type RefusalCode } from '../../../client-refusal'
+
 /** The service's "no such issue", carrying the ref the caller actually passed. */
 export class IssueNotFound extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return 'NOT_FOUND'
+  }
   constructor(readonly ref: string) {
     super(`unknown issue ${ref}`)
     this.name = 'IssueNotFound'

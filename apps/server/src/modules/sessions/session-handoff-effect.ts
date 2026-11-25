@@ -44,7 +44,9 @@ import {
   mintDeviceId,
   type SessionId,
 } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
+import { isClientRefusal } from '../../client-error-diagnostics'
 import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
 import type { EffectRow } from '../../store/effects'
@@ -74,20 +76,30 @@ const REFUSAL_REASONS: ReadonlySet<string> = new Set<HandoffRefusalReason>([
   'unknown-target',
 ])
 
+/** The record code of a run that failed rather than refused (POD-7617). */
+const HANDOFF_FAULT = 'failed'
+
 /** A run's thrown refusal, kept whole in the record: the classified reason
- *  when it has one, so {@link errorOfRecord} can rebuild the same error. */
+ *  when it has one, so {@link errorOfRecord} can rebuild the same error. A
+ *  refusal written for the caller is `refused`; any other throw is a fault,
+ *  recorded as {@link HANDOFF_FAULT} so the caller is not handed its text as a
+ *  refusal. */
 function failedOf(error: unknown): EffectOutcome {
   const message = error instanceof Error ? error.message : String(error)
-  return { status: 'failed', error: { code: handoffRefusalOf(error) ?? 'refused', message } }
+  const code = handoffRefusalOf(error) ?? (isClientRefusal(error) ? 'refused' : HANDOFF_FAULT)
+  return { status: 'failed', error: { code, message } }
 }
 
-/** The error the route always threw for a failed record. */
+/** The error the route always threw for a failed record: a refusal in its own
+ *  words, a fault as a plain error, which every transport answers with a
+ *  generic sentence. */
 export function errorOfRecord(row: Pick<EffectRow, 'error'>): Error {
   const code = row.error?.code ?? 'refused'
   const message = row.error?.message ?? 'handoff failed'
-  return REFUSAL_REASONS.has(code)
-    ? new HandoffRefusalError(message, code as HandoffRefusalReason)
-    : new Error(message)
+  if (REFUSAL_REASONS.has(code))
+    return new HandoffRefusalError(message, code as HandoffRefusalReason)
+  if (code === HANDOFF_FAULT) return new Error(message)
+  return new TRPCError({ code: 'PRECONDITION_FAILED', message })
 }
 
 export interface SessionHandoffEffectDeps {
@@ -226,14 +238,18 @@ export async function handoffThroughEffect(
     if (cause !== undefined) throw cause
     // A session that does not exist, as the route's pinned throw.
     if (reply.refusal.kind === 'unauthorized' || reply.refusal.kind === 'target-not-found') {
-      throw new Error(HANDOFF_UNKNOWN_SESSION)
+      throw new TRPCError({ code: 'NOT_FOUND', message: HANDOFF_UNKNOWN_SESSION })
     }
-    throw new Error(`the handoff was refused (${reply.refusal.kind})`)
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: `the handoff was refused (${reply.refusal.kind})`,
+    })
   }
   const settled = await effects.awaitSettled(id, SESSION_HANDOFF_WAIT_MS)
   if (settled?.status === 'succeeded') return settled.result as HandoffResult
   if (settled?.status === 'failed') throw errorOfRecord(settled)
-  throw new Error(
-    `the handoff is ${settled?.status ?? 'unknown'} as effect ${id}; it shows on the session`,
-  )
+  throw new TRPCError({
+    code: 'TIMEOUT',
+    message: `the handoff is ${settled?.status ?? 'unknown'} as effect ${id}; it shows on the session`,
+  })
 }

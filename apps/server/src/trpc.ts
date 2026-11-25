@@ -15,7 +15,14 @@ import type {
   Simplify,
   UnsetMarker,
 } from '@trpc/server/unstable-core-do-not-import'
-import { CLIENT_ERROR_DIAGNOSTICS } from './client-error-diagnostics'
+import {
+  brandedRefusalInPlaceOfFault,
+  CLIENT_ERROR_DIAGNOSTICS,
+  failureReference,
+  isUnexpectedFailure,
+  unexpectedFailureMessage,
+} from './client-error-diagnostics'
+import { clientRefusalCode } from './client-refusal'
 import type { CloudRuntimeProvider } from './cloud-runtime'
 import { actsInOrReport, type CommandPrincipal } from './command-principal'
 import type { Capability } from './issue-authz'
@@ -213,15 +220,41 @@ export function issueCaller(ctx: Context): IssueCaller {
  * install paths), and the server log keeps them (POD-7615). `conflict` and
  * `refusalCode` are structured answers written for the client and always go.
  *
+ * An unexpected failure ({@link isUnexpectedFailure}: tRPC's wrapper around a
+ * plain throw) answers with a generic sentence and `data.reference`, in either
+ * mode: its own message is the thrown error's, which for a store failure is the
+ * SQL statement (POD-7617). {@link logProcedureFailure} logs the error under the
+ * same reference. A refusal is written for the caller and keeps its message.
+ *
  * The router's formatter. It is exported for tests that build a shape by hand;
  * `createCaller` never runs it, so a test of the wire goes through tRPC's
  * `getErrorShape` with `t._config`.
  */
-export function errorShapeWithCause<TShape extends { data: Record<string, unknown> }>(
+export function errorShapeWithCause<
+  TShape extends { message: string; data: Record<string, unknown> },
+>(
   shape: TShape,
-  error: { readonly cause?: unknown },
+  error: { readonly code?: string; readonly cause?: unknown },
   diagnostics: boolean = CLIENT_ERROR_DIAGNOSTICS,
 ): TShape {
+  // A branded refusal the procedure middleware did not see (thrown before it,
+  // from context creation) still keeps its words; only a fault is replaced.
+  if (
+    error.code !== undefined &&
+    isUnexpectedFailure({ code: error.code, cause: error.cause }) &&
+    clientRefusalCode(error.cause) === undefined
+  ) {
+    const reference = failureReference(error)
+    return errorShapeWithCause(
+      {
+        ...shape,
+        message: unexpectedFailureMessage(reference),
+        data: { ...shape.data, reference },
+      },
+      { cause: error.cause },
+      diagnostics,
+    )
+  }
   const conflict = error.cause instanceof IssueRevisionConflict ? error.cause.detail : undefined
   const refused = credentialRefusalIn(error.cause)
   const refusalCode = refused ? credentialRefusalCode(refused.refusal) : undefined
@@ -272,6 +305,9 @@ export function logProcedureFailure(
     callType: type,
     path: path ?? '<unknown>',
     code: error.code,
+    // The reference the caller's answer names (POD-7617), so a reported
+    // reference finds this line.
+    ...(isUnexpectedFailure(error) ? { reference: failureReference(error) } : {}),
     // `err`, not `error.message`: a TRPCError keeps the real failure in
     // `cause`, the logger walks it recursively, and a message-only line is
     // what hid a store refusal behind Drizzle's wrapper (POD-3802 §2).
@@ -364,17 +400,21 @@ const oneOperation = core.middleware(
  * take that plain throw for a 500. Every procedure answers it as
  * `PRECONDITION_FAILED` with the sentence, and its code in the shape
  * ({@link errorShapeWithCause}).
+ *
+ * A domain refusal (`IssueRefusal`, `MailRefusal`, …) thrown plainly answers
+ * the same way with the code its class carries (`CLIENT_REFUSAL`, POD-7617):
+ * the formatter answers every other plain throw with a generic sentence.
  */
-const credentialRefusals = core.middleware(async ({ next }) => {
+const refusals = core.middleware(async ({ next }) => {
   const result = await next()
   if (result.ok) return result
-  const refused = refusalInPlaceOfFault(result.error)
+  const refused = refusalInPlaceOfFault(result.error) ?? brandedRefusalInPlaceOfFault(result.error)
   return refused ? { ...result, error: refused } : result
 })
 
 /** The base procedure: the always-on timing middleware, the operation scope,
- *  and credential refusals answered as refusals. */
-const baseProcedure = core.procedure.use(rpcTiming).use(oneOperation).use(credentialRefusals)
+ *  and refusals answered as refusals. */
+const baseProcedure = core.procedure.use(rpcTiming).use(oneOperation).use(refusals)
 
 // ---------------------------------------------------------------------------
 // The query-only builder (ADR 12 D9, POD-6593)

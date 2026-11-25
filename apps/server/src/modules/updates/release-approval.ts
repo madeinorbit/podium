@@ -1,7 +1,12 @@
 import type { ReleaseProposal } from '@podium/protocol'
+import { CLIENT_REFUSAL, type RefusalCode } from '../../client-refusal'
 import { BuildTimeoutError, createBuildAttempt } from './build-attempt'
 
-export class ReleaseApprovalRefusal extends Error {}
+export class ReleaseApprovalRefusal extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return 'PRECONDITION_FAILED'
+  }
+}
 
 export type ReleaseApprovalTarget = Pick<ReleaseProposal, 'headSha' | 'version'>
 

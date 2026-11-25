@@ -38,6 +38,7 @@ import {
 } from '@podium/model'
 import { nativeAccountId, resolveRole, superagentHarnessAgent } from '@podium/runtime'
 import { TRPCError } from '@trpc/server'
+import { clientRefusalCode } from '../../client-refusal'
 import {
   harnessPremintsHeadlessResumeId,
   harnessResumeKind,
@@ -546,7 +547,7 @@ export class SuperagentService {
     threadId?: ThreadId,
   ): Promise<string> {
     const tool = (await this.tools(threadId)).find((t) => t.spec.name === name)
-    if (!tool) throw new Error(`unknown tool: ${name}`)
+    if (!tool) throw new TRPCError({ code: 'NOT_FOUND', message: `unknown tool: ${name}` })
     return await tool.run(args as Args)
   }
 
@@ -800,7 +801,7 @@ export class SuperagentService {
       // keeps its code across the durable write: rewrapping it in a bare
       // Error would turn the client's typed error back into a 500 (POD-4827).
       // Anything else still reports the persisted message.
-      if (err instanceof TRPCError) throw err
+      if (err instanceof TRPCError || clientRefusalCode(err) !== undefined) throw err
       throw new Error(message)
     }
   }

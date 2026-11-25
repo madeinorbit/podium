@@ -11,8 +11,12 @@
  */
 
 import type { SyncSubmitRefusal } from '@podium/protocol'
+import { CLIENT_REFUSAL, type RefusalCode, refusalKindCode } from '../../client-refusal'
 
 export class MailRefusal extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return refusalKindCode(this.kind)
+  }
   constructor(
     readonly kind: SyncSubmitRefusal['kind'],
     message: string,

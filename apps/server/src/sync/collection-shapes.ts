@@ -24,6 +24,7 @@ import {
 } from '@podium/model'
 import { inListSize } from '@podium/sync/adapters/sqlite/prepared'
 import { type RuleSqlDialect, SQLITE_RULE_SQL } from '@podium/sync/collections'
+import { CLIENT_REFUSAL, type RefusalCode } from '../client-refusal'
 import {
   ancestorsStatement,
   type CollectionKind,
@@ -35,7 +36,11 @@ import {
 } from './collection-sql'
 
 /** A request names a collection, an argument or a holder no declaration has. */
-export class CollectionRequestError extends Error {}
+export class CollectionRequestError extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return 'BAD_REQUEST'
+  }
+}
 
 /** A collection or holder rule this release no longer publishes. */
 export class UnavailableCollectionError extends CollectionRequestError {}

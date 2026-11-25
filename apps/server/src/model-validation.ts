@@ -1,4 +1,5 @@
-import { resolveRole, type PodiumSettings } from '@podium/runtime'
+import { type PodiumSettings, resolveRole } from '@podium/runtime'
+import { CLIENT_REFUSAL, type RefusalCode } from './client-refusal'
 import type { ModelCatalogSnapshot } from './model-catalog'
 import { didYouMean } from './similarity'
 
@@ -190,6 +191,9 @@ export function formatModelValidationProblem(
 /** Error thrown at an entry point when a selection is rejected. Carries the structured
  *  problem so callers/tests can inspect it; `.message` is the formatted string. */
 export class ModelValidationError extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return 'BAD_REQUEST'
+  }
   constructor(readonly problem: ModelValidationProblem) {
     super(formatModelValidationProblem(problem))
     this.name = 'ModelValidationError'
@@ -325,9 +329,10 @@ export function resolveLaunchSelection(input: {
   const inherited: SelectionValues = {}
   for (const field of ['model', 'effort'] as const) {
     const explicit = input.explicit?.[field] ?? 'auto'
-    const issue = input.issueProfile?.agentKind === input.agentKind
-      ? input.issueProfile[field] ?? 'auto'
-      : 'auto'
+    const issue =
+      input.issueProfile?.agentKind === input.agentKind
+        ? (input.issueProfile[field] ?? 'auto')
+        : 'auto'
     const setting = input.agentKind === coding.harness ? coding[field] : 'auto'
     if (isExplicit(explicit)) source[field] = 'explicit'
     else if (isExplicit(issue)) {

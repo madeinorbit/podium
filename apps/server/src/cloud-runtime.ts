@@ -1,4 +1,5 @@
 import type { CLOUD_HARNESS_KINDS, IssueId, MachineId, SessionId } from '@podium/model'
+import { CLIENT_REFUSAL, type RefusalCode } from './client-refusal'
 
 export type CloudRuntimeKind = 'cloud-machine' | 'cloud-agent'
 export type CloudRuntimeState = 'provisioning' | 'running' | 'stopped' | 'failed'
@@ -139,6 +140,9 @@ export interface HostedCloudRuntimeProviderOptions {
  * keep their text at the cloud service boundary. Provider token problems use
  * PRECONDITION_FAILED; UNAUTHORIZED means Podium's login expired. */
 export class CloudRuntimeUserError extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return this.code
+  }
   constructor(
     readonly code: 'BAD_REQUEST' | 'FORBIDDEN' | 'PRECONDITION_FAILED' | 'TOO_MANY_REQUESTS',
     message: string,

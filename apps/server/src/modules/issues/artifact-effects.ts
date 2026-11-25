@@ -52,6 +52,8 @@ import {
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
+import { isUnexpectedFailure } from '../../client-error-diagnostics'
+import { clientRefusalCode } from '../../client-refusal'
 import type { CommandPrincipal } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
 import type { EffectRow } from '../../store/effects'
@@ -94,7 +96,11 @@ function failedOf(error: unknown): EffectOutcome {
   const message = error instanceof Error ? error.message : String(error)
   if (isIssueRefusal(error)) return failed(REFUSED, message)
   if (isIssueNotFound(error)) return failed(NOT_FOUND, message)
-  if (error instanceof TRPCError) return failed(error.code, message)
+  // A fault tRPC wrapped stays a fault: rebuilt as a coded error its text
+  // would read as a sentence for the caller (POD-7617).
+  if (error instanceof TRPCError && !isUnexpectedFailure(error)) return failed(error.code, message)
+  const branded = clientRefusalCode(error)
+  if (branded !== undefined) return failed(branded, message)
   return failed('failed', message)
 }
 
@@ -402,10 +408,13 @@ async function recordOf(
       }
     }
     case 'artifact-remove': {
-      if (call.index == null && !call.itemId) throw new IssueRefusal('artifact-remove requires an index or itemId')
+      if (call.index == null && !call.itemId)
+        throw new IssueRefusal('artifact-remove requires an index or itemId')
       // The position is read now; the record names the entry, which may move.
       const list = await modules.issues.crud.artifactEntries(issueId)
-      const entry = call.itemId ? list.find(entry => entry.id === call.itemId) : list[call.index! - 1]
+      const entry = call.itemId
+        ? list.find((entry) => entry.id === call.itemId)
+        : list[call.index! - 1]
       if (!entry) throw new IssueRefusal(`no item ${call.index} (list has ${list.length})`)
       return {
         kind: ISSUE_ARTIFACT_EFFECT_KIND.remove,
@@ -465,9 +474,10 @@ function settledOrThrow(id: string, row: EffectRow | undefined): void {
     }
     case 'pending':
     case 'running':
-      throw new Error(
-        `issues.panelApply is still running as effect ${id}${row.stage ? ` (${row.stage})` : ''}; its status shows on the issue`,
-      )
+      throw new TRPCError({
+        code: 'TIMEOUT',
+        message: `issues.panelApply is still running as effect ${id}${row.stage ? ` (${row.stage})` : ''}; its status shows on the issue`,
+      })
     default:
       throw new Error(`issues.panelApply ${row.status}: ${row.error?.message ?? ''}`.trim())
   }

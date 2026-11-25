@@ -36,6 +36,7 @@ import {
   type UserId,
 } from '@podium/model'
 import { type HomeHarness, homeCapabilities, homeIdFor } from '@podium/protocol'
+import { CLIENT_REFUSAL, type RefusalCode } from '../../client-refusal'
 import type { SessionStore } from '../../store'
 import { type CredentialRecord, newCredentialId } from '../../store/credentials'
 import { ACCESS_REFUSAL_MESSAGES, type AccessRefusal } from './access'
@@ -76,6 +77,10 @@ export type SignInStatus =
 
 /** A sign-in that cannot start; `refusal` when it is one of the closed list. */
 export class SignInRefused extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    if (this.code === 'not-found') return 'NOT_FOUND'
+    return this.refusal === 'machine-not-allowed' ? 'FORBIDDEN' : 'BAD_REQUEST'
+  }
   override readonly name = 'SignInRefused'
   constructor(
     message: string,

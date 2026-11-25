@@ -28,6 +28,7 @@ import {
 } from '@podium/model'
 import { automationOccurrenceRunId } from '@podium/protocol'
 import type { LedgerWriter } from '@podium/sync'
+import { CLIENT_REFUSAL, type RefusalCode, refusalKindCode } from '../../client-refusal'
 import { attributionOf, type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import type {
   AutomationRow,
@@ -129,6 +130,9 @@ export interface AutomationInput {
  * is not an existence oracle.
  */
 export class AutomationRefusal extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return refusalKindCode(this.kind)
+  }
   constructor(
     readonly kind: 'invalid' | 'not-found',
     message: string,
@@ -263,7 +267,7 @@ export class AutomationsService {
    *  exactly as a session that does not exist. */
   private async assertOwnTarget(owner: UserId, sessionId: SessionId | null): Promise<void> {
     if (sessionId !== null && !(await this.isOwnSession(owner, sessionId))) {
-      throw new Error('unknown session: ' + sessionId)
+      throw new AutomationRefusal('not-found', 'unknown session: ' + sessionId)
     }
   }
 

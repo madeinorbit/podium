@@ -26,7 +26,6 @@ import {
   shipRepairRef,
   type WorkspaceId,
 } from '@podium/model'
-
 import type { ShippingJobRequestMessage, ShippingJobResult } from '@podium/protocol/daemon'
 import {
   SHIPPING_TRAIN_CAPABILITY,
@@ -35,12 +34,9 @@ import {
   shippingJobRequestFingerprint,
   shippingTrainSubsetFingerprint,
 } from '@podium/protocol/daemon'
-import type {
-  BaselineFoldPort,
-  LedgerCommitOp,
-  LedgerCommitResult,
-  WriteScope,
-} from '@podium/sync'
+import type { BaselineFoldPort, LedgerCommitOp, LedgerCommitResult, WriteScope } from '@podium/sync'
+import { TRPCError } from '@trpc/server'
+import { CLIENT_REFUSAL, type RefusalCode } from '../../client-refusal'
 import type { CommandPrincipal } from '../../command-principal'
 import { afterCommit } from '../../store/executor/executor'
 import {
@@ -118,6 +114,9 @@ export type ShippingAdmissionCode =
   | 'missing-branch'
 
 export class ShippingAdmissionError extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return 'PRECONDITION_FAILED'
+  }
   constructor(
     readonly code: ShippingAdmissionCode,
     message: string,
@@ -158,6 +157,9 @@ export interface DeliveryReceiptDetailInput {
  * Order-addressed commands use TARGETED_ERRORS, so revealing which arm failed
  * would turn an opaque order id into an issue-existence oracle. */
 export class ShippingOrderAccessError extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return 'NOT_FOUND'
+  }
   constructor() {
     super('shipping order not found or inaccessible')
     this.name = 'ShippingOrderAccessError'
@@ -1436,7 +1438,10 @@ export class ShippingService {
       ).order
     }
     if (!['queued', 'preflight', 'composing', 'validating', 'repairing'].includes(order.state)) {
-      throw new Error(`shipping order ${order.id} can no longer be safely cancelled`)
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: `shipping order ${order.id} can no longer be safely cancelled`,
+      })
     }
     const activeTrain = await this.deps.repository.activeTrainForOrder(order.id)
     const activeLeader = activeTrain
@@ -1446,9 +1451,10 @@ export class ShippingService {
       activeLeader &&
       !['preflight', 'composing', 'validating', 'repairing'].includes(activeLeader.state)
     ) {
-      throw new Error(
-        `shipping train ${activeTrain!.id} crossed its reversible cancellation boundary`,
-      )
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: `shipping train ${activeTrain!.id} crossed its reversible cancellation boundary`,
+      })
     }
     const latestAttempt = await this.latestAttempt(order)
     const attempt = latestAttempt?.finishedAt ? null : latestAttempt
@@ -1782,7 +1788,8 @@ export class ShippingService {
       input.overrideScope === true,
     )
     const requestedBy = this.deps.authorization.attribution(input.principal)
-    if (order.state !== 'held') throw new Error(`shipping order ${order.id} is not held`)
+    if (order.state !== 'held')
+      throw new TRPCError({ code: 'CONFLICT', message: `shipping order ${order.id} is not held` })
     const nextState =
       action === 'return-to-issue' ? 'cancelled' : action === 'open-repair' ? 'repairing' : 'queued'
     const admissionRevision =
@@ -4022,7 +4029,7 @@ export class ShippingService {
 
   private async requiredOrder(id: ShipOrderId): Promise<ShipOrder> {
     const order = await this.deps.repository.getOrder(id)
-    if (!order) throw new Error(`unknown shipping order ${id}`)
+    if (!order) throw new TRPCError({ code: 'NOT_FOUND', message: `unknown shipping order ${id}` })
     return order
   }
 

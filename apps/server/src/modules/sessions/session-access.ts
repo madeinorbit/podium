@@ -35,6 +35,7 @@
 
 import type { Capability, SessionId, SessionMeta, UserId } from '@podium/model'
 import { isSpawnedBy } from '@podium/model'
+import { CLIENT_REFUSAL, type RefusalCode } from '../../client-refusal'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import { checkIssueAccess, type IssueAccessIndex, mayReachPrivate } from '../../issue-authz'
 import type { IssueTrackerCapabilities } from '../issues/service'
@@ -143,7 +144,11 @@ export const SESSION_NOT_FOUND = 'session not found'
  * errors: it tells the gate's answer from a failure of a read beneath it (a
  * store or driver error), whose text is for the server log and never the client.
  */
-export class SessionGateRefusal extends Error {}
+export class SessionGateRefusal extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return this.message === SESSION_NOT_FOUND ? 'NOT_FOUND' : 'FORBIDDEN'
+  }
+}
 
 /** The message an ambiguous prefix produces — names the candidates, so it can
  *  never be mistaken for "the session is gone". Sorted for determinism. */

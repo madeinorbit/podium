@@ -31,6 +31,8 @@
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { asCredentialId, type CredentialId, type UserId } from '@podium/model'
+import { TRPCError } from '@trpc/server'
+import { CLIENT_REFUSAL, type RefusalCode } from '../../../client-refusal'
 import type { SessionStore } from '../../../store'
 import { type CredentialRecord, newCredentialId } from '../../../store/credentials'
 import { recordCredentialEvent } from '../events'
@@ -88,6 +90,9 @@ export type ChatgptSignInStatus =
 
 /** Refused before anything was claimed: the attempt is unchanged. */
 export class SignInRefused extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return 'BAD_REQUEST'
+  }
   override readonly name = 'SignInRefused'
 }
 
@@ -414,7 +419,10 @@ export class ChatgptSignIn {
       )
       if (stored !== 'conflict') return
     }
-    throw new Error('The credential kept changing while it was being signed in again.')
+    throw new TRPCError({
+      code: 'CONFLICT',
+      message: 'The credential kept changing while it was being signed in again.',
+    })
   }
 
   /** The stored client id, retained ID token and account of a credential to sign in again. */

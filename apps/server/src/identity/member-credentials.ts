@@ -13,9 +13,13 @@
  */
 import type { AccountOperations } from '@podium/identity'
 import type { UserId } from '@podium/model'
+import { CLIENT_REFUSAL, type RefusalCode } from '../client-refusal'
 
 /** The member has no account: no membership has been applied to their row. */
 export class MemberHasNoAccount extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return 'PRECONDITION_FAILED'
+  }
   constructor(readonly memberId: UserId) {
     super('this member has no account to sign in with')
     this.name = 'MemberHasNoAccount'

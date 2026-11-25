@@ -24,6 +24,8 @@
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto'
 import type { CredentialId } from '@podium/model'
 import type { KeyProvider } from '@podium/runtime/vault-key'
+import { TRPCError } from '@trpc/server'
+import { CLIENT_REFUSAL, type RefusalCode } from '../../client-refusal'
 import type {
   CredentialRecord,
   CredentialsRepository,
@@ -60,6 +62,9 @@ export interface VaultKeyStore {
 
 /** The vault cannot seal or open: locked, or its outside key is unusable. */
 export class VaultLockedError extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return 'PRECONDITION_FAILED'
+  }
   constructor(message: string) {
     super(message)
     this.name = 'VaultLockedError'
@@ -68,6 +73,9 @@ export class VaultLockedError extends Error {
 
 /** A credential's secret cannot be handed out. Never carries the secret. */
 export class SecretUnavailableError extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return this.reason === 'not-found' ? 'NOT_FOUND' : 'PRECONDITION_FAILED'
+  }
   constructor(
     readonly credentialId: CredentialId,
     readonly reason: 'not-found' | 'revoked' | 'no-secret' | 'needs-attention',
@@ -227,7 +235,10 @@ export class Vault implements VaultKeyCheck {
     const dataKey = this.dataKey
     if (!dataKey) throw this.refusal()
     if (sealed.keyId !== this.dataKeyId) {
-      throw new Error('This secret was sealed under a data key the vault no longer holds.')
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'This secret was sealed under a data key the vault no longer holds.',
+      })
     }
     if (sealed.ciphertext.length < TAG_BYTES) throw new Error('The sealed secret is truncated.')
     const body = sealed.ciphertext.subarray(0, sealed.ciphertext.length - TAG_BYTES)

@@ -37,6 +37,7 @@ import {
   type SessionId,
   type UserId,
 } from '@podium/model'
+import { CLIENT_REFUSAL, type RefusalCode, refusalKindCode } from '../../client-refusal'
 import type { ConcertmasterEntryRow, ConcertmasterRepository } from '../../store/concertmaster'
 import type { MessageRow } from '../../store/types'
 import type { MessageSender, MessageSendInput, MessageSendResult } from '../messages/types'
@@ -57,6 +58,9 @@ export interface ConcertmasterSessionFacts {
 
 /** A refusal in the service's own words. `kind` is the sync refusal it becomes. */
 export class ConcertmasterRefusal extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return refusalKindCode(this.kind)
+  }
   constructor(
     readonly kind: 'invalid' | 'unauthorized' | 'target-not-found' | 'conflict',
     message: string,

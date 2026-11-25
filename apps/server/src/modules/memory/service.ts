@@ -9,6 +9,7 @@ import type {
 import { asSessionId } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
 import type { LedgerCommitOp, LedgerCommitResult, LedgerWriter } from '@podium/sync'
+import { CLIENT_REFUSAL, type RefusalCode } from '../../client-refusal'
 import { transcriptRecordMapperFor } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
 import type { ConversationPageCursor } from '../../store/conversations/index'
@@ -24,6 +25,9 @@ export type { MemoryReader } from './types'
 /** A conversation the reader cannot see, or that does not exist: deliberately
  *  one answer. Named so a transport can tell it from a failure (POD-6412). */
 export class ConversationNotFound extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return 'NOT_FOUND'
+  }
   constructor() {
     super('conversation not found')
     this.name = 'ConversationNotFound'

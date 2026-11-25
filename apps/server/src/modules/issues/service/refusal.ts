@@ -1,3 +1,5 @@
+import { CLIENT_REFUSAL, type RefusalCode } from '../../../client-refusal'
+
 /**
  * A definitive issue precondition refusal, shared by tRPC, relay and MCP.
  * The service keeps transport vocabulary out of its errors; routerFromCommands
@@ -5,6 +7,9 @@
  * Keep the message verbatim for the relay and CLI's existing output.
  */
 export class IssueRefusal extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return 'CONFLICT'
+  }
   constructor(message: string) {
     super(message)
     this.name = 'IssueRefusal'
@@ -21,6 +26,9 @@ export const isIssueRefusal = (error: unknown): error is IssueRefusal =>
  * the outbox classifies as definitive.
  */
 export class IssueForbidden extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return 'FORBIDDEN'
+  }
   constructor(message: string) {
     super(message)
     this.name = 'IssueForbidden'

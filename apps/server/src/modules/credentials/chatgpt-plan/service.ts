@@ -9,6 +9,7 @@
 import { createLogger } from '@podium/logger'
 import type { CredentialId, MachineId, UserId } from '@podium/model'
 import { CAP_OAUTH_LOOPBACK } from '@podium/protocol'
+import { CLIENT_REFUSAL, type RefusalCode } from '../../../client-refusal'
 import type { SessionStore } from '../../../store'
 import type { CredentialRecord } from '../../../store/credentials'
 import {
@@ -39,6 +40,9 @@ export interface ChatgptLoopbackPort {
 
 /** The machine cannot listen for this sign-in; the person can paste instead. */
 export class LoopbackUnavailable extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return 'BAD_REQUEST'
+  }
   override readonly name = 'LoopbackUnavailable'
 }
 

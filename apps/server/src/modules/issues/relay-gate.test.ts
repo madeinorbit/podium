@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
 import { captureLogs } from '../../test-support/capture-logs'
 import { AgentRelayGate } from './relay-gate'
+import { IssueRefusal } from './service/refusal'
 
 /**
  * What the server KNOWS about a failed agent command [POD-3805, POD-3802 §2].
@@ -46,6 +47,22 @@ async function relay(gate: AgentRelayGate): Promise<void> {
   })
 }
 
+/** An unexpected failure's answer (POD-7617): the generic sentence and the
+ *  reference the gate's log line carries. */
+const GENERIC =
+  /^The server could not complete this request; the server log has the details \(reference: ([0-9a-f-]{36})\)/
+
+/** The reference an answer names, and the one the gate logged. */
+function referencesOf(
+  reply: { error?: string },
+  logs: ReturnType<typeof captureLogs>,
+): { answered: string | undefined; logged: unknown } {
+  return {
+    answered: GENERIC.exec(reply.error ?? '')?.[1],
+    logged: logs.at('warn').find((entry) => entry.msg === 'agent command failed')?.reference,
+  }
+}
+
 /** The POD-3802 error: the wrapper an operator saw, over the cause nobody did. */
 function wrappedRefusal(): Error {
   const refusal = new Error('transaction 4 has an open nested scope (5)')
@@ -80,19 +97,22 @@ describe('a relayed agent command that fails', () => {
   })
 
   it('retains diagnostic causes for an internal tRPC failure', async () => {
-    const { gate, sent } = gateFor(() =>
-      Promise.reject(
-        new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'command failed',
-          cause: wrappedRefusal(),
-        }),
-      ),
+    const { gate, sent } = gateFor(
+      () =>
+        Promise.reject(
+          new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'command failed',
+            cause: wrappedRefusal(),
+          }),
+        ),
+      true,
     )
     await relay(gate)
     const reply = sent[0] as Extract<ControlMessage, { type: 'agentRelayResult' }>
-    expect(reply.error).toBe(
-      'TRPCError: command failed ← Failed query: insert into "locks" ← ' +
+    expect(reply.error).toMatch(GENERIC)
+    expect(reply.error).toContain(
+      ': TRPCError: command failed ← Failed query: insert into "locks" ← ' +
         'ParallelNestedTransactionError: transaction 4 has an open nested scope (5)',
     )
   })
@@ -120,40 +140,44 @@ describe('a relayed agent command that fails', () => {
     }
   })
 
-  it('tells the agent the cause as well as the wrapper', async () => {
-    const { gate, sent } = gateFor(() => Promise.reject(wrappedRefusal()))
+  it('tells a development agent the cause as well as the wrapper, after the reference', async () => {
+    const { gate, sent } = gateFor(() => Promise.reject(wrappedRefusal()), true)
 
     await relay(gate)
 
     expect(sent).toHaveLength(1)
     const reply = sent[0] as Extract<ControlMessage, { type: 'agentRelayResult' }>
     expect(reply.ok).toBe(false)
-    expect(reply.error).toBe(
-      'Failed query: insert into "locks" ← ParallelNestedTransactionError: transaction 4 has an ' +
+    expect(reply.error).toMatch(GENERIC)
+    expect(reply.error).toContain(
+      ': Failed query: insert into "locks" ← ParallelNestedTransactionError: transaction 4 has an ' +
         'open nested scope (5)',
     )
   })
 
-  it('still reads as one sentence when the failure has no cause', async () => {
+  it('answers a domain refusal in its own words, without a reference (POD-7617)', async () => {
     const logs = captureLogs()
     try {
-      const { gate, sent } = gateFor(() =>
-        Promise.reject(new Error('issues.update is outside your subtree')),
+      const { gate, sent } = gateFor(
+        () => Promise.reject(new IssueRefusal('issues.update is outside your subtree')),
+        false,
       )
 
       await relay(gate)
 
       const reply = sent[0] as Extract<ControlMessage, { type: 'agentRelayResult' }>
       expect(reply.error).toBe('issues.update is outside your subtree')
-      expect(logs.at('warn').some((entry) => entry.msg === 'agent command failed')).toBe(true)
+      const record = logs.at('warn').find((entry) => entry.msg === 'agent command failed')
+      expect(record).toBeDefined()
+      expect(record).not.toHaveProperty('reference')
     } finally {
       logs.restore()
     }
   })
 })
 
-describe('a relayed agent command that fails on a production server (POD-7615)', () => {
-  it('tells the agent the error, not the driver text under it, and logs the chain', async () => {
+describe('a relayed agent command that fails on a production server (POD-7615, POD-7617)', () => {
+  it('tells the agent a reference, not the driver text, and logs the chain under it', async () => {
     const logs = captureLogs()
     try {
       const { gate, sent } = gateFor(() => Promise.reject(wrappedRefusal()), false)
@@ -161,10 +185,15 @@ describe('a relayed agent command that fails on a production server (POD-7615)',
       await relay(gate)
 
       const reply = sent[0] as Extract<ControlMessage, { type: 'agentRelayResult' }>
-      expect(reply.error).toBe('Failed query: insert into "locks"')
+      expect(reply.error).toMatch(new RegExp(`${GENERIC.source}$`))
+      expect(reply.error).not.toMatch(/Failed query|locks|nested scope/)
+      const { answered, logged } = referencesOf(reply, logs)
+      expect(answered).toBeDefined()
+      expect(logged).toBe(answered)
       expect(
         logs.at('warn').find((entry) => entry.msg === 'agent command failed')?.err,
       ).toMatchObject({
+        message: 'Failed query: insert into "locks"',
         cause: { name: 'ParallelNestedTransactionError' },
       })
     } finally {
@@ -172,13 +201,13 @@ describe('a relayed agent command that fails on a production server (POD-7615)',
     }
   })
 
-  it('gives an internal tRPC failure its own message only', async () => {
+  it('gives an internal tRPC failure over a cause the generic answer too', async () => {
     const { gate, sent } = gateFor(
       () =>
         Promise.reject(
           new TRPCError({
             code: 'INTERNAL_SERVER_ERROR',
-            message: 'command failed',
+            message: 'Failed query: insert into "locks"',
             cause: wrappedRefusal(),
           }),
         ),
@@ -188,7 +217,22 @@ describe('a relayed agent command that fails on a production server (POD-7615)',
     await relay(gate)
 
     const reply = sent[0] as Extract<ControlMessage, { type: 'agentRelayResult' }>
-    expect(reply.error).toBe('command failed')
+    expect(reply.error).toMatch(new RegExp(`${GENERIC.source}$`))
+  })
+
+  it('keeps an internal error the command wrote itself, with no cause', async () => {
+    const { gate, sent } = gateFor(
+      () =>
+        Promise.reject(
+          new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'answer delivery is not wired' }),
+        ),
+      false,
+    )
+
+    await relay(gate)
+
+    const reply = sent[0] as Extract<ControlMessage, { type: 'agentRelayResult' }>
+    expect(reply.error).toBe('answer delivery is not wired')
   })
 
   it('keeps an expected refusal message as it was', async () => {

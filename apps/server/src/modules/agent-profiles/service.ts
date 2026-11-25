@@ -29,10 +29,15 @@ import {
   type UserId,
 } from '@podium/model'
 import type { LedgerCommitOp } from '@podium/sync'
+import { CLIENT_REFUSAL, type RefusalCode } from '../../client-refusal'
 import type { AgentProfilesRepository } from '../../store/agent-profiles'
 
 /** A refusal the caller can act on; the entry point answers it with this text. */
-export class AgentProfileRefusal extends Error {}
+export class AgentProfileRefusal extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return 'BAD_REQUEST'
+  }
+}
 
 /** What a profile write commits through: the command's writer (POD-6676). */
 export interface AgentProfileWriter {

@@ -13,6 +13,7 @@ import {
 } from '@podium/model'
 import type { AccessField } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
+import { CLIENT_REFUSAL, type RefusalCode } from '../../client-refusal'
 import { harnessCapabilitiesFor } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
 import {
@@ -53,6 +54,9 @@ export type LaunchAccess =
 
 /** A launch refused for its credential. The message is the sentence a person reads. */
 export class CredentialRefusal extends Error {
+  get [CLIENT_REFUSAL](): RefusalCode {
+    return 'PRECONDITION_FAILED'
+  }
   override readonly name = 'CredentialRefusal'
 
   constructor(
