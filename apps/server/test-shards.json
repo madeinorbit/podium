@@ -133,6 +133,7 @@
         "$TURBO_ROOT$/packages/terminal-client/src/**",
         "$TURBO_ROOT$/scripts/server-test-shards.ts",
         "package.json",
+        "src/__fixtures__/cloud-provider-errors.json",
         "src/auth-store.test.ts",
         "src/auto-continue.test.ts",
         "src/auto-continue.ts",
@@ -3491,6 +3492,7 @@
         "package.json",
         "scripts/**",
         "src/**",
+        "src/__fixtures__/cloud-provider-errors.json",
         "src/admin-audit-filters.test.ts",
         "src/admin-audit-projection.test.ts",
         "src/admin-routes.statement-count.test.ts",
@@ -4670,9 +4672,7 @@
     {
       "id": "normalized-wire",
       "title": "normalized-wire and load guards",
-      "testFiles": [
-        "apps/server/src/issues.normalized-wire.test.ts"
-      ],
+      "testFiles": ["apps/server/src/issues.normalized-wire.test.ts"],
       "inputs": [
         "$TURBO_ROOT$/packages/blob-store/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",

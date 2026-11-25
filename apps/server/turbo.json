@@ -1,8 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "extends": [
-    "//"
-  ],
+  "extends": ["//"],
   "tasks": {
     "test": {
       "dependsOn": [
@@ -37,6 +35,7 @@
         "$TURBO_ROOT$/packages/terminal-client/src/**",
         "$TURBO_ROOT$/scripts/server-test-shards.ts",
         "package.json",
+        "src/__fixtures__/cloud-provider-errors.json",
         "src/auth-store.test.ts",
         "src/auto-continue.test.ts",
         "src/auto-continue.ts",
@@ -283,9 +282,7 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [
-        ".test-shard-reports/contracts.json"
-      ]
+      "outputs": [".test-shard-reports/contracts.json"]
     },
     "test:store": {
       "dependsOn": [],
@@ -1263,9 +1260,7 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [
-        ".test-shard-reports/store.json"
-      ]
+      "outputs": [".test-shard-reports/store.json"]
     },
     "test:services": {
       "dependsOn": [],
@@ -2492,9 +2487,7 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [
-        ".test-shard-reports/services.json"
-      ]
+      "outputs": [".test-shard-reports/services.json"]
     },
     "test:boundary": {
       "dependsOn": [],
@@ -2551,6 +2544,7 @@
         "package.json",
         "scripts/**",
         "src/**",
+        "src/__fixtures__/cloud-provider-errors.json",
         "src/admin-audit-filters.test.ts",
         "src/admin-audit-projection.test.ts",
         "src/admin-routes.statement-count.test.ts",
@@ -3726,9 +3720,7 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [
-        ".test-shard-reports/boundary.json"
-      ]
+      "outputs": [".test-shard-reports/boundary.json"]
     },
     "test:normalized-wire": {
       "dependsOn": [],
@@ -4420,9 +4412,7 @@
         "vitest.config.ts",
         "vitest.shard.ts"
       ],
-      "outputs": [
-        ".test-shard-reports/normalized-wire.json"
-      ]
+      "outputs": [".test-shard-reports/normalized-wire.json"]
     }
   }
 }
