@@ -33,11 +33,11 @@
  * {@link SessionVisibility} remains an extra, narrowing filter.
  */
 
-import type { IssueTrackerCapabilities } from '../issues/service'
 import type { Capability, SessionId, SessionMeta, UserId } from '@podium/model'
 import { isSpawnedBy } from '@podium/model'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import { checkIssueAccess, type IssueAccessIndex, mayReachPrivate } from '../../issue-authz'
+import type { IssueTrackerCapabilities } from '../issues/service'
 
 /**
  * The live-session facts this resolver needs — a PICK of the model's own
@@ -95,9 +95,7 @@ export interface SessionAccessDeps {
    *  REQUIRED since POD-3857. This resolver runs on the authorization path of
    *  essentially every command; the full-list port it used to fall back to made
    *  a by-id lookup cost a whole reader-scoped pass, and it is gone. */
-  sessionById(
-    sessionId: SessionId,
-  ): Promise<SessionTargetRow | undefined>
+  sessionById(sessionId: SessionId): Promise<SessionTargetRow | undefined>
   /** The live session ids that start with `prefix`, for unambiguous prefix
    *  resolution only. OPTIONAL so narrow fixtures that never exercise a prefix
    *  keep working. Production answers it with a range read on the primary key
@@ -138,7 +136,10 @@ export const SESSION_NOT_FOUND = 'session not found'
 
 /** The message an ambiguous prefix produces — names the candidates, so it can
  *  never be mistaken for "the session is gone". Sorted for determinism. */
-export function ambiguousSessionPrefixMessage(prefix: string, candidates: readonly SessionId[]): string {
+export function ambiguousSessionPrefixMessage(
+  prefix: string,
+  candidates: readonly SessionId[],
+): string {
   const sorted = [...candidates].sort()
   return `ambiguous session id prefix '${prefix}' matches ${sorted.length} sessions: ${sorted.join(', ')}`
 }
@@ -162,7 +163,9 @@ export async function resolveSessionTarget(
     return (await reaches(session)) ? { kind: 'visible', session } : { kind: 'absent' }
   }
   if (!sessionId || !deps.sessionIdsWithPrefix) return { kind: 'absent' }
-  const prefixed = (await deps.sessionIdsWithPrefix(sessionId)).filter((id) => id.startsWith(sessionId))
+  const prefixed = (await deps.sessionIdsWithPrefix(sessionId)).filter((id) =>
+    id.startsWith(sessionId),
+  )
   if (prefixed.length === 0) return { kind: 'absent' }
   const visibleRows: SessionTargetRow[] = []
   const visibleIds: SessionId[] = []
@@ -175,7 +178,8 @@ export async function resolveSessionTarget(
     }
   }
   if (visibleRows.length === 0) return { kind: 'absent' }
-  if (visibleRows.length === 1) return { kind: 'visible', session: visibleRows[0] as SessionTargetRow }
+  if (visibleRows.length === 1)
+    return { kind: 'visible', session: visibleRows[0] as SessionTargetRow }
   return { kind: 'ambiguous', prefix: sessionId, candidates: [...visibleIds].sort() }
 }
 
@@ -206,7 +210,7 @@ export async function assertMayCommandSession(
   // the task it sits on (Bob drives his session on Alice's task), and no scope.
   if (principal.kind === 'user') return
   const capability: Capability = principal.capability
-  const targetIssueId = session.issueId ?? await deps.issues.issueForCwd(session.cwd)
+  const targetIssueId = session.issueId ?? (await deps.issues.issueForCwd(session.cwd))
   if (targetIssueId) {
     await checkIssueAccess(
       { capability, ...(overrideScope ? { overrideScope: true } : {}) },
