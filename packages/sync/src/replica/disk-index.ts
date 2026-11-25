@@ -1872,9 +1872,15 @@ export class AnswerMembers {
     args: Parameters<typeof resolveInstance>[1],
     rows: { readRow(entity: string, entityId: string): EntityRecord | undefined },
     now: number,
+    /**
+     * POD-7609 — records the device already holds that the answer did not
+     * send again (`rowsHeld`): candidates too, checked by the rule as the
+     * named ones are.
+     */
+    held?: Iterable<string>,
   ): string[] | undefined {
     try {
-      return this.select(marker, args, rows, now)
+      return this.select(marker, args, rows, now, held)
     } catch {
       return undefined
     }
@@ -1885,6 +1891,7 @@ export class AnswerMembers {
     args: Parameters<typeof resolveInstance>[1],
     rows: { readRow(entity: string, entityId: string): EntityRecord | undefined },
     now: number,
+    held?: Iterable<string>,
   ): string[] {
     const instance = resolveInstance(marker, args)
     if (instance === undefined) return []
@@ -1907,6 +1914,11 @@ export class AnswerMembers {
       }
       const param = instanceParams(instance.collection)[0]
       candidates = index.get(param === undefined ? null : (instance.args[param] ?? null)) ?? []
+    }
+    if (held !== undefined) {
+      const more = new Set(candidates)
+      for (const key of held) if (splitRowKey(key).entity === instance.of) more.add(key)
+      candidates = [...more]
     }
     const out: string[] = []
     for (const key of candidates) {

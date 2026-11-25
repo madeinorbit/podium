@@ -196,6 +196,7 @@ export function toMarkerChunk(
       ...(instance.via === undefined ? {} : { via: instance.via }),
       ...(instance.range === undefined ? {} : { range: instance.range }),
       ...(instance.total === undefined ? {} : { total: instance.total }),
+      ...(instance.rowsHeld === undefined ? {} : { rowsHeld: instance.rowsHeld }),
     })),
     last: false,
   }

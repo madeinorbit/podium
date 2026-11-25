@@ -35,7 +35,7 @@
  * `remove(seq 1)` then `upsert(seq 2)` for one entity left the entity absent.
  */
 
-import { COLLECTIONS, FetchBudget, RECORDS } from '@podium/model'
+import { COLLECTIONS, FetchBudget, RECORDS, rowsHeldSources } from '@podium/model'
 import { instanceKey, rowAfter } from './cache-state'
 import {
   AnswerMembers,
@@ -2121,6 +2121,8 @@ export class Replica implements DeviceCollectionReads {
       readonly signal?: AbortSignal
       /** What the answer named so far: the members of the instances it marks (POD-7159). */
       readonly members?: AnswerMembers
+      /** POD-7609 — instances asked naming held rows, by key: the instance that holds them. */
+      readonly heldRows?: ReadonlyMap<string, string>
     },
   ): EntityRecord[] {
     if (options.signal?.aborted) return []
@@ -2315,9 +2317,26 @@ export class Replica implements DeviceCollectionReads {
         members?.comesWith.set(key, marker)
         continue
       }
+      // POD-7609: an instance asked naming held rows has those among its
+      // members too, when the answer says it left them out; and only while
+      // the device still holds them complete in memory, in the shape the
+      // answer is in.
+      const heldBy = marker.rowsHeld === true ? options.heldRows?.get(key) : undefined
+      const heldKind = COLLECTIONS.get(marker.collection)?.of
+      const heldStill =
+        heldBy !== undefined &&
+        this.inMemoryMarker(heldBy) !== undefined &&
+        heldKind !== undefined &&
+        chunk.kindTokens[heldKind] === this.store.readKindTokens()?.[heldKind]
       const held =
         marker.part === 'main' && members !== undefined
-          ? members.membersOf(marker, args, markRows, this.now())
+          ? members.membersOf(
+              marker,
+              args,
+              markRows,
+              this.now(),
+              heldStill ? disk.membersOf(heldBy) : undefined,
+            )
           : undefined
       // A later page carries no total: the first page's stays (POD-7158). In
       // a stale reload the first page's mark is still deferred (POD-7538).
@@ -3795,6 +3814,36 @@ export class Replica implements DeviceCollectionReads {
     else void this.loadFromServer(asks).catch(() => undefined)
   }
 
+  /**
+   * POD-7609 — the request, naming the records the device already holds by
+   * the same rule (a deck's tree, for its archive) when that instance is
+   * complete in memory and not behind the feed: the answer then sends only
+   * the records changed after the device's feed number, and the marker counts
+   * the held ones among its members. `named` learns which instance it named.
+   */
+  private namingHeldRows(request: InstanceRequest, named: Map<string, string>): InstanceRequest {
+    if (request.after !== undefined || request.via !== undefined || request.part !== 'main')
+      return request
+    const cursor = this.cursorValue
+    if (cursor === null || this.store.readLoadingSince() !== null) return request
+    for (const collection of rowsHeldSources(request.collection)) {
+      const spec: InstanceSpec = {
+        collection,
+        part: 'main',
+        ...(request.args === undefined ? {} : { args: request.args }),
+      }
+      const marker = this.isComplete(spec)
+      if (marker === undefined || this.instanceStale(spec) || !sameFeed(cursor, marker.completeAt))
+        continue
+      named.set(instanceKey(request), instanceKey(spec))
+      // The feed keeps a complete instance's records current: as of the
+      // cursor, or of the answer when that came later.
+      const seq = Math.max(cursor.seq, marker.completeAt.seq)
+      return { ...request, rowsHeld: { collection, seq } }
+    }
+    return request
+  }
+
   /** POD-7538 — the ranges the device holds of paged instances, by key: where a reload of them reaches. */
   private heldRanges(requests: readonly InstanceRequest[]): ReadonlyMap<string, InstanceRange> {
     const markers = this.store.readInstances()
@@ -3838,6 +3887,10 @@ export class Replica implements DeviceCollectionReads {
     /** Every record the answer named, written or already current on the device. */
     const named = new Map<string, { readonly entity: string; readonly entityId: string }>()
     const members = new AnswerMembers()
+    // POD-7609: an ordinary fetch names the records the device already holds
+    // by the same rule; these are the instances that did, with the holder.
+    const ordinary = reload === undefined && stale === undefined && !insideLoad
+    const heldRows = new Map<string, string>()
     const task = (async () => {
       try {
         // The earliest answer of a reload: a row of its kinds current only as
@@ -3881,6 +3934,7 @@ export class Replica implements DeviceCollectionReads {
                 signal,
                 members,
                 ...(reload === undefined ? {} : { reload }),
+                ...(heldRows.size === 0 ? {} : { heldRows }),
               }),
             )
           }
@@ -3897,7 +3951,10 @@ export class Replica implements DeviceCollectionReads {
         }
         for (let at = 0; at < fresh.length; ) {
           const batch = fetchBatch(fresh, at)
-          const chunks = collections(batch, signal)[Symbol.asyncIterator]()
+          const asked = ordinary
+            ? batch.map((request) => this.namingHeldRows(request, heldRows))
+            : batch
+          const chunks = collections(asked, signal)[Symbol.asyncIterator]()
           let ended = false
           let header: BootstrapChunk | undefined
           try {

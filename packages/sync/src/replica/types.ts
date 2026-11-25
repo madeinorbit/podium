@@ -205,11 +205,20 @@ export interface BootstrapChunk {
 export interface CompleteMarker extends InstanceSpec {
   readonly range?: InstanceRange
   readonly total?: number
+  /** POD-7609 — the answer left out the held rows the request named: they are members too. */
+  readonly rowsHeld?: true
 }
 
 /** An instance as a fetch asks for it: a paged one may continue below a position. */
 export interface InstanceRequest extends InstanceSpec {
   readonly after?: readonly InstanceScalar[]
+  /**
+   * POD-7609 — on the wire only, never part of the instance's key: the device
+   * holds the records of `collection`'s instance with the same arguments
+   * complete as of `seq` (`@podium/model` `rowsHeldSources`), so the answer
+   * sends only those changed since.
+   */
+  readonly rowsHeld?: { readonly collection: string; readonly seq: number }
 }
 
 /**

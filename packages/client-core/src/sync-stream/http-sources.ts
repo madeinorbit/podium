@@ -201,7 +201,9 @@ export function bootstrapViewQuery(
   let query: string | undefined
   for (const request of view) {
     if (fitted.length >= BOOTSTRAP_VIEW_MAX_INSTANCES) break
-    const next = [...fitted, wireInstance(request)]
+    // A first download replaces what the device holds: it names no held rows.
+    const { rowsHeld: _held, ...instance } = wireInstance(request)
+    const next = [...fitted, instance]
     const candidate = new URLSearchParams({ view: JSON.stringify(next) }).toString()
     if (candidate.length > BOOTSTRAP_VIEW_MAX_QUERY_CHARS) break
     fitted.push(next[next.length - 1] as CollectionInstance)
@@ -361,6 +363,7 @@ function wireInstance(request: InstanceRequest): CollectionInstance {
     ...(request.after === undefined
       ? {}
       : { after: request.after as unknown as NonNullable<CollectionInstance['after']> }),
+    ...(request.rowsHeld === undefined ? {} : { rowsHeld: request.rowsHeld }),
   }
 }
 

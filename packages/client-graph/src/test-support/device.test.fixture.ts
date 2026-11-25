@@ -27,10 +27,11 @@ import {
   TEST_BUDGETS,
   type TestBudgets,
 } from '../../../sync/src/conformance/test-budgets'
+import { instanceKey } from '../../../sync/src/replica/cache-state'
 import { CollectionLoader } from '../../../sync/src/replica/loader'
 import { manualMemorySignals, WARM_GRACE_MS } from '../../../sync/src/replica/memory'
 import { Replica } from '../../../sync/src/replica/replica'
-import type { CachePolicy } from '../../../sync/src/replica/types'
+import type { CachePolicy, InstanceSpec } from '../../../sync/src/replica/types'
 import type { SyncUnitOfWork } from '../../../sync/src/span'
 import { createWorklistPool } from '../create'
 import { fixedLocals } from '../shared/locals-source'
@@ -190,6 +191,10 @@ export async function openDevice(options: DeviceOptions = {}) {
     /** The instances whose rows are in memory now (the disk index's view), by instance key. */
     memoryInstances(): ReadonlySet<string> {
       return new Set(cache.readDiskIndex().memoryInstances())
+    },
+    /** The row keys a complete instance holds as its members (the disk index's view). */
+    instanceMembers(spec: InstanceSpec): ReadonlySet<string> {
+      return new Set(cache.readDiskIndex().membersOf(instanceKey(spec)))
     },
     /** Cut the connection: the loader stops, and every load attempted is refused and counted. */
     offline(): void {

@@ -13,7 +13,14 @@
  * chosen feed number, which is what the ordering and resume cases need.
  */
 
-import { COLLECTIONS, matchesWhere, type RuleValue, recordOf, resolveValue } from '@podium/model'
+import {
+  COLLECTIONS,
+  matchesWhere,
+  type RuleValue,
+  recordOf,
+  resolveValue,
+  sameRows,
+} from '@podium/model'
 import { instanceKey } from '../replica/cache-state'
 import { comesWithOf, policyArgs, resolveInstance, stubOfValue } from '../replica/holdings'
 import type { AuthorityReadPort } from '../replica/ports'
@@ -329,6 +336,11 @@ export class CollectionServer implements AuthorityReadPort {
       let rows = this.members(spec).filter((row) => row.seq <= at)
       const paged = this.page(spec as InstanceRequest, rows)
       if (paged !== undefined) rows = paged.rows
+      // POD-7609: members the device holds unchanged since `seq` are not sent
+      // again, as the server's route does; they count as sent, and bring only
+      // what this collection itself comes with.
+      const honored = this.heldUnchanged(spec as InstanceRequest, rows, at)
+      const held = honored ?? new Set<string>()
       if (this.answerComesWith && !stub) {
         const resolved = resolveInstance(spec, policyArgs(this.policy))
         for (const row of rows)
@@ -338,16 +350,19 @@ export class CollectionServer implements AuthorityReadPort {
             resolved ? [resolved] : [],
             WORLD_NOW,
           )) {
+            if (held.has(rowKey(row.entity, row.id)) && along.via !== spec.collection) continue
             const key = instanceKey(along)
             if (asked.has(key)) continue
             asked.add(key)
             queue.push(along)
           }
       }
+      for (const key of held) sent.add(key)
       const fresh = stub
         ? rows
         : rows.filter((row) => {
             const key = rowKey(row.entity, row.id)
+            if (held.has(key)) return false
             if (this.answerComesWith && sent.has(key)) return false
             sent.add(key)
             return true
@@ -368,6 +383,7 @@ export class CollectionServer implements AuthorityReadPort {
         ...(spec.via === undefined ? {} : { via: spec.via }),
         ...(paged === undefined ? {} : { range: paged.range }),
         ...(paged?.total === undefined ? {} : { total: paged.total }),
+        ...(honored === undefined ? {} : { rowsHeld: true as const }),
       }
       if (asRequested) requested.push(marker)
       else if (envelopes.length === 0) chunks.push({ ...base, changes: [], complete: [marker] })
@@ -403,6 +419,43 @@ export class CollectionServer implements AuthorityReadPort {
         yield chunk
       }
     })()
+  }
+
+  /**
+   * POD-7609 — the members a request's `rowsHeld` names as held unchanged:
+   * written at or before its feed number, which the log still reaches. The
+   * two collections must hold the same records, as the route requires.
+   */
+  private heldUnchanged(
+    spec: InstanceRequest,
+    rows: readonly WorldRow[],
+    at: number,
+  ): Set<string> | undefined {
+    const held = spec.rowsHeld
+    if (held === undefined) return undefined
+    if (!sameRows(spec.collection, held.collection))
+      throw new Error(`${spec.collection} does not hold the records of ${held.collection}`)
+    // The log cannot say what changed: every member goes out.
+    if (held.seq < this.minAvailableSeq || held.seq > at) return undefined
+    // Under a rule that walks the parent link, a member is held only below a
+    // held member, or at the top of the set (an issue moved under the tree
+    // brings descendants the device never held).
+    const link = recordOf(COLLECTIONS.get(spec.collection)?.of ?? '')?.parentLink
+    const byId = new Map(rows.map((row) => [row.id, row]))
+    const decided = new Map<string, boolean>()
+    const isHeld = (row: WorldRow, seen: Set<string>): boolean => {
+      const known = decided.get(row.id)
+      if (known !== undefined) return known
+      let answer = row.seq <= held.seq
+      const parent = link === undefined ? undefined : byId.get(row.value[link] as string)
+      if (answer && parent !== undefined && !seen.has(parent.id))
+        answer = isHeld(parent, new Set([...seen, row.id]))
+      decided.set(row.id, answer)
+      return answer
+    }
+    return new Set(
+      rows.filter((row) => isHeld(row, new Set())).map((row) => rowKey(row.entity, row.id)),
+    )
   }
 
   /** One page of a paged collection's members (`pageRows`), its range and, first, its total. */
