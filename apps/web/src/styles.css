@@ -16545,7 +16545,6 @@ button.waterfall-fold:hover {
 .cm-ask-quiet:first-child {
   margin-left: -8px;
 }
-/* Set up agents (POD-6858): an install with no progress data yet. */
 .issue-sections-enter {
   animation: issue-sections-enter 160ms ease-out;
 }
@@ -16563,6 +16562,7 @@ button.waterfall-fold:hover {
   }
 }
 
+/* Set up agents (POD-6858): an install with no progress data yet. */
 .setup-agents-indeterminate {
   animation: sync-indeterminate 1.4s ease-in-out infinite;
 }
