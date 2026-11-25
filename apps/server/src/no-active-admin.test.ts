@@ -9,7 +9,13 @@
  *
  * Each test disables the only admin, then asks what the server itself asks.
  */
-import { asSessionId, firstAdminMemberId, type SessionId, type UserId } from '@podium/model'
+import {
+  asSessionId,
+  asUserId,
+  firstAdminMemberId,
+  type SessionId,
+  type UserId,
+} from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry, settingsOfNobodyNamed } from './relay'
 import type { SessionStore } from './store'
@@ -71,6 +77,35 @@ describe('with no active admin, the server still reads its sessions (POD-7597)',
     expect(await sessions.sessionSpawnedBy(child)).toBe(parent)
     // An unknown id is still absent.
     expect(await sessions.sessionById(asSessionId('ses_unknown'))).toBeUndefined()
+  })
+
+  // The server's read widened; a person's did not. A later edit that routed a
+  // principal's read through the in-process branch would fail here.
+  it('still shows another member none of the disabled admin’s sessions', async () => {
+    const { store, reg, admin, parent, child } = await soleAdminWithSessions()
+    const bob = asUserId('user:no-active-admin-bob')
+    await memberFacts(store).create(
+      {
+        id: bob,
+        displayName: 'Bob',
+        email: null,
+        role: 'member',
+        createdAt: AT,
+        disabledAt: null,
+      },
+      'not-a-real-hash',
+    )
+    await memberFacts(store).disable(admin, AT)
+    expect(await store.users.earliestAdmin()).toBeUndefined()
+
+    const sessions = reg.modules.sessions
+    // The server itself sees both, so each empty answer below is Bob's alone.
+    expect((await sessions.listSessionsForIssue('/p', undefined)).length).toBe(2)
+    const asBob = await sessions.view.principalForTrustedUser(bob)
+    expect(await sessions.sessionById(child, asBob)).toBeUndefined()
+    expect(await sessions.sessionsById([parent, child], asBob)).toEqual([])
+    expect(await sessions.sessionSpawnedBy(child, asBob)).toBeUndefined()
+    expect(await sessions.listSessionsForIssue('/p', undefined, asBob)).toEqual([])
   })
 
   it('reads instance policy for nobody in particular instead of failing', async () => {

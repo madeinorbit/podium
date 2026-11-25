@@ -3,8 +3,9 @@
  * A RUNTIME EVENT ASKS FOR THE FIRST ADMIN AND ITS SETTINGS ONCE [POD-6218,
  * server-data rule 8].
  *
- * Every session projection without an explicit reader acts as the instance's
- * earliest admin (`SessionView.defaultPrincipal`), and the runtime-event paths
+ * Every session projection without an explicit reader once asked for the
+ * instance's earliest admin (`SessionView.defaultPrincipal`, deleted by
+ * POD-7597: such a read now asks for no person), and the runtime-event paths
  * read that member's settings (relay `onSessionActivity`, the auto-continue
  * check in `session-wiring.ts`). On the server-data bench (POD-6140 result §4)
  * one runtime event asked for the earliest admin about four times, two

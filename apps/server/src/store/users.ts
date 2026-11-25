@@ -576,9 +576,10 @@ export class UsersRepository {
    * reader once asked for this member, and the settings of an unnamed person
    * still do, so a runtime event asked about four times, two statements each
    * (the id, then the account by id): about 9.4k statements/min on the
-   * server-data bench (POD-6140 result §4). The loader reads the row in one statement and keeps it for the rest of
-   * the operation (a daemon frame, a tRPC call, a delivery pass); every write of
-   * `users` below invalidates it ({@link accountsWritten}).
+   * server-data bench (POD-6140 result §4). The loader reads the row in one
+   * statement and keeps it for the rest of the operation (a daemon frame, a
+   * tRPC call, a delivery pass); every write of `users` below invalidates it
+   * ({@link accountsWritten}).
    */
   private readonly earliestAdminOfOperation = operationLoader<
     typeof EARLIEST_ADMIN,

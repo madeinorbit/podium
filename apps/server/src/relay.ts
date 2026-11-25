@@ -689,8 +689,11 @@ function noticeInfo(
  * worktree GC, the issue assistant's switch) and a notice with no recipient.
  * Read as the first admin's, the member this build reads such settings for,
  * while there is one. With no active admin (the only one disabled) it is the
- * instance's own settings: the read must not fail and stop that work, and the
- * policy it asks for is the same for every member (POD-7597).
+ * instance's own settings, so the read does not fail and stop that work
+ * (POD-7597). Only the instance-tier keys are the same for every member: a
+ * personal setting read here (`roles.coding`, for one) is the first admin's,
+ * or the default with no admin, never the member the work is for. A caller
+ * that needs a person's setting names that person.
  */
 export async function settingsOfNobodyNamed(
   store: Pick<SessionStore, 'users' | 'settings'>,
@@ -2667,11 +2670,8 @@ export class SessionRegistry {
         // RESOLVED FOR ONE PERSON (POD-1213). These reads include personal
         // preferences, which no longer live on the instance blob — an unresolved
         // read would see the model's defaults instead of the operator's choices.
-        // `firstAdminMemberId()` is spelled out rather than defaulted, the shape
-        // `IssueService.broadcastViewer` uses: this build's transport cannot name
-        // a person (one shared password), so the sole account is the only true
-        // answer, and POD-315/POD-1077 replace the argument rather than finding a
-        // hidden read.
+        // A notice names its recipient; one that names nobody reads
+        // `settingsOfNobodyNamed` (POD-7597).
         getSettings: async (ownerUserId?: import('@podium/model').UserId) =>
           ownerUserId
             ? await this.store.settings.getSettingsFor(ownerUserId)
