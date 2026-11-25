@@ -1507,9 +1507,10 @@ export class IssueCrudModule {
    * the default harness on an `auto` issue is no switch, as it was when create
    * froze that harness into the row.
    */
-  async switchesHarness(from: string, to: string): Promise<boolean> {
+  async switchesHarness(row: IssueRow, to: string, starter?: UserId): Promise<boolean> {
+    const from = row.defaultAgent
     if (from === to) return false
-    const settings = await this.store.deps.getSettings()
+    const settings = await this.store.settingsFor(row, starter)
     return (
       resolveSpawnDefaults(settings, { agentKind: from }).agentKind !==
       resolveSpawnDefaults(settings, { agentKind: to }).agentKind
@@ -1817,7 +1818,7 @@ export class IssueCrudModule {
     if (
       patch.defaultAgent !== undefined &&
       patch.defaultAgent !== row.defaultAgent &&
-      (await this.switchesHarness(row.defaultAgent, patch.defaultAgent))
+      (await this.switchesHarness(row, patch.defaultAgent, opts?.owner))
     ) {
       patch = {
         ...patch,

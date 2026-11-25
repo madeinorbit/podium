@@ -365,7 +365,10 @@ export class IssueGitWorkflowModule {
    * because the vetting below needs a concrete harness.
    */
   private async issueLaunch(
-    row: Pick<IssueRow, 'id' | 'parentId' | 'machineId' | 'repoPath'> & {
+    row: Pick<
+      IssueRow,
+      'id' | 'parentId' | 'machineId' | 'repoPath' | 'ownerUserId' | 'createdByOnBehalfOf'
+    > & {
       agentProfileId?: string | null
     },
     fields: { agent: string; model: string; effort: string },
@@ -392,7 +395,7 @@ export class IssueGitWorkflowModule {
         : null
     let agent = launch?.agentKind ?? fields.agent
     if (!isAgentFieldSet(agent)) {
-      agent = resolveSpawnDefaults(await this.store.d.getSettings(forUser), {
+      agent = resolveSpawnDefaults(await this.store.settingsFor(row, forUser), {
         agentKind: 'auto',
       }).agentKind
     }
@@ -535,10 +538,12 @@ export class IssueGitWorkflowModule {
       : undefined
     const profileChanged =
       explicitProfileId !== undefined && explicitProfileId !== (row.agentProfileId ?? null)
+    // The person this start runs for, whose preferences fill every default.
+    const starter = sessionOwnerFor(row, opts).ownerUserId
     // Switching harness at start discards the stored model/effort: they were chosen
     // for the OLD harness and its slugs mean nothing on the new one.
     const switching = Boolean(
-      agentKind && (await this.crud().switchesHarness(row.defaultAgent, agentKind)),
+      agentKind && (await this.crud().switchesHarness(row, agentKind, starter)),
     )
     const agent = agentKind ?? (profileChanged ? 'auto' : row.defaultAgent)
     const stored = {
@@ -546,8 +551,6 @@ export class IssueGitWorkflowModule {
       model: switching || profileChanged ? 'auto' : row.defaultModel,
       effort: switching || profileChanged ? 'auto' : row.defaultEffort,
     }
-    // The person this start runs for, whose preferences fill every default.
-    const starter = sessionOwnerFor(row, opts).ownerUserId
     // The credential it named, for that person, before any worktree or spawn:
     // an unknown or ambiguous reference changes nothing (credential management §9).
     const credentialId = await this.launchCredential(opts?.credential, starter)
@@ -572,7 +575,7 @@ export class IssueGitWorkflowModule {
       agentKind: launch.agent,
       explicit: { model: opts?.model ?? 'auto', effort: opts?.effort ?? 'auto' },
       issueProfile: launch.issueProfile,
-      settings: await this.store.d.getSettings(starter),
+      settings: await this.store.settingsFor(row, starter),
       catalog:
         startMachineId === undefined
           ? null
@@ -2100,7 +2103,7 @@ export class IssueGitWorkflowModule {
         model: row.defaultModel,
         effort: row.defaultEffort,
       },
-      settings: await this.store.d.getSettings(starter),
+      settings: await this.store.settingsFor(row, starter),
       catalog:
         sessionMachineId === undefined || sessionMachineId === null
           ? null

@@ -23,6 +23,7 @@ import {
   type UserId,
 } from '@podium/model'
 import { parseIssueRef } from '@podium/protocol'
+import type { PodiumSettings } from '@podium/runtime'
 import type { WriteScope } from '@podium/sync'
 import { slugifyBranch } from '../../../issue-util'
 import type { IssueRow, StoredIssueUserState } from '../../../store'
@@ -85,6 +86,17 @@ export interface IssueCollaborator {
  */
 export class IssueStore {
   constructor(readonly deps: IssueDeps) {}
+
+  /** Personal launch preferences belong to the starter, else the assignee,
+   *  else the creating human. With nobody known, read workspace defaults. */
+  async settingsFor(
+    row: Pick<IssueRow, 'ownerUserId' | 'createdByOnBehalfOf'>,
+    starter?: UserId,
+  ): Promise<PodiumSettings> {
+    return await this.deps.getSettings(
+      starter ?? row.ownerUserId ?? row.createdByOnBehalfOf ?? undefined,
+    )
+  }
 
   /**
    * Freeze the machine choice an implicit operation would otherwise make inside

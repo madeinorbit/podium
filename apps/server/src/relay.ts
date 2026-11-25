@@ -2871,14 +2871,13 @@ export class SessionRegistry {
         kill: async (sessionId) =>
           await sessionsSvc.killSession(sessionsSvc.serverWriter, { sessionId }),
       },
-      // A spawn names the person it runs for, so `roles.coding` is theirs
-      // (POD-6285). With no user named, the read is for instance-tier policy
-      // (git workflow, worktree GC), the same for every member: SYSTEM, read
-      // through the first admin's row while there is one (`settingsOfNobodyNamed`).
+      // Issue launches resolve the starter, assignee or creator before reading
+      // personal preferences. With nobody known, use workspace defaults;
+      // another member's personal overlay must never fill a launch default.
       getSettings: async (forUser) =>
         forUser
           ? await this.store.settings.getSettingsFor(forUser)
-          : await settingsOfNobodyNamed(this.store),
+          : await this.store.settings.getSettings(),
       complete: async (input) =>
         await complete(
           {

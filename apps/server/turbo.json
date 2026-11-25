@@ -1671,6 +1671,7 @@
         "src/modules/issues/service/mail-pending.test.ts",
         "src/modules/issues/service/mail-pending.ts",
         "src/modules/issues/service/mail.ts",
+        "src/modules/issues/service/member-harness.test.ts",
         "src/modules/issues/service/not-found.ts",
         "src/modules/issues/service/parent-branch.ts",
         "src/modules/issues/service/point-reads.test.ts",

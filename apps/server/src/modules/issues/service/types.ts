@@ -224,8 +224,8 @@ export interface IssueDeps {
    *  (`shownSessionStatus`, ADR 12 D1); omitted by fixtures (not known). */
   machineOnline?(machineId: MachineId): boolean
   /** Settings as `forUser` sees them: their personal preferences on the
-   *  instance's. A spawn names the person it runs for (POD-6285); instance-tier
-   *  reads (git workflow, worktree GC) may omit it. */
+   *  instance's. Omitted means workspace defaults, with no member's personal
+   *  overlay. Launches resolve their member through IssueStore.settingsFor. */
   getSettings(forUser?: UserId): Promise<PodiumSettings>
   /** Spawn a session in the issue's worktree. `initialPrompt` hands the agent its
    *  first prompt at spawn (argv for capable agents, draft-seed fallback otherwise —

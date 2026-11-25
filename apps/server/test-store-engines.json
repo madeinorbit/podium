@@ -199,6 +199,7 @@
     "apps/server/src/modules/issues/service/issue-registry-model.test.ts": "Previously in the store shard; its store behavior still runs on Postgres after an import-graph change moved it to another cache shard.",
     "apps/server/src/modules/issues/service/listings.test.ts": "Previously in the store shard; its store behavior still runs on Postgres after an import-graph change moved it to another cache shard.",
     "apps/server/src/modules/issues/service/mail-pending.test.ts": "Previously in the store shard; its store behavior still runs on Postgres after an import-graph change moved it to another cache shard.",
+    "apps/server/src/modules/issues/service/member-harness.test.ts": "Member-specific issue launch preferences and workspace fallback use real settings repositories on both engines.",
     "apps/server/src/modules/issues/service/point-reads.test.ts": "Previously in the store shard; its store behavior still runs on Postgres after an import-graph change moved it to another cache shard.",
     "apps/server/src/modules/issues/service/reconcile-truth.test.ts": "Previously in the store shard; its store behavior still runs on Postgres after an import-graph change moved it to another cache shard.",
     "apps/server/src/modules/issues/service/writes.statement-count.test.ts": "Previously in the store shard; its store behavior still runs on Postgres after an import-graph change moved it to another cache shard.",
