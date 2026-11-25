@@ -19,6 +19,7 @@ import { type SyncWorkerClient, SyncWorkerError } from '../sync-worker/worker-cl
 import { CollectionRequestError, resolveInstance } from './collection-fetch'
 import { UnavailableCollectionError } from './collection-shapes'
 import {
+  collectionSummary,
   logSyncTransfer,
   negotiateContentCoding,
   observeSyncTransfer,
@@ -351,6 +352,8 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
       rows: 0,
       records: 0,
       outcome: 'running',
+      instances: instances.value.length,
+      collections: collectionSummary(instances.value),
     }
     let completionOwnsLog = false
     try {
