@@ -47,9 +47,11 @@ import {
   matchesWhere,
   pathsRead,
   type RecordDeclaration,
+  type RowsHeld,
   type RuleArgs,
   recordOf,
   type Scalar,
+  sameRows,
   testKind,
   type Where,
 } from '@podium/model'
@@ -105,6 +107,12 @@ export interface FetchPorts {
   readonly now: number
   /** The policy's numbers (`recentDays`). */
   readonly policyArgs: RuleArgs
+  /**
+   * POD-7609 — the ids of `kind` changed after feed number `seq`, up to the
+   * answer's own; `undefined` when the server cannot tell (the log no longer
+   * reaches back that far, or holds too much since). Absent: never.
+   */
+  readonly changedSince?: (kind: string, seq: number) => Promise<ReadonlySet<string> | undefined>
 }
 
 /** One record as it goes out: the viewer's value, and the part sent. */
@@ -129,6 +137,8 @@ export interface ResolvedInstance {
   readonly after?: readonly Scalar[]
   /** POD-7602 — a keyed collection for each of these values of its one argument. */
   readonly keys?: readonly string[]
+  /** POD-7609 — the device holds this instance's records, through another collection's, as of a feed number. */
+  readonly rowsHeld?: RowsHeld
 }
 
 const sameKeys = (a: readonly string[], b: readonly string[]) =>
@@ -140,7 +150,11 @@ export function resolveInstance(instance: CollectionInstance): ResolvedInstance 
   const declaration = recordOf(rule.kind)
   if (declaration === undefined)
     throw new CollectionRequestError(`${rule.kind} is not a declared record type`)
-  if (instance.keys !== undefined) return resolveKeyed(instance, rule, declaration)
+  if (instance.keys !== undefined) {
+    if (instance.rowsHeld !== undefined)
+      throw new CollectionRequestError(`${rule.id}: a keyed instance names no held rows`)
+    return resolveKeyed(instance, rule, declaration)
+  }
   const args = instance.args ?? {}
   if (!sameKeys(Object.keys(args), rule.params)) {
     throw new CollectionRequestError(
@@ -162,12 +176,20 @@ export function resolveInstance(instance: CollectionInstance): ResolvedInstance 
   }
   if ((rule.where !== undefined || page !== undefined) && !isCollectionKind(rule.kind))
     throw new CollectionRequestError(`${rule.kind} has no table a rule can read`)
+  const held = instance.rowsHeld
+  // POD-7609: the held instance must hold exactly this instance's records.
+  if (
+    held !== undefined &&
+    (rule.via !== undefined || part !== 'main' || !sameRows(rule.collection.id, held.collection))
+  )
+    throw new CollectionRequestError(`${rule.id} does not hold the records of ${held.collection}`)
   return {
     rule,
     declaration,
     part,
     args,
     ...(instance.after === undefined ? {} : { after: instance.after as readonly Scalar[] }),
+    ...(held === undefined ? {} : { rowsHeld: { collection: held.collection, seq: held.seq } }),
   }
 }
 
@@ -215,6 +237,59 @@ function readsJson(kind: CollectionKind, where: Where | undefined): boolean {
   if (where === undefined) return false
   const target = collectionTarget(kind)
   return pathsRead(where).some((path) => target.field(fieldOfPath(path))?.type === 'json')
+}
+
+/** Whether a rule selects through the parent link (`descendantsOf`): membership moves with a parent. */
+const walksParents = (where: Where): boolean =>
+  clausesOf(where).some((clause) =>
+    Object.values(clause).some((test) => testKind(test as FieldTest) === 'descendantsOf'),
+  )
+
+/**
+ * POD-7609 — the members the device holds unchanged: none changed after its
+ * held rows' number. Under a rule that walks the parent link, a member is
+ * held only when its parent is a held member too, or it is the top of the
+ * set: an issue moved under the tree changes alone, and the descendants it
+ * brings, which the device never held, go out with it.
+ */
+function heldMembers(
+  instance: ResolvedInstance,
+  members: readonly Visible[],
+  changed: ReadonlySet<string>,
+): Set<string> {
+  const unchanged = members.filter((record) => !changed.has(record.id))
+  const link = instance.declaration.parentLink
+  if (link === undefined || instance.rule.where === undefined || !walksParents(instance.rule.where))
+    return new Set(unchanged.map((record) => record.id))
+  const parentOf = new Map(members.map((record) => [record.id, record.built[link]]))
+  const decided = new Map<string, boolean>()
+  const isHeld = (id: string): boolean => {
+    const path: string[] = []
+    let at: string | undefined = id
+    let answer = true
+    while (at !== undefined) {
+      const known = decided.get(at)
+      if (known !== undefined) {
+        answer = known
+        break
+      }
+      if (changed.has(at)) {
+        answer = false
+        path.push(at)
+        break
+      }
+      path.push(at)
+      const parent = parentOf.get(at)
+      // The top of the set: its parent is not a member.
+      at =
+        typeof parent === 'string' && parentOf.has(parent) && !path.includes(parent)
+          ? parent
+          : undefined
+    }
+    for (const step of path) decided.set(step, answer)
+    return answer
+  }
+  return new Set(unchanged.filter((record) => isHeld(record.id)).map((record) => record.id))
 }
 
 const chunks = <T>(items: readonly T[], size: number): T[][] => {
@@ -288,6 +363,9 @@ export class CollectionAnswer {
       return
     }
     const members: Visible[] = []
+    /** POD-7609 — the members sent again, when the device holds the rest. */
+    let ownArrivals: Visible[] | undefined
+    let heldRows = false
     let range: CompleteInstance['range']
     let total: number | undefined
     if (rule.collection.page !== undefined) {
@@ -310,14 +388,31 @@ export class CollectionAnswer {
         rule.kind,
         await this.ports.collections.select(rule, this.args(instance), this.ports.now),
       )
+      const changed = await this.changedSinceHeld(instance)
       for (const batch of chunks(ids, BUILD_CHUNK)) {
         const visible = await this.built(rule.kind, batch, rule.where, instance)
         members.push(...visible)
+        if (changed !== undefined) continue
         const out = this.fresh(rule.kind, visible)
         if (out.length > 0) yield { type: 'records', records: out }
       }
+      if (changed !== undefined) {
+        // POD-7609: a member the device holds unchanged is not sent again, and
+        // counts as sent for the rest of the answer. What it comes with as a
+        // record arrived with the instance that holds it, and the feed keeps
+        // it current: only what this collection itself comes with is answered.
+        const held = heldMembers(instance, members, changed)
+        const resend = members.filter((record) => !held.has(record.id))
+        for (const id of held) this.whole.add(keyOf(rule.kind, id))
+        for (const batch of chunks(resend, BUILD_CHUNK)) {
+          const out = this.fresh(rule.kind, batch)
+          if (out.length > 0) yield { type: 'records', records: out }
+        }
+        ownArrivals = resend
+        heldRows = true
+      }
     }
-    const arrived = new Map<string, Visible[]>([[rule.kind, members]])
+    const arrived = new Map<string, Visible[]>([[rule.kind, ownArrivals ?? members]])
     for (const entry of rule.collection.comesWith ?? []) {
       const holder = resolveRule(entry.collection, rule.collection.id)
       yield* this.comesWith(rule.kind, instance.declaration, members, entry, holder, arrived)
@@ -337,10 +432,25 @@ export class CollectionAnswer {
           ...(rule.via === undefined ? {} : { via: rule.via }),
           ...(range === undefined ? {} : { range }),
           ...(total === undefined ? {} : { total }),
+          // POD-7609: the device's held rows are among the members.
+          ...(heldRows ? { rowsHeld: true as const } : {}),
         },
       ],
     }
     yield* this.closure(arrived)
+  }
+
+  /**
+   * POD-7609 — the instance's members changed after the feed number its held
+   * rows are as of, or `undefined` when every member goes out (no rows held,
+   * or the server cannot tell which changed).
+   */
+  private async changedSinceHeld(
+    instance: ResolvedInstance,
+  ): Promise<ReadonlySet<string> | undefined> {
+    const held = instance.rowsHeld
+    if (held === undefined || this.ports.changedSince === undefined) return undefined
+    return await this.ports.changedSince(instance.rule.kind, held.seq)
   }
 
   /**

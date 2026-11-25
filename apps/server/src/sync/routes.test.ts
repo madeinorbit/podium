@@ -324,3 +324,62 @@ describe('worker collection admission', () => {
     )
   })
 })
+
+describe('an instance that names the rows the device holds (POD-7609)', () => {
+  const archive = {
+    collection: 'issueProjection.treeArchive',
+    args: { root: 'A' },
+    part: 'main',
+    rowsHeld: { collection: 'issueProjection.tree', seq: 6 },
+  }
+  const ask = (f: ReturnType<typeof fixture>, instances: unknown[]) =>
+    f.app.request('/sync/collections', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ instances }),
+    })
+
+  it('passes the held rows to the worker while the viewer kept its access', async () => {
+    const f = fixture()
+    expect((await ask(f, [archive])).status).toBe(200)
+    expect(f.accessMoved).toHaveBeenCalledWith(DEVICE_GRADE_PRINCIPAL, 6)
+    expect(f.collections).toHaveBeenCalledWith(
+      expect.objectContaining({ instances: [archive] }),
+      expect.any(AbortSignal),
+    )
+  })
+
+  it("sends every member when the viewer's access moved after the held rows", async () => {
+    const f = fixture()
+    f.accessMoved.mockImplementation(async () => true)
+    expect((await ask(f, [archive])).status).toBe(200)
+    const { rowsHeld: _held, ...whole } = archive
+    expect(f.collections).toHaveBeenCalledWith(
+      expect.objectContaining({ instances: [whole] }),
+      expect.any(AbortSignal),
+    )
+  })
+
+  it('asks nothing about access when no instance names held rows', async () => {
+    const f = fixture()
+    expect((await ask(f, [{ collection: 'session.live', part: 'main' }])).status).toBe(200)
+    expect(f.accessMoved).not.toHaveBeenCalled()
+  })
+
+  it('refuses held rows of a collection with another rule', async () => {
+    const f = fixture()
+    const response = await ask(f, [
+      { ...archive, rowsHeld: { collection: 'issueProjection.sidebar', seq: 6 } },
+    ])
+    expect(response.status).toBe(400)
+    expect(f.collections).not.toHaveBeenCalled()
+  })
+
+  it('refuses held rows in a first download', async () => {
+    const f = fixture()
+    const view = encodeURIComponent(JSON.stringify([archive]))
+    const response = await f.app.request(`/sync/bootstrap?view=${view}`)
+    expect(response.status).toBe(400)
+    expect(f.bootstrap).not.toHaveBeenCalled()
+  })
+})

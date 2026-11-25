@@ -32,6 +32,12 @@ import { type BootstrapVisibilityOptions, bootstrapVisibility } from './visibili
 
 const log = createLogger('server:sync-bootstrap')
 const utf8 = new TextEncoder()
+/**
+ * POD-7609 — the most feed changes an answer reads to learn which of a
+ * device's held rows changed; further back, it sends every member.
+ */
+export const ROWS_HELD_MAX_RANGE = 20_000
+
 /** The range every line of one snapshot answer carries. */
 interface AnswerRange {
   readonly feedId: string
@@ -313,6 +319,15 @@ async function* produceRecords(
       principal: job.principal,
       now: options.now?.() ?? Date.now(),
       policyArgs: { recentDays: syncPolicy.recentDays },
+      // POD-7609: what changed after a device's held rows, read in this snapshot.
+      changedSince: async (kind, from) => {
+        if (from > seq || floorSeq > from + 1 || seq - from > ROWS_HELD_MAX_RANGE) return undefined
+        if (from === seq) return new Set()
+        // The range is bounded above, so one page of the feed's ordered refs
+        // (its primary key's range) holds it whole.
+        const refs = await sync.changeRefsInRange(from, seq, ROWS_HELD_MAX_RANGE)
+        return new Set(refs.filter((ref) => ref.entity === kind).map((ref) => ref.entityId))
+      },
     })
     const instances =
       job.mode === 'collections' ? job.instances : firstDownload(syncPolicy, job.view ?? [])

@@ -3553,6 +3553,7 @@
         "src/sync/capture-pg.ts",
         "src/sync/capture-triggers.ts",
         "src/sync/capture-workspace.test.ts",
+        "src/sync/collection-fetch.rows-held.test.ts",
         "src/sync/collection-fetch.test.ts",
         "src/sync/collection-fetch.ts",
         "src/sync/collection-shapes.ts",

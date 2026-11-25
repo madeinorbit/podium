@@ -90,6 +90,9 @@ function parseView(url: URL): ParsedInstances {
   // The view names narrow instances only; a keyed one goes over the fetch route (POD-7602).
   if (parsed.data.some((instance) => instance.keys !== undefined))
     return { ok: false, error: 'a view names no keyed instance' }
+  // A first download replaces what the device holds (POD-7609).
+  if (parsed.data.some((instance) => instance.rowsHeld !== undefined))
+    return { ok: false, error: 'a view names no held rows' }
   return publishedInstances(parsed.data)
 }
 
@@ -341,6 +344,15 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
     if (!instances.ok) return c.json({ error: instances.error }, 400)
     const coding = negotiateContentCoding(c.req.raw.headers.get('accept-encoding'))
     if (coding === 'not-acceptable') return c.body(null, 406)
+    // POD-7609: rows a device held from before the viewer's access moved may
+    // no longer be what it may see; such an answer sends every member.
+    const heldSince = Math.min(
+      ...instances.value.flatMap((instance) =>
+        instance.rowsHeld === undefined ? [] : [instance.rowsHeld.seq],
+      ),
+    )
+    if (Number.isFinite(heldSince) && (await deps.serving.accessMovedAfter(principal, heldSince)))
+      instances.value = instances.value.map(({ rowsHeld: _held, ...instance }) => instance)
     const transferId = randomUUID()
     const metrics: SyncTransferMetrics = {
       transferId,

@@ -339,6 +339,7 @@
     "apps/server/src/sync/bootstrap-routes.test.ts": "Previously in the store shard; its store behavior still runs on Postgres after an import-graph change moved it to another cache shard.",
     "apps/server/src/sync/capture-pg.test.ts": "Previously in the store shard; its store behavior still runs on Postgres after an import-graph change moved it to another cache shard.",
     "apps/server/src/sync/capture-workspace.test.ts": "Previously in the store shard; its store behavior still runs on Postgres after an import-graph change moved it to another cache shard.",
+    "apps/server/src/sync/collection-fetch.rows-held.test.ts": "An instance asked with the rows the device holds (POD-7609): the server reads which members changed from the change log, on both engines.",
     "apps/server/src/sync/collection-fetch.test.ts": "Previously in the store shard; its store behavior still runs on Postgres after an import-graph change moved it to another cache shard.",
     "apps/server/src/sync/collection-sql.test.ts": "Previously in the store shard; its store behavior still runs on Postgres after an import-graph change moved it to another cache shard.",
     "apps/server/src/sync/keyed-fetch.statement-count.test.ts": "A keyed collection's statement pin and its narrow-against-keyed measurement (POD-7602): the server answers it on both engines.",
