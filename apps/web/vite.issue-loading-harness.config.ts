@@ -15,6 +15,7 @@ export default defineConfig(async (env) => {
         name: 'issue-loading-fixture',
         enforce: 'pre',
         resolveId(source) {
+          if (source === './deck-store-stub') return here('./harness/issue-loading-store.ts')
           if (source.endsWith('/store-worklist-pool') || source === './store-worklist-pool')
             return here('./harness/issue-loading-pool.ts')
           if (source === 'vitest') return here('./harness/issue-loading-vitest.ts')

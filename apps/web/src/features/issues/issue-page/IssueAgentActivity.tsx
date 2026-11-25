@@ -69,7 +69,8 @@ export const IssueAgentActivity = observer(function IssueAgentActivity({
   const [lightbox, setLightbox] = useState<string | null>(null)
 
   const panel = issue.panel
-  if (panel === LOADING) return <BodyPending value={LOADING} what="issue panel" />
+  if (panel === LOADING)
+    return <BodyPending value={LOADING} what="issue panel" unavailable={issue.panelUnavailable} />
   const artifacts = panel?.artifacts ?? []
   const deferred = panel?.deferred ?? []
   if (artifacts.length === 0 && deferred.length === 0) return null

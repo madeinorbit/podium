@@ -149,6 +149,36 @@ describe('show in deck from a sub-task row', () => {
 })
 
 describe('what the server refused (POD-7595)', () => {
+  it.each([
+    'page',
+    'panel',
+  ] as const)('%s settles refused bodies into their own short lines', async (surface) => {
+    const refused = [
+      'issueDescription.ofIssue',
+      'issuePanelState.ofIssue',
+      'issuePanelArtifact.ofIssue',
+    ]
+    const options = {
+      world: (server: CollectionServer) => {
+        world(server)
+        refuseCollections(server, (instance) => refused.includes(instance.collection))
+      },
+    }
+    const mounted = surface === 'page' ? await mountPage(options) : await mountPanel(options)
+    await mounted.untilIdle()
+    expect(screen.getByLabelText('Description: not available')).toBeTruthy()
+    expect(screen.getByLabelText('State line: not available')).toBeTruthy()
+    expect(screen.getByLabelText('Issue panel: not available')).toBeTruthy()
+    expect(screen.queryByLabelText('Loading issue details')).toBeNull()
+    expect(screen.getByTestId('issue-loading-block').getAttribute('aria-busy')).toBe('false')
+    expect(screen.queryByText('The state line the server holds.')).toBeNull()
+    for (const collection of refused) {
+      expect(
+        mounted.requested().filter((instance) => instance.collection === collection),
+      ).toHaveLength(1)
+    }
+  })
+
   it('the issue page says the sub-tasks, sessions and description are not available, with no count, asked once', async () => {
     const refused = ['session.ofIssue', 'issueProjection.tree', 'issueDescription.ofIssue']
     const mounted = await mountPage({

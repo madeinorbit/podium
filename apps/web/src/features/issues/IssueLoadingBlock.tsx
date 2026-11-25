@@ -8,12 +8,19 @@ import {
   useLayoutEffect,
   useState,
 } from 'react'
+import { cn } from '@/lib/utils'
 
 const PendingContext = createContext<((id: string) => () => void) | null>(null)
 
 /** Keep every section mounted so its holding reads still load together. Pending
  * bodies register before paint; only the shared placeholder appears, after 300ms. */
-export function IssueLoadingBlock({ children }: { children: ReactNode }) {
+export function IssueLoadingBlock({
+  children,
+  contentClassName = 'flex flex-col gap-5',
+}: {
+  children: ReactNode
+  contentClassName?: string
+}) {
   const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set())
   const [showPlaceholder, setShowPlaceholder] = useState(false)
   const waiting = pending.size > 0
@@ -39,9 +46,17 @@ export function IssueLoadingBlock({ children }: { children: ReactNode }) {
 
   return (
     <PendingContext.Provider value={register}>
-      <div className="grid" aria-busy={waiting} data-testid="issue-loading-block">
+      <div
+        className="issue-loading-block grid"
+        aria-busy={waiting}
+        data-testid="issue-loading-block"
+      >
         <div
-          className={`col-start-1 row-start-1 flex min-w-0 flex-col gap-5 ${waiting ? 'invisible' : 'issue-sections-enter'}`}
+          className={cn(
+            'issue-section-content col-start-1 row-start-1 min-w-0',
+            contentClassName,
+            waiting ? 'invisible' : 'issue-sections-enter',
+          )}
           aria-hidden={waiting || undefined}
           inert={waiting}
           data-testid="issue-section-content"
@@ -49,7 +64,7 @@ export function IssueLoadingBlock({ children }: { children: ReactNode }) {
           {children}
         </div>
         {waiting && (
-          <div className="col-start-1 row-start-1 min-h-36" data-testid="issue-section-placeholder">
+          <div className="col-start-1 row-start-1 min-h-24" data-testid="issue-section-placeholder">
             {showPlaceholder && (
               <p
                 role="status"

@@ -87,6 +87,8 @@ export type IssueBodyFields = {
    */
   readonly briefUnavailable?: boolean
   readonly descriptionUnavailable?: boolean
+  readonly activityNotesUnavailable?: boolean
+  readonly panelUnavailable?: boolean
 }
 
 /** An issue a screen shows with its bodies: `IssueModel` and `PageIssue` are one. */

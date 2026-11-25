@@ -514,7 +514,11 @@ export const IssueActivitySection = observer(function IssueActivitySection({
       </SectionHeading>
 
       {issue.activityNotes === LOADING ? (
-        <BodyPending value={LOADING} what="state line" />
+        <BodyPending
+          value={LOADING}
+          what="state line"
+          unavailable={issue.activityNotesUnavailable}
+        />
       ) : (
         issue.activityNotes && (
           <div className="flex flex-col gap-1 rounded-lg border border-border border-dashed bg-muted/20 px-3 py-2">

@@ -506,6 +506,16 @@ export class IssueModel extends EntityModel {
   @lazy get descriptionUnavailable(): boolean {
     return this.descriptionRecords.unavailable
   }
+  @lazy get activityNotesUnavailable(): boolean {
+    return this.panelStateRecords.unavailable
+  }
+  @lazy get panelUnavailable(): boolean {
+    return (
+      this.panelTodoRecords.unavailable ||
+      this.panelArtifactRecords.unavailable ||
+      this.panelDeferredRecords.unavailable
+    )
+  }
   @lazy({ equals: compareShallow }) get panelTodos(): IssuePanelTodoModel[] | typeof LOADING {
     const records = this.panelTodoRecords.members
     return records === LOADING ? LOADING : records.slice().sort(panelOrder)

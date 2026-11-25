@@ -4,6 +4,7 @@ import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import type { IssueViewModel, IssueWithBodies } from '@/app/store'
 import { useMemberRoster } from '@/lib/member-roster'
+import { IssueLoadingBlock } from './IssueLoadingBlock'
 import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
 import { CommentComposer, IssueActivitySection, MailSection } from './issue-page/IssueActivity'
 import { IssueAgentActivity } from './issue-page/IssueAgentActivity'
@@ -192,86 +193,88 @@ export const IssuePageBody = observer(function IssuePageBody({
 
               <StatusStrip issue={issue} />
 
-              {/* What is true right now: live agents, and where the branch is.
+              <IssueLoadingBlock key={issue.id} contentClassName="block">
+                {/* What is true right now: live agents, and where the branch is.
                 The page used to know less about its own task than the sidebar
                 row for it did — see the module note. */}
-              <IssueNow issue={issue} onOpenSession={openSession} />
+                <IssueNow issue={issue} onOpenSession={openSession} />
 
-              <IssueDescription issue={issue} busy={busy} edit={descEdit} mayEdit={mayEdit}>
-                {roster?.shared && (
-                  <IssueTextHistory
-                    issueId={issue.id}
-                    field="description"
-                    load={() => loadIssueTextRevisions(model.trpc, issue.id, 'description')}
-                    current={issue.description}
-                    mayRestore={allowed?.restore ?? true}
-                    busy={busy}
-                    onRestore={restore}
-                  />
-                )}
-              </IssueDescription>
+                <IssueDescription issue={issue} busy={busy} edit={descEdit} mayEdit={mayEdit}>
+                  {roster?.shared && (
+                    <IssueTextHistory
+                      issueId={issue.id}
+                      field="description"
+                      load={() => loadIssueTextRevisions(model.trpc, issue.id, 'description')}
+                      current={issue.description}
+                      mayRestore={allowed?.restore ?? true}
+                      busy={busy}
+                      onRestore={restore}
+                    />
+                  )}
+                </IssueDescription>
 
-              <IssueBrief issue={issue}>
-                {roster?.shared && (
-                  <IssueTextHistory
-                    issueId={issue.id}
-                    field="brief"
-                    load={() => loadIssueTextRevisions(model.trpc, issue.id, 'brief')}
-                    current={issue.brief === LOADING ? LOADING : (issue.brief ?? '')}
-                    mayRestore={allowed?.restore ?? true}
-                    busy={busy}
-                    onRestore={restore}
-                  />
-                )}
-              </IssueBrief>
+                <IssueBrief issue={issue}>
+                  {roster?.shared && (
+                    <IssueTextHistory
+                      issueId={issue.id}
+                      field="brief"
+                      load={() => loadIssueTextRevisions(model.trpc, issue.id, 'brief')}
+                      current={issue.brief === LOADING ? LOADING : (issue.brief ?? '')}
+                      mayRestore={allowed?.restore ?? true}
+                      busy={busy}
+                      onRestore={restore}
+                    />
+                  )}
+                </IssueBrief>
 
-              {/* Long-form spec fields agents write via `podium issue update`. */}
-              <LongFormFields issue={issue} busy={busy} commands={commands} />
+                {/* Long-form spec fields agents write via `podium issue update`. */}
+                <LongFormFields issue={issue} busy={busy} commands={commands} />
 
-              {/* The agent-published panel: what the work PRODUCED (artifacts)
+                {/* The agent-published panel: what the work PRODUCED (artifacts)
                   and what it parked (deferred). Not the agent's own todo list —
                   see the module note there. */}
-              <IssueAgentActivity issue={issue} />
+                <IssueAgentActivity issue={issue} />
 
-              <IssueSubIssues
-                issue={issue}
-                busy={busy}
-                addingChild={addingChild}
-                childTitle={childTitle}
-                onAddingChange={setAddingChild}
-                onChildTitleChange={setChildTitle}
-                onCreate={createChild}
-                onNavigate={onNavigate}
-              />
+                <IssueSubIssues
+                  issue={issue}
+                  busy={busy}
+                  addingChild={addingChild}
+                  childTitle={childTitle}
+                  onAddingChange={setAddingChild}
+                  onChildTitleChange={setChildTitle}
+                  onCreate={createChild}
+                  onNavigate={onNavigate}
+                />
 
-              <PageMail issue={issue} />
+                <PageMail issue={issue} />
 
-              {/* Properties (mobile) — the desktop aside is hidden <md, so mirror
+                {/* Properties (mobile) — the desktop aside is hidden <md, so mirror
                 its rows in a collapsible disclosure above the activity feed. */}
-              {!desktop && (
-                <details
-                  onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
-                  className="mb-4 rounded-lg border border-border md:hidden"
-                  data-testid="issue-details-mobile"
-                >
-                  <summary className="cursor-pointer select-none px-3 py-2 font-medium text-[13px] text-foreground">
-                    Details
-                  </summary>
-                  {detailsOpen && (
-                    <div className="border-border border-t px-3 py-2">
-                      <IssueProperties
-                        issue={issue}
-                        busy={busy}
-                        commands={commands}
-                        onNavigate={onNavigate}
-                        onRequestClose={requestClose}
-                      />
-                    </div>
-                  )}
-                </details>
-              )}
+                {!desktop && (
+                  <details
+                    onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
+                    className="mb-4 rounded-lg border border-border md:hidden"
+                    data-testid="issue-details-mobile"
+                  >
+                    <summary className="cursor-pointer select-none px-3 py-2 font-medium text-[13px] text-foreground">
+                      Details
+                    </summary>
+                    {detailsOpen && (
+                      <div className="border-border border-t px-3 py-2">
+                        <IssueProperties
+                          issue={issue}
+                          busy={busy}
+                          commands={commands}
+                          onNavigate={onNavigate}
+                          onRequestClose={requestClose}
+                        />
+                      </div>
+                    )}
+                  </details>
+                )}
 
-              <PageTimeline issue={issue} busy={busy} commands={commands} />
+                <PageTimeline issue={issue} busy={busy} commands={commands} />
+              </IssueLoadingBlock>
             </div>
           </div>
 

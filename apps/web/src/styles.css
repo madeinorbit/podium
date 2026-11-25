@@ -16545,6 +16545,9 @@ button.waterfall-fold:hover {
 .cm-ask-quiet:first-child {
   margin-left: -8px;
 }
+.issue-loading-block[aria-busy="false"]:has(> .issue-section-content:empty) {
+  display: none;
+}
 .issue-sections-enter {
   animation: issue-sections-enter 160ms ease-out;
 }

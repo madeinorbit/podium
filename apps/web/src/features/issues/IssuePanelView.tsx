@@ -538,7 +538,8 @@ const ArtifactsPart = observer(function ArtifactsPart({
 
   const tipAnchor = useFirstArtifactAnchor('panel', artifacts.length > 0 ? issue.id : undefined)
 
-  if (panel === LOADING) return <BodyPending value={LOADING} what="issue panel" />
+  if (panel === LOADING)
+    return <BodyPending value={LOADING} what="issue panel" unavailable={issue.panelUnavailable} />
   if (all.length === 0 && deferred.length === 0) return null
 
   const srcOf = (a: IssuePanelArtifact): string | null =>
@@ -1039,7 +1040,11 @@ export const IssuePanelBody = observer(function IssuePanelBody({
             because the chat beside this column is where the work is narrated.
             A click unfolds the whole text. */}
           {issue.activityNotes === LOADING ? (
-            <BodyPending value={LOADING} what="state line" />
+            <BodyPending
+              value={LOADING}
+              what="state line"
+              unavailable={issue.activityNotesUnavailable}
+            />
           ) : (
             issue.activityNotes?.trim() && (
               <div
