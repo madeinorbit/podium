@@ -51,12 +51,16 @@ try {
         page = await context.newPage()
         page.on('pageerror', (error) => errors.push(error.message))
         page.setDefaultTimeout(30_000)
-        await page.clock.install()
-        await page.clock.pauseAt(new Date())
         await page.goto(
           `${origin}/harness/issue-loading.html${surface === 'page' ? '?page' : ''}`,
           { waitUntil: 'domcontentloaded' },
         )
+        // The device bootstrap yields with zero-delay timers. Let it finish
+        // before pausing the UI clock, then mount at a known instant.
+        await page.waitForFunction(() => Boolean(window.issueLoading))
+        await page.clock.install()
+        await page.clock.pauseAt(new Date())
+        await page.evaluate(() => window.issueLoading.mount())
         await page.getByTestId(surface === 'page' ? 'issue-page' : 'dock-comments').waitFor()
         await page.evaluate(() => document.fonts.ready)
         const panel = page.getByTestId('issue-loading-harness')
@@ -82,6 +86,7 @@ try {
             animations: 'disabled',
           })
         }
+        await page.clock.resume()
         await page.evaluate(() => window.issueLoading.settle())
         await expect(
           panel.getByText('Keep the issue page quiet while its details arrive.', { exact: true }),
