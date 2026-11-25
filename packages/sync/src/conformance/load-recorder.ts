@@ -20,6 +20,7 @@
  * an answer installed in many bursts keeps its screen LOADING for many frames:
  * the install freeze of POD-7165). It is a test check, not production code.
  */
+import { packInstances } from '@podium/model'
 import { expect } from 'vitest'
 import { instanceKey } from '../replica/cache-state'
 import { LOADER_WINDOW_MS } from '../replica/loader'
@@ -102,6 +103,12 @@ export interface RecordedLoad {
   readonly hop: number
   readonly collections: readonly string[]
   readonly instances: readonly InstanceRequest[]
+  /**
+   * POD-7602 — the instances as the request goes on the wire: a keyed
+   * collection's instances are one (`packInstances`), answered by one
+   * statement per chunk of keys.
+   */
+  readonly wire: number
   readonly askedAt: number
   answeredAt: number | undefined
   /** Asked for while the test had the device offline: refused, never served. */
@@ -333,6 +340,7 @@ export class LoadRecorder {
       hop: route === 'query' ? 0 : this.answeredHop + 1,
       collections: [...new Set(instances.map((instance) => instance.collection))],
       instances: [...instances],
+      wire: packInstances(instances).length,
       askedAt: this.clock.now(),
       answeredAt: undefined,
       offline: this.offline,

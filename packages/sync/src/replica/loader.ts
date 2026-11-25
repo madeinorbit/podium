@@ -28,7 +28,7 @@
  * collection definition, never a branch in this file.
  */
 
-import { COLLECTIONS, recordOf } from '@podium/model'
+import { COLLECTIONS, FetchBudget, recordOf } from '@podium/model'
 import { instanceKey } from './cache-state'
 import { SideMap, SideSet } from './side-state'
 import type {
@@ -42,9 +42,6 @@ import type {
 
 /** The batch window: requests within it load in one request. */
 export const LOADER_WINDOW_MS = 50
-
-/** Most instances one request names (the route's bound, `COLLECTION_FETCH_MAX_INSTANCES`). */
-const MAX_INSTANCES = 200
 
 /** POD-7538 — the first and the longest wait before a stale reload that broke off is sent again. */
 export const STALE_RETRY_MS = 1_000
@@ -483,6 +480,9 @@ export class CollectionLoader {
       .sort((a, b) => rank(a.priority) - rank(b.priority))
       .map((entry) => entry.request)
     const batch: InstanceRequest[] = []
+    // One fetch, filled by what goes on the wire (POD-7602): the instances of
+    // one keyed collection go as one, so a screen of rows fits in one fetch.
+    const budget = new FetchBudget()
     // A fetch in flight, or the wait after a failed one: the queue waits.
     const blocked = this.sending || this.retryCancel !== null
     for (const queuedRequest of queued) {
@@ -508,7 +508,8 @@ export class CollectionLoader {
       }
       if (offline && this.replica.onDevice?.(request) !== true) continue
       // One batch per fetch; the rest goes when its answer is in.
-      if (blocked || batch.length >= MAX_INSTANCES) continue
+      // What does not fit waits; a key of a keyed instance already taken still fits.
+      if (blocked || !budget.take(request)) continue
       this.queue.delete(key)
       batch.push(request)
     }

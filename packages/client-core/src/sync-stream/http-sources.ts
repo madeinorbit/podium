@@ -2,6 +2,7 @@ import {
   CLIENT_TYPE_HEADER,
   type ClientType,
   type CollectionInstance,
+  packInstances,
   SYNC_ACCESS_MOVED_HEADER,
   SYNC_BOOTSTRAP_SINCE_PARAMS,
   SYNC_CONTENT_TYPE,
@@ -248,7 +249,8 @@ export class HttpBootstrapSource {
     signal?: AbortSignal,
   ): AsyncGenerator<BootstrapChunk> {
     yield* this.answer('collections', '/sync/collections', signal, {
-      instances: instances.map(wireInstance),
+      // POD-7602: the instances of one keyed collection go as one, answered by one statement.
+      instances: packInstances(instances.map(wireInstance)),
     })
   }
 

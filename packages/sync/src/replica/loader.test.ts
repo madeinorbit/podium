@@ -11,6 +11,7 @@
  * returns.
  */
 
+import { FETCH_MAX_INSTANCES, FETCH_MAX_KEYS, packInstances } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   CollectionServer,
@@ -909,17 +910,42 @@ describe('one fetch at a time, and a wait after a failed one (POD-6951 hotfix)',
   }
 
   it('a demand larger than one batch goes one fetch at a time', async () => {
-    const { server, d } = await liveDevice(450)
+    // POD-7602: lookups are one keyed collection, so a fetch takes as many as
+    // the route's keys bound (FETCH_MAX_KEYS), not 200.
+    const count = FETCH_MAX_KEYS + 250
+    const { server, d } = await liveDevice(count)
     const before = server.fetches.length
-    d.loader.request(Array.from({ length: 450 }, (_, i) => oneRecord(ISSUE, `I${i + 1}`)))
+    d.loader.request(Array.from({ length: count }, (_, i) => oneRecord(ISSUE, `I${i + 1}`)))
     d.timer.due()
     await d.loader.flush()
     // The first window sends one batch; the rest waits for its answer.
     expect(server.fetches.length - before).toBe(1)
-    expect(server.fetches[before]?.length).toBe(200)
+    expect(server.fetches[before]?.length).toBe(FETCH_MAX_KEYS)
     await settle(d)
-    for (let i = 1; i <= 450; i += 1)
+    for (let i = 1; i <= count; i += 1)
       expect(d.replica.isComplete(oneRecord(ISSUE, `I${i}`))).toBeDefined()
+  })
+
+  it('instances that do not pack fill a fetch to the route’s instance bound (POD-7602)', async () => {
+    const { server, d } = await liveDevice(3)
+    const before = server.fetches.length
+    // Each stage page is its own wire instance: 250 of them take two fetches.
+    const pages = Array.from({ length: FETCH_MAX_INSTANCES + 50 }, (_, i) => ({
+      collection: 'issueProjection.byStage',
+      args: { stage: `stage-${i}` },
+      part: 'main' as const,
+    }))
+    // A row's lookups pack into one more: they ride in the first fetch too.
+    d.loader.request([...pages.slice(0, FETCH_MAX_INSTANCES - 1), oneRecord(ISSUE, 'I1')])
+    d.loader.request([...pages.slice(FETCH_MAX_INSTANCES - 1), oneRecord(ISSUE, 'I2')])
+    d.timer.due()
+    await d.loader.flush()
+    const first = server.fetches[before]!
+    expect(first.length).toBe(FETCH_MAX_INSTANCES + 1)
+    expect(packInstances(first).length).toBe(FETCH_MAX_INSTANCES)
+    await settle(d)
+    expect(server.fetches.length - before).toBeGreaterThanOrEqual(2)
+    for (const page of pages) expect(d.replica.isComplete(page)).toBeDefined()
   })
 
   it('a failed fetch is not asked again until its wait ends', async () => {

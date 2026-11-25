@@ -35,7 +35,7 @@
  * `remove(seq 1)` then `upsert(seq 2)` for one entity left the entity absent.
  */
 
-import { COLLECTIONS, RECORDS } from '@podium/model'
+import { COLLECTIONS, FetchBudget, RECORDS } from '@podium/model'
 import { instanceKey, rowAfter } from './cache-state'
 import {
   AnswerMembers,
@@ -225,8 +225,17 @@ export interface ReplicaOptions {
 /** POD-7162 — the main-thread clock a prune slice bounds its work by. */
 const workNow = (): number => globalThis.performance?.now() ?? Date.now()
 
-/** Most instances one fetch names; the route's own bound. */
-const FETCH_MAX_INSTANCES = 200
+/**
+ * The instances from `at` that fill one fetch within the route's bounds, by
+ * what goes on the wire (POD-7602: a keyed collection's instances count once).
+ */
+function fetchBatch(requests: readonly InstanceRequest[], at: number): InstanceRequest[] {
+  const budget = new FetchBudget()
+  const out: InstanceRequest[] = []
+  for (let next = at; next < requests.length && budget.take(requests[next]!); next += 1)
+    out.push(requests[next]!)
+  return out
+}
 
 /**
  * POD-7560 — a marker walk that did not finish waits this long before it is
@@ -3887,7 +3896,7 @@ export class Replica implements DeviceCollectionReads {
           } else await this.serial(write)
         }
         for (let at = 0; at < fresh.length; ) {
-          const batch = fresh.slice(at, at + FETCH_MAX_INSTANCES)
+          const batch = fetchBatch(fresh, at)
           const chunks = collections(batch, signal)[Symbol.asyncIterator]()
           let ended = false
           let header: BootstrapChunk | undefined
