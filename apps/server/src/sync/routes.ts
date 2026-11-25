@@ -87,6 +87,9 @@ function parseView(url: URL): ParsedInstances {
   }
   const parsed = z.array(CollectionInstance).max(VIEW_MAX_INSTANCES).safeParse(raw)
   if (!parsed.success) return { ok: false, error: 'invalid view instances' }
+  // The view names narrow instances only; a keyed one goes over the fetch route (POD-7602).
+  if (parsed.data.some((instance) => instance.keys !== undefined))
+    return { ok: false, error: 'a view names no keyed instance' }
   return publishedInstances(parsed.data)
 }
 

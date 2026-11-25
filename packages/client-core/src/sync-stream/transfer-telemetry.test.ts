@@ -1,9 +1,13 @@
 import { addSink, type LogRecord, resetLogging } from '@podium/logger'
+import { FetchBudget } from '@podium/model'
 import {
   CLIENT_WIRE_VERSION,
+  COLLECTION_FETCH_MAX_INSTANCES,
+  CollectionFetchRequest,
   SYNC_RECOVERY_ID_HEADER,
   SYNC_RECOVERY_REASON_HEADER,
 } from '@podium/protocol'
+import type { InstanceRequest } from '@podium/sync/replica'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { clientRecoveryId } from '../logging/recovery'
 import {
@@ -270,6 +274,32 @@ describe('sync transfer telemetry (POD-4071)', () => {
       { collection: 'session.ofIssue', part: 'main', keys: ['a', 'b'] },
       { collection: 'session.live', part: 'main' },
     ])
+  })
+
+  it("a fetch the loader's budget fills is one the route accepts (POD-7602)", async () => {
+    // The loader fills a fetch by what goes on the wire, so it may name far
+    // more narrow instances than the route's bound: only the packing here
+    // keeps the body within it (review finding 2).
+    const budget = new FetchBudget()
+    const taken: InstanceRequest[] = []
+    for (let at = 0; at < 1500; at += 1) {
+      const row: InstanceRequest[] = [
+        { collection: 'session.ofIssue', args: { issueId: `iss_${at}` }, part: 'main' },
+        { collection: 'issueDep.toIssue', args: { issueId: `iss_${at}` }, part: 'main' },
+        { collection: 'issueProjection.tree', args: { root: `iss_${at}` }, part: 'main' },
+      ]
+      for (const instance of row) if (budget.take(instance)) taken.push(instance)
+    }
+    expect(taken.length).toBeGreaterThan(COLLECTION_FETCH_MAX_INSTANCES)
+    const h = harness()
+    const { bootstrap, fetch } = sources(h.telemetry, () => responseOf(snapshot(1, 1)))
+    await drain(bootstrap.collections(taken))
+    const body = JSON.parse(String(fetch.mock.calls[0]?.[1].body)) as unknown
+    const parsed = CollectionFetchRequest.safeParse(body)
+    expect(parsed.success, JSON.stringify(parsed.error?.issues.slice(0, 3))).toBe(true)
+    expect(parsed.data?.instances.length).toBe(budget.size.instances)
+    const keys = parsed.data?.instances.reduce((sum, i) => sum + (i.keys?.length ?? 0), 0)
+    expect(keys).toBe(budget.size.keys)
   })
 
   it('links a completed marker walk with the landed markers cause and the collections transfer', async () => {

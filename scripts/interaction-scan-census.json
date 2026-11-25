@@ -42417,6 +42417,28 @@
     },
     {
       "file": "packages/client-graph/src/issue-page.ts",
+      "holder": "createIssuePageViews/issue",
+      "rule": "reader-summary",
+      "tokens": "2cdda3a59541fc75ef4cbd5adeb0ada0695196ecdb6785c1b66f3e9d5212f265",
+      "gate": [
+        "exit:then:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8",
+        "then:065f29edbcaaf3cff6610618566e464df342fa7beb69de2ed0333c6b3ad07cbc",
+        "then:5b97a631531e909235ff7efc7e0c7b6115ae9bf2fb740edffcba522bbe1781f8"
+      ],
+      "origin": [
+        "1f50fdc57e480e96068c8c07ed016a656e21ba698813825ba64ffb867d1db279"
+      ],
+      "fingerprint": "6c4c7ff7b2f07886f91ea99d423e7a09aea777ec79128076003d9678a8c42f26",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7602",
+      "trigger": "The issue page reads its own issue: it holds that issue's sessions while it reads the record.",
+      "bound": "One issue's sessions, behind the held marker of session.ofIssue for that issue; the read keeps the hold and discards the answer.",
+      "reason": "The page holds its sessions in the record's window, whenever it reads the record, so the hold is never released and retaken when the sessions block mounts.",
+      "guard": "body-relations.test.ts 'the issue page holds its tree and sessions while it reads the record' proves the hold is never dropped."
+    },
+    {
+      "file": "packages/client-graph/src/issue-page.ts",
       "holder": "IssuePageRow/retiredCount",
       "rule": "reader-summary",
       "tokens": "610ae1330a19843a97c6dd7ecb39e58661980806035dc7e72d07bcd47967fbcb",

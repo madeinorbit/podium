@@ -67,7 +67,12 @@ import { bootstrapVisibility } from '../sync-worker/visibility'
 import { ruleDialectOfStore, runCollectionStatement } from '../test-support/collection-statement'
 import { issueRowFixture } from '../test-support/issue-row'
 import { openTestStore, testStoreLocation } from '../test-support/open-test-store'
-import { CollectionRequestError, resolveInstance } from './collection-fetch'
+import {
+  CollectionAnswer,
+  CollectionRequestError,
+  type FetchPorts,
+  resolveInstance,
+} from './collection-fetch'
 import { resolveRule, ruleStatement, statementOfKey } from './collection-shapes'
 import { collectionTarget, isCollectionKind } from './collection-sql'
 import { firstDownload, policyFor } from './policy'
@@ -931,6 +936,61 @@ describe('a keyed collection asked for many keys answers each as if asked alone 
     // A tree, a page or a policy collection is never packed.
     for (const id of ['issueProjection.tree', 'issueProjection.byStage', 'session.live'])
       expect(ids).not.toContain(id)
+    // The server reads each record's key from the one field its one clause
+    // tests: a saved column, never a JSON document (review finding 4).
+    for (const collection of keyed) {
+      const [clause, ...rest] = clausesOf(collection.where!)
+      expect(rest, collection.id).toEqual([])
+      expect(isCollectionKind(collection.of), collection.id).toBe(true)
+      if (!isCollectionKind(collection.of)) continue
+      const target = collectionTarget(collection.of)
+      for (const path of Object.keys(clause!))
+        expect(target.field(path)?.type, collection.id).not.toBe('json')
+    }
+  })
+
+  it('decides the records many keys name in one visibility pass per chunk, not one per key', async () => {
+    // issueProjection.startedBy tests an execution-private field, so each
+    // key's session is decided before the key is answered (POD-7582).
+    const passes: number[] = []
+    const policy = {
+      grade: 'per-principal',
+      decide: (_principal: Principal, ref: { entityId: string }) => ({
+        visible: ref.entityId !== 'hidden',
+      }),
+      forBootstrap: async (refs: readonly unknown[]) => {
+        passes.push(refs.length)
+        return policy
+      },
+    } as unknown as FetchPorts['visibility']
+    const asked: unknown[][] = []
+    const answer = new CollectionAnswer({
+      collections: {
+        keyed: async (_rule: unknown, args: Record<string, unknown>) => {
+          asked.push(args['sessionId'] as unknown[])
+          return []
+        },
+      } as unknown as FetchPorts['collections'],
+      records: { build: async () => [], streamAll: async function* () {} },
+      visibility: policy,
+      principal: principalOf(viewers[0]!.user),
+      now: NOW,
+      policyArgs: {},
+    })
+    const keys = [...Array.from({ length: 1200 }, (_, at) => `s-${at}`), 'hidden']
+    const markers: string[] = []
+    for await (const output of answer.instance(
+      resolveInstance({ collection: 'issueProjection.startedBy', keys }),
+    ))
+      if (output.type === 'complete')
+        for (const instance of output.instances) markers.push(String(instance.args?.['sessionId']))
+    // 1,201 keys: three passes of at most 500, then the keys the viewer may name.
+    expect(passes).toEqual([500, 500, 201])
+    // One keyed statement for the keys the viewer may name (padded to a list size).
+    expect(asked).toHaveLength(1)
+    expect(new Set(asked.flat())).toEqual(new Set(keys.slice(0, 1200)))
+    // Every key is marked, the refused one too (complete and empty).
+    expect(new Set(markers)).toEqual(new Set(keys))
   })
 
   for (const collection of keyed) {

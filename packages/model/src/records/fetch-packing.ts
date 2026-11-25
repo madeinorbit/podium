@@ -38,8 +38,10 @@ const keyedArguments = new Map<string, string | undefined>()
 
 /**
  * The argument a collection is keyed by, when its instances can share one
- * keyed instance on the wire: one instance argument, tested for equality in
- * every clause, and no page. `undefined` for any other.
+ * keyed instance on the wire: one clause that tests a plain saved field (no
+ * path into an object) for equality with the collection's one argument, and
+ * no page. The server reads each record's key from that field. `undefined`
+ * for any other.
  */
 export function keyedArgument(collectionId: string): string | undefined {
   if (keyedArguments.has(collectionId)) return keyedArguments.get(collectionId)
@@ -48,16 +50,19 @@ export function keyedArgument(collectionId: string): string | undefined {
   if (collection?.where !== undefined && collection.page === undefined) {
     const params = instanceParams(collection)
     const only = params.length === 1 ? params[0] : undefined
-    const keyedIn = (clause: Readonly<Record<string, unknown>>): boolean =>
-      Object.values(clause).some(
-        (test) =>
+    const clauses = clausesOf(collection.where)
+    const keyed =
+      clauses.length === 1 &&
+      Object.entries(clauses[0]!).some(
+        ([path, test]) =>
+          !path.includes('.') &&
           typeof test === 'object' &&
           test !== null &&
           'eq' in test &&
           isParam((test as { eq: unknown }).eq) &&
           (test as { eq: { param: string } }).eq.param === only,
       )
-    if (only !== undefined && clausesOf(collection.where).every(keyedIn)) param = only
+    if (only !== undefined && keyed) param = only
   }
   keyedArguments.set(collectionId, param)
   return param
@@ -66,7 +71,8 @@ export function keyedArgument(collectionId: string): string | undefined {
 /** The group an instance packs into, or `undefined` when it goes on the wire alone. */
 function packGroup(instance: PackableInstance): { group: string; key: string } | undefined {
   if (instance.after !== undefined || instance.keys !== undefined) return undefined
-  if ((instance.part ?? 'main') !== 'main') return undefined
+  // An omitted part is the collection's own: only a main part packs.
+  if ((instance.part ?? COLLECTIONS.get(instance.collection)?.part) !== 'main') return undefined
   const param = keyedArgument(instance.collection)
   if (param === undefined) return undefined
   const args = instance.args ?? {}

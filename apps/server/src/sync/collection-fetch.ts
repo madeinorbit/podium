@@ -83,7 +83,7 @@ import {
 export { CollectionRequestError }
 
 /** Records built per call: the builders' batched reads take a page at a time. */
-const BUILD_CHUNK = 500
+export const BUILD_CHUNK = 500
 
 /** Rounds of "comes with" an answer may take; the declarations need four. */
 const MAX_COMES_WITH_ROUNDS = 8
@@ -181,7 +181,14 @@ function resolveKeyed(
   declaration: RecordDeclaration,
 ): ResolvedInstance {
   const param = keyedArgument(instance.collection)
-  if (param === undefined || rule.where === undefined || !isCollectionKind(rule.kind))
+  // Each record's key is read from its saved field: a JSON one would need
+  // the SQL's superset rechecked per key (POD-7602 review).
+  if (
+    param === undefined ||
+    rule.where === undefined ||
+    !isCollectionKind(rule.kind) ||
+    readsJson(rule.kind, rule.where)
+  )
     throw new CollectionRequestError(`${rule.id} is not a keyed collection`)
   if (instance.args !== undefined && Object.keys(instance.args).length > 0)
     throw new CollectionRequestError(`${rule.id}: a keyed instance names its ${param} in keys`)
@@ -349,11 +356,7 @@ export class CollectionAnswer {
       ...(rule.via === undefined ? {} : { via: rule.via }),
     })
     // A key the viewer may not name is complete and empty, as alone (POD-7582).
-    const named: string[] = []
-    const refused: string[] = []
-    for (const key of keys)
-      if (await this.mayName({ ...instance, args: { [param]: key } })) named.push(key)
-      else refused.push(key)
+    const { named, refused } = await this.nameableKeys(instance, param, keys)
     const members: Visible[] = []
     const kind = rule.kind as CollectionKind
     const field = keyedField(rule.where!, param)
@@ -397,12 +400,26 @@ export class CollectionAnswer {
    * empty test) is never answered.
    */
   private async mayName(instance: ResolvedInstance): Promise<boolean> {
+    const refs = this.namedRefs(instance)
+    if (refs === false) return false
+    if (refs.length === 0) return true
+    const policy = await this.prepared(refs)
+    return refs.every((ref) => policy.decide(this.ports.principal, ref).visible)
+  }
+
+  /**
+   * The records an instance's arguments name through fields the viewer's
+   * copy hides (`mayName`): the viewer must see each of them. `false` when
+   * such a test names no record, so the instance is never answered.
+   */
+  private namedRefs(instance: { rule: ResolvedRule; args: CollectionArgs }): EntityRef[] | false {
     const { rule } = instance
-    if (rule.where === undefined || rule.kind !== 'issueProjection') return true
+    if (rule.where === undefined || rule.kind !== 'issueProjection') return []
     const links: Readonly<Record<string, { readonly to: string }>> =
       recordOf(rule.kind)?.links ?? {}
     const hidden: ReadonlySet<string> = new Set(ISSUE_EXECUTION_PRIVATE_FIELDS)
     const args = this.args(instance)
+    const refs: EntityRef[] = []
     for (const clause of clausesOf(rule.where))
       for (const [path, test] of Object.entries(clause)) {
         const field = fieldOfPath(path)
@@ -413,11 +430,37 @@ export class CollectionAnswer {
             ? args[test.eq.param]
             : undefined
         if (to === undefined || typeof named !== 'string') return false
-        const ref: EntityRef = { entity: to as MetadataEntityKind, entityId: named }
-        const policy = await this.prepared([ref])
-        if (!policy.decide(this.ports.principal, ref).visible) return false
+        refs.push({ entity: to as MetadataEntityKind, entityId: named })
       }
-    return true
+    return refs
+  }
+
+  /**
+   * `mayName` for many keys of one keyed instance: the records they name are
+   * decided in batches of `BUILD_CHUNK`, one visibility pass each, never one
+   * per key (POD-7602 review).
+   */
+  private async nameableKeys(
+    instance: ResolvedInstance,
+    param: string,
+    keys: readonly string[],
+  ): Promise<{ named: string[]; refused: string[] }> {
+    const named: string[] = []
+    const refused: string[] = []
+    const asked: { key: string; refs: EntityRef[] }[] = []
+    for (const key of keys) {
+      const refs = this.namedRefs({ rule: instance.rule, args: { [param]: key } })
+      if (refs === false) refused.push(key)
+      else if (refs.length === 0) named.push(key)
+      else asked.push({ key, refs })
+    }
+    for (const batch of chunks(asked, BUILD_CHUNK)) {
+      const policy = await this.prepared(batch.flatMap((entry) => entry.refs))
+      for (const { key, refs } of batch)
+        if (refs.every((ref) => policy.decide(this.ports.principal, ref).visible)) named.push(key)
+        else refused.push(key)
+    }
+    return { named, refused }
   }
 
   /** The arguments a statement binds: the instance's and the policy's. */

@@ -609,13 +609,22 @@ export function createIssuePageViews(pool: MobxPool) {
    * The page's own issue reads its sub-issues' tree and its sessions the same
    * way: asked in the record's window, not a hop after it (POD-7602).
    */
-  function issue(id: string, bodies: readonly PageBody[] = PAGE_BODIES): Loaded<PageIssue> {
+  function issue(
+    id: string,
+    bodies: readonly PageBody[] = PAGE_BODIES,
+    /** The page itself, not a lookup (`destination`): it holds its tree and sessions too. */
+    page = bodies === PAGE_BODIES,
+  ): Loaded<PageIssue> {
     if (disposed) return LOADING
     const found = readPageIssue(pool, id)
-    if (found !== undefined) readBodies(pool, id, bodies)
-    if (found === LOADING && bodies === PAGE_BODIES) {
-      void pool.collections.subtreeHeld(id)
-      void sessionsHeld(pool, id, 'pageSessions')
+    if (found !== undefined) {
+      readBodies(pool, id, bodies)
+      // Held while the page reads, as the bodies: no release and retake
+      // when the sections mount (POD-7545).
+      if (page) {
+        void pool.collections.subtreeHeld(id)
+        void sessionsHeld(pool, id, 'pageSessions')
+      }
     }
     return found
   }
@@ -649,13 +658,13 @@ export function createIssuePageViews(pool: MobxPool) {
     return id ? issue(id, PANEL_BODIES) : undefined
   }
   function destination(id: string): Loaded<IssueViewModel> {
-    const target = issue(id)
+    const target = issue(id, PAGE_BODIES, false)
     if (target === LOADING) return LOADING
     if (!target || target.archived || target.deletedAt) return undefined
     const rootId = missions(pool).rootFor(id)
     if (rootId === LOADING) return LOADING
     if (!rootId) return undefined
-    const root = issue(rootId)
+    const root = issue(rootId, PAGE_BODIES, false)
     if (!root || root === LOADING) return root
     // Only an empty draft is no destination: a root that would not be one
     // even with no sessions is a destination without waiting for them.

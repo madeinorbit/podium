@@ -13,6 +13,8 @@ import { withoutIssueBodies } from '@podium/model'
 import { runInAction } from 'mobx'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { InstanceRequest } from '../../sync/src/replica/types'
+import { treeOf } from './collections'
+import { createIssuePageViews } from './issue-page'
 import { LOADING } from './loading'
 import { requireLoaded } from './mission-view'
 import { holdingInstanceOf } from './shared/holding-relations'
@@ -365,5 +367,44 @@ describe('loading is not refreshing', () => {
       release?.()
       read.close()
     }
+  })
+})
+
+describe('the issue page holds its tree and sessions while it reads the record (POD-7602)', () => {
+  it('never releases them between the LOADING read and the read of the arrived row', async () => {
+    const device = await emptyDevice()
+    const tree = requestKey(treeOf('i1', 'main'))
+    const pageSessions = holdingInstanceOf(SCHEMA, 'issue', 'pageSessions')
+    if (pageSessions === undefined) throw new Error('pageSessions holds no instance')
+    const sessions = requestKey(pageSessions('i1'))
+    // Every time a hold of either instance drops to none (review finding 5).
+    const holds = new Map<string, number>()
+    const dropped: string[] = []
+    const loader = device.loader
+    const show = loader.show.bind(loader)
+    loader.show = (spec) => {
+      const key = requestKey(spec)
+      holds.set(key, (holds.get(key) ?? 0) + 1)
+      const release = show(spec)
+      return () => {
+        holds.set(key, (holds.get(key) ?? 0) - 1)
+        if (holds.get(key) === 0) dropped.push(key)
+        release()
+      }
+    }
+    const views = createIssuePageViews(device.pool)
+    const read = device.observe(
+      () => views,
+      (page) => page.issue('i1'),
+    )
+    expect(holds.get(tree)).toBeGreaterThan(0)
+    expect(holds.get(sessions)).toBeGreaterThan(0)
+    await device.untilIdle()
+    expect(views.issue('i1')).not.toBe(LOADING)
+    expect(dropped.filter((key) => key === tree || key === sessions)).toEqual([])
+    expect(holds.get(tree)).toBeGreaterThan(0)
+    expect(holds.get(sessions)).toBeGreaterThan(0)
+    read.close()
+    views.dispose()
   })
 })
