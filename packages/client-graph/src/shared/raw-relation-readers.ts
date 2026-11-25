@@ -190,6 +190,35 @@ export const RAW_RELATION_READERS: readonly RawRelationReader[] = [
   // subtree. Keep these resident reads until filtered or aggregate collections
   // can answer the decorations without blanking titles and refs offline.
   // POD-7581 owns the row/board follow-up; deck aggregates remain with POD-7580.
+  // MobX reports these same row fields with and without an addressed instance.
+  ...reader(
+    'BoardTask.mark',
+    ['issue.missionSessions'],
+    'POD-7581',
+    'mobile-tasks.ts',
+    '@lazy get mark(): TaskRowMark {',
+  ),
+  ...reader(
+    'WorklistIssue.formalChildIds',
+    ['issue.children'],
+    'POD-7581',
+    'worklist/issue.ts',
+    'private get formalChildIds(): readonly string[] {',
+  ),
+  ...reader(
+    'WorklistIssue.unitOwnUnit',
+    ['issue.spinOffs'],
+    'POD-7581',
+    'worklist/issue.ts',
+    "private get unitOwnUnit(): UnitOwn['unit'] {",
+  ),
+  ...reader(
+    'WorklistIssue.unitOwnDone',
+    ['issue.spinOffs'],
+    'POD-7581',
+    'worklist/issue.ts',
+    "private get unitOwnDone(): UnitOwn['done'] {",
+  ),
   ...reader(
     'observerTaskRow',
     ['issue.pageSessions', 'issue.pageDependents'],
