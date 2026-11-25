@@ -283,6 +283,14 @@ fails before it can silently change the Postgres leg. Every store-shard file is 
 unless a list names it, so one that fails on Postgres fails the leg by name. To see which
 pending files pass now, run the leg with `PODIUM_TEST_STORE_PG_LEG=pending`.
 
+**Shards.** The whole leg runs longer than a test VM's 50-minute run limit, so run it there
+as four shards, one after another: `PODIUM_TEST_STORE_PG_SHARD=1/4 bun run test:lane --
+server-store-pg`, then `2/4`, `3/4` and `4/4` (POD-7604). Every leg file is in exactly one
+shard; the isolation pair is always in shard 1, together. The files are dealt round-robin in
+path order (`pgLegShard` in `test-support/test-store-engines.ts`), so a directory's files
+spread over the shards. Named files and the shard switch do not mix: a named file outside
+the shard is not collected. CI runs the whole leg in one job.
+
 **Workers and the tmpfs.** The local test server keeps its data on a 2,048 MiB tmpfs. Each
 worker holds the clones of its file, about 13 MB each, until they are dropped: a test's own
 at the test's end when nothing still uses them, the rest at the file's end. A whole-leg run

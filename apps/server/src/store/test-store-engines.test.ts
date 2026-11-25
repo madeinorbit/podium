@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   PG_LEG_SELECTION_ENV,
+  PG_LEG_SHARD_ENV,
+  pgLegShard,
   postgresLegFiles,
   readTestStoreEngines,
   serverShardFiles,
@@ -32,7 +34,7 @@ describe('test-store-engines.json', () => {
   })
 
   it('leaves the Postgres leg the store shard minus both lists, plus beyondStoreShard', () => {
-    const leg = postgresLegFiles(repositoryRoot)
+    const leg = postgresLegFiles(repositoryRoot, readTestStoreEngines(), {})
     expect(leg).toContain('apps/server/src/store/test-store-engines.test.ts')
     expect(leg).toContain('apps/server/src/store/pg-test-database.test.ts')
     // A Postgres audit from another shard (POD-6992).
@@ -55,6 +57,21 @@ describe('test-store-engines.json', () => {
     for (const file of Object.keys(engines.beyondStoreShard)) expect(leg).toContain(file)
   })
 
+  it('splits the leg into shards that hold every file once, the isolation pair together', () => {
+    const leg = postgresLegFiles(repositoryRoot, readTestStoreEngines(), {})
+    const shards = [1, 2, 3, 4].map((k) =>
+      postgresLegFiles(repositoryRoot, readTestStoreEngines(), { [PG_LEG_SHARD_ENV]: `${k}/4` }),
+    )
+    expect(shards.flat().sort()).toEqual(leg)
+    expect(new Set(shards.flat()).size).toBe(leg.length)
+    const pair = leg.filter((file) => /\/pg-test-isolation-[12]\.test\.ts$/.test(file))
+    expect(pair).toHaveLength(2)
+    for (const file of pair) expect(shards[0]).toContain(file)
+    for (const shard of shards) expect(shard.length).toBeGreaterThan(leg.length / 4 - 2)
+    expect(() => pgLegShard(leg, '5/4')).toThrow(PG_LEG_SHARD_ENV)
+    expect(() => pgLegShard(leg, 'all')).toThrow(PG_LEG_SHARD_ENV)
+  })
+
   it('runs only the pending files when asked to', () => {
     const engines = readTestStoreEngines()
     expect(
@@ -66,7 +83,7 @@ describe('test-store-engines.json', () => {
     const engines = readTestStoreEngines()
     const file = 'apps/server/src/auth-route.test.ts'
     expect(storeShardFiles(repositoryRoot)).not.toContain(file)
-    expect(postgresLegFiles(repositoryRoot)).toContain(file)
+    expect(postgresLegFiles(repositoryRoot, readTestStoreEngines(), {})).toContain(file)
     expect(
       postgresLegFiles(repositoryRoot, {
         ...engines,

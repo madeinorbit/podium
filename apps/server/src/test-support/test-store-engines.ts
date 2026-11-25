@@ -78,25 +78,61 @@ export function postgresAuditFiles(repositoryRoot: string): string[] {
 export const PG_LEG_SELECTION_ENV = 'PODIUM_TEST_STORE_PG_LEG'
 
 /**
+ * Set to `<k>/<n>` to run only the k-th of n shards of the Postgres leg [POD-7604]. The
+ * whole leg runs longer than a test VM's 50-minute run limit, so it is run as shards, one
+ * after another, each well under it: `PODIUM_TEST_STORE_PG_SHARD=1/4 bun run test:lane --
+ * server-store-pg`, then 2/4, 3/4 and 4/4. Unset, the lane runs the whole leg.
+ */
+export const PG_LEG_SHARD_ENV = 'PODIUM_TEST_STORE_PG_SHARD'
+
+/** The isolation pair runs side by side, so it is always in shard 1 together. */
+const ISOLATION_PAIR = /\/pg-test-isolation-[12]\.test\.ts$/
+
+/**
+ * The k-th of n shards of `files` (sorted). The isolation pair goes to shard 1 together;
+ * every other file is dealt round-robin in path order, so neighbouring files of one
+ * directory (which tend to cost alike) land on different shards, and every file is in
+ * exactly one shard.
+ */
+export function pgLegShard(files: readonly string[], spec: string): string[] {
+  const match = /^(\d+)\/(\d+)$/.exec(spec.trim())
+  const index = Number(match?.[1])
+  const count = Number(match?.[2])
+  if (!match || count < 1 || index < 1 || index > count) {
+    throw new Error(`${PG_LEG_SHARD_ENV} must be <k>/<n> with 1 <= k <= n, got "${spec}"`)
+  }
+  const pair = files.filter((file) => ISOLATION_PAIR.test(file))
+  const rest = files.filter((file) => !ISOLATION_PAIR.test(file))
+  return [
+    ...(index === 1 ? pair : []),
+    ...rest.filter((_, position) => position % count === index - 1),
+  ].sort()
+}
+
+/**
  * The files the Postgres leg runs: the store shard minus both lists, the Postgres audits,
- * and `beyondStoreShard`.
+ * and `beyondStoreShard`; with {@link PG_LEG_SHARD_ENV}, one shard of them.
  */
 export function postgresLegFiles(
   repositoryRoot: string,
   engines: TestStoreEngines = readTestStoreEngines(),
   env: Record<string, string | undefined> = process.env,
 ): string[] {
-  if (env[PG_LEG_SELECTION_ENV] === 'pending') return [...engines.pending]
+  const shard = env[PG_LEG_SHARD_ENV]
+  const sharded = (files: string[]) => (shard ? pgLegShard(files, shard) : files)
+  if (env[PG_LEG_SELECTION_ENV] === 'pending') return sharded([...engines.pending])
   const excluded = new Set([...Object.keys(engines.sqliteOnly), ...engines.pending])
-  return [
-    ...new Set([
-      ...storeShardFiles(repositoryRoot),
-      ...postgresAuditFiles(repositoryRoot),
-      ...Object.keys(engines.beyondStoreShard),
-    ]),
-  ]
-    .filter((file) => !excluded.has(file))
-    .sort()
+  return sharded(
+    [
+      ...new Set([
+        ...storeShardFiles(repositoryRoot),
+        ...postgresAuditFiles(repositoryRoot),
+        ...Object.keys(engines.beyondStoreShard),
+      ]),
+    ]
+      .filter((file) => !excluded.has(file))
+      .sort(),
+  )
 }
 
 /** What is wrong with the lists, one line per problem; empty when they are sound. */
