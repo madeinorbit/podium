@@ -1,0 +1,61 @@
+{
+  "provenance": "Current response envelopes supplied by the control-plane owner; validation issues are synthetic. Proposed responses are contract examples, not live captures.",
+  "current": {
+    "unauthorized": { "status": 401, "body": { "error": "unauthorized" } },
+    "invalidRequest": {
+      "status": 400,
+      "body": {
+        "error": "invalid_request",
+        "issues": [{ "path": ["tenantId"], "message": "Required" }]
+      }
+    },
+    "notFound": { "status": 404, "body": { "error": "not_found" } }
+  },
+  "proposed": [
+    {
+      "status": 429,
+      "body": {
+        "error": "quota_exceeded",
+        "message": "Cloud quota reached; stop another runtime or increase your quota."
+      },
+      "expectedCode": "TOO_MANY_REQUESTS",
+      "expectedHttpStatus": 429
+    },
+    {
+      "status": 402,
+      "body": {
+        "error": "billing_required",
+        "message": "Your cloud billing limit was reached; update your billing settings."
+      },
+      "expectedCode": "PRECONDITION_FAILED",
+      "expectedHttpStatus": 412
+    },
+    {
+      "status": 400,
+      "body": {
+        "error": "region_unavailable",
+        "message": "The selected region is unavailable; choose another region."
+      },
+      "expectedCode": "BAD_REQUEST",
+      "expectedHttpStatus": 400
+    },
+    {
+      "status": 403,
+      "body": {
+        "error": "plan_unavailable",
+        "message": "This size is unavailable on your plan; choose another size."
+      },
+      "expectedCode": "PRECONDITION_FAILED",
+      "expectedHttpStatus": 412
+    },
+    {
+      "status": 403,
+      "body": {
+        "error": "repo_access_denied",
+        "message": "Repository access denied; grant the provider access to this repository."
+      },
+      "expectedCode": "FORBIDDEN",
+      "expectedHttpStatus": 403
+    }
+  ]
+}

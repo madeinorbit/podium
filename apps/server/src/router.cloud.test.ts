@@ -4,12 +4,14 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
 import { getErrorShape } from '@trpc/server/unstable-core-do-not-import'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import responses from './__fixtures__/cloud-provider-errors.json'
 import {
   type CloudAgentRequest,
   type CloudMachineRequest,
   type CloudRuntime,
   type CloudRuntimeProvider,
   CloudRuntimeUserError,
+  createHostedCloudRuntimeProvider,
 } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
 import type { Capability } from './issue-authz'
@@ -471,6 +473,95 @@ describe('cloud failures keep internal details in the server log', () => {
     expect(shape).toMatchObject({ message, data: { code } })
     expect(shape.data.httpStatus).not.toBe(401)
     expect(shape.data).not.toHaveProperty('causeChain')
+  })
+
+  it.each([
+    {
+      ...responses.current.unauthorized,
+      expectedCode: 'PRECONDITION_FAILED',
+      expectedHttpStatus: 412,
+      expectedMessage:
+        "The cloud service rejected this server's credentials; ask your admin to check the cloud settings.",
+    },
+    ...responses.proposed.map((response) => ({
+      ...response,
+      expectedMessage: response.body.message,
+    })),
+  ])('keeps the hosted $body.error guidance in the real tRPC shape', async (response) => {
+    const provider = createHostedCloudRuntimeProvider({
+      baseUrl: 'https://cloud.example.com',
+      token: 'secret-token',
+      fetch: async () =>
+        Response.json(
+          { ...response.body, debug: 'INTERNAL_PROVIDER_DETAIL: hidden-token' },
+          { status: response.status },
+        ),
+    })
+    const { call } = await caller(provider)
+    const error: unknown = await call.cloud
+      .createAgent({ displayName: 'New agent', repo })
+      .catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(TRPCError)
+    if (!(error instanceof TRPCError)) throw new Error('expected a tRPC refusal')
+    expect(error).toMatchObject({ code: response.expectedCode, message: response.expectedMessage })
+    expect(error.cause).toBeUndefined()
+    const shape = cloudErrorShape(error, 'cloud.createAgent')
+    expect(shape).toMatchObject({
+      message: response.expectedMessage,
+      data: { code: response.expectedCode, httpStatus: response.expectedHttpStatus },
+    })
+    expect(shape.data.httpStatus).not.toBe(401)
+    expect(shape.data).not.toHaveProperty('causeChain')
+    expect(JSON.stringify(shape)).not.toMatch(/INTERNAL_PROVIDER_DETAIL|hidden-token|secret-token/)
+  })
+
+  it.each([
+    responses.current.invalidRequest,
+    { status: 401, body: { error: 'invalid_token', message: 'INTERNAL_PROVIDER_DETAIL' } },
+    { status: 403, body: { error: 'unknown', message: 'INTERNAL_PROVIDER_DETAIL' } },
+    { status: 429, body: { error: 'quota_exceeded', message: '<b>INTERNAL_PROVIDER_DETAIL</b>' } },
+    { status: 500, body: { error: 'quota_exceeded', message: 'INTERNAL_PROVIDER_DETAIL' } },
+  ])('logs an undocumented hosted $status/$body.error response behind a reference', async (response) => {
+    const provider = createHostedCloudRuntimeProvider({
+      baseUrl: 'https://cloud.example.com',
+      token: 'secret-token',
+      fetch: async () =>
+        Response.json(
+          { ...response.body, debug: 'INTERNAL_PROVIDER_DETAIL: hidden-token' },
+          { status: response.status },
+        ),
+    })
+    const { call } = await caller(provider)
+    const error = await expectCloudFailure(
+      () => call.cloud.createAgent({ displayName: 'New agent', repo }),
+      'cloud.createAgent',
+      new Error(`cloud control plane request failed: ${response.status} (${response.body.error})`),
+    )
+    expect(JSON.stringify(cloudErrorShape(error, 'cloud.createAgent'))).not.toMatch(
+      /INTERNAL_PROVIDER_DETAIL|hidden-token|secret-token/,
+    )
+  })
+
+  it('preserves missing-runtime behavior for the recorded not_found response', async () => {
+    const response = responses.current.notFound
+    const provider = createHostedCloudRuntimeProvider({
+      baseUrl: 'https://cloud.example.com',
+      token: 'secret-token',
+      fetch: async () => Response.json(response.body, { status: response.status }),
+    })
+    const { call } = await caller(provider)
+    await expect(call.cloud.runtime({ id: 'missing-runtime' })).resolves.toBeNull()
+    for (const action of ['stop', 'wake'] as const) {
+      const error: unknown = await call.cloud[action]({ id: 'missing-runtime' }).catch(
+        (caught: unknown) => caught,
+      )
+      expect(error).toBeInstanceOf(TRPCError)
+      if (!(error instanceof TRPCError)) throw new Error('expected a tRPC refusal')
+      expect(cloudErrorShape(error, `cloud.${action}`)).toMatchObject({
+        message: 'cloud runtime not found',
+        data: { code: 'NOT_FOUND', httpStatus: 404 },
+      })
+    }
   })
 
   it.each([

@@ -133,11 +133,11 @@ export interface HostedCloudRuntimeProviderOptions {
   fetch?: typeof fetch
 }
 
-/** A provider's deliberate, actionable refusal. The message is written for the
- * user (reconnect an expired token, change a plan/region, grant repo access),
- * never copied from a raw HTTP body, stack or driver error. Only these explicit
- * refusals may keep their text at the cloud service boundary. Provider token
- * problems use PRECONDITION_FAILED; UNAUTHORIZED means Podium's login expired. */
+/** A provider's deliberate, actionable refusal. The message is authored for the
+ * user, locally or in a documented provider user-message field, never arbitrary
+ * response text, a stack or a driver error. Only these explicit refusals may
+ * keep their text at the cloud service boundary. Provider token problems use
+ * PRECONDITION_FAILED; UNAUTHORIZED means Podium's login expired. */
 export class CloudRuntimeUserError extends Error {
   constructor(
     readonly code: 'BAD_REQUEST' | 'FORBIDDEN' | 'PRECONDITION_FAILED' | 'TOO_MANY_REQUESTS',
@@ -185,6 +185,76 @@ export const disabledCloudRuntimeProvider: CloudRuntimeProvider = {
   },
 }
 
+/**
+ * Hosted control-plane error contract (all bodies are JSON):
+ * - 401 {error: 'unauthorized'}: this server's control-plane token was rejected.
+ * - 400 {error: 'invalid_request', issues: [...]}: an adapter bug, not user input.
+ * - 404 {error: 'not_found'}: an unknown runtime, absent on getRuntime only.
+ *
+ * Proposed user-actionable extension, pending control-plane support:
+ * {error: '<code>', message: '<authored user guidance>'}, with one of the codes
+ * below and any 4xx status (the control plane has not chosen statuses yet).
+ * The message must be 1–240 characters of single-line plain text, without
+ * markup delimiters, controls or invisible formatting. A missing/invalid message,
+ * unknown code or non-4xx status remains a logged internal fault. Never show
+ * other response fields (issues, debug, etc.) or guess a refusal from its status.
+ */
+const hostedCloudUserFailures = [
+  { error: 'quota_exceeded', code: 'TOO_MANY_REQUESTS' },
+  { error: 'billing_required', code: 'PRECONDITION_FAILED' },
+  { error: 'region_unavailable', code: 'BAD_REQUEST' },
+  { error: 'plan_unavailable', code: 'PRECONDITION_FAILED' },
+  { error: 'repo_access_denied', code: 'FORBIDDEN' },
+] as const satisfies ReadonlyArray<{
+  error: string
+  code: CloudRuntimeUserError['code']
+}>
+
+class HostedCloudRuntimeHttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly providerCode: unknown,
+  ) {
+    // A bounded machine code helps correlate undocumented failures in the server
+    // log. Arbitrary body text is neither needed there nor safe for the caller.
+    const detail =
+      typeof providerCode === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(providerCode)
+        ? ` (${providerCode})`
+        : ''
+    super(`cloud control plane request failed: ${status}${detail}`)
+    this.name = 'HostedCloudRuntimeHttpError'
+  }
+}
+
+function hostedCloudError(status: number, body: unknown): Error {
+  const envelope =
+    typeof body === 'object' && body !== null && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : undefined
+  const providerCode = envelope?.error
+  if (status === 401 && providerCode === 'unauthorized') {
+    return new CloudRuntimeUserError(
+      'PRECONDITION_FAILED',
+      "The cloud service rejected this server's credentials; ask your admin to check the cloud settings.",
+    )
+  }
+
+  const refusal = hostedCloudUserFailures.find((failure) => failure.error === providerCode)
+  const message = envelope?.message
+  if (
+    refusal &&
+    status >= 400 &&
+    status < 500 &&
+    typeof message === 'string' &&
+    message.length <= 240 &&
+    message.trim().length > 0 &&
+    !/[<>\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(message)
+  ) {
+    return new CloudRuntimeUserError(refusal.code, message.trim())
+  }
+  return new HostedCloudRuntimeHttpError(status, providerCode)
+}
+
 export function createHostedCloudRuntimeProvider({
   baseUrl,
   token,
@@ -198,7 +268,8 @@ export function createHostedCloudRuntimeProvider({
     if (init.body !== undefined) headers.set('content-type', 'application/json')
     const response = await fetchImpl(new URL(path.replace(/^\//, ''), root), { ...init, headers })
     if (!response.ok) {
-      throw new Error(`cloud control plane request failed: ${response.status}`)
+      const body: unknown = await response.json().catch(() => undefined)
+      throw hostedCloudError(response.status, body)
     }
     return (await response.json()) as T
   }
@@ -218,7 +289,13 @@ export function createHostedCloudRuntimeProvider({
       try {
         return await request<CloudRuntime>(`/v1/runtimes/${encodeURIComponent(id)}`)
       } catch (error) {
-        if (error instanceof Error && error.message.endsWith(': 404')) return null
+        if (
+          error instanceof HostedCloudRuntimeHttpError &&
+          error.status === 404 &&
+          error.providerCode === 'not_found'
+        ) {
+          return null
+        }
         throw error
       }
     },
