@@ -1,11 +1,10 @@
-import {
-  asUserId,
-  type IssueId,
-  type RepoId,
-  type SessionId,
-  type SessionMeta,
-  type SessionUserOverlay,
-  type UserId,
+import type {
+  IssueId,
+  RepoId,
+  SessionId,
+  SessionMeta,
+  SessionUserOverlay,
+  UserId,
 } from '@podium/model'
 import { userCommandPrincipal } from '../../command-principal'
 import { harnessCapabilitiesFor } from '../../harness-manifest'
@@ -213,10 +212,7 @@ export class SessionView {
       if (!session) return undefined
       if (forPrincipal) {
         if (!(await this.ports.state.canReadSession(forPrincipal, sessionId, {}))) return undefined
-      } else if (
-        !(await this.defaultPrincipal()) ||
-        !(await this.ports.state.resolvableSessions([sessionId])).has(sessionId)
-      ) {
+      } else if (!(await this.ports.state.resolvableSessions([sessionId])).has(sessionId)) {
         return undefined
       }
       return session.spawnedBy
@@ -233,13 +229,12 @@ export class SessionView {
     forPrincipal?: SessionStatePrincipal,
   ): Promise<SessionMeta[]> {
     // NO PRINCIPAL IS AN IN-PROCESS READ (POD-6283): authorization lookups,
-    // delegation walks, lifecycle work. It used to be filtered as the earliest
-    // admin, whose scope `all` saw every session with an owner; sessions are
-    // private now, so that stand-in would hide every other member's sessions
-    // from the server itself. It reads what it always read: every session whose
-    // owner resolves, once the instance has a member. Retiring the stand-in on
-    // request paths is POD-6285's.
-    if (!forPrincipal && !(await this.defaultPrincipal())) return []
+    // delegation walks, lifecycle work. It reads every session whose owner
+    // resolves, and depends on no person. It once also asked whether the
+    // instance had an active admin, the stand-in it replaced, and answered
+    // nothing without one: with the only admin disabled, every stop, health
+    // check and cleanup then read each session as absent and did nothing
+    // (POD-7597). A session without an owner is still left out.
     const pass = await this.buildProjectionPass(candidates)
     const ids = candidates.map((session) => session.sessionId)
     const visible = forPrincipal
@@ -272,17 +267,6 @@ export class SessionView {
     return sessionStatePrincipalFor(
       userCommandPrincipal(this.ports.store.workspaceId, userId, role),
     )
-  }
-
-  /** The instance's earliest admin, or none on an instance with no member. A
-   *  principal-less read only asks whether it exists (see `project`). */
-  async defaultPrincipal(): Promise<SessionStatePrincipal | undefined> {
-    const member = await this.ports.store.users.earliestAdmin()
-    return member
-      ? sessionStatePrincipalFor(
-          userCommandPrincipal(this.ports.store.workspaceId, asUserId(member.id), member.role),
-        )
-      : undefined
   }
 
   /** `userId`'s personal state on one session. Sessions are private, so the

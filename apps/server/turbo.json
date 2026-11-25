@@ -3270,6 +3270,7 @@
         "src/modules/write-routes/refusals.ts",
         "src/modules/write-routes/relay.ts",
         "src/modules/write-routes/sync.ts",
+        "src/no-active-admin.test.ts",
         "src/notify.ts",
         "src/observation-checkpoint-reads.test.ts",
         "src/offer.test.ts",

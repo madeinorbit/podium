@@ -685,6 +685,23 @@ function noticeInfo(
 }
 
 /**
+ * THE SETTINGS OF A READ THAT NAMES NOBODY: instance-tier policy (git workflow,
+ * worktree GC, the issue assistant's switch) and a notice with no recipient.
+ * Read as the first admin's, the member this build reads such settings for,
+ * while there is one. With no active admin (the only one disabled) it is the
+ * instance's own settings: the read must not fail and stop that work, and the
+ * policy it asks for is the same for every member (POD-7597).
+ */
+export async function settingsOfNobodyNamed(
+  store: Pick<SessionStore, 'users' | 'settings'>,
+): Promise<import('@podium/runtime').PodiumSettings> {
+  const admin = await store.users.earliestAdmin()
+  return admin
+    ? await store.settings.getSettingsFor(asUserId(admin.id))
+    : await store.settings.getSettings()
+}
+
+/**
  * The server's composition root (issue #13 Phase 2 → #191). The constructor IS
  * the composition: it builds the module graph in dependency order
  * (bus → machines/rpc → settings/notify/hosts → issue wire plumbing → sessions →
@@ -2656,9 +2673,9 @@ export class SessionRegistry {
         // answer, and POD-315/POD-1077 replace the argument rather than finding a
         // hidden read.
         getSettings: async (ownerUserId?: import('@podium/model').UserId) =>
-          await this.store.settings.getSettingsFor(
-            ownerUserId ?? (await firstAdminMemberId(this.store)),
-          ),
+          ownerUserId
+            ? await this.store.settings.getSettingsFor(ownerUserId)
+            : await settingsOfNobodyNamed(this.store),
         // POD-419: out of the server-only keyed store, read at the moment of use.
         telegramBotToken: async () =>
           await this.store.secrets.getOrEmpty('notifications.telegramBotToken'),
@@ -2857,9 +2874,11 @@ export class SessionRegistry {
       // A spawn names the person it runs for, so `roles.coding` is theirs
       // (POD-6285). With no user named, the read is for instance-tier policy
       // (git workflow, worktree GC), the same for every member: SYSTEM, read
-      // through the first admin's row only because a settings read needs one.
+      // through the first admin's row while there is one (`settingsOfNobodyNamed`).
       getSettings: async (forUser) =>
-        await this.store.settings.getSettingsFor(forUser ?? (await firstAdminMemberId(this.store))),
+        forUser
+          ? await this.store.settings.getSettingsFor(forUser)
+          : await settingsOfNobodyNamed(this.store),
       complete: async (input) =>
         await complete(
           {
@@ -3167,10 +3186,10 @@ export class SessionRegistry {
             ownerUserId: facts.ownerUserId,
             credentialId: credentialNamedBy(facts),
           })),
-        // From the session's facts, not the projected view: an in-process view
-        // read answers nothing while the instance has no active admin, so with
-        // the only admin disabled every session read as not running and none
-        // was stopped (POD-7594, the sole-admin trace).
+        // From the session's facts, not the projected view: the status and phase
+        // are all this needs. (The view once answered nothing with no active
+        // admin, so with the only admin disabled none was stopped: POD-7594's
+        // sole-admin trace, fixed in the view by POD-7597.)
         standing: async (sessionId) => {
           const session = await sessionsSvc.readSessionFactsById(sessionId)
           if (!session || session.status === 'hibernated' || session.status === 'exited') {
@@ -5387,7 +5406,7 @@ export class SessionRegistry {
         return
       }
       void (async () => {
-        // Facts, not the view: the view answers nothing with no active admin.
+        // Facts, not the projected view: the credential is all this needs.
         const session = await sessionsSvc.readSessionFactsById(sessionId)
         // A headless session's credential is its account (POD-7594, F5).
         const credentialId = session ? credentialNamedBy(session) : null

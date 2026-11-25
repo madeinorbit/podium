@@ -43,8 +43,9 @@ const SENDER = asSessionId('sFrom')
 /** Measured on the polaris VM (POD-6231): 13. Now 12: the session owner check
  *  no longer reads the session's grant edges (`grants` by resource, one
  *  statement), because session grants are inert and the owner is the whole
- *  answer (design §4.1; a30edff62f, POD-6283). */
-const PASS_STATEMENTS = 12
+ *  answer (design §4.1; a30edff62f, POD-6283). Now 11: an in-process session
+ *  read no longer asks for the earliest admin first (POD-7597). */
+const PASS_STATEMENTS = 11
 
 const row = (
   id: string,

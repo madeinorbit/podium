@@ -177,8 +177,8 @@ async function fixture(count: number) {
     store,
     state,
   })
-  // Reader-scoped calls still use their admitted principal; feed projection needs none.
-  vi.spyOn(view, 'defaultPrincipal').mockResolvedValue(principal)
+  // Reader-scoped calls use their admitted principal; feed projection asks for no person.
+  vi.spyOn(store.users, 'earliestAdmin')
   return { store, rows, sessions, authz, state, machines, view }
 }
 
@@ -241,7 +241,7 @@ describe('one projection pass', () => {
       expect(overlays).not.toHaveBeenCalled()
       expect(machines).not.toHaveBeenCalled()
       expect(f.machines.factsSnapshot).not.toHaveBeenCalled()
-      expect(f.view.defaultPrincipal).not.toHaveBeenCalled()
+      expect(f.store.users.earliestAdmin).not.toHaveBeenCalled()
       expect(rows.every((row) => row.queuedMessageCount === 1)).toBe(true)
       expect(rows[3]).toMatchObject({ refSeq: 1, refLetter: 'b' })
       expect(rows[3]?.refRepoId).toBeTruthy()
@@ -451,7 +451,7 @@ describe('one projection pass', () => {
         process.stdout.write(`broadcast ${size}: ${counts.at(-1)} physical read statements\n`)
         expect(result.changes).toHaveLength(size)
         expect(result.remaining).toBe(0)
-        expect(f.view.defaultPrincipal).not.toHaveBeenCalled()
+        expect(f.store.users.earliestAdmin).not.toHaveBeenCalled()
         expect(f.machines.factsSnapshot).not.toHaveBeenCalled()
       } finally {
         await f.store.close()
