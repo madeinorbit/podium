@@ -255,6 +255,23 @@ describe('sync transfer telemetry (POD-4071)', () => {
     expect(attempt.headers[SYNC_RECOVERY_REASON_HEADER]).toBe('collection-demand')
   })
 
+  it("sends a keyed collection's instances as one keyed instance (POD-7602)", async () => {
+    const h = harness()
+    const { bootstrap, fetch } = sources(h.telemetry, () => responseOf(snapshot(1, 1)))
+    await drain(
+      bootstrap.collections([
+        { collection: 'session.ofIssue', args: { issueId: 'a' }, part: 'main' },
+        { collection: 'session.live', part: 'main' },
+        { collection: 'session.ofIssue', args: { issueId: 'b' }, part: 'main' },
+      ]),
+    )
+    const body = JSON.parse(String(fetch.mock.calls[0]?.[1].body)) as { instances: unknown[] }
+    expect(body.instances).toEqual([
+      { collection: 'session.ofIssue', part: 'main', keys: ['a', 'b'] },
+      { collection: 'session.live', part: 'main' },
+    ])
+  })
+
   it('links a completed marker walk with the landed markers cause and the collections transfer', async () => {
     const h = harness()
     const { bootstrap, fetch } = sources(h.telemetry, () => responseOf(snapshot(1, 1)))
