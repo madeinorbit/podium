@@ -291,22 +291,50 @@ const deleteGrantsOfCredentials = preparedFamily((db, t, size: number) =>
 )
 
 /**
- * A removed member's incoming grants, but for their `manage` on credentials
- * (POD-7594, operator decision): the grants they gave as a manager on someone
- * else's key stand, and those need the manager's own edge to reach the owner.
- * The person can act on nothing (the resolver refuses a non-member); the key's
- * owner revokes the edge, or the grants given through it, like any other share.
- * Through `idx_grants_grantee`.
+ * The credentials a person manages without owning them, by their incoming
+ * `manage` edges (POD-7594, final review 2): the only keys on which they can
+ * have given anything. Through `idx_grants_grantee`.
  */
-const deleteGrantsOfRemovedMember = prepared((db, t) =>
+const credentialsManagedBy = prepared((db, t) =>
+  db
+    .select({ id: t.grants.resourceId })
+    .from(t.grants)
+    .where(
+      inWorkspace(
+        t.grants,
+        eq(t.grants.grantee, param(t.grants.grantee, 'grantee')),
+        eq(t.grants.resourceKind, param(t.grants.resourceKind, 'resourceKind')),
+        eq(t.grants.verb, param(t.grants.verb, 'verb')),
+      ),
+    )
+    .prepare(),
+)
+
+/** The owners of these credentials, through the credentials primary key. */
+const ownersOfCredentials = preparedFamily((db, t, size: number) =>
+  db
+    .select({ id: t.credentials.id, owner: t.credentials.ownerUserId })
+    .from(t.credentials)
+    .where(inWorkspace(t.credentials, inListOf(t.credentials.id, size, 'ids')))
+    .prepare(),
+)
+
+/**
+ * The edges one person gave on these credentials, handed to a new granter: the
+ * key's owner (POD-7594, final review 2). Through the primary key's
+ * `(resource_kind, resource_id)` prefix.
+ */
+const reparentGrantsOnCredentials = preparedFamily((db, t, size: number) =>
   captureWrite(
     db
-      .delete(t.grants)
+      .update(t.grants)
+      .set({ owner: sql.placeholder('newOwner') })
       .where(
         inWorkspace(
           t.grants,
-          eq(t.grants.grantee, param(t.grants.grantee, 'grantee')),
-          sql`NOT (${t.grants.resourceKind} = ${CREDENTIAL_KIND} AND ${t.grants.verb} = 'manage')`,
+          eq(t.grants.resourceKind, param(t.grants.resourceKind, 'resourceKind')),
+          inListOf(t.grants.resourceId, size, 'resourceIds'),
+          eq(t.grants.owner, param(t.grants.owner, 'formerOwner')),
         ),
       )
       .returning(),
@@ -690,17 +718,55 @@ export class GrantsRepository {
   }
 
   /**
-   * A member was removed: every grant to them goes, but for their `manage` on
-   * credentials, so what they gave as a manager stands (POD-7594).
+   * A member is being removed (POD-7594, operator decision and final review 2):
+   * the `use` and `manage` edges they gave on someone else's key are handed to
+   * that key's owner, so the people they shared it with keep access, the owner
+   * can revoke it, and no edge needs the removed person. Run before their
+   * incoming grants are deleted; nothing they held then comes back if the
+   * same member id is invited again.
    */
-  async removeForRemovedMember(grantee: string): Promise<void> {
+  async reparentCredentialGrantsGivenBy(formerOwner: string): Promise<void> {
+    const managed = (
+      await credentialsManagedBy(this.db).all({
+        grantee: formerOwner,
+        resourceKind: CREDENTIAL_KIND,
+        verb: 'manage',
+      })
+    ).map((row) => row.id)
+    if (managed.length === 0) return
+    const byOwner = new Map<string, string[]>()
+    for (let at = 0; at < managed.length; at += 500) {
+      const chunk = managed.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      for (const row of await ownersOfCredentials(this.db, size).all(
+        inListValues(chunk, size, 'ids'),
+      )) {
+        if (row.owner === formerOwner) continue
+        byOwner.set(row.owner, [...(byOwner.get(row.owner) ?? []), row.id])
+      }
+    }
     await this.machineRecordWrites.compare(async () => {
-      const result = await this.committed.write(
-        async () => await deleteGrantsOfRemovedMember(this.db).all({ grantee }),
-        'delete',
-      )
+      let changes = 0
+      for (const [newOwner, ids] of byOwner) {
+        for (let at = 0; at < ids.length; at += 500) {
+          const chunk = ids.slice(at, at + 500)
+          const size = inListSize(chunk.length)
+          const result = await this.committed.write(
+            async () =>
+              await reparentGrantsOnCredentials(this.db, size).all(
+                inListValues(chunk, size, 'resourceIds', {
+                  resourceKind: CREDENTIAL_KIND,
+                  formerOwner,
+                  newOwner,
+                }),
+              ),
+            'update',
+          )
+          changes += result.changes
+        }
+      }
       this.resourceGrants.invalidate()
-      if (result.changes > 0) this.visibilityRevisionValue += 1
+      if (changes > 0) this.visibilityRevisionValue += 1
     })
   }
 

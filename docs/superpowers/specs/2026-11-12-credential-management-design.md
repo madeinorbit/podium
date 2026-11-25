@@ -828,9 +828,10 @@ and for ChatGPT plans other than Plus and Pro.
 - **A grant outlives the person who gave it** (operator decision, POD-7594). When Alice, a
   manager of Carol's key, gave Bob `use` and Alice is then disabled or removed, Bob keeps
   access. Only Alice's own keys and sessions go: her sessions stop, and on a removal the keys
-  she owns are removed everywhere and their shares end in the removal's own transaction.
-  Carol, the key's owner, can revoke what Alice gave at any time, like any other share: take
-  back Alice's `manage`, or Bob's `use`.
+  she owns are removed everywhere and their shares end in the removal's own transaction. On a
+  removal, what Alice gave on Carol's key is handed to Carol, as if Carol had given it, and
+  every grant to Alice goes; inviting Alice again restores none of it. Carol, the key's
+  owner, can revoke what Alice gave at any time, like any other share.
 - **Use means the other person can obtain it.** Until a broker keeps secrets out of processes
   (section 15), someone who runs a session on a shared key or token on their own machine can
   read it there. The share dialog says so for every type.

@@ -461,16 +461,16 @@ describe('review focus', () => {
     expect(refused.code).toBe('BAD_REQUEST')
   })
 
-  // POD-7594, operator decision on spec §12: a removal keeps the removed
-  // manager's own `manage` edge so the grants they gave stand. That edge must
-  // never let the removed person act: every command refuses them.
-  it('a removed manager can neither grant, revoke nor use through the kept edge', async () => {
+  // POD-7594, operator decision on spec §12: the grants a removed manager gave
+  // stand, handed to the key's owner, and no edge names the removed person.
+  // They act on nothing: every command refuses them.
+  it('a removed manager can neither grant, revoke nor use the key, and what they gave stands', async () => {
     const { store, as, credentialId } = await harness()
     await outcomeOf(invoke(as(member(MANAGER)), 'share', credentialId))
     expect(await mayUse(store, CAROL, { id: credentialId, ownerUserId: OWNER })).toBe('use')
     await memberFacts(store).removeMember(MANAGER, OWNER)
     const edges = await store.grants.listForResource('credential', credentialId)
-    expect(edges.some((e) => e.grantee === MANAGER && e.verb === 'manage')).toBe(true)
+    expect(edges.some((e) => e.grantee === MANAGER || e.owner === MANAGER)).toBe(false)
     const removed = as(member(MANAGER))
     for (const name of [
       'share',

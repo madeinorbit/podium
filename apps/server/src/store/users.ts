@@ -851,14 +851,16 @@ export class UsersRepository {
         // Detail contains only the public id, never credentials or profile data.
         await this.audit('members.remove', actor, { memberId }, at)
         // Keep other members' shares, including the shares this member granted
-        // as a manager on someone else's key (operator decision, POD-7594): their
-        // incoming grants are invalidated but for their `manage` on credentials,
-        // which those shares need. The key's owner revokes them like any other.
-        // The shares of the keys they own end here, in the removal's own
-        // transaction: nobody may use a removed member's key even if the cleanup
-        // after the commit (secrets, placements,
-        // credentialHealth.removeMemberCredentials) never runs (POD-7594 N1).
-        await this.grantsRepository.removeForRemovedMember(memberId)
+        // as a manager on someone else's key (operator decision, POD-7594):
+        // those edges are handed to the key's owner first, who can revoke them
+        // like any other, and then every grant to the member goes, so nothing
+        // they held comes back if the same member id is invited again (final
+        // review 2). The shares of the keys they own end here too, in the
+        // removal's own transaction: nobody may use a removed member's key even
+        // if the cleanup after the commit (secrets, placements,
+        // credentialHealth.removeMemberCredentials) never runs (final review N1).
+        await this.grantsRepository.reparentCredentialGrantsGivenBy(memberId)
+        await this.grantsRepository.removeAllForGrantee(memberId)
         await this.grantsRepository.removeCredentialGrantsOfOwner(memberId)
       }
     })
