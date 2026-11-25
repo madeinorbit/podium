@@ -6,6 +6,7 @@ import { effectPublication } from '../modules/effects/published-input'
 import { CollectionsRepository } from '../store/collections'
 import type { QueryClient } from '../store/executor/driver'
 import type { RootStoreExecutor } from '../store/executor/executor'
+import { readBatchedPages, withReadBatch } from '../store/executor/read-batch'
 import { legacyWorkspaceQueries } from '../store/executor/sync-drizzle'
 import { databaseRecords } from '../sync/record-source'
 import { recordReadsOf } from './record-reads'
@@ -42,7 +43,14 @@ export function bootstrapVisibility(
     const { grants, sync } = reads.store
     // The start-up load streams these, and the sharing rules re-send current
     // values from them (POD-6770): every kind, built from the model tables.
-    const records = databaseRecords(reads)
+    const source = databaseRecords(reads)
+    // Scope batching to record builders. Collection selection keeps its existing
+    // raw-query path, and each requested record page retains this job's snapshot.
+    const records: typeof source = {
+      ...source,
+      build: async (kind, ids) => await withReadBatch(async () => await source.build(kind, ids)),
+      streamAll: (kind) => readBatchedPages(source.streamAll(kind)),
+    }
     const visibility = makeFeedVisibility({
       store: reads.store,
       audiencesFor: (kind, ids) => grants.visibilityAudiencesFor(kind, ids),

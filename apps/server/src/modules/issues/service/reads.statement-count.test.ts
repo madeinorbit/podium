@@ -61,7 +61,7 @@ const pin: StatementPin<Fixture> = {
 
 describe('issue frame bulk reads', { timeout: 60_000 }, () => {
   it('reads one and fifty reports in the same number of statements', async () => {
-    await expectConstantStatements(pin, 14)
+    await expectConstantStatements(pin, 13)
   })
 
   it('reads one and fifty reports in the same number of round trips', async () => {

@@ -72,34 +72,6 @@ const touchFeed = (s: ProbedStore) =>
 
 const SHAPES: readonly Shape[] = [
   {
-    name: 'independent root reads share one explicit batch',
-    roundTrips: 1,
-    run: async (s) =>
-      await withReadBatch(
-        async () =>
-          await Promise.all([
-            s.executor.drizzle.all('SELECT 1 AS one'),
-            s.executor.drizzle.all('SELECT 2 AS two'),
-          ]),
-      ),
-  },
-  {
-    name: 'independent snapshot reads share one batch, then COMMIT',
-    roundTrips: 2,
-    run: async (s) =>
-      await s.executor.read(
-        async () =>
-          await withReadBatch(
-            async () =>
-              await Promise.all([
-                s.executor.drizzle.all('SELECT 1 AS one'),
-                s.executor.drizzle.all('SELECT 2 AS two'),
-              ]),
-          ),
-        WORKSPACE,
-      ),
-  },
-  {
     name: 'a read body of two statements: BEGIN rides on the first, then COMMIT',
     roundTrips: 3,
     run: async (s) =>
@@ -199,6 +171,34 @@ const SHAPES: readonly Shape[] = [
       await s.watermarks.getRecapWatermark(READER, SESSION)
       await s.watermarks.setRecapWatermark(READER, SESSION, 'evt_1', AT)
     },
+  },
+  {
+    name: 'independent root reads share one explicit batch',
+    roundTrips: 1,
+    run: async (s) =>
+      await withReadBatch(
+        async () =>
+          await Promise.all([
+            s.executor.drizzle.all('SELECT 1 AS one'),
+            s.executor.drizzle.all('SELECT 2 AS two'),
+          ]),
+      ),
+  },
+  {
+    name: 'independent snapshot reads share one batch, then COMMIT',
+    roundTrips: 2,
+    run: async (s) =>
+      await s.executor.read(
+        async () =>
+          await withReadBatch(
+            async () =>
+              await Promise.all([
+                s.executor.drizzle.all('SELECT 1 AS one'),
+                s.executor.drizzle.all('SELECT 2 AS two'),
+              ]),
+          ),
+        WORKSPACE,
+      ),
   },
 ]
 

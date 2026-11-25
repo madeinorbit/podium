@@ -15,7 +15,6 @@ import {
 } from '@podium/sync/bootstrap-worker'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
-import { withReadBatch } from '../store/executor/read-batch'
 import { CollectionAnswer, type FetchOutput, resolveInstance } from '../sync/collection-fetch'
 import { readKindTokens } from '../sync/kind-tokens'
 import { pipeSyncBody } from '../sync/pipe-sync-body'
@@ -427,12 +426,7 @@ export async function* produceBootstrap(
     options,
   )
   const source = {
-    // A page retains the existing snapshot and output order. Independent reads
-    // within that page share a pipeline; no work is pulled ahead of backpressure.
-    [Symbol.asyncIterator]: () => ({
-      next: () => withReadBatch(async () => await records.next()),
-      return: () => records.return(undefined),
-    }),
+    [Symbol.asyncIterator]: () => records,
     abort: (reason: unknown) => lifetime.abort(reason),
   }
   const started = performance.now()

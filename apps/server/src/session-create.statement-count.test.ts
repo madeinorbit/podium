@@ -167,6 +167,43 @@ const pin = (
   },
 })
 
+// BEGIN FOCUS CENSUS: the benchmark adds this probe to its baseline test harness too.
+const focusPin: StatementPin<Fixture> = {
+  name: 'superagent user focus',
+  sizes: [1, 50],
+  setup: fixture,
+  target: (f) => f.store,
+  run: async (f) =>
+    await (
+      f.superagent as unknown as {
+        focusBlock(focus: {
+          visibleSessionIds: string[]
+          issueId: string
+          view: string
+        }): Promise<string>
+      }
+    ).focusBlock({ visibleSessionIds: f.others, issueId: f.issueId, view: 'workspace' }),
+  check: (result, _f, size) => {
+    expect(result).toEqual(expect.stringContaining('Issue in view:'))
+    expect(result).toEqual(expect.stringContaining('Also on screen:'))
+    expect(String(result).match(/ · codex · /g)).toHaveLength(size)
+  },
+  teardown: async (f) => {
+    f.superagent.dispose()
+    await f.reg.dispose()
+    await f.store.close()
+  },
+}
+
+it.runIf(process.env.PODIUM_ROUND_TRIP_REPORT === '1')(
+  'user focus: Postgres measurement',
+  async () => {
+    await measureAtSizes(focusPin)
+  },
+  120_000,
+)
+// END FOCUS CENSUS
+
 /** Plant a read per existing session of the fixture where creation reads the machine list. */
 const plantPerSession = (f: Fixture): (() => void) => {
   const machines = f.reg.modules.machines

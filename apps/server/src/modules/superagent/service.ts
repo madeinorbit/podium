@@ -31,6 +31,7 @@ import {
   type IssueReport,
   type MachineId,
   type SessionId,
+  type SessionMeta,
   shownSessionStatus,
   spawnedByTag,
   type ThreadId,
@@ -2173,8 +2174,9 @@ export class SuperagentService {
   private async sessionInfo(
     sessionId: SessionId,
     issueLookup?: (id: IssueId) => IssueReport | undefined | Promise<IssueReport | undefined>,
+    selected?: SessionMeta | null,
   ): Promise<FocusSessionInfo | undefined> {
-    const s = await this.sessionById(sessionId)
+    const s = selected === undefined ? await this.sessionById(sessionId) : selected
     if (!s) return undefined
     const issue = s.issueId
       ? issueLookup
@@ -2212,8 +2214,25 @@ export class SuperagentService {
    *  MCP-driven or automation turn). */
   private async focusBlock(focus: SuperagentUserFocus | undefined): Promise<string | undefined> {
     if (!focus) return undefined
+    const sessionIds = [
+      ...new Set([
+        ...(focus.focusedSessionId ? [focus.focusedSessionId] : []),
+        ...(focus.visibleSessionIds ?? []),
+      ]),
+    ]
+    const sessions = new Map(
+      (await this.modules.sessions.sessionsById(sessionIds)).map((session) => [
+        session.sessionId,
+        session,
+      ]),
+    )
+    const reports = await this.modules.issues.reports.getMany([
+      ...[focus.issueId, focus.openIssueId].flatMap((id) => (id ? [asIssueId(id)] : [])),
+      ...[...sessions.values()].flatMap((session) => (session.issueId ? [session.issueId] : [])),
+    ])
+    const lookup = (id: IssueId) => reports.get(id)
     const issueInfo = async (id: string | undefined): Promise<FocusIssueInfo | undefined> => {
-      const issue = id ? await this.issueById(asIssueId(id)) : undefined
+      const issue = id ? reports.get(id) : undefined
       if (!issue) return undefined
       return {
         seq: issue.seq,
@@ -2225,13 +2244,17 @@ export class SuperagentService {
     const issue = await issueInfo(focus.issueId)
     const openIssue = await issueInfo(focus.openIssueId)
     const focused = focus.focusedSessionId
-      ? await this.sessionInfo(focus.focusedSessionId)
+      ? await this.sessionInfo(
+          focus.focusedSessionId,
+          lookup,
+          sessions.get(focus.focusedSessionId) ?? null,
+        )
       : undefined
     const alsoVisible = (
       await Promise.all(
         (focus.visibleSessionIds ?? [])
           .filter((id) => id !== focus.focusedSessionId)
-          .map(async (id) => await this.sessionInfo(id)),
+          .map(async (id) => await this.sessionInfo(id, lookup, sessions.get(id) ?? null)),
       )
     ).filter((s): s is FocusSessionInfo => !!s)
     return buildFocusBlock({

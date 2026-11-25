@@ -28,6 +28,20 @@ export async function withReadBatch<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
+/** Keep streaming lazy: batch a page's reads only while that page is requested. */
+export async function* readBatchedPages<T>(pages: AsyncIterable<T>): AsyncGenerator<T> {
+  const iterator = pages[Symbol.asyncIterator]()
+  try {
+    for (;;) {
+      const next = await withReadBatch(async () => await iterator.next())
+      if (next.done) return
+      yield next.value
+    }
+  } finally {
+    await iterator.return?.()
+  }
+}
+
 export function assertReadBatchIntent(statement: Statement): void {
   if (statement.intent === 'write' && storage.getStore()?.active) {
     throw new Error('withReadBatch accepts independent reads only')

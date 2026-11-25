@@ -415,8 +415,8 @@ async function measureQueries(probeFactory: QueryProbeFactory): Promise<Report> 
       // ANYWHERE IN THIS PATH DROPS IT, and this conversion is going to put
       // awaits in it. That is the whole reason this number is a gate.
       //
-      // The window below is therefore ONE SYNCHRONOUS FRAME with no await in it:
-      // the hoisted list read, then the per-session owning-issue resolution.
+      // Read the known set together. The control still counts every session's
+      // resolved owner, including repeated owners, so it matches the old workload.
       fixture.drain()
       const stormInbox: ServerMessage[] = []
       attachClient(fixture, (message) => stormInbox.push(message))
@@ -425,11 +425,14 @@ async function measureQueries(probeFactory: QueryProbeFactory): Promise<Report> 
       let resolvedRows = 0
       probe.reset()
       resolvedRows += (await fixture.registry.issues.reports.readyList('/repo')).length
+      const owners: IssueId[] = []
       for (let index = 0; index < SESSION_COUNT; index += 1) {
         const owner = fixture.issueIds[index % fixture.issueIds.length]
         if (owner === undefined) throw new Error('issue fixture is empty')
-        if ((await fixture.registry.issues.reports.get(owner)) !== null) resolvedRows += 1
+        owners.push(owner)
       }
+      const reports = await fixture.registry.issues.reports.getMany(owners)
+      resolvedRows += owners.filter((id) => reports.has(id)).length
       const fanoutQueries = probe.count()
       breakdown['issueFrameReads.queriesPerRequest'] = probe.byStatement()
 

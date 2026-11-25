@@ -6,7 +6,7 @@
  * has its own checkout and dependency tree. No live server or daemon is contacted.
  */
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
@@ -91,6 +91,13 @@ try {
   await run(root, ['git', 'worktree', 'add', '--detach', baseline, before])
   added = true
   await run(baseline, ['bun', 'run', 'setup:worktree'])
+  // The same production focus operation on both revisions. Only this measurement
+  // probe is added to the old test harness; the baseline's product code is untouched.
+  const testPath = files[0]!
+  const currentTest = await readFile(join(root, testPath), 'utf8')
+  const focusProbe = currentTest.split('// BEGIN FOCUS CENSUS')[1]?.split('// END FOCUS CENSUS')[0]
+  assert.ok(focusProbe, 'focus census probe missing')
+  await appendFile(join(baseline, testPath), `\n// BEGIN FOCUS CENSUS${focusProbe}\n`)
   const beforeSamples = await measure(baseline, 'before')
   const afterSamples = await measure(root, 'after')
   const names = [...new Set(beforeSamples.map((sample) => sample.name))]

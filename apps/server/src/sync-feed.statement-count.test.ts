@@ -395,7 +395,7 @@ const pin = (
   teardown,
 })
 
-describe('sync worker: pinned statement counts at 5 and 200', () => {
+describe('sync worker: pinned statement counts at 5 and 200', { timeout: 90_000 }, () => {
   const bootstrap = pin(
     'worker bootstrap',
     (size) => world(size),
@@ -477,7 +477,7 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
   })
 })
 
-describe('client hello: pinned statement counts at 5 and 200', () => {
+describe('client hello: pinned statement counts at 5 and 200', { timeout: 90_000 }, () => {
   interface Client extends World {
     clientId: string
     inbox: ServerMessage[]

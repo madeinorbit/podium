@@ -201,7 +201,7 @@ describe('steward subscription matching (POD-6208)', () => {
   // statement or with the workspace lock, one per statement, one per COMMIT). About 2.6 ms
   // each on hosted Postgres; docs/measurements/pod-6958-hosted-round-trips.md.
   it('makes a fixed number of round trips', async () => {
-    await expectConstantRoundTrips(pin, 80)
+    await expectConstantRoundTrips(pin, 49)
   }, 60_000)
 
   it('reads the same subscription rows, however many cannot match', async () => {
