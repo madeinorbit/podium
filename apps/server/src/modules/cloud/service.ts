@@ -55,6 +55,7 @@ import {
   type CloudRuntime,
   type CloudRuntimeProvider,
   CloudRuntimeUnavailableError,
+  CloudRuntimeUserError,
   disabledCloudRuntimeProvider,
   toCloudAgentSourceSession,
 } from '../../cloud-runtime'
@@ -115,8 +116,8 @@ export type CloudAgentInput = Omit<CloudAgentRequest, 'tenantId'>
  *  id picks the session; the rest must agree with its row (see `sourceOf`). */
 type StatedSourceSession = NonNullable<CloudAgentInput['sourceSession']>
 
-/** Only refusals written here for the caller may cross the cloud boundary.
- * A provider throwing a TRPCError is still an unexpected provider failure. */
+/** Refusals written here or explicitly authored for users by a provider may
+ * cross the cloud boundary. An arbitrary provider TRPCError remains a fault. */
 class CloudRefusal extends TRPCError {}
 
 export const CLOUD_REQUEST_FAILED = 'cloud request failed; try again'
@@ -144,8 +145,8 @@ function cloudFailure(
 
 function cloudError(error: unknown, operation: string): never {
   if (error instanceof CloudRefusal) throw error
-  if (error instanceof CloudRuntimeUnavailableError) {
-    throw new CloudRefusal({ code: 'PRECONDITION_FAILED', message: error.message })
+  if (error instanceof CloudRuntimeUserError) {
+    throw new CloudRefusal({ code: error.code, message: error.message })
   }
   cloudFailure(error, operation)
 }

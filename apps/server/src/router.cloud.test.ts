@@ -3,11 +3,12 @@ import { asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type {
-  CloudAgentRequest,
-  CloudMachineRequest,
-  CloudRuntime,
-  CloudRuntimeProvider,
+import {
+  type CloudAgentRequest,
+  type CloudMachineRequest,
+  type CloudRuntime,
+  type CloudRuntimeProvider,
+  CloudRuntimeUserError,
 } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
 import type { Capability } from './issue-authz'
@@ -423,7 +424,8 @@ describe('cloud failures keep internal details in the server log', () => {
     const { call, cloud } = await world()
     const detail = new TRPCError({
       code: 'PRECONDITION_FAILED',
-      message: 'INTERNAL_PROVIDER_DETAIL: account token rejected by provider',
+      message:
+        'INTERNAL_PROVIDER_DETAIL: HTTP 403 {"error":"invalid_token","debug":"provider stack"}',
       cause: internalError(),
     })
     vi.spyOn(cloud.provider, 'createCloudAgent').mockRejectedValue(detail)
@@ -432,6 +434,32 @@ describe('cloud failures keep internal details in the server log', () => {
       'cloud.createAgent',
       detail,
     )
+  })
+
+  it.each([
+    ['UNAUTHORIZED', 'Your cloud token has expired; reconnect your provider account.'],
+    ['TOO_MANY_REQUESTS', 'Cloud quota reached; stop another runtime or increase your quota.'],
+    ['PRECONDITION_FAILED', 'Your cloud billing limit was reached; update your billing settings.'],
+    ['BAD_REQUEST', 'The selected region is unavailable; choose another region.'],
+    ['PRECONDITION_FAILED', 'This size is unavailable on your plan; choose another size.'],
+    ['FORBIDDEN', 'Repository access denied; grant the provider access to this repository.'],
+  ] as const)('preserves the provider’s actionable %s refusal: %s', async (code, message) => {
+    const { call, cloud } = await world()
+    vi.spyOn(cloud.provider, 'createCloudAgent').mockRejectedValue(
+      new CloudRuntimeUserError(code, message),
+    )
+    const error: unknown = await call.cloud
+      .createAgent({ displayName: 'New agent', repo })
+      .catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(TRPCError)
+    if (!(error instanceof TRPCError)) throw new Error('expected a tRPC refusal')
+    expect(error).toMatchObject({ code, message, cause: undefined })
+    expect(
+      errorShapeWithCause({ message: error.message, data: { code: error.code } }, error),
+    ).toEqual({
+      message,
+      data: { code },
+    })
   })
 
   it.each([

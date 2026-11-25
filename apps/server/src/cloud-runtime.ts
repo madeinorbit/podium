@@ -1,4 +1,4 @@
-import type { CLOUD_HARNESS_KINDS, SessionId, MachineId, IssueId } from '@podium/model'
+import type { CLOUD_HARNESS_KINDS, IssueId, MachineId, SessionId } from '@podium/model'
 
 export type CloudRuntimeKind = 'cloud-machine' | 'cloud-agent'
 export type CloudRuntimeState = 'provisioning' | 'running' | 'stopped' | 'failed'
@@ -115,6 +115,8 @@ export interface CloudRuntime {
   metadata?: Record<string, unknown> | undefined
 }
 
+/** Expected provider refusals use CloudRuntimeUserError with text written
+ * for the user. Other errors retain their internal detail for server logs. */
 export interface CloudRuntimeProvider {
   capabilities(): Promise<CloudProviderCapabilities>
   createCloudMachine(request: CloudMachineRequest): Promise<CloudRuntime>
@@ -130,9 +132,28 @@ export interface HostedCloudRuntimeProviderOptions {
   fetch?: typeof fetch
 }
 
-export class CloudRuntimeUnavailableError extends Error {
+/** A provider's deliberate, actionable refusal. The message is written for the
+ * user (reconnect an expired token, change a plan/region, grant repo access),
+ * never copied from a raw HTTP body, stack or driver error. Only these explicit
+ * refusals may keep their text at the cloud service boundary. */
+export class CloudRuntimeUserError extends Error {
+  constructor(
+    readonly code:
+      | 'BAD_REQUEST'
+      | 'UNAUTHORIZED'
+      | 'FORBIDDEN'
+      | 'PRECONDITION_FAILED'
+      | 'TOO_MANY_REQUESTS',
+    message: string,
+  ) {
+    super(message)
+    this.name = 'CloudRuntimeUserError'
+  }
+}
+
+export class CloudRuntimeUnavailableError extends CloudRuntimeUserError {
   constructor() {
-    super('cloud runtime provider is not configured')
+    super('PRECONDITION_FAILED', 'cloud runtime provider is not configured')
     this.name = 'CloudRuntimeUnavailableError'
   }
 }
@@ -204,8 +225,10 @@ export function createHostedCloudRuntimeProvider({
         throw error
       }
     },
-    stopRuntime: async (id) => await post<CloudRuntime>(`/v1/runtimes/${encodeURIComponent(id)}/stop`),
-    wakeRuntime: async (id) => await post<CloudRuntime>(`/v1/runtimes/${encodeURIComponent(id)}/wake`),
+    stopRuntime: async (id) =>
+      await post<CloudRuntime>(`/v1/runtimes/${encodeURIComponent(id)}/stop`),
+    wakeRuntime: async (id) =>
+      await post<CloudRuntime>(`/v1/runtimes/${encodeURIComponent(id)}/wake`),
   }
 }
 
