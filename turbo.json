@@ -675,6 +675,11 @@
       "dependsOn": [],
       "inputs": [
         "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/scripts/test-lane.ts",
+        "$TURBO_ROOT$/scripts/test-lanes.ts",
+        "$TURBO_ROOT$/scripts/test-focused.ts",
+        "$TURBO_ROOT$/scripts/validation-admission.ts",
+        "$TURBO_ROOT$/vitest.integration.config.ts",
         "$TURBO_ROOT$/apps/server/src/modules/issues/projection.ts",
         "$TURBO_ROOT$/apps/server/src/test-support/issue-row.ts",
         "$TURBO_ROOT$/apps/web/test/superagent/fixture.ts",

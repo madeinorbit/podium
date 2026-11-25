@@ -1,4 +1,5 @@
-import { existsSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
@@ -29,6 +30,39 @@ describe('test lanes', () => {
       const entry = command.find((part) => part.includes('vitest')) as string
       expect(existsSync(resolve(root, lane.cwd, entry)), `${name}: ${entry}`).toBe(true)
     }
+  })
+
+  it('keeps the package mobile entry point on the focused lane and its Node runtime', () => {
+    const lane = LANES.mobile
+    if (!lane) throw new Error('The mobile lane is missing')
+    const pkg = JSON.parse(readFileSync(resolve(root, lane.cwd, 'package.json'), 'utf8')) as {
+      scripts: { test: string }
+    }
+    const [runtime, entry, name, ...extra] = pkg.scripts.test.split(/\s+/)
+    expect(runtime).toBe('bun')
+    expect(entry && resolve(root, lane.cwd, entry)).toBe(resolve(root, 'scripts/test-lane.ts'))
+    expect(name).toBe('mobile')
+    expect(extra).toEqual([])
+    expect(lane.command[0]).toBe('node')
+    const [executable] = laneCommand(lane, root, [])
+    if (!executable) throw new Error('The mobile lane has no runtime')
+    expect(
+      execFileSync(executable, ['-p', 'process.versions.bun ?? "node"'], {
+        encoding: 'utf8',
+      }).trim(),
+    ).toBe('node')
+    const turbo = JSON.parse(readFileSync(resolve(root, 'turbo.json'), 'utf8')) as {
+      tasks: Record<string, { inputs?: string[] }>
+    }
+    expect(turbo.tasks['@podium/mobile#test']?.inputs).toEqual(
+      expect.arrayContaining([
+        '$TURBO_ROOT$/scripts/test-lane.ts',
+        '$TURBO_ROOT$/scripts/test-lanes.ts',
+        '$TURBO_ROOT$/scripts/test-focused.ts',
+        '$TURBO_ROOT$/scripts/validation-admission.ts',
+        '$TURBO_ROOT$/vitest.integration.config.ts',
+      ]),
+    )
   })
 
   it.each([
