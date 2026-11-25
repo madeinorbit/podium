@@ -14,7 +14,14 @@
  * gets a collection definition, never a field on this request.
  */
 
-import { ChangeSeqField, recordOf, SlimIssueProjection } from '@podium/model'
+import {
+  ChangeSeqField,
+  FETCH_MAX_INSTANCES,
+  FETCH_MAX_KEYS,
+  packInstances as packModelInstances,
+  recordOf,
+  SlimIssueProjection,
+} from '@podium/model'
 import { z } from 'zod'
 import { CertifiedRangeFields } from './feed'
 
@@ -36,7 +43,14 @@ export const SortKey = z.array(Scalar).nonempty()
 export type SortKey = z.infer<typeof SortKey>
 
 /** Most instances one request may name; a loader batches below it. */
-export const COLLECTION_FETCH_MAX_INSTANCES = 200
+export const COLLECTION_FETCH_MAX_INSTANCES = FETCH_MAX_INSTANCES
+
+/**
+ * POD-7602 — most keys the keyed instances of one request may name together.
+ * A keyed instance counts once against {@link COLLECTION_FETCH_MAX_INSTANCES}
+ * however many keys it names.
+ */
+export const COLLECTION_FETCH_MAX_KEYS = FETCH_MAX_KEYS
 
 /**
  * One instance: a declared collection with its arguments. `via` names the
@@ -52,14 +66,39 @@ export const CollectionInstance = z.object({
   part: z.enum(['stub', 'main']).optional(),
   via: z.string().min(1).optional(),
   after: SortKey.optional(),
+  /**
+   * POD-7602 — a keyed collection (one argument, tested for equality) for
+   * each of these values of its argument: one statement answers them all,
+   * with a marker per key, as if each were asked alone. `args` then leaves
+   * that argument out.
+   */
+  keys: z.array(z.string().min(1)).min(1).max(COLLECTION_FETCH_MAX_KEYS).optional(),
 })
 export type CollectionInstance = z.infer<typeof CollectionInstance>
 
 /** The body of `POST /sync/collections`. */
 export const CollectionFetchRequest = z.object({
-  instances: z.array(CollectionInstance).min(1).max(COLLECTION_FETCH_MAX_INSTANCES),
+  instances: z
+    .array(CollectionInstance)
+    .min(1)
+    .max(COLLECTION_FETCH_MAX_INSTANCES)
+    .refine(
+      (instances) =>
+        instances.reduce((sum, instance) => sum + (instance.keys?.length ?? 0), 0) <=
+        COLLECTION_FETCH_MAX_KEYS,
+      { message: `at most ${COLLECTION_FETCH_MAX_KEYS} keys in one request` },
+    ),
 })
 export type CollectionFetchRequest = z.infer<typeof CollectionFetchRequest>
+
+/**
+ * POD-7602 — the instances as they go on the wire: those of one keyed
+ * collection (with the same holder) become one keyed instance; every other
+ * instance goes as it is (`@podium/model` `packInstances`).
+ */
+export function packInstances(instances: readonly CollectionInstance[]): CollectionInstance[] {
+  return packModelInstances(instances) as CollectionInstance[]
+}
 
 /** One step of the first download, in the order the policy loads it. */
 export const PolicyStep = z.object({

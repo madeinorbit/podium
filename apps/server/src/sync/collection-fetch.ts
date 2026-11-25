@@ -43,6 +43,7 @@ import {
   fieldOfPath,
   ISSUE_EXECUTION_PRIVATE_FIELDS,
   isParam,
+  keyedArgument,
   matchesWhere,
   pathsRead,
   type RecordDeclaration,
@@ -126,6 +127,8 @@ export interface ResolvedInstance {
   /** The instance's own arguments, as the client named them. */
   readonly args: CollectionArgs
   readonly after?: readonly Scalar[]
+  /** POD-7602 — a keyed collection for each of these values of its one argument. */
+  readonly keys?: readonly string[]
 }
 
 const sameKeys = (a: readonly string[], b: readonly string[]) =>
@@ -137,6 +140,7 @@ export function resolveInstance(instance: CollectionInstance): ResolvedInstance 
   const declaration = recordOf(rule.kind)
   if (declaration === undefined)
     throw new CollectionRequestError(`${rule.kind} is not a declared record type`)
+  if (instance.keys !== undefined) return resolveKeyed(instance, rule, declaration)
   const args = instance.args ?? {}
   if (!sameKeys(Object.keys(args), rule.params)) {
     throw new CollectionRequestError(
@@ -167,6 +171,27 @@ export function resolveInstance(instance: CollectionInstance): ResolvedInstance 
   }
 }
 
+/**
+ * POD-7602 — a keyed instance: a collection keyed by its one argument
+ * (`keyedArgument`), at its main part, for many values of that argument.
+ */
+function resolveKeyed(
+  instance: CollectionInstance,
+  rule: ResolvedRule,
+  declaration: RecordDeclaration,
+): ResolvedInstance {
+  const param = keyedArgument(instance.collection)
+  if (param === undefined || rule.where === undefined || !isCollectionKind(rule.kind))
+    throw new CollectionRequestError(`${rule.id} is not a keyed collection`)
+  if (instance.args !== undefined && Object.keys(instance.args).length > 0)
+    throw new CollectionRequestError(`${rule.id}: a keyed instance names its ${param} in keys`)
+  if (instance.after !== undefined)
+    throw new CollectionRequestError(`${rule.id}: a keyed instance is not paged`)
+  if ((instance.part ?? rule.collection.part) !== 'main')
+    throw new CollectionRequestError(`${rule.id}: a keyed instance is at its main part`)
+  return { rule, declaration, part: 'main', args: {}, keys: [...new Set(instance.keys)] }
+}
+
 /** The rule without its `descendantsOf` tests, which only SQL can walk; `undefined` when none is left. */
 function checkableWhere(where: Where): Where | undefined {
   const clauses = clausesOf(where).map((clause) =>
@@ -193,6 +218,20 @@ const chunks = <T>(items: readonly T[], size: number): T[][] => {
 
 const keyOf = (kind: string, id: string) => `${kind}\u0000${id}`
 
+/** The field a keyed rule tests against its argument (`issueId` for `session.ofIssue`). */
+function keyedField(where: Where, param: string): string | undefined {
+  for (const [path, test] of Object.entries(clausesOf(where)[0] ?? {}))
+    if (
+      typeof test === 'object' &&
+      test !== null &&
+      'eq' in test &&
+      isParam(test.eq) &&
+      test.eq.param === param
+    )
+      return path
+  return undefined
+}
+
 /** One record after the rights check: its value as built and as this viewer receives it. */
 interface Visible {
   readonly id: string
@@ -217,6 +256,10 @@ export class CollectionAnswer {
 
   /** Answer one instance and everything it comes with. */
   async *instance(instance: ResolvedInstance): AsyncGenerator<FetchOutput> {
+    if (instance.keys !== undefined) {
+      yield* this.keyed(instance, instance.keys)
+      return
+    }
     const { rule, part } = instance
     if (!(await this.mayName(instance))) {
       // Complete and empty: the device holds the answer, and it reveals nothing.
@@ -280,6 +323,61 @@ export class CollectionAnswer {
         },
       ],
     }
+    const arrived = new Map<string, Visible[]>([[rule.kind, members]])
+    for (const entry of rule.collection.comesWith ?? []) {
+      const holder = resolveRule(entry.collection, rule.collection.id)
+      yield* this.comesWith(rule.kind, instance.declaration, members, entry, holder, arrived)
+    }
+    yield* this.closure(arrived)
+  }
+
+  /**
+   * POD-7602 — a keyed collection for many keys: one statement per
+   * `KEYED_CHUNK` keys instead of one per instance, a marker per key as if
+   * each were asked alone, then what the members come with, once for all.
+   */
+  private async *keyed(
+    instance: ResolvedInstance,
+    keys: readonly string[],
+  ): AsyncGenerator<FetchOutput> {
+    const { rule } = instance
+    const param = rule.params[0]!
+    const marker = (key: string): CompleteInstance => ({
+      collection: rule.collection.id,
+      args: { [param]: key },
+      part: 'main',
+      ...(rule.via === undefined ? {} : { via: rule.via }),
+    })
+    // A key the viewer may not name is complete and empty, as alone (POD-7582).
+    const named: string[] = []
+    const refused: string[] = []
+    for (const key of keys)
+      if (await this.mayName({ ...instance, args: { [param]: key } })) named.push(key)
+      else refused.push(key)
+    const members: Visible[] = []
+    const kind = rule.kind as CollectionKind
+    const field = keyedField(rule.where!, param)
+    for (const batch of chunks(named, KEYED_CHUNK)) {
+      const args = paddedArgs({ ...this.ports.policyArgs, [param]: batch })
+      const ids = this.ids(kind, await this.ports.collections.keyed(rule, args, this.ports.now))
+      for (const chunk of chunks(ids, BUILD_CHUNK)) {
+        const records = await this.ports.records.build(kind as MetadataEntityKind, chunk)
+        // Each record is checked with the key its own field names, as the
+        // narrow instance of that key would check it.
+        const visible = await this.visible(kind, records, rule.where, (record) => ({
+          args: {
+            [param]: (field === undefined
+              ? null
+              : ((record.value as Record<string, unknown>)[field] ?? null)) as Scalar,
+          },
+        }))
+        members.push(...visible)
+        const out = this.fresh(kind, visible)
+        if (out.length > 0) yield { type: 'records', records: out }
+      }
+    }
+    for (const batch of chunks([...named, ...refused], 1000))
+      yield { type: 'complete', instances: batch.map(marker) }
     const arrived = new Map<string, Visible[]>([[rule.kind, members]])
     for (const entry of rule.collection.comesWith ?? []) {
       const holder = resolveRule(entry.collection, rule.collection.id)
@@ -355,8 +453,9 @@ export class CollectionAnswer {
     kind: string,
     records: readonly BuiltRecord[],
     where: Where | undefined,
-    instance: { args: CollectionArgs },
+    of: { args: CollectionArgs } | ((record: BuiltRecord) => { args: CollectionArgs }),
   ): Promise<Visible[]> {
+    const instance = (record: BuiltRecord) => (typeof of === 'function' ? of(record) : of)
     const check =
       where !== undefined && isCollectionKind(kind) && readsJson(kind, where)
         ? checkableWhere(where)
@@ -367,7 +466,7 @@ export class CollectionAnswer {
         : records.filter((record) =>
             matchesWhere(check, record.value as Record<string, unknown>, {
               now: this.ports.now,
-              args: this.args(instance),
+              args: this.args(instance(record)),
             }),
           )
     if (held.length === 0) return []
@@ -388,7 +487,10 @@ export class CollectionAnswer {
       if (
         asReceived !== undefined &&
         fields.some((field) => received[field] !== built[field]) &&
-        !matchesWhere(asReceived, received, { now: this.ports.now, args: this.args(instance) })
+        !matchesWhere(asReceived, received, {
+          now: this.ports.now,
+          args: this.args(instance(record)),
+        })
       )
         continue
       out.push({ id: record.id, built, shaped })

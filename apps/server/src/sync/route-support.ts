@@ -77,14 +77,20 @@ export interface SyncTransferMetrics {
   outcome: string
   /** A collection fetch: how many instances it named, and its five commonest collections. */
   instances?: number
+  /** POD-7602 — the keys its keyed instances named together (each stands for one narrow instance). */
+  keys?: number
   collections?: string
   err?: unknown
 }
 
 /** `name:count` of a fetch's commonest collections; names are published ones, never client text. */
-export function collectionSummary(instances: readonly { readonly collection: string }[]): string {
+export function collectionSummary(
+  instances: readonly { readonly collection: string; readonly keys?: readonly string[] }[],
+): string {
   const counts = new Map<string, number>()
-  for (const { collection } of instances) counts.set(collection, (counts.get(collection) ?? 0) + 1)
+  // A keyed instance counts as the narrow instances it stands for (POD-7602).
+  for (const { collection, keys } of instances)
+    counts.set(collection, (counts.get(collection) ?? 0) + (keys?.length ?? 1))
   return [...counts]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)

@@ -20,7 +20,14 @@
  */
 // workspace-scoped (POD-6959)
 
-import { COLLECTIONS, paramsRead, RECORDS, type RuleArgs, type Scalar } from '@podium/model'
+import {
+  COLLECTIONS,
+  keyedArgument,
+  paramsRead,
+  RECORDS,
+  type RuleArgs,
+  type Scalar,
+} from '@podium/model'
 import {
   isBoundParam,
   PG_RULE_SQL,
@@ -239,6 +246,17 @@ export function auditedCollectionShapes(sizes: readonly number[] = [1, 4]): stri
         add(rule, 'keyed', args)
       }
     }
+  }
+  // POD-7602: a keyed collection's instances asked together, by their one argument.
+  for (const collection of COLLECTIONS.values()) {
+    const param = keyedArgument(collection.id)
+    if (param === undefined) continue
+    const rule = resolveRule(collection.id)
+    for (const size of sizes)
+      add(rule, 'keyed', {
+        ...argsOf(rule),
+        [param]: Array.from({ length: size }, () => 'x'),
+      })
   }
   for (const size of sizes) keys.add(ancestorsKey(size))
   return [...keys].sort()

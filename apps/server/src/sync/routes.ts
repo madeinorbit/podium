@@ -353,6 +353,7 @@ export function registerSyncRoutes(app: Hono, deps: SyncRouteDeps): void {
       records: 0,
       outcome: 'running',
       instances: instances.value.length,
+      keys: instances.value.reduce((sum, instance) => sum + (instance.keys?.length ?? 0), 0),
       collections: collectionSummary(instances.value),
     }
     let completionOwnsLog = false

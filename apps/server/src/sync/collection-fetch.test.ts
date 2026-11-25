@@ -35,9 +35,11 @@ import {
   COLLECTIONS,
   type Collection,
   clausesOf,
+  FetchBudget,
   firstAdminMemberId,
   type IssueId,
   interactionRowId,
+  keyedArgument,
   matchesWhere,
   type RuleArgs,
   recordOf,
@@ -45,7 +47,12 @@ import {
   testKind,
   type UserId,
 } from '@podium/model'
-import { type CollectionInstance, ISSUE_STUB_FIELDS, type Principal } from '@podium/protocol'
+import {
+  type CollectionInstance,
+  ISSUE_STUB_FIELDS,
+  type Principal,
+  packInstances,
+} from '@podium/protocol'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { shapedValue } from '@podium/sync/bootstrap-worker'
 import { fixtureWriteScope } from '@podium/sync/testing'
@@ -883,6 +890,147 @@ describe('the first download arrives in the policy order, each collection closed
     expect(wholeIn(phone).has('issueProjection:iss_month')).toBe(false)
     expect(changesOf(phone).some((c) => c.entityId === 'iss_month' && c.part === 'stub')).toBe(true)
   }, 60_000)
+})
+
+// ---------------------------------------------------------------------------
+// POD-7602: a keyed collection's instances asked together
+// ---------------------------------------------------------------------------
+
+/** Values each keyed argument is asked with: ones the world holds, and one it does not. */
+const KEY_VALUES: Readonly<Record<string, readonly string[]>> = {
+  issueId: ['iss_root', 'iss_grand', 'iss_lone', 'absent'],
+  sessionId: ['s-live', 's-bob', 's-asking', 'absent'],
+  id: ['iss_grand', 'iss_root', 's-live', 's-bob', 'auto-a-run-0', 'absent'],
+}
+
+const recordsOf = (lines: readonly Line[]) =>
+  new Map(changesOf(lines).map((c) => [`${c.entity}:${c.entityId}:${c.part ?? ''}`, c.value]))
+
+const markerKeys = (lines: readonly Line[]) =>
+  new Set(
+    markersOf(lines).map(
+      (m) => `${m['via'] ?? ''}>${m['collection']}:${JSON.stringify(m['args'] ?? {})}:${m['part']}`,
+    ),
+  )
+
+describe('a keyed collection asked for many keys answers each as if asked alone (POD-7602)', () => {
+  const keyed = [...COLLECTIONS.values()].filter((c) => keyedArgument(c.id) !== undefined)
+
+  it('finds the keyed collections: per-issue and per-session ones, and the lookups', () => {
+    const ids = keyed.map((c) => c.id)
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        'session.ofIssue',
+        'session.bornOf',
+        'issueDep.ofIssue',
+        'issueDep.toIssue',
+        'issueProjection.one',
+        'session.one',
+      ]),
+    )
+    // A tree, a page or a policy collection is never packed.
+    for (const id of ['issueProjection.tree', 'issueProjection.byStage', 'session.live'])
+      expect(ids).not.toContain(id)
+  })
+
+  for (const collection of keyed) {
+    it(`${collection.id}: the same records and markers, for both people`, async () => {
+      const param = keyedArgument(collection.id)!
+      const keys = KEY_VALUES[param] ?? ['absent']
+      for (const { name, user } of viewers) {
+        const together = await fetchLines(user, [
+          { collection: collection.id, part: 'main', keys: [...keys] },
+        ])
+        const records = new Map<string, unknown>()
+        const markers = new Set<string>()
+        for (const key of keys) {
+          const alone = await fetchLines(user, [
+            { collection: collection.id, args: { [param]: key } },
+          ])
+          for (const [at, value] of recordsOf(alone)) records.set(at, value)
+          for (const marker of markerKeys(alone)) markers.add(marker)
+        }
+        expect(recordsOf(together), `${collection.id} records for ${name}`).toEqual(records)
+        expect(markerKeys(together), `${collection.id} markers for ${name}`).toEqual(markers)
+        // Every key is marked, as its own instance.
+        for (const key of keys)
+          expect(markers.has(`>${collection.id}:${JSON.stringify({ [param]: key })}:main`)).toBe(
+            true,
+          )
+      }
+    }, 60_000)
+  }
+
+  it('a holder narrows a keyed instance as it narrows each key', async () => {
+    const keys = ['iss_root', 'iss_lone', 'iss_grand']
+    const user = viewers[0]!.user
+    const together = await fetchLines(user, [
+      { collection: 'session.ofIssue', via: 'issueProjection.sidebar', keys },
+    ])
+    const records = new Map<string, unknown>()
+    for (const key of keys)
+      for (const [at, value] of recordsOf(
+        await fetchLines(user, [
+          { collection: 'session.ofIssue', via: 'issueProjection.sidebar', args: { issueId: key } },
+        ]),
+      ))
+        records.set(at, value)
+    expect(recordsOf(together)).toEqual(records)
+    expect([...markerKeys(together)]).toEqual(
+      expect.arrayContaining(
+        keys.map(
+          (key) =>
+            `issueProjection.sidebar>session.ofIssue:${JSON.stringify({ issueId: key })}:main`,
+        ),
+      ),
+    )
+  })
+
+  it('refuses a keyed instance of a collection that is not keyed, or one that names its key twice', () => {
+    const refused: CollectionInstance[] = [
+      { collection: 'issueProjection.tree', keys: ['iss_root'] },
+      { collection: 'issueProjection.byStage', keys: ['done'] },
+      { collection: 'session.live', keys: ['x'] },
+      { collection: 'session.ofIssue', args: { issueId: 'x' }, keys: ['y'] },
+      { collection: 'issueProjection.one', part: 'stub', keys: ['x'] },
+    ]
+    for (const instance of refused)
+      expect(() => resolveInstance(instance), JSON.stringify(instance)).toThrow(
+        CollectionRequestError,
+      )
+  })
+
+  it('the wire packs a keyed collection per holder, and fills a fetch by its bounds', () => {
+    const packed = packInstances([
+      { collection: 'session.ofIssue', args: { issueId: 'a' } },
+      { collection: 'issueProjection.tree', args: { root: 'r' } },
+      { collection: 'session.ofIssue', args: { issueId: 'b' } },
+      { collection: 'session.ofIssue', args: { issueId: 'a' } },
+      { collection: 'session.ofIssue', args: { issueId: 'c' }, via: 'issueProjection.sidebar' },
+      { collection: 'issueProjection.byStage', args: { stage: 'done' }, after: ['x', 'y'] },
+    ])
+    expect(packed).toEqual([
+      { collection: 'session.ofIssue', part: 'main', keys: ['a', 'b'] },
+      { collection: 'issueProjection.tree', args: { root: 'r' } },
+      {
+        collection: 'session.ofIssue',
+        part: 'main',
+        via: 'issueProjection.sidebar',
+        keys: ['c'],
+      },
+      { collection: 'issueProjection.byStage', args: { stage: 'done' }, after: ['x', 'y'] },
+    ])
+    for (const instance of packed) expect(() => resolveInstance(instance)).not.toThrow()
+    const budget = new FetchBudget(2, 3)
+    expect(budget.take({ collection: 'session.ofIssue', args: { issueId: 'a' } })).toBe(true)
+    expect(budget.take({ collection: 'session.ofIssue', args: { issueId: 'b' } })).toBe(true)
+    expect(budget.take({ collection: 'issueProjection.tree', args: { root: 'r' } })).toBe(true)
+    // Two wire instances: a third does not fit, a key of the packed one does.
+    expect(budget.take({ collection: 'session.one', args: { sessionId: 's' } })).toBe(false)
+    expect(budget.take({ collection: 'session.ofIssue', args: { issueId: 'c' } })).toBe(true)
+    // Three keys: the fourth does not fit.
+    expect(budget.take({ collection: 'session.ofIssue', args: { issueId: 'd' } })).toBe(false)
+  })
 })
 
 // ---------------------------------------------------------------------------
