@@ -160,13 +160,6 @@ export const POLICY_RELATION_READERS: readonly PolicyRelationReader[] = [
     ),
   ]),
   ...reader(
-    'IssueModel@*.confirmedWorkerCount',
-    ['issue.pageSessions'],
-    WORKING,
-    'models.ts',
-    'private get confirmedWorkerCount(): number {',
-  ),
-  ...reader(
     'IssueModel@*.live',
     ['issue.missionSessions'],
     OPEN,

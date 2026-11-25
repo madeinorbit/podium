@@ -1000,8 +1000,8 @@ export class IssueModel extends EntityModel {
 
   /** Its confirmed computing agents. A working session is live, and the
    * policy (`session.live`) holds every live one, so memory answers it whole
-   * (a declared policy read, POD-7581); no gate on the raw member count,
-   * which a row would read itself (POD-7611). */
+   * (POD-7581). Read the generated resident subset without holding session
+   * history or gating on a raw member count (POD-7611). */
   get confirmedWorkingAgents(): number {
     return this.confirmedWorkerCount
   }
@@ -1009,7 +1009,7 @@ export class IssueModel extends EntityModel {
   @lazy
   private get confirmedWorkerCount(): number {
     let count = 0
-    for (const id of this.livePageSessionIds()) if (this.host.sessionObject(id).confirmedWorking) count++
+    for (const session of this.pageSessions.unarchived.ready) if (session.confirmedWorking) count++
     return count
   }
 

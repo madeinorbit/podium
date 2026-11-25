@@ -5,6 +5,7 @@ import { lazy } from '@podium/mobx-helpers'
 import { build } from 'esbuild'
 import { autorun, observable, runInAction } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { session, WORLD_NOW } from '../../sync/src/conformance/collection-server'
 import { BODY_INSTANCE_WARNING_THRESHOLD } from './collections'
 import type { MobxPool } from './pool'
 import { relationLinks } from './shared/links'
@@ -162,6 +163,61 @@ describe('body holds per observing view', () => {
 })
 
 describe('raw on-demand relation reads', () => {
+  it('counts policy-held workers reactively without requesting each issue history', async () => {
+    const warn = warnings()
+    const stamp = new Date(WORLD_NOW).toISOString()
+    const worker = session('worker', {
+      issueId: 'i0',
+      cwd: '/synthetic',
+      lastActiveAt: stamp,
+      agentState: { phase: 'working', since: stamp },
+    })
+    const device = await openEmptyDevice({
+      world: (server) => {
+        putIssueWithBodies(server, 'i0')
+        server.put('session', 'worker', worker)
+        server.put(
+          'session',
+          'history',
+          session('history', {
+            issueId: 'i0',
+            status: 'ended',
+            archived: true,
+            cwd: '/synthetic',
+          }),
+        )
+      },
+    })
+    devices.push(device)
+    const counts: number[] = []
+    const opened = device.observe(
+      () => device.pool.issueObject('i0'),
+      (issue) => counts.push(issue.confirmedWorkingAgents),
+    )
+    await device.untilIdle()
+    expect(counts.at(-1)).toBe(1)
+    runInAction(() =>
+      device.pool.apply({
+        type: 'update',
+        rows: [
+          {
+            kind: 'session',
+            id: 'worker',
+            value: {
+              ...worker,
+              agentState: { phase: 'idle', since: stamp },
+            },
+          },
+        ],
+      }),
+    )
+    await device.untilIdle()
+    expect(counts.at(-1)).toBe(0)
+    expect(device.requested()).toEqual([])
+    expect(rawWarnings(warn)).toEqual([])
+    opened.close()
+  })
+
   it('keeps known readers quiet in tests and reports their follow-up once per development session', async () => {
     const warn = warnings()
     const known: RawRelationReader = {
