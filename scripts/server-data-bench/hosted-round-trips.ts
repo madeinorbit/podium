@@ -13,7 +13,8 @@ import { stripVTControlCharacters } from 'node:util'
 
 const root = resolve(import.meta.dir, '../..')
 // Measurement instrumentation only, before the reductions.
-const before = option('before') ?? 'cb173d4dc9'
+const fixtureBaseline = process.argv.includes('--fixture-baseline')
+const before = fixtureBaseline ? 'da3f012524' : (option('before') ?? 'cb173d4dc9')
 const files = ['session-create', 'mail-send', 'steward.subscriptions', 'sync-feed'].map(
   (name) => `apps/server/src/${name}.statement-count.test.ts`,
 )
@@ -91,43 +92,59 @@ try {
   await run(root, ['git', 'worktree', 'add', '--detach', baseline, before])
   added = true
   await run(baseline, ['bun', 'run', 'setup:worktree'])
-  // The same production focus operation on both revisions. Only this measurement
-  // probe is added to the old test harness; the baseline's product code is untouched.
-  const testPath = files[0]!
-  const currentTest = await readFile(join(root, testPath), 'utf8')
-  const focusProbe = currentTest.split('// BEGIN FOCUS CENSUS')[1]?.split('// END FOCUS CENSUS')[0]
-  assert.ok(focusProbe, 'focus census probe missing')
-  await appendFile(join(baseline, testPath), `\n// BEGIN FOCUS CENSUS${focusProbe}\n`)
-  const beforeSamples = await measure(baseline, 'before')
-  const afterSamples = await measure(root, 'after')
-  const names = [...new Set(beforeSamples.map((sample) => sample.name))]
-  const comparison = names.map((name) => {
-    const a = beforeSamples.filter((sample) => sample.name === name)
-    const b = afterSamples.filter((sample) => sample.name === name)
-    assert.equal(b.length, a.length, `${name}: missing comparison samples`)
-    return {
-      name,
-      before: {
-        statements: range(a.map((s) => s.statements)),
-        roundTrips: range(a.map((s) => s.roundTrips)),
-      },
-      after: {
-        statements: range(b.map((s) => s.statements)),
-        roundTrips: range(b.map((s) => s.roundTrips)),
-      },
+  if (fixtureBaseline) {
+    process.stdout.write(
+      await run(baseline, [
+        'bun',
+        'run',
+        'test:file',
+        '--',
+        files[3]!,
+        '-t',
+        'a delta over one rename of every issue|a delta pin is armed|a hello without a cursor is admitted at the head|a hello that resumes from a cursor',
+      ]),
+    )
+  } else {
+    // The same production focus operation on both revisions. Only this measurement
+    // probe is added to the old test harness; the baseline's product code is untouched.
+    const testPath = files[0]!
+    const currentTest = await readFile(join(root, testPath), 'utf8')
+    const focusProbe = currentTest
+      .split('// BEGIN FOCUS CENSUS')[1]
+      ?.split('// END FOCUS CENSUS')[0]
+    assert.ok(focusProbe, 'focus census probe missing')
+    await appendFile(join(baseline, testPath), `\n// BEGIN FOCUS CENSUS${focusProbe}\n`)
+    const beforeSamples = await measure(baseline, 'before')
+    const afterSamples = await measure(root, 'after')
+    const names = [...new Set(beforeSamples.map((sample) => sample.name))]
+    const comparison = names.map((name) => {
+      const a = beforeSamples.filter((sample) => sample.name === name)
+      const b = afterSamples.filter((sample) => sample.name === name)
+      assert.equal(b.length, a.length, `${name}: missing comparison samples`)
+      return {
+        name,
+        before: {
+          statements: range(a.map((s) => s.statements)),
+          roundTrips: range(a.map((s) => s.roundTrips)),
+        },
+        after: {
+          statements: range(b.map((s) => s.statements)),
+          roundTrips: range(b.map((s) => s.roundTrips)),
+        },
+      }
+    })
+    const report = {
+      bench: 'hosted-round-trips',
+      engine: 'pg',
+      baseline: before,
+      candidate: (await run(root, ['git', 'rev-parse', 'HEAD'])).trim(),
+      comparison,
+      samples: { before: beforeSamples, after: afterSamples },
     }
-  })
-  const report = {
-    bench: 'hosted-round-trips',
-    engine: 'pg',
-    baseline: before,
-    candidate: (await run(root, ['git', 'rev-parse', 'HEAD'])).trim(),
-    comparison,
-    samples: { before: beforeSamples, after: afterSamples },
+    const json = `${JSON.stringify(report, null, 2)}\n`
+    if (option('out')) await writeFile(resolve(option('out')!), json)
+    process.stdout.write(json)
   }
-  const json = `${JSON.stringify(report, null, 2)}\n`
-  if (option('out')) await writeFile(resolve(option('out')!), json)
-  process.stdout.write(json)
 } finally {
   if (added) await run(root, ['git', 'worktree', 'remove', '--force', baseline])
   await rm(directory, { recursive: true, force: true })

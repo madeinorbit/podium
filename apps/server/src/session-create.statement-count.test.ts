@@ -22,6 +22,7 @@ import { userCommandPrincipal } from './command-principal'
 import type { ControlSend } from './gateway/daemon-ports'
 import { FEED_WINDOW } from './modules/issue-events/feed'
 import { SuperagentService } from './modules/superagent'
+import { buildFocusBlock } from './modules/superagent/global'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
@@ -203,6 +204,60 @@ it.runIf(process.env.PODIUM_ROUND_TRIP_REPORT === '1')(
   120_000,
 )
 // END FOCUS CENSUS
+
+it('user focus preserves pane order, repeated panes, missing sessions and open issue details', async () => {
+  const f = await fixture(3)
+  try {
+    const [first, second, third] = f.others as [string, string, string]
+    const focus = {
+      view: 'workspace',
+      issueId: f.issueId,
+      openIssueId: f.issueId,
+      focusedSessionId: first,
+      visibleSessionIds: [third, first, third, 'missing-session', second],
+      worktreePath: '/repo',
+      filePath: '/repo/README.md',
+      openFilePaths: ['/repo/README.md', '/repo/notes.txt'],
+    }
+    // The previous serial path, through the same session/report readers and renderer.
+    const reader = f.superagent as unknown as {
+      focusBlock(input: typeof focus): Promise<string>
+      sessionInfo(
+        id: string,
+      ): Promise<NonNullable<Parameters<typeof buildFocusBlock>[0]['focused']> | undefined>
+    }
+    const issue = await f.reg.issues.reports.get(f.issueId)
+    if (!issue) throw new Error('generated issue missing')
+    const issueInfo = {
+      seq: issue.seq,
+      title: issue.title,
+      stage: issue.stage,
+      repoPath: issue.repoPath,
+    }
+    const focused = await reader.sessionInfo(first)
+    const others = await Promise.all(
+      focus.visibleSessionIds.filter((id) => id !== first).map((id) => reader.sessionInfo(id)),
+    )
+    const expected = buildFocusBlock({
+      ...focus,
+      now: '',
+      issue: issueInfo,
+      openIssue: issueInfo,
+      focused,
+      alsoVisible: others.filter(
+        (value): value is NonNullable<typeof value> => value !== undefined,
+      ),
+    })
+    const batch = vi.spyOn(f.reg.issues.reports, 'getMany')
+    const actual = await reader.focusBlock(focus)
+    expect(actual.split('\n').slice(1)).toEqual(expected?.split('\n').slice(1))
+    expect(batch).toHaveBeenCalledTimes(1)
+  } finally {
+    f.superagent.dispose()
+    await f.reg.dispose()
+    await f.store.close()
+  }
+}, 60_000)
 
 /** Plant a read per existing session of the fixture where creation reads the machine list. */
 const plantPerSession = (f: Fixture): (() => void) => {
