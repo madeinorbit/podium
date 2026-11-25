@@ -3558,6 +3558,7 @@
         "src/sync/collection-sql.ts",
         "src/sync/content-coding.ts",
         "src/sync/first-download.history.test.ts",
+        "src/sync/keyed-fetch.statement-count.test.ts",
         "src/sync/kind-tokens.test.ts",
         "src/sync/kind-tokens.ts",
         "src/sync/panel-catch-up.test.ts",
