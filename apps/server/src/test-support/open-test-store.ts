@@ -90,6 +90,14 @@ export async function openTestStore(
   )
   // A store left open would still be querying when its database is dropped.
   if (clone !== undefined) closeBeforeDrop(clone.name, async () => await store.close())
+  // The wake-up notifier is a connection of its own, opened by the first publish
+  // (POD-7292). Open it here, under real timers: a test that fakes timers after the
+  // store has connected would otherwise open it under fake ones, where postgres.js's
+  // connect never fires and the store's close waits on that send forever (POD-7604).
+  if (clone !== undefined) {
+    store.database.wakeUps.publish(options.workspace ?? SELF_HOSTED_WORKSPACE_ID)
+    await store.database.wakeUps.settled()
+  }
   // The workspace's own first admin (POD-7019: members are the workspace's). A workspace the
   // image does not seed (its people are the self-hosted workspace's) has none, and then no
   // earlier store's admin stays primed.
