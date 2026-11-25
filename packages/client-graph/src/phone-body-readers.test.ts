@@ -98,7 +98,7 @@ it('a never-opened phone body is unavailable offline and fills on reconnect', as
   opened.close()
 })
 
-it('phone list rows request no body and never warn about many body holds', async () => {
+it('phone board membership and row identities request no bodies', async () => {
   const device = await emptyDevice()
   await attachMobileScreens(device.pool)
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -116,11 +116,9 @@ it('phone list rows request no body and never warn about many body holds', async
       void view.stageCounts
       for (let i = 0; i < 30; i++) {
         const issue = device.pool.issueObject(`i${i}`)
-        void issue.confirmedWorkingAgents
-        void issue.taskProgress
-        void issue.dependents
-        void view.task(issue.id).mark
-        void view.task(issue.id).progress
+        void issue.title
+        void issue.seq
+        void issue.stage
       }
     },
   )

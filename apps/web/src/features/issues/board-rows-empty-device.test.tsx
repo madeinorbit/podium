@@ -1,5 +1,7 @@
 import type { MobxPool } from '@podium/client-graph/pool'
 import {
+  BODY_KINDS,
+  bodyOf,
   openEmptyDevice,
   putIssueWithBodies,
 } from '@podium/client-graph/test-support/empty-device.test.fixture'
@@ -73,6 +75,9 @@ it.each([
     ).toBeGreaterThan(0)
     await act(() => device.untilIdle())
     expect(device.requested()).toEqual([])
+    for (const kind of BODY_KINDS)
+      for (const id of ['parent', 'child', 'leaf'])
+        expect(device.liveHolds(bodyOf(kind, id))).toBe(0)
     expect(device.pool.tables.session.has('history')).toBe(false)
     view.unmount()
   } finally {
