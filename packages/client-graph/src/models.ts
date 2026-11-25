@@ -964,8 +964,8 @@ export class IssueModel extends EntityModel {
     return pending ? LOADING : latest
   }
 
-  /** The raw execution fact does not let an offer hide ongoing computation. */
-  /** Whether one of its sessions works. A working session is live, and the
+  /** Whether one of its sessions works: the raw execution fact, so an offer
+   * does not hide ongoing computation. A working session is live, and the
    * policy (`session.live`) holds every live one, so the sessions in memory
    * (`ready`) answer it without holding the issue's history (POD-7580). */
   @lazy get missionWorking(): boolean {

@@ -1953,8 +1953,10 @@ export class MissionViewReader {
    * (`pageDependents`) or the spin-offs discovered from it (`spinOffs`).
    * Through the relation's holding read of the edges into the issue
    * (`issueDep.toIssue`, which comes with each source issue), LOADING until
-   * the device holds them (POD-7580). The deck's tree does not bring them: a
-   * spin-off is an issue of its own, outside the tree it came from.
+   * the device holds them (POD-7580). Under the deck that read is the root's
+   * tree, which comes with the edges into each of its issues and their source
+   * issues (a spin-off sits outside the tree); outside a held tree it holds
+   * the issue's own edges.
    */
   incoming(id: string, relation: 'spinOffs' | 'pageDependents'): string[] | typeof LOADING {
     const sources = this.facts(id)[relation].members
