@@ -425,7 +425,6 @@ const peopleGroup: Group = {
   exercises: {
     janitorReads: {
       read: async ({ store }) => ({
-        admin: await store.janitorReads.earliestAdminId(),
         remote: await store.janitorReads.remoteMachines({ localMachineId: 'none', limit: 50 }),
       }),
     },

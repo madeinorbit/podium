@@ -79,8 +79,6 @@ type ReadyLease = Extract<MaintenanceHandshakeReply, { status: 'ready' }>
  * reader it names) is decided here.
  */
 export interface JanitorReads {
-  /** The workspace's earliest active admin, the janitor's boot check. */
-  earliestAdminId(): Promise<string | undefined>
   /** `stored` `wait` messages with no deadline, created at or before `cutoff`, by (created_at, id). */
   implicitExpiryPage(input: {
     cutoff: string
@@ -1637,8 +1635,11 @@ export async function startJanitor(options: {
  * of one workspace (every self-hosted install) and refuses to start on one of
  * several: observing a second workspace would hand its rows to the first's
  * store. Commands that name their workspace (POD-6962) lift this and run each
- * workspace's jobs in turn. The workspace must also have an active admin, the
- * member the server acts as.
+ * workspace's jobs in turn.
+ *
+ * No member is asked for. The janitor acts as nobody, and its work (expiry,
+ * archives, pruning) must go on while the workspace has no active admin, for
+ * example after its only admin is disabled (POD-7597).
  */
 async function servedWorkspace(database: JanitorDatabase): Promise<JanitorWorkspace> {
   const workspaces = await database.workspacesWithFeed()
@@ -1647,10 +1648,7 @@ async function servedWorkspace(database: JanitorDatabase): Promise<JanitorWorksp
       `janitor serves a database of one workspace; this one has ${workspaces.length} with a feed`,
     )
   }
-  const [workspace] = workspaces as [JanitorWorkspace]
-  const admin = await workspace.scan(async (reads) => await reads.earliestAdminId())
-  if (admin === undefined) throw new Error('janitor requires an active admin member')
-  return workspace
+  return workspaces[0] as JanitorWorkspace
 }
 
 // Re-export constants used by tests and planners for local defaults.

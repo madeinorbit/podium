@@ -45,7 +45,6 @@ async function observed(ws: JanitorSlice) {
     steward: (await reads.stewardCursor()) === undefined ? 0 : 1,
     events: (await reads.maxEventId()) > 0 ? 1 : 0,
     machines: (await reads.remoteMachines({ localMachineId: 'local', limit: 10 })).length,
-    admin: (await reads.earliestAdminId()) === undefined ? 0 : 1,
   }
 }
 
@@ -90,7 +89,6 @@ describe('the janitor reads one workspace (POD-7021)', () => {
       steward: 1,
       events: 1,
       machines: 1,
-      admin: 1,
     }
     expect(await observed(a)).toEqual(one)
     expect(await observed(b)).toEqual(
@@ -151,10 +149,10 @@ describe('the janitor reads one workspace (POD-7021)', () => {
     )
   })
 
-  it('serves a database of one workspace with an active admin', async () => {
+  it('serves a database of one workspace whose only admin is disabled (POD-7597)', async () => {
     const opened = await openJanitorStore(['local'])
     store = opened.store
-    await opened.slices[0].seed.user({ id: 'mem_admin' })
+    await opened.slices[0].seed.user({ id: 'mem_admin', disabledAt: iso(1) })
     const handle = await startJanitor({
       ...offline,
       database: openJanitorDatabase(await store.location()),

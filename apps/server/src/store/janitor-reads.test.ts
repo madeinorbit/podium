@@ -428,7 +428,7 @@ describe('JanitorReadsRepository: worktree GC [POD-564]', () => {
   })
 })
 
-describe('JanitorReadsRepository: automations, steward, machines, admin', () => {
+describe('JanitorReadsRepository: automations, steward, machines', () => {
   it('reads enabled automations that are due, by (next_run_at, id)', async () => {
     const { seed, reads } = await open()
     await seed.automation({ id: 'aut_b', nextRunAt: iso(2) })
@@ -474,23 +474,11 @@ describe('JanitorReadsRepository: automations, steward, machines, admin', () => 
       { id: 'remote', lastSeenAt: iso(3) },
     ])
   })
-
-  it('names the earliest active admin, as the users repository does', async () => {
-    // A workspace of its own: the SQLite fixture's `local` holds the install's admin.
-    const { seed, reads } = await open('ws_people')
-    expect(await reads.earliestAdminId()).toBeUndefined()
-    await seed.user({ id: 'mem_member', role: 'member', createdAt: iso(1) })
-    await seed.user({ id: 'mem_gone', createdAt: iso(1), disabledAt: iso(2) })
-    await seed.user({ id: 'mem_late', createdAt: iso(3) })
-    await seed.user({ id: 'mem_first', createdAt: iso(2) })
-    expect(await reads.earliestAdminId()).toBe('mem_first')
-  })
 })
 
 describe("the janitor's database on the store's engine", () => {
   it('lists the workspaces with a feed and scans one in a read session of its own', async () => {
     const { seed } = await open()
-    await seed.user({ id: 'mem_admin' })
     await seed.machine({ id: 'mch_remote', lastSeenAt: iso(3) })
     const database = openJanitorDatabase(await (store as JanitorStore).location())
     try {
@@ -501,11 +489,9 @@ describe("the janitor's database on the store's engine", () => {
       const local = workspaces.find((w) => w.id === 'local')
       if (!local) throw new Error('the local workspace has a feed')
       const seen = await local.scan(async (reads) => ({
-        admin: await reads.earliestAdminId(),
         machines: await reads.remoteMachines({ localMachineId: 'local', limit: 10 }),
       }))
       expect(seen).toEqual({
-        admin: 'mem_admin',
         machines: [{ id: 'mch_remote', lastSeenAt: iso(3) }],
       })
     } finally {

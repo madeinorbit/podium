@@ -2,7 +2,8 @@
  * THE JANITOR SERVES ONE WORKSPACE (POD-7021, POD-6959 design 2.4 "Fleet reads").
  *
  * A command does not name its workspace yet, so the janitor serves a database of one
- * workspace and refuses one of several, and the workspace must have an active admin.
+ * workspace and refuses one of several. It asks for no member: it serves a workspace with
+ * no active admin too (POD-7597).
  * That each read observes only its workspace's rows, joins included, is the server's
  * to prove: `apps/server/src/store/janitor-reads.workspace.test.ts`, on both engines.
  */
@@ -15,14 +16,14 @@ import {
   startJanitor,
 } from './janitor'
 
-/** A workspace whose only read is the boot check's. */
-function workspace(id: string, admin: string | undefined): JanitorWorkspace & { scans: number } {
+/** A workspace with no reads: the boot check reads none. */
+function workspace(id: string): JanitorWorkspace & { scans: number } {
   const ws = {
     id,
     scans: 0,
     scan: async <T>(fn: (reads: JanitorReads) => Promise<T>): Promise<T> => {
       ws.scans += 1
-      return await fn({ earliestAdminId: async () => admin } as JanitorReads)
+      return await fn({} as JanitorReads)
     },
   }
   return ws
@@ -39,27 +40,21 @@ const OFFLINE = { serverUrl: 'http://127.0.0.1:1', token: 't', tickMs: 60_000 }
 
 describe('the janitor serves one workspace (POD-7021)', () => {
   it('refuses a database of several workspaces, and closes it', async () => {
-    const database = databaseOf([workspace('ws_a', 'mem_a'), workspace('ws_b', 'mem_b')])
+    const database = databaseOf([workspace('ws_a'), workspace('ws_b')])
     await expect(startJanitor({ ...OFFLINE, database })).rejects.toThrow(
       'janitor serves a database of one workspace; this one has 2 with a feed',
     )
     expect(database.close).toHaveBeenCalledOnce()
   })
 
-  it('refuses a workspace without an active admin, and closes it', async () => {
-    const database = databaseOf([workspace('local', undefined)])
-    await expect(startJanitor({ ...OFFLINE, database })).rejects.toThrow(
-      'janitor requires an active admin member',
-    )
-    expect(database.close).toHaveBeenCalledOnce()
-  })
-
   it('serves the one workspace, and closes the database when it is closed', async () => {
-    const local = workspace('local', 'mem_admin')
+    // No member is read at boot: a workspace whose only admin is disabled is
+    // served like any other (POD-7597).
+    const local = workspace('local')
     const database = databaseOf([local])
     const handle = await startJanitor({ ...OFFLINE, database })
     try {
-      expect(local.scans).toBe(1)
+      expect(local.scans).toBe(0)
       expect(database.close).not.toHaveBeenCalled()
     } finally {
       await handle.close()

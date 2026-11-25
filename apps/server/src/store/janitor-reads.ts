@@ -92,20 +92,6 @@ export async function workspacesWithFeed(fleet: FleetDb): Promise<WorkspaceId[]>
 }
 
 // ---------------------------------------------------------------------------
-// The workspace's admin (the janitor's boot check).
-
-/** The same rule as `UsersRepository.earliestAdmin`: the earliest active admin. */
-const earliestAdminOf = prepared((db, t) =>
-  db
-    .select({ id: t.users.id })
-    .from(t.users)
-    .where(inWorkspace(t.users, eq(t.users.role, 'admin'), isNull(t.users.disabledAt)))
-    .orderBy(asc(t.users.createdAt), asc(t.users.id))
-    .limit(1)
-    .prepare(),
-)
-
-// ---------------------------------------------------------------------------
 // Message expiry: the `stored` rows past their deadline, in two keyset walks.
 
 const expiryColumns = (t: StoreTables) => ({
@@ -651,10 +637,6 @@ export class JanitorReadsRepository implements JanitorReads {
 
   protected get db(): WorkspaceDb {
     return this.scope
-  }
-
-  async earliestAdminId(): Promise<string | undefined> {
-    return (await earliestAdminOf(this.db).get())?.id
   }
 
   async implicitExpiryPage(input: {
