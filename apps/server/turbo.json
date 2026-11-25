@@ -960,6 +960,7 @@
         "src/store/conversations/search-contract.test.ts",
         "src/store/conversations/search-pg.ts",
         "src/store/conversations/transcript-index.ts",
+        "src/store/credential-grant-revocation.test.ts",
         "src/store/credentials.test.ts",
         "src/store/credentials.ts",
         "src/store/cross-workspace-allowlist.ts",

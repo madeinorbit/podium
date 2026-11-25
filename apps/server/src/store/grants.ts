@@ -11,7 +11,7 @@ import { MachineRecordWrites } from './machine-record-writes'
 
 import type { GrantVerb } from '@podium/model'
 import { ALL_MEMBERS_GRANTEE, GRANT_VERBS } from '@podium/model'
-import { asc, count, eq, type SQL, sql } from 'drizzle-orm'
+import { asc, eq, type SQL, sql } from 'drizzle-orm'
 import type { grants } from '../migrations/schema'
 import { operationLoader } from './executor/operation-loader'
 import type {
@@ -236,12 +236,25 @@ const oneEdge = (t: StoreTables): SQL | undefined =>
     eq(t.grants.verb, param(t.grants.verb, 'verb')),
   )
 
-const countEdge = prepared((db, t) =>
-  db.select({ n: count() }).from(t.grants).where(oneEdge(t)).prepare(),
-)
-
 const deleteEdge = prepared((db, t) =>
   captureWrite(db.delete(t.grants).where(oneEdge(t)).returning()).prepare(),
+)
+
+/** A revoked credential manager's downstream edges, through the resource's primary-key prefix. */
+const deleteGrantsGivenOnResource = preparedFamily((db, t, size: number) =>
+  captureWrite(
+    db
+      .delete(t.grants)
+      .where(
+        inWorkspace(
+          t.grants,
+          eq(t.grants.resourceKind, param(t.grants.resourceKind, 'resourceKind')),
+          eq(t.grants.resourceId, param(t.grants.resourceId, 'resourceId')),
+          inListOf(t.grants.owner, size, 'granters'),
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 const deleteGrantsOfGrantee = prepared((db, t) =>
@@ -691,9 +704,11 @@ export class GrantsRepository {
     })
   }
 
-  /** Revocation of one verb. Returns whether an edge was actually removed, so a
-   *  caller can tell "revoked" from "there was nothing to revoke" without a
-   *  second read that could race the delete. */
+  /**
+   * Revoke one verb. Revoking credential manage also deletes everything given
+   * through it, in the same transaction, so a later re-grant restores nothing.
+   * Returns whether an edge was actually removed, from the delete's own rows.
+   */
   async remove(
     resourceKind: string,
     resourceId: string,
@@ -702,13 +717,51 @@ export class GrantsRepository {
   ): Promise<boolean> {
     return this.machineRecordWrites.compare(async () => {
       const edge = { resourceKind, resourceId, grantee, verb }
-      const before = await countEdge(this.db).get(edge)
-      await this.committed.write(async () => {
+      const result = await this.committed.write(async () => {
         await this.noteVisibilityAudience(resourceKind, resourceId, grantee)
-        return await deleteEdge(this.db).all(edge)
+        const deleted = await deleteEdge(this.db).all(edge)
+        if (resourceKind !== CREDENTIAL_KIND || verb !== 'manage' || deleted.length === 0) {
+          return deleted
+        }
+        const [credential] = await ownersOfCredentials(this.db, 1).all(
+          inListValues([resourceId], 1, 'ids'),
+        )
+        // Ownership is implicit: a redundant incoming edge cannot revoke it.
+        if (grantee === credential?.owner) return deleted
+        const edges = await this.listForResource(resourceKind, resourceId)
+        const children = new Map<string, string[]>()
+        for (const grant of edges) {
+          if (
+            grant.verb === 'manage' &&
+            grant.grantee !== credential?.owner &&
+            grant.grantee !== ALL_MEMBERS
+          ) {
+            const group = children.get(grant.owner) ?? []
+            group.push(grant.grantee)
+            children.set(grant.owner, group)
+          }
+        }
+        // The primary key permits one incoming manage edge per person. Each
+        // manager below the revoked edge therefore depends on that edge alone.
+        // A Set also terminates malformed cycles; the credential owner is never
+        // a dependent manager, even if an edge points back to them.
+        const dependent = new Set([grantee])
+        for (const granter of dependent) {
+          for (const child of children.get(granter) ?? []) dependent.add(child)
+        }
+        const granters = [...dependent]
+        for (let at = 0; at < granters.length; at += 500) {
+          const chunk = granters.slice(at, at + 500)
+          const size = inListSize(chunk.length)
+          const rows = await deleteGrantsGivenOnResource(this.db, size).all(
+            inListValues(chunk, size, 'granters', { resourceKind, resourceId }),
+          )
+          for (const row of rows) deleted.push(row)
+        }
+        return deleted
       }, 'delete')
       this.resourceGrants.invalidate()
-      const removed = (before?.n ?? 0) > 0
+      const removed = result.changes > 0
       if (removed) this.visibilityRevisionValue += 1
       return removed
     })

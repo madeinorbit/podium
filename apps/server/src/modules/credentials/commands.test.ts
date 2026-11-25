@@ -19,7 +19,6 @@ import {
   asUserId,
   CREDENTIAL_TYPE_IDS,
   CREDENTIAL_TYPES,
-  firstAdminMemberId,
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -459,6 +458,52 @@ describe('review focus', () => {
       }),
     )
     expect(refused.code).toBe('BAD_REQUEST')
+  })
+
+  it.each([
+    'manage',
+    undefined,
+  ] as const)('unsharing %s keeps downstream access gone after manage is restored', async (verb) => {
+    const { store, as, credentialId } = await harness()
+    const owner = as(member(OWNER))
+    await as(member(MANAGER)).credentials.share({
+      credentialId,
+      grantee: { userId: CAROL },
+      verb: 'manage',
+      acknowledgeDisclosure: true,
+    })
+    await as(member(CAROL)).credentials.share({
+      credentialId,
+      grantee: { userId: STRANGER },
+      verb: 'use',
+      acknowledgeDisclosure: true,
+    })
+    const record = await store.credentials.get(credentialId)
+    if (!record) throw new Error('credential missing')
+    expect(await mayUse(store, CAROL, record)).toBe('manage')
+    expect(await mayUse(store, STRANGER, record)).toBe('use')
+
+    expect(
+      await owner.credentials.unshare({ credentialId, grantee: { userId: MANAGER }, verb }),
+    ).toEqual({ ok: true, removed: true })
+    await owner.credentials.share({
+      credentialId,
+      grantee: { userId: MANAGER },
+      verb: 'manage',
+      acknowledgeDisclosure: true,
+    })
+    expect(await mayUse(store, MANAGER, record)).toBe('manage')
+    expect(await mayUse(store, CAROL, record)).toBeNull()
+    expect(await mayUse(store, STRANGER, record)).toBeNull()
+    expect(await mayUse(store, USER, record)).toBe('use')
+    await owner.credentials.share({
+      credentialId,
+      grantee: { userId: CAROL },
+      verb: 'manage',
+      acknowledgeDisclosure: true,
+    })
+    expect(await mayUse(store, CAROL, record)).toBe('manage')
+    expect(await mayUse(store, STRANGER, record)).toBeNull()
   })
 
   // POD-7594, operator decision on spec §12: the grants a removed manager gave
