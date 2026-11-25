@@ -4,14 +4,14 @@
   "machine": "23041746e0e08b00:1",
   "machineAccess": "f8b21f2c9a348e86:1",
   "repo": "8ff17f6430d8be9e:1",
-  "issueProjection": "d46855c8cf05a686:1",
+  "issueProjection": "7b9108191dc1b6df:1",
   "issueBrief": "0c1e40ece7c08cb6:0",
   "issueDescription": "e28bf83ae3118614:0",
   "issuePanelTodo": "258a1bd76afcdfa9:1",
   "issuePanelArtifact": "8c65987f2b106a35:1",
   "issuePanelDeferred": "6c2ae61c478b5b8a:1",
   "issuePanelState": "7cae325d9da44003:1",
-  "issueDep": "3a24e26d98905e57:1",
+  "issueDep": "91333a88dd399ed2:1",
   "issueUserState": "35234c3de658921b:1",
   "subscription": "16d0aceac0a80bf8:1",
   "shipOrder": "28cb328d998d5c03:1",
@@ -38,5 +38,5 @@
   "issueEvent": "7a2de829b94c8787:1",
   "pendingInteraction": "3e09a56d2236d123:1",
   "message": "1b295bcd7358d837:3",
-  "session": "eb885db0c80c38a6:3"
+  "session": "b025a57d95d63797:3"
 }

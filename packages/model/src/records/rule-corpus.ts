@@ -395,9 +395,8 @@ export const CORPUS_CASES: readonly CorpusCase[] = [
     expect: ['s1', 's10'],
   },
   { rule: 'issueProjection.tree > session.ofIssue', args: { issueId: 'i3' }, expect: ['s6'] },
-  // The edges into a tree's issue (POD-7580), and its archived roster seats (not a shell's)
-  { rule: 'issueProjection.tree > issueDep.toIssue', args: { issueId: 'i1' }, expect: ['d2'] },
-  { rule: 'issueProjection.tree > issueDep.toIssue', args: { issueId: 'i3' }, expect: [] },
+  // A tree's archived roster seats, not a shell's (POD-7580). The tree's edges come
+  // whole (no where of their own), so `issueDep.toIssue` below answers them.
   {
     rule: 'issueProjection.treeArchive > session.ofIssue',
     args: { issueId: 'i1' },

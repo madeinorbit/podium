@@ -158,9 +158,13 @@ describe('a wrong declaration', () => {
   })
 
   it('fails when a child relation has neither a keyed collection nor a tree', () => {
-    // Without the tree, nothing holds the issues under one parent.
+    // Without the trees (the deck's and its archive's), nothing holds the issues under one parent.
     const records = withCollections('issueProjection', (record) => {
-      const { tree: _tree, ...rest } = record.collections as Record<string, unknown>
+      const {
+        tree: _tree,
+        treeArchive: _treeArchive,
+        ...rest
+      } = record.collections as Record<string, unknown>
       return rest as unknown as RecordDeclaration['collections']
     })
     expect(relationReadProblems(SCHEMA, records)).toContain(
