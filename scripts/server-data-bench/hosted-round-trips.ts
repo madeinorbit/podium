@@ -77,9 +77,12 @@ async function run(cwd: string, command: string[], env = process.env): Promise<s
 
 async function measure(cwd: string, variant: string): Promise<Sample[]> {
   console.error(`Measuring ${variant}: ${await run(cwd, ['git', 'rev-parse', '--short', 'HEAD'])}`)
+  const selectedFiles = process.argv.includes('--all-pins')
+    ? files
+    : files.filter((_file, index) => index !== 1)
   const output = await run(
     cwd,
-    ['bun', 'run', 'test:lane', '--', 'server-store-pg', ...files, '-t', pattern],
+    ['bun', 'run', 'test:lane', '--', 'server-store-pg', ...selectedFiles, '-t', pattern],
     { ...process.env, PODIUM_ROUND_TRIP_REPORT: '1' },
   )
   const samples: Sample[] = []
