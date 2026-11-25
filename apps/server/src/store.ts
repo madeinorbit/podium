@@ -533,6 +533,15 @@ export class StoreDatabase {
   private readonly executor: RootStoreExecutor<QueryClient>
 
   /**
+   * Every post-commit external effect started so far has settled (an `afterCommit`
+   * hand-off such as the legacy issue-mail mirror). For a statement pin that must
+   * count an operation's trailing effects whole (POD-7604).
+   */
+  async effectsSettled(): Promise<void> {
+    await this.executor.effectsSettled()
+  }
+
+  /**
    * The connection, for the tests that read rows under the repositories and the
    * statement probe: the SQLite handle, or on Postgres a key that refuses use as one
    * (`StoreLifecycle.connection`).

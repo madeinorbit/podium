@@ -348,14 +348,20 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
       const messagesBefore = (await f.store.issues.listIssueMessages(f.issueId)).length
       return { ...f, approvalId: id, messagesBefore }
     },
-    async (f) =>
+    async (f) => {
       await route(f, {
         type: 'approvalExecResult',
         requestId: f.approvalId,
         ok: true,
         exitCode: 0,
         output: 'updated',
-      }),
+      })
+      // The notice's legacy issue-mail mirror is an after-commit effect in a
+      // transaction of its own. On Postgres it could end after the window did, so
+      // the count moved by its two statements from run to run (POD-7604).
+      await f.store.database.effectsSettled()
+      await settle(f.reg)
+    },
     async (f) => {
       expect((await f.reg.modules.approvals.get({ id: f.approvalId })).status).toBe('succeeded')
       const notices = await f.store.issues.listIssueMessages(f.issueId)
