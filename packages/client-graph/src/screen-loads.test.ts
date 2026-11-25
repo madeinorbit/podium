@@ -16,6 +16,9 @@
  *    (POD-7161, an idle tick over budget).
  * 4. Back and forth (POD-7161): a screen left less than the warm set's grace
  *    ago comes back from memory: no disk load, no server request.
+ * 5. Fetches and wire instances (POD-7602): in a 1,000-issue workspace, a
+ *    screen whose rows each read their own relations opens with a fixed
+ *    number of fetches and wire instances, never one per row.
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import type { CollectionServer } from '../../sync/src/conformance/collection-server'
@@ -23,9 +26,11 @@ import { session } from '../../sync/src/conformance/collection-server'
 import {
   DISK_LOADING_BUDGET_MS,
   FETCH_MS,
+  type RecordedLoad,
   serverLoadingBudget,
 } from '../../sync/src/conformance/load-recorder'
 import { ISSUE_SEARCH_DEBOUNCE_MS } from './issue-search'
+import { LOADING } from './loading'
 import {
   closedValue,
   type Device,
@@ -405,4 +410,165 @@ describe('back and forth within the grace (POD-7161)', () => {
       back.close()
     }
   })
+})
+
+// ---------------------------------------------------------------------------
+// POD-7602: fetches and wire instances, whatever the number of rows
+// ---------------------------------------------------------------------------
+
+/*
+ * A screen that reads one relation per row holds one narrow instance per row
+ * (`session.ofIssue` for each issue of a deck). On dev.62 a deck of about 970
+ * rows asked about 1,900 of them; the loader sent them 200 to a fetch and the
+ * server answered each as its own statement, so one screen saturated the
+ * server's sync worker. A keyed collection's instances now go on the wire as
+ * one keyed instance (`packInstances`), answered by one statement per chunk
+ * of keys. These cases fail a screen whose opening grows with its rows: each
+ * opening is counted in fetches and in wire instances (what the server runs
+ * a statement for), with the narrow instances in the evidence.
+ */
+
+/**
+ * Issues of the mission, besides its root. The brief's workspace has 1,000:
+ * the deck alone, on integrate, takes about 100 s of CPU in this harness at
+ * 1,000 rows and under 5 s at 950 (reported to POD-6951), so the mission has
+ * 900 and the sidebar's open issues make the workspace's 1,000.
+ */
+const ISSUES = 900
+const OPEN = 100
+const EPICS = 10
+
+/**
+ * A workspace: {@link ISSUES} closed issues under one mission `R` (ten epics,
+ * the rest under them), each with an ended session, every tenth depending on
+ * the one before it; and {@link OPEN} open top-level issues for the sidebar.
+ */
+function workspace(server: CollectionServer): readonly string[] {
+  server.pageRows = 50
+  server.put(ISSUE, 'R', issueValue('R', { stage: 'in_progress', title: 'Mission R' }))
+  for (let n = 0; n < OPEN; n += 1)
+    server.put(ISSUE, `W${n}`, issueValue(`W${n}`, { stage: 'in_progress' }))
+  const ids: string[] = []
+  for (let n = 0; n < ISSUES; n += 1) {
+    const id = `T${n}`
+    const parentId = n < EPICS ? 'R' : `T${n % EPICS}`
+    const deps = n % 10 === 9 ? [{ id: `T${n - 1}`, type: 'blocked-by' }] : []
+    server.put(ISSUE, id, closedValue(id, { parentId, deps }))
+    if (deps.length > 0)
+      server.put('issueDep', `${id}-blocked-by`, {
+        id: `${id}-blocked-by`,
+        fromId: id,
+        toId: `T${n - 1}`,
+        type: 'blocked-by',
+      })
+    server.put(
+      'session',
+      `S-${id}`,
+      session(`S-${id}`, { issueId: id, status: 'ended', cwd: '/synthetic' }),
+    )
+    ids.push(id)
+  }
+  return ids
+}
+
+/**
+ * What a row of a list draws beside its own record: its sessions and the
+ * issues that depend on it, each a holding relation of its own instance.
+ */
+function rowRelations(device: Device, ids: readonly string[]): boolean {
+  let loading = false
+  for (const id of ids) {
+    const issue = device.pool.issueObject(id)
+    if (issue.pageSessions.members === LOADING) loading = true
+    if (issue.pageDependents.members === LOADING) loading = true
+  }
+  return loading
+}
+
+interface BudgetCase {
+  readonly name: string
+  readonly readers: (device: Device, ids: readonly string[]) => ScreenReaders
+  /** At most this many fetches, and wire instances across them. */
+  readonly fetches: number
+  readonly wire: number
+}
+
+const BUDGETS: readonly BudgetCase[] = [
+  {
+    // The flight deck of the mission, each row with its sessions and
+    // dependents: the tree, then 1,800 rows' instances as two keyed ones.
+    name: 'deck',
+    readers: (d, ids) => {
+      const deck = deckReaders(d, 'R')
+      return { loading: () => deck.loading() || rowRelations(d, ids), close: deck.close }
+    },
+    fetches: 2,
+    wire: 5,
+  },
+  {
+    // A board column's page, then each card's sessions and dependents as two keyed instances.
+    name: 'board',
+    readers: (d, ids) => {
+      const board = boardReaders(d, 'done')
+      return {
+        loading: () => board.loading() || rowRelations(d, ids.slice(0, 50)),
+        close: board.close,
+      }
+    },
+    fetches: 2,
+    wire: 3,
+  },
+  {
+    // The policy's collections: on the device from the first download.
+    name: 'sidebar',
+    readers: (d) => sidebarReaders(d),
+    fetches: 0,
+    wire: 0,
+  },
+  {
+    // A closed issue held as a stub: its record and bodies, then its tree and sessions.
+    name: 'issuePage',
+    readers: (d) => issuePageReaders(d, 'T15'),
+    fetches: 2,
+    wire: 5,
+  },
+]
+
+const fetchEvidence = (name: string, loads: readonly RecordedLoad[]) =>
+  `${name}: ${loads.length} fetches, ${loads.reduce((n, l) => n + l.wire, 0)} wire instances, ${loads.reduce((n, l) => n + l.instances.length, 0)} narrow instances\n${loads
+    .map(
+      (load) =>
+        `  hop ${load.hop}: ${load.wire} wire / ${load.instances.length} narrow: ${[
+          ...new Set(load.instances.map((i) => i.collection)),
+        ].join(', ')}`,
+    )
+    .join('\n')}`
+
+describe('opening a main screen of a 1,000-issue workspace takes a fixed number of fetches (POD-7602)', () => {
+  for (const screen of BUDGETS) {
+    it(`${screen.name}: at most ${screen.fetches} fetches and ${screen.wire} wire instances`, async () => {
+      let ids: readonly string[] = []
+      const d = await device({
+        world: (server) => {
+          ids = workspace(server)
+        },
+      })
+      const from = d.recorder.loads.length
+      const opened = await openScreen(d, screen.name, () => screen.readers(d, ids))
+      try {
+        const loads = d.recorder.loads
+          .slice(from)
+          .filter((load) => load.route === 'collections' && !load.offline)
+        const shown = fetchEvidence(screen.name, loads)
+        expect(opened.ready, shown).toBe(true)
+        expect(loads.length, shown).toBeLessThanOrEqual(screen.fetches)
+        expect(
+          loads.reduce((n, load) => n + load.wire, 0),
+          shown,
+        ).toBeLessThanOrEqual(screen.wire)
+      } finally {
+        opened.close()
+      }
+    }, 60_000)
+  }
 })
