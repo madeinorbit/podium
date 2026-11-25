@@ -1,4 +1,4 @@
-import { omitGone } from './lookup'
+import { here, omitGone } from './lookup'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { operationalState } from '@podium/client-core/values'
@@ -22,18 +22,19 @@ export function inBoardScope(
   id: string,
   agents: boolean,
   liveParents = false,
+  parentOf: (id: string) => string | null | undefined = (at) => pool.graph.one('issue', at, 'treeParent'),
 ): boolean {
   if (row.isDraftVessel && !row.deletedAt) return false
   if (agents || row.deletedAt || row.audience !== 'agent') return true
   const seen = new Set([id])
-  let parent = pool.graph.one('issue', id, 'treeParent')
+  let parent = parentOf(id)
   while (parent && !seen.has(parent)) {
     seen.add(parent)
     const value = pool.queries.issueScope(parent)
     if (!value || (value.draft && !value.deleted) || (liveParents && (value.archived || value.deleted)))
       return false
     if (value.deleted || !value.agent) return true
-    parent = pool.graph.one('issue', parent, 'treeParent')
+    parent = parentOf(parent)
   }
   return false
 }
@@ -64,17 +65,20 @@ export class BoardCard {
     if (!own || own.archived || own.deletedAt || !inBoardScope(pool, own, issue.id, agents, true))
       return NO_STAGES
     const counts = new Map<IssueViewModel['stage'], number>()
-    const count = (id: string, child: StageChild | undefined) => {
+    const count = (id: string, child: StageChild | undefined, parentOf?: (id: string) => string | null | undefined) => {
       if (child && id !== issue.id && !child.archived && !child.deletedAt &&
-        inBoardScope(pool, child, id, agents, true))
+        inBoardScope(pool, child, id, agents, true, parentOf))
         counts.set(child.stage, (counts.get(child.stage) ?? 0) + 1)
     }
     if (pool.collections.available) {
       // Every child over all history, by its stub (POD-7581): a card holds no
       // child row and loads none, and a child closed long ago still counts.
+      // Stubs prefer the resident row (local edits); the audience walk goes
+      // up stub parents, so a child held only as a stub finds its human ancestor.
       const ids = pool.collections.childIds(issue.id)
       if (ids === LOADING) throw LOADING
-      for (const id of ids) count(id, pool.collections.stubOf(id) as StageChild | undefined)
+      const stubOf = (at: string) => here(pool.stub(at))
+      for (const id of ids) count(id, stubOf(id) as StageChild | undefined, (at) => stubOf(at)?.parentId)
     } else
       for (const id of pool.graph.many('issue', issue.id, 'treeChildren')) {
         const child = omitGone(pool.row('issue', id)) as Loaded<IssueViewModel>

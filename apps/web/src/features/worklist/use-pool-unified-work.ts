@@ -142,9 +142,11 @@ function archiveFacts(
   id: string,
 ): Pick<SliceIssue, 'archived' | 'deletedAt'> | typeof LOADING | undefined {
   if (pool.collections.available) {
-    const stub = pool.collections.stubOf(id)
-    if (stub !== undefined) return { archived: stub.archived, deletedAt: stub.deletedAt ?? null }
-    return pool.collections.stubsComplete ? undefined : LOADING
+    // The resident row first, so an archive the server has not confirmed yet
+    // stops the walk and Undo does not restore it (POD-7581).
+    const stub = omitGone(pool.stub(id))
+    if (stub === undefined || stub === LOADING) return stub
+    return { archived: stub.archived, deletedAt: stub.deletedAt ?? null }
   }
   return omitGone(pool.row('issue', id)) as SliceIssue | typeof LOADING | undefined
 }

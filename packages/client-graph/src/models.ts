@@ -66,7 +66,7 @@ import type { IssueSessionFactReader } from './shared/issue-session-facts'
 
 import { lazy } from '@podium/mobx-helpers'
 import { action, compareShallow, compareStructural, observable, runInAction } from 'mobx'
-import type { PoolCollections } from './collections'
+import type { IssueStub, PoolCollections } from './collections'
 import type { Residence } from './pool'
 import type { SeatRelation } from './session-seats'
 import { type HoldingCheck, holdingCheckFor } from './shared/holding-relations'
@@ -141,8 +141,10 @@ export interface ModelHost {
   /** The device's collections: a holding relation's read holds its instance or its tree (POD-7545, POD-7582). */
   readonly collections: Pick<
     PoolCollections,
-    'held' | 'holding' | 'subtreeHeld' | 'subtreeHolding' | 'treeHeld'
+    'held' | 'holding' | 'subtreeHeld' | 'subtreeHolding' | 'treeHeld' | 'available' | 'childIds'
   >
+  /** An issue's stub: its resident row first (local edits), else the stub the device holds (`MobxPool.stub`). */
+  stub(id: string): Lookup<IssueStub>
   /** The addressed model: here, loading, or gone. */
   model<E extends EntityName>(entity: E, id: string): Lookup<ModelOf[E]>
   /** Where a row stands; an absent one answers `loading` and its load starts (first access). */
@@ -997,6 +999,40 @@ export class IssueModel extends EntityModel {
 
   @lazy({ equals: compareStructural })
   private get descendantTaskProgress(): TaskProgress | null {
+    return this.host.collections.available ? this.stubTaskProgress() : this.residentTaskProgress()
+  }
+
+  /**
+   * POD-7581: every descendant over all history, from the stubs (resident
+   * rows first), with the same stops: archived, deleted and draft issues are
+   * neither counted nor descended. No row is held or loaded. Live agents are
+   * read only on issues in memory: a live session is always held, and it
+   * comes with its issue.
+   */
+  private stubTaskProgress(): TaskProgress | null {
+    let total = 0, done = 0, liveAgents = 0
+    const top = this.host.collections.childIds(this.id)
+    if (top === LOADING) throw LOADING
+    const seen = new Set([this.id]), stack = [...top]
+    while (stack.length) {
+      const id = stack.pop()!
+      if (seen.has(id)) continue
+      seen.add(id)
+      const stub = here(this.host.stub(id))
+      if (!stub || stub.archived || stub.deletedAt || stub.isDraftVessel) continue
+      total++
+      if (isFinished(stub)) done++
+      if (omitGone(this.host.row('issue', id, 'mark')) !== LOADING)
+        liveAgents += this.host.issueObject(id).confirmedWorkingAgents
+      const children = this.host.collections.childIds(id)
+      if (children === LOADING) throw LOADING
+      stack.push(...children)
+    }
+    return total ? { total, done, liveAgents } : null
+  }
+
+  /** A fixture without a device store: the rows it supplies are all there is. */
+  private residentTaskProgress(): TaskProgress | null {
     let total = 0, done = 0, liveAgents = 0
     const seen = new Set([this.id]), stack = [...this.host.relations.many('issue', this.id, 'treeChildren')]
     while (stack.length) {

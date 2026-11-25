@@ -54,6 +54,7 @@ import { sortSessionsForSidebar } from '../session-urgency'
 export type IssueNavigationModel = IssueViewModel & {
   unread?: boolean
   sessionSummary?: { total: number; byPhase: Record<string, number> }
+  sessionsUnknown?: true
 }
 
 /**

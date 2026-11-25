@@ -38,7 +38,11 @@ const OLD = '2020-01-01T00:00:00.000Z'
  * An open epic E with an open child, a child closed long ago (held by no
  * policy collection) and a child closed recently; its sessions: one live, one
  * archived long ago; an open spin-off and one closed long ago; an open issue
- * blocked by E; a session born on E that works on the open child.
+ * blocked by E; a session born on E that works on the open child. For the
+ * review's cases (POD-7581 review): a human task P with an agent-audience
+ * child closed long ago; a recently closed task H whose only session is
+ * hibernated and idle long ago; an open task O whose session is the same; a
+ * backlog task K whose only session was archived long ago.
  */
 function world(server: CollectionServer): void {
   const issue = (id: string, value: Record<string, unknown>) =>
@@ -66,6 +70,24 @@ function world(server: CollectionServer): void {
   put('sE', { issueId: 'E', status: 'live', lastActiveAt: RECENT })
   put('sEold', { issueId: 'E', status: 'exited', archived: true, lastActiveAt: OLD })
   put('sBorn', { issueId: 'C1', refIssueId: 'E', status: 'live', lastActiveAt: RECENT })
+  issue('P', issueValue('P', { seq: 8, updatedAt: RECENT, audience: 'human' }))
+  issue('A1', closedValue('A1', { seq: 9, parentId: 'P', updatedAt: OLD, audience: 'agent' }))
+  issue('H', closedValue('H', { seq: 10, updatedAt: RECENT }))
+  issue('O', issueValue('O', { seq: 11, updatedAt: RECENT }))
+  issue('K', issueValue('K', { seq: 12, stage: 'backlog', updatedAt: RECENT }))
+  put('sH', { issueId: 'H', status: 'hibernated', lastActiveAt: OLD })
+  put('sO', { issueId: 'O', status: 'hibernated', lastActiveAt: OLD })
+  put('sK', { issueId: 'K', status: 'exited', archived: true, lastActiveAt: OLD })
+}
+
+/** A read that may throw LOADING, as a screen settles it. */
+function settle<T>(read: () => T): T | typeof LOADING {
+  try {
+    return read()
+  } catch (error) {
+    if (error !== LOADING) throw error
+    return LOADING
+  }
 }
 
 async function device(more: (server: CollectionServer) => void = () => {}): Promise<EmptyDevice> {
@@ -159,6 +181,7 @@ describe('the board', () => {
             void board.issue(id)
             void board.sessions(id)
             void stageCounts(id)
+            void settle(() => cards.issue(id).taskProgress)
           }
         }
       },
@@ -178,6 +201,10 @@ describe('the board', () => {
     if (card === undefined || card === LOADING) throw new Error('the epic card is not shown')
     expect(card.memberSessionIds).toEqual(['sE'])
     expect(card.dependents.map((dependent) => dependent.id).sort()).toEqual(['B', 'S1'])
+    expect(card.sessionsUnknown).toBeUndefined()
+    // The card's progress counts every descendant over all history (stubs):
+    // three children, two done, though the device holds no row of C2.
+    expect(settle(() => cards.issue('E').taskProgress)).toMatchObject({ total: 3, done: 2 })
     source.dispose()
   })
 })
@@ -207,8 +234,8 @@ describe('a board column whose page the server refused', () => {
 
   it('says it is not available, keeping only the count the stubs answer, and asks once', async () => {
     const { opened, source, answers } = await doneColumn(true)
-    // S2, closed long ago, is the column's one root: the stubs count it.
-    expect(answers.at(-1)).toEqual({ count: 1, unavailable: true })
+    // S2 (closed long ago) and H are the column's roots: the stubs count them.
+    expect(answers.at(-1)).toEqual({ count: 2, unavailable: true })
     expect(
       opened.requestedKeys().filter((key) => key.startsWith('issueProjection.byStage')),
     ).toHaveLength(1)
@@ -217,7 +244,59 @@ describe('a board column whose page the server refused', () => {
 
   it('is available when the server answers the page', async () => {
     const { source, answers } = await doneColumn(false)
-    expect(answers.at(-1)).toEqual({ count: 1 })
+    expect(answers.at(-1)).toEqual({ count: 2 })
+    source.dispose()
+  })
+})
+
+describe("the review's cases", () => {
+  /** Observe `read` on a fresh device as a screen would; its last answer. */
+  async function last(read: (opened: EmptyDevice) => unknown): Promise<unknown> {
+    const opened = await device()
+    const answers: unknown[] = []
+    opened.observe(
+      () => null,
+      () => answers.push(settle(() => read(opened))),
+    )
+    await opened.untilIdle()
+    expect(opened.requestedKeys()).toEqual([])
+    return answers.at(-1)
+  }
+
+  it('stage counts with agent tasks hidden count an agent child held only as a stub', async () => {
+    const cards = (opened: EmptyDevice) => boardCards(opened.pool)
+    expect(
+      await last((opened) => cards(opened).card(cards(opened).issue('P'), false).stageCounts),
+    ).toEqual([{ stage: 'done', count: 1 }])
+  })
+
+  it('an open task whose session is hibernated is live: the sidebar comes with that session', async () => {
+    expect(await last((opened) => opened.pool.issueObject('O').live)).toBe(true)
+  })
+
+  it('declared: a closed task idle for N days whose session is hibernated is not seen as live', async () => {
+    // `IssueModel@*.live` covers hibernated sessions only on an open issue or
+    // active in the last N days (policy-relation-readers.ts).
+    expect(await last((opened) => opened.pool.issueObject('H').live)).toBe(false)
+  })
+
+  it('declared: a backlog task whose senders are all archived and idle for N days is to do here', async () => {
+    // `IssueModel@*.missionBucket` covers archived senders only when active
+    // in the last N days (policy-relation-readers.ts). The flight deck holds
+    // the whole roster and reads "waiting" (mission-full-deck.test.ts).
+    expect(await last((opened) => opened.pool.issueObject('K').missionBucket)).toBe('todo')
+  })
+
+  it('a card of an issue that is not open says its session count is unknown', async () => {
+    const opened = await device()
+    const source = createIssueBoardSource(opened.pool)
+    const answers: unknown[] = []
+    opened.observe(
+      () => source,
+      (board) => answers.push(board.issue('H')),
+    )
+    await opened.untilIdle()
+    expect(answers.at(-1)).toMatchObject({ sessionsUnknown: true })
     source.dispose()
   })
 })

@@ -410,9 +410,13 @@ export function IssuesView(): JSX.Element {
     if (selectedIds.length === 0) return
     const targets = issues.filter((issue) => selectedIds.includes(issue.id))
     const sessions = new Set(targets.flatMap((issue) => issue.memberSessionIds)).size
+    // A count the device does not hold is never stated (POD-7581).
+    const sessionText = targets.some((issue) => issue.sessionsUnknown === true)
+      ? 'their sessions'
+      : `${sessions} session${sessions === 1 ? '' : 's'}`
     if (
       !window.confirm(
-        `Delete ${targets.length} task${targets.length > 1 ? 's' : ''} and ${sessions} session${sessions === 1 ? '' : 's'}? Tasks and sessions can be restored; running processes will be stopped.`,
+        `Delete ${targets.length} task${targets.length > 1 ? 's' : ''} and ${sessionText}? Tasks and sessions can be restored; running processes will be stopped.`,
       )
     )
       return

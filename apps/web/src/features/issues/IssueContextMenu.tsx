@@ -56,6 +56,7 @@ import { useFeature } from '@/lib/use-feature'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
 import {
   cascadeSessionCount,
+  cascadeSessionsUnknown,
   deferDateFromNow,
   describeCascade,
   type IssueMenuSurface,
@@ -340,7 +341,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
     void (async () => {
       const ok = await confirm({
         title: `Delete ${n === 1 ? 'this task' : `${n} tasks`}?`,
-        description: `${describeCascade(n, sessionCount)} Tasks and sessions can be restored; running agents will be stopped.`,
+        description: `${describeCascade(n, sessionCount, cascadeSessionsUnknown(issues))} Tasks and sessions can be restored; running agents will be stopped.`,
         confirmLabel: 'Delete',
       })
       if (!ok) return
@@ -380,7 +381,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
     void (async () => {
       const ok = await confirm({
         title: 'Archive this task?',
-        description: `${describeCascade(1 + first.childCount, sessionCount)} They leave active views, and any running agents are stopped. Unarchiving brings the task back but does not restart them.`,
+        description: `${describeCascade(1 + first.childCount, sessionCount, cascadeSessionsUnknown([first]))} They leave active views, and any running agents are stopped. Unarchiving brings the task back but does not restart them.`,
         confirmLabel: 'Archive',
       })
       if (!ok) return

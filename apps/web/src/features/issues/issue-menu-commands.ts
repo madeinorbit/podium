@@ -103,7 +103,7 @@ export function runIssueMenuCommand(
             const confirm = deps.confirm ?? ((text: string) => window.confirm(text))
             if (
               !confirm(
-                `Archive this task? ${describeCascade(1 + data.first.childCount, sessionCount)} They leave active views, and any running agents are stopped.`,
+                `Archive this task? ${describeCascade(1 + data.first.childCount, sessionCount, data.first.sessionsUnknown === true)} They leave active views, and any running agents are stopped.`,
               )
             ) {
               return
@@ -117,7 +117,8 @@ export function runIssueMenuCommand(
       case 'delete': {
         const count = data.issues.length
         const sessions = new Set(data.issues.flatMap((issue) => issue.memberSessionIds ?? []))
-        const message = `Delete ${count === 1 ? 'this task' : `${count} tasks`}? ${describeCascade(count, sessions.size)} Tasks and sessions can be restored; running agents will be stopped.`
+        const unknown = data.issues.some((issue) => issue.sessionsUnknown === true)
+        const message = `Delete ${count === 1 ? 'this task' : `${count} tasks`}? ${describeCascade(count, sessions.size, unknown)} Tasks and sessions can be restored; running agents will be stopped.`
         const confirm = deps.confirm ?? ((text: string) => window.confirm(text))
         if (!confirm(message)) return
         return Promise.all(data.issues.map((issue) => deps.deleteIssue(issue.id)))

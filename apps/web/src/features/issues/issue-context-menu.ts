@@ -95,8 +95,10 @@ export function resolveIssueHandoffSession<M extends HandoffMachine>(
  * arithmetic — which is exactly how the archive confirm ended up naming
  * sub-tasks while silently omitting the agent processes it stops.
  */
-export function describeCascade(taskCount: number, sessionCount: number): string {
+export function describeCascade(taskCount: number, sessionCount: number, unknown = false): string {
   const tasks = `${taskCount} task${taskCount === 1 ? '' : 's'}`
+  // A count the device does not hold is never stated (POD-7581).
+  if (unknown) return `This affects ${tasks} and the agents on ${taskCount === 1 ? 'it' : 'them'}.`
   if (sessionCount === 0) return `This affects ${tasks}.`
   return `This affects ${tasks} and ${sessionCount} agent${sessionCount === 1 ? '' : 's'}.`
 }
@@ -105,6 +107,11 @@ export function describeCascade(taskCount: number, sessionCount: number): string
  * totals, not the IDs of hidden history rows. */
 export function cascadeSessionCount(issues: readonly Partial<Pick<IssueNavigationModel, 'sessionSummary' | 'memberSessionIds'>>[]): number {
   return issues.reduce((count, issue) => count + (issue.sessionSummary?.total ?? issue.memberSessionIds?.length ?? 0), 0)
+}
+
+/** Whether some issue's session count is unknown on this device (POD-7581): state no number. */
+export function cascadeSessionsUnknown(issues: readonly Partial<Pick<IssueNavigationModel, 'sessionsUnknown'>>[]): boolean {
+  return issues.some((issue) => issue.sessionsUnknown === true)
 }
 
 /** Closed = a close reason is recorded (server: isClosed ⇔ closedReason != null). */

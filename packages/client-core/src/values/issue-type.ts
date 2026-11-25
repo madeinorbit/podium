@@ -29,6 +29,12 @@ export interface IssueView {
 export interface IssueSessionRollups {
   unread: boolean
   sessionSummary: { total: number; byPhase: Record<string, number> }
+  /**
+   * POD-7581: the device does not hold this issue's sessions (a board card
+   * of an issue that is not open), so its session count is unknown. A
+   * surface then states no number; running sessions are always held.
+   */
+  sessionsUnknown: true
 }
 
 /** An issue as the pool shows it. Brief, description, panel items and the

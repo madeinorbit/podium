@@ -500,14 +500,21 @@ export function createBoardLayout(pool: MobxPool) {
    * Whether the server refused the page a column reads (POD-7581): the
    * column then shows "Not available", never "Nothing in" or a count from
    * the cards the device happens to hold. A column the device holds whole
-   * is available.
+   * is available. A refused page has no marker, so it is not held whole.
    */
   const columnUnavailable = keyedComputed(
     'IssueBoard.columnUnavailable',
     (key: string): boolean => {
-      if (!pool.collections.available || columnHeld(key)) return false
+      if (!pool.collections.available) return false
       const options: BoardColumnOptions = JSON.parse(key)
       if (options.filter.archived || options.filter.deleted) return false
+      // The sidebar collection holds the open stages whole. Reading whether the
+      // page was refused asks for nothing: only the column's reader holds it.
+      if (
+        (SIDEBAR_STAGES as readonly string[]).includes(options.stage) &&
+        pool.collections.complete(SIDEBAR)
+      )
+        return false
       return pool.collections.refused(pageOf(options))
     },
   )

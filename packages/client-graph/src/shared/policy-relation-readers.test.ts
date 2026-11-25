@@ -14,6 +14,7 @@ const entry: PolicyRelationReader = {
   reader: 'SidebarRow.children',
   relation: 'issue.children',
   bound: ['issueProjection.sidebar', 'issueProjection > issueProjection.one'],
+  covers: 'open issues, with every ancestor of a held issue',
   why: 'The sidebar nests the open children.',
   file: 'row.ts',
   declaration: 'get children()',
@@ -52,6 +53,24 @@ it('rejects a bound the policy does not hold, or one that does not bring the tar
   expect(check({ bound: ['session > issueProjection.tree'] })).toEqual([
     'SidebarRow.children -> issue.children: a session record does not come with issueProjection.tree',
     'SidebarRow.children -> issue.children: no bound brings issueProjection, the records issue.children reads',
+  ])
+})
+
+it('rejects a comes-with bound keyed by another field, and a declaration that does not say what its bounds hold', () => {
+  // Born sessions name the issue by refIssueId; the sidebar comes with sessions by issueId.
+  expect(
+    check({
+      relation: 'issue.bornSessions',
+      bound: ['issueProjection.sidebar > session.ofIssue', 'session.recent'],
+    }),
+  ).toEqual([
+    'SidebarRow.children -> issue.bornSessions: bound issueProjection.sidebar > session.ofIssue is keyed by issueId, not by refIssueId, the key issue.bornSessions reads',
+  ])
+  // A bound that holds only some of the members must say so: asking sessions are not all of them.
+  expect(
+    check({ relation: 'issue.missionSessions', bound: ['session.asking'], covers: '' }),
+  ).toEqual([
+    'SidebarRow.children -> issue.missionSessions: a policy reader must say which records its bounds hold (covers)',
   ])
 })
 

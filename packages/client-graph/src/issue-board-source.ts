@@ -1,6 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { keyedComputed } from '@podium/mobx-helpers'
+import { SIDEBAR_STAGES } from '@podium/model'
 import { asIssueId, asSessionId, machinePathBasename, machinePathKey } from '@podium/model/browser'
 import { issueRefText } from '@podium/protocol'
 import { headerView } from './header-views'
@@ -20,6 +21,13 @@ import { defineSource, type PoolSource } from './source-registry'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+
+/** In the sidebar collection (`SIDEBAR_WHERE`), which comes with the issue's unarchived sessions. */
+const inSidebar = (issue: IssueViewModel): boolean =>
+  (SIDEBAR_STAGES as readonly string[]).includes(issue.stage) &&
+  !issue.closedReason &&
+  !issue.archived &&
+  !issue.deletedAt
 
 /** Read-side service over declared pool questions and relations. Layouts
  * publish IDs; rich cards belong to mounted rows or explicit diagnostics.
@@ -148,9 +156,12 @@ export function createIssueBoardSource(
         for (const dep of row?.deps ?? [])
           if (dep.id === id) dependents.push({ id: asIssueId(sourceId), type: dep.type })
       }
-      const memberSessionIds = [...pool.graph.many('issue', id, 'pageSessions')]
+      // Unarchived sessions only: the device holds every one of an open issue.
+      // An issue that is not open says its count is unknown (POD-7581).
+      const memberSessionIds = [...pool.graph.subset('issue', id, 'pageSessions', 'unarchived')]
         .sort(byId)
         .map(asSessionId)
+      const sessionsUnknown = pool.collections.available && !inSidebar(value)
       const readAt = pool.readCursor(id) ?? null,
         readTime = Date.parse(readAt ?? '')
       let unread = !Number.isFinite(readTime) || Date.parse(value.updatedAt) > readTime
@@ -163,7 +174,13 @@ export function createIssueBoardSource(
         total++
         const phase = seat.agentState?.phase ?? 'unknown'
         byPhase[phase] = (byPhase[phase] ?? 0) + 1
-        if (Date.parse(seat.lastActiveAt) > readTime) unread = true
+      }
+      // Unread follows the activity of every session in memory, archived
+      // ones included, as the counts above do not.
+      for (const sid of pool.graph.many('issue', id, 'pageSessions')) {
+        const seat = omitGone(pool.row('session', sid)) as Loaded<SessionView>
+        if (seat === LOADING) return LOADING
+        if (seat && Date.parse(seat.lastActiveAt) > readTime) unread = true
       }
       return {
         ...value,
@@ -178,6 +195,7 @@ export function createIssueBoardSource(
         memberSessionIds,
         unread: !value.deletedAt && unread,
         sessionSummary: { total, byPhase },
+        ...(sessionsUnknown ? { sessionsUnknown: true as const } : {}),
       }
     })
   }

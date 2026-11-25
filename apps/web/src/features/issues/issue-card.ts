@@ -28,7 +28,8 @@ export function issueCardModel(issue: IssueViewModel): {
   subProgress?: { done: number; total: number }
   isBlocked: boolean
   isBlocking: boolean
-  sessionCount: number
+  /** Absent when the device does not hold the issue's sessions (POD-7581). */
+  sessionCount?: number
   dueLabel?: string
   estimateLabel?: string
 } {
@@ -48,7 +49,7 @@ export function issueCardModel(issue: IssueViewModel): {
       : {}),
     isBlocked: issue.blocked,
     isBlocking: issue.dependents.some((d) => d.type === 'blocked-by'),
-    sessionCount: issue.sessionSummary?.total ?? 0,
+    ...(issue.sessionsUnknown ? {} : { sessionCount: issue.sessionSummary?.total ?? 0 }),
     ...(dueLabel ? { dueLabel } : {}),
     ...(issue.estimateMin != null ? { estimateLabel: `${issue.estimateMin}m` } : {}),
   }
