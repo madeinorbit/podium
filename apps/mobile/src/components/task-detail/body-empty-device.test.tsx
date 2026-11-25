@@ -2,6 +2,7 @@ import type { IssueWithBodies } from '@podium/client-core/replica'
 import { LOADING } from '@podium/client-graph/loading'
 import type { MobxPool } from '@podium/client-graph/pool'
 import {
+  BODY_KINDS,
   type EmptyDevice,
   FULL_BODIES,
   openEmptyDevice,
@@ -41,6 +42,7 @@ const { IssueAgentPanel } = await import('./IssueAgentPanel')
 const { OfferArtifactStrip } = await import('../OfferArtifactStrip')
 const { issueCommands } = await import('../../lib/issue-detail')
 const { chatUploadUrl } = await import('../../client/chat-uploads')
+const { ChatUploadPending } = await import('../ChatUploadPending')
 
 const devices: EmptyDevice[] = []
 afterEach(() => {
@@ -118,6 +120,13 @@ it('task overview, brief and evidence show loading before their actual server co
   expect(screen.getByText(FULL_BODIES.deferred[0]!)).toBeTruthy()
   expect(screen.getAllByText(FULL_BODIES.artifacts[0]!.title).length).toBeGreaterThan(0)
   expect(screen.queryByText(FULL_BODIES.todos[0]!.text)).toBeNull()
+  const bodies = f.device
+    .requested()
+    .filter((instance) => BODY_KINDS.some((kind) => instance.collection === `${kind}.ofIssue`))
+  expect(bodies.map((instance) => instance.collection).sort()).toEqual(
+    BODY_KINDS.map((kind) => `${kind}.ofIssue`).sort(),
+  )
+  expect(bodies.every((instance) => instance.args?.issueId === 'i1')).toBe(true)
 })
 
 it('offline first reads show availability, then content when the phone reconnects', async () => {
@@ -218,5 +227,62 @@ it('a description and brief the server refused say not available, never loading 
   await act(() => f.device.untilIdle())
   expect(
     f.device.requestedKeys().filter((key) => key === 'issueDescription.ofIssue{"issueId":"i1"}'),
+  ).toHaveLength(1)
+})
+
+it('a refused stored chat upload says not available and only holds its artifact body', async () => {
+  const device = await openEmptyDevice({
+    world(server) {
+      putIssueWithBodies(server, 'i1')
+      server.put('session', 'chat', {
+        sessionId: 'chat',
+        issueId: 'i1',
+        agentKind: 'codex',
+        status: 'live',
+        cwd: '/synthetic',
+        createdAt: '2026-11-17T12:00:00.000Z',
+        lastActiveAt: '2026-11-17T12:00:00.000Z',
+      })
+      refuseCollections(server, (instance) => instance.collection === 'issuePanelArtifact.ofIssue')
+    },
+  })
+  devices.push(device)
+  state.pool = device.pool
+  const read = () => chatUploadUrl(device.pool, 'chat', 'upload-id', 'https://example.com')
+  const opened = device.observe(() => null, read)
+  try {
+    render(<ChatUploadPending sessionId="chat" label="photo.png" />)
+    expect(screen.getByLabelText('photo.png: Loading…')).toBeTruthy()
+    await act(() => device.untilIdle())
+    expect(read()).toBe(LOADING)
+    expect(screen.getByLabelText('photo.png: Not available')).toBeTruthy()
+    expect(screen.queryByText('Loading…')).toBeNull()
+    await act(() => device.untilIdle())
+    expect(device.requestedKeys()).toEqual(['issuePanelArtifact.ofIssue{"issueId":"i1"}'])
+  } finally {
+    opened.close()
+  }
+})
+
+it.each([
+  ['issuePanelState.ofIssue', ['Current update']],
+  ['issuePanelTodo.ofIssue', ['Artifacts', 'deferred', 'Offer artifacts']],
+  ['issuePanelArtifact.ofIssue', ['Artifacts', 'deferred', 'Offer artifacts']],
+  ['issuePanelDeferred.ofIssue', ['Artifacts', 'deferred', 'Offer artifacts']],
+] as const)('a refused %s shows not available without retrying', async (collection, labels) => {
+  const f = await fixture({ refuse: [collection] })
+  const view = render(<BodySections {...f} />)
+  await act(() => f.device.untilIdle())
+  for (const label of labels) {
+    const pending = screen.getByLabelText(`${label}: Not available`)
+    expect(pending.getAttribute('aria-busy')).toBe('false')
+  }
+  expect(screen.queryByText('Loading…')).toBeNull()
+  expect(screen.getByText(FULL_BODIES.description)).toBeTruthy()
+  expect(screen.queryByText('No status posted yet.')).toBeNull()
+  view.rerender(<BodySections {...f} />)
+  await act(() => f.device.untilIdle())
+  expect(
+    f.device.requested().filter((instance) => instance.collection === collection),
   ).toHaveLength(1)
 })

@@ -137,6 +137,42 @@ it.each([
   }
 })
 
+it.each([
+  ['issuePanelState.ofIssue', 'Current update'],
+  ['issuePanelArtifact.ofIssue', 'Artifacts'],
+])('the task sheet shows a refused %s as unavailable', async (collection, label) => {
+  const device = await openEmptyDevice({
+    world: (server) => {
+      putIssueWithBodies(server, 'sheet')
+      refuseCollections(server, (instance) => instance.collection === collection)
+    },
+  })
+  state.pool = device.pool
+  const view = render(
+    <TaskSheet
+      issue={device.pool.issueObject('sheet') as unknown as IssueViewModel}
+      pool={device.pool}
+      onClose={() => {}}
+      onOpenSession={() => {}}
+    />,
+  )
+  try {
+    await act(() => device.untilIdle())
+    expect(view.getByLabelText(`${label}: Not available`)).toBeTruthy()
+    expect(view.queryByText('Loading…')).toBeNull()
+    expect(view.queryByText('No status posted yet.')).toBeNull()
+    expect(view.getByText(FULL_BODIES.description)).toBeTruthy()
+    await act(() => device.untilIdle())
+    expect(
+      device.requested().filter((instance) => instance.collection === collection),
+    ).toHaveLength(1)
+  } finally {
+    view.unmount()
+    device.dispose()
+    state.pool = null
+  }
+})
+
 it('a refused session history: no queued claim, no Run now or Answer (POD-7595)', async () => {
   const device = await openEmptyDevice({
     world: (server) => {

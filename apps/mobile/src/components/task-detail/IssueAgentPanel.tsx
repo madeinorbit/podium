@@ -54,7 +54,13 @@ export const IssueAgentPanel = observer(function IssueAgentPanel({
 
   const [openKey, setOpenKey] = useState<string | null>(null)
   const panel = issue.panel
-  if (panel === LOADING) return <BodyPending label={only ?? 'Artifacts and deferred items'} />
+  if (panel === LOADING)
+    return (
+      <BodyPending
+        label={only ?? 'Artifacts and deferred items'}
+        unavailable={issue.panelUnavailable}
+      />
+    )
   const artifacts = only === 'deferred' ? [] : (panel?.artifacts ?? [])
   const deferred = only === 'artifacts' ? [] : (panel?.deferred ?? [])
   if (artifacts.length === 0 && deferred.length === 0) return null

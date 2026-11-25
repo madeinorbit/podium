@@ -6,7 +6,7 @@ import { useChatUploadUrl } from '../client/chat-uploads'
 import { useServerProfile } from '../client/server-profile-context'
 import type { TranscriptAssetContext } from '../lib/transcript-assets'
 import { color, font, radius, sans, space } from '../theme/theme'
-import { BodyPending } from './BodyPending'
+import { ChatUploadPending } from './ChatUploadPending'
 import { Icon } from './Icon'
 import { FileText } from './icons'
 
@@ -41,7 +41,7 @@ function HeldFile({ file, context }: { file: PendingFile; context?: TranscriptAs
     return (
       <View>
         <FileChip name={name} />
-        <BodyPending label={name} />
+        <ChatUploadPending label={name} sessionId={context?.sessionId} />
       </View>
     )
   // Only an image is drawn; a document, a copy not stored yet, or one that

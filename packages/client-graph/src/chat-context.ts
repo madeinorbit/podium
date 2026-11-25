@@ -135,7 +135,10 @@ export function chatRecords(pool: MobxPool, sessionId: string) {
     for (const id of membership.messages) {
       const row = omitGone(pool.model('messageRecord', id))
       if (loading(row)) pending++
-      else if (row) { row.row; records.push(row) }
+      else if (row) {
+        row.row
+        records.push(row)
+      }
     }
   return { records, pending }
 }
@@ -234,6 +237,14 @@ export function chatUploadArtifact(
   if (uploads === LOADING) return LOADING
   const artifact = uploads.get(attachmentId)
   return artifact ? { issueId: issue.id, artifact } : undefined
+}
+/** A refused artifact body cannot finish loading the chat's stored uploads. */
+export function chatUploadUnavailable(pool: MobxPool, sessionId: string): boolean {
+  const session = omitGone(pool.row('session', sessionId)) as Loaded<SessionView>
+  if (!session || loading(session)) return false
+  const issue = chatArtifactIssue(pool, { sessionId: session.sessionId, issueId: session.issueId })
+  if (!issue || loading(issue)) return false
+  return pool.issueObject(issue.id).panelArtifactRecords.unavailable
 }
 export function chatReferenceSessions(pool: MobxPool, counts = readerCounts(pool)) {
   return pool.sources

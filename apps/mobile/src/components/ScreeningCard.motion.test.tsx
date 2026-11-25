@@ -4,6 +4,7 @@ import {
   FULL_BODIES,
   openEmptyDevice,
   putIssueWithBodies,
+  refuseCollections,
 } from '@podium/client-graph/test-support/empty-device.test.fixture'
 import { asIssueId } from '@podium/model'
 import { act, render } from '@testing-library/react'
@@ -138,6 +139,47 @@ it.each([false, true])('proposal bodies on an empty phone, offline=%s', async (o
     })
     expect(view.getByText(FULL_BODIES.description)).toBeTruthy()
     expect(view.getByText(FULL_BODIES.brief)).toBeTruthy()
+  } finally {
+    view.unmount()
+    device.dispose()
+    motion.pool = null
+  }
+})
+
+it('refused proposal bodies show not available and do not retry', async () => {
+  const device = await openEmptyDevice({
+    world: (server) => {
+      putIssueWithBodies(server, 'proposal', { stage: 'proposed' })
+      refuseCollections(
+        server,
+        (instance) =>
+          instance.collection === 'issueDescription.ofIssue' ||
+          instance.collection === 'issueBrief.ofIssue',
+      )
+    },
+  })
+  motion.pool = device.pool
+  const card = (
+    <ScreeningCard
+      issue={device.pool.issueObject('proposal') as unknown as IssueWithBodies}
+      repoName="podium"
+      onSkip={() => {}}
+      onOpen={() => {}}
+    />
+  )
+  const view = render(card)
+  try {
+    await act(() => device.untilIdle())
+    expect(view.getByLabelText('Description: Not available')).toBeTruthy()
+    expect(view.getByLabelText('Brief: Not available')).toBeTruthy()
+    expect(view.queryByText('Loading…')).toBeNull()
+    expect(view.queryByText('No summary was filed with this proposal.')).toBeNull()
+    view.rerender(card)
+    await act(() => device.untilIdle())
+    for (const collection of ['issueDescription.ofIssue', 'issueBrief.ofIssue'])
+      expect(
+        device.requested().filter((instance) => instance.collection === collection),
+      ).toHaveLength(1)
   } finally {
     view.unmount()
     device.dispose()

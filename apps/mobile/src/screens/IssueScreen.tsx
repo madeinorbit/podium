@@ -477,7 +477,10 @@ const IssueContent = observer(function IssueContent({
               ) : null}
               {brief === LOADING || brief?.trim() ? <IssueBrief issue={issue} /> : null}
               {panel === LOADING ? (
-                <BodyPending label="Artifacts and deferred items" />
+                <BodyPending
+                  label="Artifacts and deferred items"
+                  unavailable={issue.panelUnavailable}
+                />
               ) : panel?.artifacts?.length ? (
                 <FoldedSection label="Artifacts" count={String(panel.artifacts.length)}>
                   <ArtifactStrip issue={issue}>

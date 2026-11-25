@@ -134,7 +134,7 @@ export const TaskSummary = observer(function TaskSummary({
           </Text>
         ) : null}
         {notes === LOADING ? (
-          <BodyPending label="Current update" />
+          <BodyPending label="Current update" unavailable={issue.activityNotesUnavailable} />
         ) : notes && notes !== offer?.message ? (
           <Text
             numberOfLines={notesExpanded ? undefined : 4}
@@ -274,7 +274,8 @@ export const ArtifactStrip = observer(function ArtifactStrip({
   const [all, setAll] = useState(false)
   const [openKey, setOpenKey] = useState<string | null>(null)
   const panel = issue.panel
-  if (panel === LOADING) return <BodyPending label="Artifacts" />
+  if (panel === LOADING)
+    return <BodyPending label="Artifacts" unavailable={issue.panelUnavailable} />
   const artifacts = panel?.artifacts ?? []
   if (artifacts.length === 0) return null
   // The viewer pages through every openable artifact ("2 of 3"), not just the

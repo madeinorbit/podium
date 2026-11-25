@@ -66,7 +66,8 @@ export const OfferArtifactStrip = observer(function OfferArtifactStrip({
     ...(workspace ? { workspace } : {}),
     ...(lastInputAt ? { lastInputAt } : {}),
   })
-  if (resolved === LOADING) return <BodyPending label="Offer artifacts" />
+  if (resolved === LOADING)
+    return <BodyPending label="Offer artifacts" unavailable={model?.panelUnavailable} />
   const { rows, extra, allRows } = resolved
   if (rows.length === 0 && extra === 0) return null
   // The viewer pages through every offered artifact this phone can reach, in

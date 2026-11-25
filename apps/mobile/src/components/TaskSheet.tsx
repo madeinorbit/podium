@@ -389,7 +389,7 @@ const SheetBody = observer(function SheetBody({
         }
       >
         {activityNotes === LOADING || notesUpdatedAt === LOADING ? (
-          <BodyPending label="Current update" />
+          <BodyPending label="Current update" unavailable={issue.activityNotesUnavailable} />
         ) : (
           <Text style={[styles.proseTight, activityNotes ? null : styles.proseEmpty]}>
             {activityNotes || 'No status posted yet.'}
@@ -398,7 +398,7 @@ const SheetBody = observer(function SheetBody({
       </Part>
 
       {panel === LOADING ? (
-        <BodyPending label="Artifacts" />
+        <BodyPending label="Artifacts" unavailable={issue.panelUnavailable} />
       ) : panel?.artifacts.length ? (
         <Part title="Artifacts" meta={String(panel.artifacts.length)}>
           {panel.artifacts.map((artifact) => {

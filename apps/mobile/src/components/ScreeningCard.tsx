@@ -290,7 +290,7 @@ export const ScreeningCard = issueObserver(function ScreeningCard({
 
         <View style={styles.body}>
           {description === LOADING ? (
-            <BodyPending label="Description" />
+            <BodyPending label="Description" unavailable={issue.descriptionUnavailable} />
           ) : description ? (
             <Text style={styles.description} numberOfLines={expanded ? undefined : brief ? 5 : 9}>
               {description}
@@ -299,7 +299,7 @@ export const ScreeningCard = issueObserver(function ScreeningCard({
             <Text style={styles.noDescription}>No summary was filed with this proposal.</Text>
           )}
           {brief === LOADING ? (
-            <BodyPending label="Brief" />
+            <BodyPending label="Brief" unavailable={issue.briefUnavailable} />
           ) : brief ? (
             <View style={styles.briefBlock}>
               <Text style={styles.briefLabel}>BRIEF</Text>

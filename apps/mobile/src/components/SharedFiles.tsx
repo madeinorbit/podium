@@ -15,7 +15,7 @@ import { sessionAssetUrl, type TranscriptAssetContext } from '../lib/transcript-
 import { useDismissOnRootLeave } from '../navigation/use-dismiss-on-root-leave'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
 import { ActivityModal as Modal } from './ActivityModal'
-import { BodyPending } from './BodyPending'
+import { ChatUploadPending } from './ChatUploadPending'
 import { Icon } from './Icon'
 import { ImageLightbox } from './ImageLightbox'
 import { FileText, X } from './icons'
@@ -65,7 +65,7 @@ function SharedPath({
     return (
       <View>
         <FileChip label={name} />
-        <BodyPending label={name} />
+        <ChatUploadPending label={name} sessionId={context?.sessionId} />
       </View>
     )
   const url = (stored === LOADING ? undefined : stored) ?? fallback
