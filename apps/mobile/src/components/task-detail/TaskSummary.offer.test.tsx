@@ -1,5 +1,5 @@
 import { Sends, TranscriptLog } from '@podium/client-core/conversation'
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueWithBodies } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asSessionId, type SessionOffer } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -55,7 +55,7 @@ const lead = (id: string) => ({ sessionId: asSessionId(id) }) as SessionView
 function setup() {
   const onAccept = vi.fn(async () => {})
   const props: ComponentProps<typeof TaskSummary> = {
-    issue: { activityNotes: 'Ready for review' } as IssueViewModel,
+    issue: { activityNotes: 'Ready for review', description: '' } as IssueWithBodies,
     lead: lead('A'),
     offer: offer('stamp-A'),
     onAccept,
@@ -137,7 +137,7 @@ it('uses shared sendOffer dismissal and restores the offer after delivery fails'
   try {
     render(
       <TaskOfferSummary
-        issue={{ activityNotes: 'Ready' } as IssueViewModel}
+        issue={{ activityNotes: 'Ready', description: '' } as IssueWithBodies}
         lead={{
           ...lead('A'),
           get offer() {

@@ -1,4 +1,4 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueWithBodies } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { artifactKind } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph/loading'
@@ -84,7 +84,7 @@ export const TaskSummary = observer(function TaskSummary({
   onOpenSession,
   onComment,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   lead: SessionView | undefined
   /** Send the chosen action's prompt to the session that offered it. */
   onAccept: (sessionId: SessionId, prompt: string, offerCreatedAt: string) => Promise<void>
@@ -264,7 +264,7 @@ export const ArtifactStrip = observer(function ArtifactStrip({
   issue,
   children,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   /** The full artifact list, shown under the strip after "See all". */
   children: ReactNode
 }) {

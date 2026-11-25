@@ -135,10 +135,7 @@ export function chatRecords(pool: MobxPool, sessionId: string) {
     for (const id of membership.messages) {
       const row = omitGone(pool.model('messageRecord', id))
       if (loading(row)) pending++
-      else if (row) {
-        row.row
-        records.push(row)
-      }
+      else if (row) { row.row; records.push(row) }
     }
   return { records, pending }
 }
