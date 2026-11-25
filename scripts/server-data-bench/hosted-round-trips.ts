@@ -20,7 +20,7 @@ const before = fixtureBaseline ? 'da3f012524' : (option('before') ?? 'cb173d4dc9
 const files = ['session-create', 'mail-send', 'steward.subscriptions', 'sync-feed'].map(
   (name) => `apps/server/src/${name}.statement-count.test.ts`,
 )
-const pattern = [
+const allPins = [
   '^(?!.*user focus: fixed).*round trips',
   'Postgres measurement',
   'in process, a session on an issue',
@@ -33,6 +33,16 @@ const pattern = [
   'a hello without a cursor is admitted at the head$',
   'a hello that resumes from a cursor$',
 ].join('|')
+// The default comparison measures the changed groups. --all-pins also repeats the
+// unchanged operation census; it is unnecessary after their focused pins passed.
+const pattern = process.argv.includes('--all-pins')
+  ? allPins
+  : [
+      'a bootstrap for the owner: round trips',
+      'makes a fixed number of round trips',
+      'issue frame reads: Postgres measurement',
+      'user focus: Postgres measurement',
+    ].join('|')
 
 interface Sample {
   name: string

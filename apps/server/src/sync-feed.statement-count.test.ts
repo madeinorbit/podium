@@ -51,6 +51,7 @@ import type { SyncJob } from './sync-worker/types'
 import { attachTestClient } from './test-support/client-transport'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreEngine } from './test-support/pg-test-database'
 import {
   expectConstantRoundTrips,
   type RoundTripTally,
@@ -395,7 +396,10 @@ const pin = (
   teardown,
 })
 
-describe('sync worker: pinned statement counts at 5 and 200', () => {
+// The 200-row setup exceeds 20 seconds on the unchanged parent too (POD-7030).
+// This budgets generated fixture work; statement and trip budgets stay exact.
+const fixtureTimeout = testStoreEngine() === 'pg' ? 90_000 : 60_000
+describe('sync worker: pinned statement counts at 5 and 200', { timeout: fixtureTimeout }, () => {
   const bootstrap = pin(
     'worker bootstrap',
     (size) => world(size),
@@ -479,7 +483,7 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
   })
 })
 
-describe('client hello: pinned statement counts at 5 and 200', () => {
+describe('client hello: pinned statement counts at 5 and 200', { timeout: fixtureTimeout }, () => {
   interface Client extends World {
     clientId: string
     inbox: ServerMessage[]
