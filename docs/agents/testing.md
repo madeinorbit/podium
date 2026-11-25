@@ -11,9 +11,9 @@ At the end of an ordinary runtime-affecting task, run:
     bun run test
 
 This is the lean confidence gate. The root `test` script in `package.json` runs cached,
-lock-free typecheck and static checks, including the span-effect lint, then seven exact hermetic
-files with one worker: four boot/configuration probes and the Postgres store's three
-database-free checks:
+lock-free typecheck and static checks, including the span-effect lint, then eight exact hermetic
+files with one worker: four boot/configuration probes, the Postgres store's three
+database-free checks and one screen fetch budget:
 
 | Test file | What it cheaply protects |
 | --- | --- |
@@ -24,6 +24,7 @@ database-free checks:
 | `apps/server/src/migrations/pg/schema-parity.test.ts` | The Postgres schema twin matches the SQLite schema table for table, in the native types of each column's class (POD-6978) |
 | `apps/server/src/store/dialect-census.test.ts` | Every store query definition builds on the Postgres tables; the ones that still need a Postgres form are listed with their task (POD-6978) |
 | `apps/server/src/migrations/pg/chain-parity.test.ts` | The Postgres baseline migration is what the schema twin renders, and the SQLite and Postgres chains name the same changes (POD-6981) |
+| `packages/client-graph/src/screen-budgets.lean.test.ts` | The flight deck and the issue page of a small workspace open with a fixed number of fetches and wire instances, so a screen that asks one instance per row fails (POD-7602); the full set of main screens on a 1,000-issue workspace is in `screen-loads.test.ts`, in the client-graph unit lane |
 
 It does not run the package sweep, repository rewrite audits, real processes, PTYs,
 ports, browsers, performance probes, or agent CLIs. It deliberately does not take `test:heavy`: this bounded one-worker probe neither waits behind

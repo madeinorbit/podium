@@ -96,6 +96,9 @@ export const LEAN_GATE_FILES: readonly string[] = [
   // The Postgres migration chain's database-free check [POD-6981]: the baseline is what the
   // twin renders, and the two chains name the same changes.
   'apps/server/src/migrations/pg/chain-parity.test.ts',
+  // A screen whose rows each ask their own instance opens with a fixed number of fetches
+  // and wire instances [POD-7602]: the deck and the issue page of a small workspace.
+  'packages/client-graph/src/screen-budgets.lean.test.ts',
 ]
 
 /** The lane the gate takes its files from, and whose size it reports against. */
