@@ -110,15 +110,10 @@ export const RAW_RELATION_READERS: readonly RawRelationReader[] = [
     'mission-view.ts',
     'get spinOffDependent(): boolean',
   ),
-  // Per-row facts over an issue's whole session history, read for every
-  // visible row (board cards' session counts, the sidebar rollup, the deck's
-  // tasks). A holding read per row would download each row's archived
-  // history; per-row counts need a small filtered or aggregate collection,
-  // not full history. The issue page reads its own rosters and counts through
-  // the holding read (issue-page.ts, POD-7579). The mission bucket also asks
-  // whether any session was born here (bornSessions, held per issue by
-  // session.bornOf since POD-7582, a whole history again); the whole getter
-  // moves with its readers.
+  // The deck's per-task facts over an issue's whole session history. The
+  // sidebar's and the board's rows read what the policy holds instead
+  // (policy-relation-readers.ts, POD-7581); the issue page holds its own
+  // rosters (issue-page.ts, POD-7579).
   ...reader(
     'Seats.missionSessions@*.partition',
     ['issue.missionSessions'],
@@ -126,37 +121,10 @@ export const RAW_RELATION_READERS: readonly RawRelationReader[] = [
     'session-seats.ts',
     "'partition', (issueId)",
   ),
-  ...reader(
-    'Seats.pageSessions@*.partition',
-    ['issue.pageSessions'],
-    'POD-7581',
-    'session-seats.ts',
-    "'partition', (issueId)",
-  ),
-  ...reader(
-    'IssueModel@*.memberSessionIds',
-    ['issue.pageSessions'],
-    'POD-7581',
-    'models.ts',
-    'get memberSessionIds(): ReturnType<typeof asSessionId>[]',
-  ),
-  ...reader(
-    'IssueModel@*.missionBucket',
-    ['issue.missionSessions', 'issue.bornSessions'],
-    'POD-7581',
-    'models.ts',
-    'get missionBucket(): MissionTaskBucket | null',
-  ),
   // Whether a session is open or working: such a session is starting or live,
   // and `session.live` (a policy collection) always holds every one of them,
-  // so memory answers it. POD-7581 (sidebar) and POD-7580 (deck) confirm it.
-  ...reader(
-    'IssueModel@*.live',
-    ['issue.missionSessions'],
-    'POD-7581',
-    'models.ts',
-    'get live(): boolean',
-  ),
+  // so memory answers it. The sidebar's read is a declared policy read
+  // (POD-7581); POD-7580 confirms the deck's.
   ...reader(
     'IssueModel@*.missionWorking',
     ['issue.missionSessions'],
@@ -185,116 +153,6 @@ export const RAW_RELATION_READERS: readonly RawRelationReader[] = [
     'POD-7582',
     'issue-page.ts',
     'get continuation() { return missionView(this.pool).continuation(this.issue, false) }',
-  ),
-  // List rows must not hold each row's session history, dependency edges or
-  // subtree. Keep these resident reads until filtered or aggregate collections
-  // can answer the decorations without blanking titles and refs offline.
-  // POD-7581 owns the row/board follow-up; deck aggregates remain with POD-7580.
-  // MobX reports these same row fields with and without an addressed instance.
-  ...reader(
-    'BoardTask.mark',
-    ['issue.missionSessions'],
-    'POD-7581',
-    'mobile-tasks.ts',
-    '@lazy get mark(): TaskRowMark {',
-  ),
-  ...reader(
-    'WorklistIssue.formalChildIds',
-    ['issue.children'],
-    'POD-7581',
-    'worklist/issue.ts',
-    'private get formalChildIds(): readonly string[] {',
-  ),
-  ...reader(
-    'WorklistIssue.unitOwnUnit',
-    ['issue.spinOffs'],
-    'POD-7581',
-    'worklist/issue.ts',
-    "private get unitOwnUnit(): UnitOwn['unit'] {",
-  ),
-  ...reader(
-    'WorklistIssue.unitOwnDone',
-    ['issue.spinOffs'],
-    'POD-7581',
-    'worklist/issue.ts',
-    "private get unitOwnDone(): UnitOwn['done'] {",
-  ),
-  ...reader(
-    'observerTaskRow',
-    ['issue.pageSessions', 'issue.pageDependents'],
-    'POD-7581',
-    'apps/mobile/src/screens/TasksSurface.tsx',
-    'const TaskRow = observer(function TaskRow({',
-  ),
-  ...reader(
-    'BoardTask@*.mark',
-    ['issue.missionSessions'],
-    'POD-7581',
-    'mobile-tasks.ts',
-    '@lazy get mark(): TaskRowMark {',
-  ),
-  ...reader(
-    'IssueModel.descendantTaskProgress',
-    ['issue.treeChildren', 'issue.pageSessions'],
-    'POD-7581',
-    'models.ts',
-    'private get descendantTaskProgress(): TaskProgress | null {',
-  ),
-  ...reader(
-    'WorklistIssue@*.formalChildIds',
-    ['issue.children'],
-    'POD-7581',
-    'worklist/issue.ts',
-    'private get formalChildIds(): readonly string[] {',
-  ),
-  ...reader(
-    'WorklistIssue@*.unitOwnUnit',
-    ['issue.spinOffs'],
-    'POD-7581',
-    'worklist/issue.ts',
-    "private get unitOwnUnit(): UnitOwn['unit'] {",
-  ),
-  ...reader(
-    'WorklistIssue@*.unitOwnDone',
-    ['issue.spinOffs'],
-    'POD-7581',
-    'worklist/issue.ts',
-    "private get unitOwnDone(): UnitOwn['done'] {",
-  ),
-  ...reader(
-    'WorklistIssue@*.unitOwnSolo',
-    ['issue.spinOffs'],
-    'POD-7581',
-    'worklist/issue.ts',
-    "private get unitOwnSolo(): UnitOwn['solo'] {",
-  ),
-  ...reader(
-    'BoardTask.childIds',
-    ['issue.treeChildren'],
-    'POD-7581',
-    'mobile-tasks.ts',
-    'get childIds()',
-  ),
-  ...reader(
-    'IssueModel.missionBucket',
-    ['issue.bornSessions', 'issue.missionSessions'],
-    'POD-7581',
-    'models.ts',
-    'get missionBucket(): MissionTaskBucket | null',
-  ),
-  ...reader(
-    'IssueModel.missionWorking',
-    ['issue.missionSessions'],
-    'POD-7581',
-    'models.ts',
-    'get missionWorking(): boolean',
-  ),
-  ...reader(
-    'observerBoardPoolRow',
-    ['issue.pageSessions', 'issue.pageDependents'],
-    'POD-7581',
-    'apps/web/src/features/issues/board-pool-row.tsx',
-    'export const BoardPoolRow = observer(function BoardPoolRow({',
   ),
 ]
 

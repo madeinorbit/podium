@@ -29,8 +29,13 @@ export function createIssueBoardSource(
   owner?: { readonly ui: Pick<import('@podium/client-core/ui').UiStore, 'openIssueId'> },
 ) {
   const layout = createBoardLayout(pool)
+  // `row:<id>` is named `IssueBoard.row@<id>`: each reader of the memo has
+  // its own stable name (policy-relation-readers.ts declares the row's).
   const cache = keyedComputed(
-    (key: string) => `IssueBoard@${key}`,
+    (key: string) => {
+      const at = key.indexOf(':')
+      return at < 0 ? `IssueBoard.${key}` : `IssueBoard.${key.slice(0, at)}@${key.slice(at + 1)}`
+    },
     (_key: string, read: () => unknown) => read(),
   )
   const rosters = new Map<string, ReturnType<typeof createQueryResult<SessionView>>>()

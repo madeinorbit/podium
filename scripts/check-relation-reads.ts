@@ -27,11 +27,23 @@ const { rawRelationReaderProblems } = (await import(readersPath)) as {
   rawRelationReaderProblems(source: (file: string) => string): string[]
 }
 
+const policyPath: string = '../packages/client-graph/src/shared/policy-relation-readers.ts'
+const { policyRelationReaderProblems } = (await import(policyPath)) as {
+  policyRelationReaderProblems(
+    source: (file: string) => string,
+    entries?: undefined,
+    raw?: readonly { readonly reader: string; readonly relation: string }[],
+  ): string[]
+}
+const { RAW_RELATION_READERS } = (await import(readersPath)) as {
+  RAW_RELATION_READERS: readonly { readonly reader: string; readonly relation: string }[]
+}
+
+const source = (file: string) => readFileSync(resolve(import.meta.dir, '..', file), 'utf8')
 const problems = [
   ...relationReadProblems(),
-  ...rawRelationReaderProblems((file) =>
-    readFileSync(resolve(import.meta.dir, '..', file), 'utf8'),
-  ),
+  ...rawRelationReaderProblems(source),
+  ...policyRelationReaderProblems(source, undefined, RAW_RELATION_READERS),
 ]
 if (problems.length > 0) {
   console.error('Relation getters that do not hold or load what they read:')
@@ -41,5 +53,5 @@ if (problems.length > 0) {
 const counts = new Map<string, number>()
 for (const row of relationReads()) counts.set(row.read.kind, (counts.get(row.read.kind) ?? 0) + 1)
 console.log(
-  `relation getters: ${[...counts].map(([kind, count]) => `${count} ${kind}`).join(', ')} (unprotected ones listed with reasons and follow-up issues; raw reads checked in development)`,
+  `relation getters: ${[...counts].map(([kind, count]) => `${count} ${kind}`).join(', ')} (unprotected ones listed with reasons and follow-up issues; raw reads checked in development, policy readers declared with their bounds)`,
 )

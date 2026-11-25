@@ -84,7 +84,7 @@ export function createNavigationActivity(pool: MobxPool): NavigationActivity {
     'NavigationActivity',
     'subtree',
     (id): Loaded<{ at: string | undefined }> => {
-      const cycle = pool.graph.size('issue', id, 'treeChildren') > 0 ? cycleOf(id) : undefined
+      const cycle = parent(id) ? cycleOf(id) : undefined
       // Cycle members cannot compose each other's cached roll-ups. Walk the
       // cycle by its own stamps; branches off the cycle stay cached.
       const stack = [id],
@@ -105,9 +105,11 @@ export function createNavigationActivity(pool: MobxPool): NavigationActivity {
     },
     sameActivity,
   )
+  /** Whether the issue has children the device holds: a named reader of the relation. */
+  const parent = cachedKey('NavigationActivity', 'parent', (id): boolean =>
+    pool.graph.size('issue', id, 'treeChildren') > 0)
   /** A leaf's roll-up is its own stamp: no subtree cache is built for it. */
-  const rolled = (id: string) =>
-    pool.graph.size('issue', id, 'treeChildren') > 0 ? subtree(id) : own(id)
+  const rolled = (id: string) => (parent(id) ? subtree(id) : own(id))
   return {
     activityAt(id) {
       const value = rolled(id)

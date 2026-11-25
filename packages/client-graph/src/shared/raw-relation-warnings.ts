@@ -3,6 +3,7 @@ import { currentDerivation, observingViews, sharingObserverWalks } from '@podium
 import { getDebugName } from 'mobx'
 import { holdingInstanceOf } from './holding-relations'
 import { readingModelRelation } from './model-relation-read'
+import { policyRelationReader } from './policy-relation-readers'
 import { rawReaderName, rawRelationReader } from './raw-relation-readers'
 import { type RelationReadRow, relationReads } from './relation-reads'
 import type { EntityName, ModelSchema } from './schema'
@@ -60,6 +61,8 @@ export class RawRelationWarnings {
     const caller = currentDerivation()
     if (caller === undefined) return
     const reader = rawReaderName(getDebugName(caller))
+    // A declared reader of what the policy holds reads memory by design (POD-7581).
+    if (policyRelationReader(reader, row.relation) !== undefined) return
     const known = this.knownReader(reader, row.relation)
     // POD-7608: a known reader is silent in tests and warns once elsewhere.
     // Decided here, before any walk: each walk visits every node above the
