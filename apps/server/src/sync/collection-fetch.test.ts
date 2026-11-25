@@ -795,6 +795,57 @@ describe('a record arrives with what it comes with, each keyed instance marked',
     ).toBe(true)
   })
 
+  it('a tree comes with the edges into its issues, and each edge with the issue it comes from', async () => {
+    // POD-7580: a flight deck draws its rows' spin-offs and dependents from
+    // the tree. The edge iss_grand -> iss_root arrives as an edge into the
+    // root, and brings its source through issueDep.toIssue's own comes-with.
+    const lines = await fetchLines(viewers[0]!.user, [
+      { collection: 'issueProjection.tree', args: { root: 'iss_root' } },
+    ])
+    const marked = markersOf(lines).map(
+      (m) => `${m['via'] ?? ''}>${m['collection']}:${JSON.stringify(m['args'] ?? {})}`,
+    )
+    expect(marked).toEqual(
+      expect.arrayContaining([
+        'issueProjection.tree>issueDep.toIssue:{"issueId":"iss_root"}',
+        'issueProjection.tree>issueDep.toIssue:{"issueId":"iss_child"}',
+        'issueProjection.tree>issueDep.toIssue:{"issueId":"iss_grand"}',
+        'issueDep.toIssue>issueProjection.one:{"id":"iss_grand"}',
+      ]),
+    )
+    const arrived = changesOf(lines).map((c) => `${c.entity}:${c.entityId}`)
+    expect(arrived).toContain(
+      `issueDep:${[...worlds.get(viewers[0]!.user)!.get('issueDep')!.keys()][0]}`,
+    )
+    // Each record once, though the edge and its source arrive two ways.
+    expect(new Set(arrived).size).toBe(arrived.length)
+  })
+
+  it("a tree's archive comes with each issue's archived sessions, the tree does not", async () => {
+    // POD-7580: a flight deck's open archive holds one instance for its tree.
+    const archive = await fetchLines(viewers[0]!.user, [
+      { collection: 'issueProjection.treeArchive', args: { root: 'iss_root' } },
+    ])
+    const archived = changesOf(archive)
+      .filter((c) => c.entity === 'session')
+      .map((c) => c.entityId)
+    expect(archived).toEqual(['s-arch'])
+    expect(
+      markersOf(archive).map(
+        (m) => `${m['via'] ?? ''}>${m['collection']}:${JSON.stringify(m['args'] ?? {})}`,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        'issueProjection.treeArchive>session.ofIssue:{"issueId":"iss_root"}',
+        'issueProjection.treeArchive>session.ofIssue:{"issueId":"iss_grand"}',
+      ]),
+    )
+    const tree = await fetchLines(viewers[0]!.user, [
+      { collection: 'issueProjection.tree', args: { root: 'iss_root' } },
+    ])
+    expect(changesOf(tree).some((c) => c.entityId === 's-arch')).toBe(false)
+  })
+
   it('a pending ask comes with its session, and that session with its own', async () => {
     const lines = await fetchLines(viewers[0]!.user, [{ collection: 'pendingInteraction.all' }])
     const arrived = changesOf(lines).map((c) => `${c.entity}:${c.entityId}`)

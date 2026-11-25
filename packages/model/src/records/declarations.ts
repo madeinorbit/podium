@@ -154,6 +154,13 @@ export const DECK_SESSION_WHERE = {
   agentKind: { not: 'shell' },
 } as const
 
+/** The sessions a flight deck's archive lists on an issue: archived roster seats (`SessionModel.rosterEligible`). */
+export const DECK_ARCHIVE_SESSION_WHERE = {
+  archived: true,
+  headless: { not: true },
+  agentKind: { not: 'shell' },
+} as const
+
 /**
  * A session that waits for the user, by saved fields only (design "Asking"):
  * an open offer (the `offers` row), or an agent state that asks for the user
@@ -352,8 +359,25 @@ const issueProjection = defineRecord({
           where: DECK_SESSION_WHERE,
           why: 'An issue in a tree a flight deck shows comes with the sessions the deck shows.',
         },
+        {
+          collection: 'issueDep.toIssue',
+          why: 'And with the edges into it, each with the issue it comes from: the deck draws its spin-offs and dependents, which sit outside the tree (POD-7580).',
+        },
       ],
       why: 'All issues under one top-level issue: the view that opens it holds it.',
+    },
+    // Declared after `tree`: the child relations' tree is the first collection on the parent link.
+    treeArchive: {
+      part: 'main',
+      where: { parentId: { descendantsOf: param('root') } },
+      comesWith: [
+        {
+          collection: 'session.ofIssue',
+          where: DECK_ARCHIVE_SESSION_WHERE,
+          why: "An issue in the tree comes with the archived sessions a deck's archive lists.",
+        },
+      ],
+      why: "The tree's issues again, each with its archived sessions: what a flight deck's open archive holds, one instance for the whole deck, never one per row (POD-7580).",
     },
     byStage: {
       part: 'main',

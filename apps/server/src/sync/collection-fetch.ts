@@ -829,7 +829,18 @@ export class CollectionAnswer {
         })),
       }
     }
-    if (fresh.length > 0) arrived.set(target.kind, [...(arrived.get(target.kind) ?? []), ...fresh])
+    if (fresh.length === 0) return
+    arrived.set(target.kind, [...(arrived.get(target.kind) ?? []), ...fresh])
+    // A comes-with collection brings its own comes-with too (POD-7580): the
+    // edges into a tree's issues come with the issues they come from, as a
+    // held instance of that collection would. Only the fresh records: one
+    // sent earlier in this answer arrived with its own comes-with.
+    const declaration = recordOf(target.kind)
+    if (declaration === undefined) return
+    for (const nested of target.collection.comesWith ?? []) {
+      const holder = resolveRule(nested.collection, target.collection.id)
+      yield* this.comesWith(target.kind, declaration, fresh, nested, holder, arrived)
+    }
   }
 
   /**

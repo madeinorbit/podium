@@ -356,6 +356,9 @@ export const CORPUS_CASES: readonly CorpusCase[] = [
   { rule: 'issueProjection.tree', args: { root: 'i4' }, expect: ['i4', 'i5'] },
   { rule: 'issueProjection.tree', args: { root: 'i9' }, expect: ['i9', 'i10'] },
   { rule: 'issueProjection.tree', args: { root: 'gone' }, expect: ['i11'] },
+  // The archive's tree is the tree (POD-7580): the same rule, its own comes-with.
+  { rule: 'issueProjection.treeArchive', args: { root: 'i1' }, expect: ['i1', 'i2', 'i3', 'i8'] },
+  { rule: 'issueProjection.treeArchive', args: { root: 'gone' }, expect: ['i11'] },
   { rule: 'issueProjection.byStage', args: { stage: 'in_progress' }, expect: ['i1', 'i8'] },
   { rule: 'issueProjection.byStage', args: { stage: 'review' }, expect: ['i11'] },
   {
@@ -392,6 +395,15 @@ export const CORPUS_CASES: readonly CorpusCase[] = [
     expect: ['s1', 's10'],
   },
   { rule: 'issueProjection.tree > session.ofIssue', args: { issueId: 'i3' }, expect: ['s6'] },
+  // The edges into a tree's issue (POD-7580), and its archived roster seats (not a shell's)
+  { rule: 'issueProjection.tree > issueDep.toIssue', args: { issueId: 'i1' }, expect: ['d2'] },
+  { rule: 'issueProjection.tree > issueDep.toIssue', args: { issueId: 'i3' }, expect: [] },
+  {
+    rule: 'issueProjection.treeArchive > session.ofIssue',
+    args: { issueId: 'i1' },
+    expect: ['s3'],
+  },
+  { rule: 'issueProjection.treeArchive > session.ofIssue', args: { issueId: 'i3' }, expect: [] },
   // What comes with an issue or a session
   { rule: 'issueDep.ofIssue', args: { issueId: 'i1' }, expect: ['d1'] },
   // The edges into an issue, each with the issue that depends
