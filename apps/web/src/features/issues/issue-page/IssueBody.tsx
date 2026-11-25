@@ -166,7 +166,11 @@ export const IssueDescription = observer(function IssueDescription({
   if (description === LOADING)
     return (
       <section className="group/section mb-9" data-testid="issue-description-pending">
-        <BodyPending value={LOADING} what="description" />
+        <BodyPending
+          value={LOADING}
+          what="description"
+          unavailable={issue.descriptionUnavailable}
+        />
       </section>
     )
   return (
@@ -237,7 +241,7 @@ export const IssueBrief = observer(function IssueBrief({
   if (brief === LOADING)
     return (
       <div className="mb-9" data-testid="issue-brief-pending">
-        <BodyPending value={LOADING} what="brief" />
+        <BodyPending value={LOADING} what="brief" unavailable={issue.briefUnavailable} />
       </div>
     )
   if (!brief) return null

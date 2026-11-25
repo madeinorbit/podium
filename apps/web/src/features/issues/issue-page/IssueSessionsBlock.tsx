@@ -41,6 +41,7 @@ import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'
 import { PhaseTimer } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
+import { NotAvailable } from '../BodyPending'
 import { issueRefLong } from '../issue-card'
 import type { IssuePageCommands } from '../issue-page-commands'
 import { LaunchBox, type LaunchMachine, useIssueWorkBegun } from '../LaunchBox'
@@ -187,12 +188,19 @@ export const IssueSessionsBlock = observer(function IssueSessionsBlock({
   const page = useIssuePageContext()
   const row = page?.views.row(issue.id)
   const workBegun = useIssueWorkBegun(issue.id)
-  const memberSessions = suppliedMembers ?? row?.memberSessions ?? []
-  const movedOn = suppliedMoved ?? row?.movedOn ?? []
+  // Refused (POD-7595): no rows and no count; it will not load by itself.
+  const membersUnavailable = !suppliedMembers && row?.sessionsUnavailable === true
+  const movedUnavailable = !suppliedMoved && row?.movedOnUnavailable === true
+  const memberSessions = suppliedMembers ?? (membersUnavailable ? [] : row?.memberSessions) ?? []
+  const movedOn = suppliedMoved ?? (movedUnavailable ? [] : row?.movedOn) ?? []
   if (typeof memberSessions === 'symbol' || typeof movedOn === 'symbol') throw LOADING
+  const unavailable = membersUnavailable || movedUnavailable
   return (
     <section className="flex flex-col gap-2">
-      <SectionHeading count={String(issue.sessionSummary?.total ?? 0)}>Sessions</SectionHeading>
+      <SectionHeading count={unavailable ? undefined : String(issue.sessionSummary?.total ?? 0)}>
+        Sessions
+      </SectionHeading>
+      {unavailable && <NotAvailable what="sessions" />}
       {memberSessions.length > 0 && (
         <div className="flex flex-col">
           {memberSessions.map((s) => (

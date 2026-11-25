@@ -1,8 +1,6 @@
-import { childProgressOf } from '@podium/client-graph/lookup'
-import { issueObserver as observer } from './issue-observer'
-import { useIssuePageContext } from './issue-page-data'
-import type { PageIssue } from '@podium/client-graph/issue-page'
 import type { SessionView } from '@podium/client-core/session-values'
+import type { PageIssue } from '@podium/client-graph/issue-page'
+import { childProgressOf } from '@podium/client-graph/lookup'
 /**
  * The sub-task list — one flat list in slice order, plus an inline add-row.
  * Split out of IssuePage.tsx (POD-646).
@@ -31,19 +29,22 @@ import type { SessionView } from '@podium/client-core/session-values'
  * existence fact and §3.1.2 leaves that policy open.
  */
 import type { IssueId } from '@podium/model/browser'
+import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Plus } from 'lucide-react'
 import { type JSX, useMemo } from 'react'
 import type { IssueViewModel } from '@/app/store'
-import { isFinished } from '@podium/model/browser'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import { NotAvailable } from '../BodyPending'
 import { IssueStatusPicker } from '../IssueStatusPicker'
 import { issueIdTitle, issueStateWord } from '../issue-card'
 import { confirmedWorkingAgentCountsByIssue } from '../issues-display'
 import { useIssueStatusApply } from '../use-issue-status-apply'
 import { SectionHeading } from './chrome'
+import { issueObserver as observer } from './issue-observer'
+import { useIssuePageContext } from './issue-page-data'
 
 const STATE_TONE = {
   attention: 'text-attention',
@@ -151,10 +152,13 @@ export const IssueSubIssues = observer(function IssueSubIssues({
 }): JSX.Element {
   const status = useIssueStatusApply()
   const page = useIssuePageContext()
-  const rows = suppliedChildren ?? page?.views.row(issue.id).children ?? []
+  const row = suppliedChildren ? undefined : page?.views.row(issue.id)
+  // Refused (POD-7595): no rows, no count, no empty list; it will not load by itself.
+  const unavailable = row?.childrenUnavailable === true
+  const rows = suppliedChildren ?? (unavailable ? [] : row?.children) ?? []
   if (typeof rows === 'symbol') throw rows
   const subIssues = rows
-  const progress = childProgressOf(issue)
+  const progress = unavailable ? undefined : childProgressOf(issue)
   const legacyWorkers =
     suppliedChildren && sessions
       ? confirmedWorkingAgentCountsByIssue(suppliedChildren, sessions, now ?? Date.now())
@@ -173,6 +177,7 @@ export const IssueSubIssues = observer(function IssueSubIssues({
       {/* Slice order, every child, finished or not — see the module note. The
           heading's `n/m` is where the done COUNT is answered; the list itself
           answers what the children are. */}
+      {unavailable && <NotAvailable what="sub-tasks" />}
       {subIssues.map((child) => (
         <SubTaskRow
           key={child.id}

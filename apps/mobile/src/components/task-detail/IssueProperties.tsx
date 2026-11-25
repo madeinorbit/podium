@@ -56,6 +56,7 @@ import { useDetailLayout } from './detail-type'
 export const IssueProperties = observer(function IssueProperties({
   issue,
   sessions,
+  sessionsUnavailable = false,
   parent,
   resolveEdge,
   busy,
@@ -72,6 +73,8 @@ export const IssueProperties = observer(function IssueProperties({
   issue: IssueViewModel
   /** This task's member sessions, resolved against the session world. */
   sessions: SessionView[]
+  /** The server refused the session history (POD-7595): say so, list none. */
+  sessionsUnavailable?: boolean
   /** The parent row, when the replica holds it. */
   parent: IssueViewModel | undefined
   /** Shared cross-boundary policy, closed over this replica's exit record. */
@@ -195,6 +198,7 @@ export const IssueProperties = observer(function IssueProperties({
           )}
           <ActionRow label="Add relation…" busy={busy} onPress={onAddRelation} />
 
+          {sessionsUnavailable && <BodyPending label="Sessions" unavailable />}
           {sessions.map((session) => (
             <PropertySessionRow
               key={session.sessionId}

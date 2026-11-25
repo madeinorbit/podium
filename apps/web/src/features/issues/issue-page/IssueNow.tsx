@@ -1,7 +1,3 @@
-import { issueObserver as observer } from './issue-observer'
-import { useIssuePageContext } from './issue-page-data'
-import { isFinished } from '@podium/model/browser'
-import type { SessionModel } from '@podium/client-graph/models'
 import type { SessionView } from '@podium/client-core/session-values'
 /**
  * NOW — what is true about this task at this second (POD-591).
@@ -32,7 +28,8 @@ import type { SessionView } from '@podium/client-core/session-values'
  * that is waiting on the human is still and amber — stillness is the signal.
  */
 import { motionPhase, motionTiming } from '@podium/client-core/values'
-
+import type { SessionModel } from '@podium/client-graph/models'
+import { isFinished } from '@podium/model/browser'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { agentFleetTileTint, agentIconFor } from '@/lib/agent-tone'
@@ -40,6 +37,8 @@ import { PhaseTimer } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
 import { MACHINE_LABEL } from './chrome'
+import { issueObserver as observer } from './issue-observer'
+import { useIssuePageContext } from './issue-page-data'
 
 /** Live rows first (working, then waiting on you), then the rest — the block is
  *  read top-down and the top is where the movement should be. */
@@ -55,9 +54,14 @@ export const IssueNow = observer(function IssueNow({
   onOpenSession: (sessionId: SessionView['sessionId']) => void
 }): JSX.Element | null {
   const page = useIssuePageContext()
+  // Refused (POD-7595): no count from what happens to be in memory; the
+  // Sessions block says it is not available.
+  if (!suppliedSessions && page?.views.row(issue.id).sessionsUnavailable) return null
   const sessions = suppliedSessions ?? page?.views.row(issue.id).lists.liveMembers.get() ?? []
   if (typeof sessions === 'symbol') throw sessions
-  const total = suppliedSessions ? suppliedSessions.length : page?.views.row(issue.id).rosterCount ?? 0
+  const total = suppliedSessions
+    ? suppliedSessions.length
+    : (page?.views.row(issue.id).rosterCount ?? 0)
   if (typeof total === 'symbol') throw total
   if (total === 0) return null
 

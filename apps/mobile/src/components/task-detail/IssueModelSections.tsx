@@ -8,6 +8,7 @@ import { useMobilePool } from '../../client/mobile-pool'
 import { resolveEdgeFromPool } from '../../client/use-issue-model'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { useIssueActivity } from '../../lib/use-issue-detail'
+import { BodyPending } from '../BodyPending'
 import { Disclosure } from './chrome'
 import { IssueActivitySection, MailSection } from './IssueActivity'
 import { IssueNow } from './IssueNow'
@@ -63,6 +64,8 @@ export const PhoneNow = observer(function PhoneNow({
   onOpenSession,
 }: Pick<ComponentProps<typeof IssueNow>, 'issue' | 'onOpenSession'>) {
   const views = useIssueOpening()
+  // Refused (POD-7595): no count or "now" line from a history that will not load.
+  if (views?.row(issue.id).sessionsUnavailable) return <BodyPending label="Sessions" unavailable />
   const sessions = views ? views.row(issue.id).phoneSessions : []
   if (typeof sessions === 'symbol') throw sessions
   return (
@@ -85,7 +88,8 @@ export const PhoneProperties = observer(function PhoneProperties(
         {null}
       </Disclosure>
     )
-  const sessions = views ? views.row(props.issue.id).retiredSessions : []
+  const sessionsUnavailable = views?.row(props.issue.id).sessionsUnavailable === true
+  const sessions = sessionsUnavailable ? [] : views ? views.row(props.issue.id).retiredSessions : []
   if (typeof sessions === 'symbol') throw sessions
   const resolveEdge = (id: string | null | undefined) => resolveEdgeFromPool(pool, id)
   const parentEdge = resolveEdge(props.issue.parentId)
@@ -94,6 +98,7 @@ export const PhoneProperties = observer(function PhoneProperties(
     <IssueProperties
       {...props}
       sessions={sessions ?? []}
+      sessionsUnavailable={sessionsUnavailable}
       parent={parent}
       resolveEdge={resolveEdge}
     />

@@ -57,6 +57,8 @@ import { ChevronDown, ChevronRight } from './icons'
 import { PressableScale } from './PressableScale'
 import { StageGlyph } from './StageGlyph'
 
+const NO_SESSIONS: readonly never[] = []
+
 /** The session row's harness chip. Named because the mark is sized from it. */
 const SESSION_CHIP = 20
 
@@ -195,7 +197,9 @@ const SheetHead = observer(function SheetHead({
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
   const views = useIssueOpening()
   const detail = views?.row(issue.id)
-  const mine = detail?.inspectorSessions ?? []
+  // Refused (POD-7595): the head reads the issue's own facts, never a
+  // session history that will not load by itself.
+  const mine = detail?.sessionsUnavailable ? NO_SESSIONS : (detail?.inspectorSessions ?? [])
   if (typeof mine === 'symbol') throw mine
   const asking = mine.filter((session) => session.attention)
   const op = operationalState(issue, mine)
@@ -356,7 +360,7 @@ const SheetBody = observer(function SheetBody({
       {/* The task in the author's own words, UNCAPPED — it sits in the scroll
           precisely so it can be. */}
       {description === LOADING ? (
-        <BodyPending label="Description" />
+        <BodyPending label="Description" unavailable={issue.descriptionUnavailable} />
       ) : description.trim() ? (
         <Text style={styles.prose}>{description}</Text>
       ) : null}
@@ -405,7 +409,7 @@ const SheetBody = observer(function SheetBody({
         </Part>
       ) : null}
       {typeof children === 'symbol' ? (
-        <BodyPending label="Subtasks" />
+        <BodyPending label="Subtasks" unavailable={detail?.childrenUnavailable} />
       ) : children.length > 0 ? (
         <Part title="Subtasks" meta={subtaskMeta(issue)}>
           {children.map((child) => (
@@ -415,7 +419,7 @@ const SheetBody = observer(function SheetBody({
       ) : null}
 
       {typeof mine === 'symbol' ? (
-        <BodyPending label="Agents and sessions" />
+        <BodyPending label="Agents and sessions" unavailable={detail?.sessionsUnavailable} />
       ) : mine.length > 0 ? (
         <Part title="Agents & sessions" meta={String(mine.length)}>
           {mine.map((session) => (

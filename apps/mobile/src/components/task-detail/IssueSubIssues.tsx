@@ -13,6 +13,7 @@ import { useIssueOpening } from '../../client/issue-opening'
 import { useMobilePool } from '../../client/mobile-pool'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { color, font, leading, radius, sans, space } from '../../theme/theme'
+import { BodyPending } from '../BodyPending'
 import { Icon } from '../Icon'
 import { ChevronRight, Plus } from '../icons'
 import { PressableScale } from '../PressableScale'
@@ -36,6 +37,14 @@ export const IssueSubIssuesSection = observer(function IssueSubIssuesSection(
 ) {
   const views = useIssueOpening()
   const count = useSubTaskCount(props.issue)
+  // Refused (POD-7595): no rows and no count; it will not load by itself.
+  if (!props.subIssues && views?.row(props.issue.id).childrenUnavailable)
+    return (
+      <View testID="issue-subtasks-section">
+        <SectionHeading label="Sub-tasks" />
+        <BodyPending label="Sub-tasks" unavailable />
+      </View>
+    )
   const rows = props.subIssues ?? views?.row(props.issue.id).children ?? []
   if (typeof rows === 'symbol') throw rows
   if (rows.length === 0) return null
@@ -97,7 +106,8 @@ export const IssueSubIssues = observer(function IssueSubIssues({
   const [all, setAll] = useState(false)
   const count = useSubTaskCount(headless ? undefined : issue)
   const views = useIssueOpening()
-  const rows = suppliedChildren ?? (views ? views.row(issue.id).children : [])
+  const unavailable = !suppliedChildren && views?.row(issue.id).childrenUnavailable === true
+  const rows = suppliedChildren ?? (unavailable ? [] : views ? views.row(issue.id).children : [])
   if (typeof rows === 'symbol') throw rows
   const subIssues = rows ?? []
   const legacyWorkers =
@@ -113,7 +123,10 @@ export const IssueSubIssues = observer(function IssueSubIssues({
 
   return (
     <View style={headless ? undefined : styles.section} testID="sub-issues">
-      {headless ? null : <SectionHeading label="Sub-tasks" count={count} />}
+      {headless ? null : (
+        <SectionHeading label="Sub-tasks" count={unavailable ? undefined : count} />
+      )}
+      {unavailable ? <BodyPending label="Sub-tasks" unavailable /> : null}
       <View style={styles.card} testID="sub-issues-card">
         {(all ? subIssues : subIssues.slice(0, 4)).map((child, index) => (
           <SubTaskRow

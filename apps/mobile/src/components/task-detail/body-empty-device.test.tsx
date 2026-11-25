@@ -6,6 +6,7 @@ import {
   FULL_BODIES,
   openEmptyDevice,
   putIssueWithBodies,
+  refuseCollections,
 } from '@podium/client-graph/test-support/empty-device.test.fixture'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -48,8 +49,15 @@ afterEach(() => {
   state.pool = null
 })
 
-async function fixture() {
-  const device = await openEmptyDevice({ world: (server) => putIssueWithBodies(server, 'i1') })
+async function fixture(options: { refuse?: readonly string[] } = {}) {
+  const device = await openEmptyDevice({
+    world: (server) => {
+      putIssueWithBodies(server, 'i1')
+      const refused = options.refuse ?? []
+      if (refused.length > 0)
+        refuseCollections(server, (instance) => refused.includes(instance.collection))
+    },
+  })
   devices.push(device)
   state.pool = device.pool
   const issue = device.pool.issueObject('i1') as unknown as IssueWithBodies
@@ -188,4 +196,27 @@ it.each([
   }
   expect(read()).toBe('https://example.com/files/artifact/i1/stored-photo/photo.png')
   opened.close()
+})
+
+it('a description and brief the server refused say not available, never loading or empty (POD-7595)', async () => {
+  const f = await fixture({ refuse: ['issueDescription.ofIssue', 'issueBrief.ofIssue'] })
+  render(
+    <>
+      <IssueDescriptionPreview issue={f.issue} commands={f.commands} busy={false} />
+      <IssueBrief issue={f.issue} />
+    </>,
+  )
+  await act(() => f.device.untilIdle())
+  expect(screen.getByLabelText('Description: Not available')).toBeTruthy()
+  expect(screen.getByLabelText('Brief: Not available')).toBeTruthy()
+  expect(screen.queryByText('Loading…')).toBeNull()
+  expect(screen.queryByText('Add a description…')).toBeNull()
+  expect(screen.queryByRole('textbox')).toBeNull()
+  f.commands.commitDescription('Unsafe replacement')
+  expect(f.updateIssue).not.toHaveBeenCalled()
+  // Asked once, not again on every render.
+  await act(() => f.device.untilIdle())
+  expect(
+    f.device.requestedKeys().filter((key) => key === 'issueDescription.ofIssue{"issueId":"i1"}'),
+  ).toHaveLength(1)
 })

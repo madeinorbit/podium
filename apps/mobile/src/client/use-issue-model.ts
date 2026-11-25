@@ -20,8 +20,10 @@ export function useIssueModel(id: string | undefined) {
  * Where the issue's lookup stands, as the desktop's three answers: here, on
  * its way (`loading`, or `offline` when no load can start), or gone (deleted
  * or not visible). Reading it holds and loads the record like the model read.
+ * `unavailable` (an instance the server refused, POD-7595) needs instances,
+ * which this read does not pass.
  */
-export type IssueReading = 'here' | 'refreshing' | 'loading' | 'offline' | 'gone'
+export type IssueReading = 'here' | 'refreshing' | 'loading' | 'offline' | 'unavailable' | 'gone'
 export function useIssueReading(id: string | undefined): IssueReading {
   const read = useCallback(
     (pool: MobxPool): IssueReading =>

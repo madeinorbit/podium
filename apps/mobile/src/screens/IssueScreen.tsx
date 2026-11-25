@@ -419,7 +419,7 @@ const IssueContent = observer(function IssueContent({
             </View>
           </DetailContent>
           {seatsLoading ? (
-            <BodyPending label="Agents and sessions" />
+            <BodyPending label="Agents and sessions" unavailable={detail?.sessionsUnavailable} />
           ) : (
             <TaskSessions issue={issue} sessions={active} onOpenSession={openSession} />
           )}

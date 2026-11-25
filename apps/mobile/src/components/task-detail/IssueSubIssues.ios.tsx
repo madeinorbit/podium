@@ -36,6 +36,15 @@ export const IssueSubIssuesSection = observer(function IssueSubIssuesSection({
 }: Props) {
   const views = useIssueOpening()
   const [all, setAll] = useState(false)
+  // Refused (POD-7595): no rows and no count; it will not load by itself.
+  if (!subIssues && views?.row(issue.id).childrenUnavailable)
+    return (
+      <DetailGroup label="Sub-tasks" testID="issue-subtasks-section">
+        <Text modifiers={[font({ textStyle: 'footnote' }), foregroundStyle(color.textDim)]}>
+          Not available
+        </Text>
+      </DetailGroup>
+    )
   const rows = subIssues ?? views?.row(issue.id).children ?? []
   if (typeof rows === 'symbol') throw rows
   if (rows.length === 0) return null

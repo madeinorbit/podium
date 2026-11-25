@@ -136,7 +136,8 @@ export const IssueDescription = observer(function IssueDescription({
   busy: boolean
   commands: IssueCommands
 }) {
-  if (issue.description === LOADING) return <BodyPending label="Description" />
+  if (issue.description === LOADING)
+    return <BodyPending label="Description" unavailable={issue.descriptionUnavailable} />
   return (
     <View>
       <InlineEditable
@@ -160,7 +161,7 @@ export const IssueDescriptionPreview = observer(function IssueDescriptionPreview
     <View style={styles.descriptionPreview} testID="issue-description-section">
       <Text style={styles.previewLabel}>Description</Text>
       {description === LOADING ? (
-        <BodyPending label="Description" />
+        <BodyPending label="Description" unavailable={props.issue.descriptionUnavailable} />
       ) : open || !description.trim() ? (
         <IssueDescription {...props} />
       ) : (
@@ -187,7 +188,8 @@ export const IssueDescriptionPreview = observer(function IssueDescriptionPreview
  *  label until asked for. */
 export const IssueBrief = observer(function IssueBrief({ issue }: { issue: IssueWithBodies }) {
   const [open, setOpen] = useState(false)
-  if (issue.brief === LOADING) return <BodyPending label="Brief" />
+  if (issue.brief === LOADING)
+    return <BodyPending label="Brief" unavailable={issue.briefUnavailable} />
   if (!issue.brief) return null
   // A fold among folds now: no section gap of its own.
   return (

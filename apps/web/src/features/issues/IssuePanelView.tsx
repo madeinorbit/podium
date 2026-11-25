@@ -959,7 +959,12 @@ export const IssuePanelBody = observer(function IssuePanelBody({
               : undefined
           }
           subtasks={
-            children.length > 0 ? (
+            detail.childrenUnavailable ? (
+              // Refused (POD-7595): no count; it will not load by itself.
+              <span className="text-[12px] text-text-dim" data-testid="dock-subtasks-unavailable">
+                Subtasks not available
+              </span>
+            ) : children.length > 0 ? (
               <button
                 data-pressable
                 type="button"
@@ -1007,7 +1012,11 @@ export const IssuePanelBody = observer(function IssuePanelBody({
         {/* The task in the author's own words, uncapped (POD-516 r3 #2). It
             loads on read (POD-7545): quiet until it is on the device. */}
         {issue.description === LOADING ? (
-          <BodyPending value={LOADING} what="description" />
+          <BodyPending
+            value={LOADING}
+            what="description"
+            unavailable={issue.descriptionUnavailable}
+          />
         ) : (
           issue.description.trim() && (
             <p

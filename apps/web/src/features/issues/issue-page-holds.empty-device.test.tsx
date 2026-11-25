@@ -19,6 +19,7 @@ import { OperatorFocusProvider } from '@/app/operator-focus'
 import type { IssueViewModel } from '@/app/store'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { mountOnEmptyDevice, putIssueWithBodies } from '@/test-support/empty-device'
+import { refuseCollections } from '../../../../../packages/client-graph/src/test-support/empty-device.test.fixture'
 import {
   type CollectionServer,
   session,
@@ -84,7 +85,9 @@ const mountPanel = (options: { offline?: boolean } = {}) =>
     ...options,
   })
 
-const mountPage = (options: { offline?: boolean } = {}) =>
+const mountPage = (
+  options: { offline?: boolean; world?: (server: CollectionServer) => void } = {},
+) =>
   mountOnEmptyDevice(
     providers(
       <IssuePage
@@ -94,7 +97,7 @@ const mountPage = (options: { offline?: boolean } = {}) =>
         onNavigate={() => {}}
       />,
     ),
-    { world, ...options },
+    { ...options, world: options.world ?? world },
   )
 
 let errors: MockInstance<typeof console.error>
@@ -142,5 +145,33 @@ describe('show in deck from a sub-task row', () => {
     expect(mounted.commands.setView).toHaveBeenCalledWith('workspace')
     // Its row reads open seats behind the tree, never its whole history.
     expect(mounted.requestedKeys()).not.toContain(`session.ofIssue{"issueId":"${CHILD}"}`)
+  })
+})
+
+describe('what the server refused (POD-7595)', () => {
+  it('the issue page says the sub-tasks, sessions and description are not available, with no count, asked once', async () => {
+    const refused = ['session.ofIssue', 'issueProjection.tree', 'issueDescription.ofIssue']
+    const mounted = await mountPage({
+      world: (server) => {
+        world(server)
+        refuseCollections(server, (instance) => refused.includes(instance.collection))
+      },
+    })
+    await mounted.untilIdle()
+    expect(screen.getByLabelText('Sub-tasks: not available')).toBeTruthy()
+    expect(screen.getByLabelText('Sessions: not available')).toBeTruthy()
+    expect(screen.getByLabelText('Description: not available')).toBeTruthy()
+    expect(screen.queryByText('Add a description…')).toBeNull()
+    // No sub-task rows from what happens to be in memory.
+    expect(screen.queryByText('The open sub-task')).toBeNull()
+    for (const key of [
+      `session.ofIssue{"issueId":"${ID}"}`,
+      `issueProjection.tree{"root":"${ID}"}`,
+      `issueDescription.ofIssue{"issueId":"${ID}"}`,
+    ])
+      expect(
+        mounted.requestedKeys().filter((each) => each === key),
+        key,
+      ).toHaveLength(1)
   })
 })
