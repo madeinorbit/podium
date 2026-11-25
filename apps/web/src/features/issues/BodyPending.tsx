@@ -3,6 +3,7 @@ import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { cn } from '@/lib/utils'
+import { useGroupedIssuePending } from './IssueLoadingBlock'
 
 /**
  * What a section shows while an issue body field answers `LOADING`: its read
@@ -25,10 +26,12 @@ export const BodyPending = observer(function BodyPending({
   /** The server refused it (POD-7595): it will not load by itself. */
   unavailable?: boolean
   className?: string
-}): JSX.Element {
+}): JSX.Element | null {
   const pool = useWorklistPool()
   const offline = pool?.collections.reading(value) === 'offline'
+  const grouped = useGroupedIssuePending(!unavailable && !offline)
   if (unavailable) return <NotAvailable what={what} className={className} />
+  if (grouped) return null
   return (
     <p
       role="status"

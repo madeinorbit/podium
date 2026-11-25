@@ -34,6 +34,7 @@ import { inlineRenameEditor, type OpenedOn, useInlineRename } from '../worklist/
 import { BodyPending } from './BodyPending'
 import { type FirstArtifactAnchorProps, useFirstArtifactAnchor } from './first-artifact-tip'
 import { IssueCompactControls } from './IssueCompactControls'
+import { IssueLoadingBlock } from './IssueLoadingBlock'
 import { IssueStatusPicker } from './IssueStatusPicker'
 import { issueIdTitle } from './issue-card'
 import { IssueAge } from './issue-page/IssueAge'
@@ -979,136 +980,143 @@ export const IssuePanelBody = observer(function IssuePanelBody({
           }
         />
 
-        {/* Where the work went on, when it left this task (a spin-off hop,
+        <IssueLoadingBlock key={issue.id}>
+          {/* Where the work went on, when it left this task (a spin-off hop,
             a superseding task): one quiet line under the status row, and the
             way there. */}
-        {continuation && (
-          <ContinuationLine
-            text={continuation.full}
-            target={
-              continuation.target ? (edgeIssue(resolve(continuation.target.id)) ?? null) : null
-            }
-            onOpen={openLinked}
-          />
-        )}
+          {continuation && (
+            <ContinuationLine
+              text={continuation.full}
+              target={
+                continuation.target ? (edgeIssue(resolve(continuation.target.id)) ?? null) : null
+              }
+              onOpen={openLinked}
+            />
+          )}
 
-        {showSubtasks && children.length > 0 && (
-          <div className="-mt-2 flex flex-col" data-testid="dock-subissues" data-part="Subtasks">
-            {openChildren.map((sub) => (
-              <DockChildRow
-                key={sub.id}
-                sub={sub}
-                views={page.views}
-                onOpen={openLinked}
-                onStatusPick={rowStatus.pick}
-              />
-            ))}
-            {doneChildren.map((sub) => (
-              <LinkRow key={sub.id} issue={sub} onOpen={openLinked} onStatusPick={rowStatus.pick} />
-            ))}
-          </div>
-        )}
-
-        {/* The task in the author's own words, uncapped (POD-516 r3 #2). It
-            loads on read (POD-7545): quiet until it is on the device. */}
-        {issue.description === LOADING ? (
-          <BodyPending
-            value={LOADING}
-            what="description"
-            unavailable={issue.descriptionUnavailable}
-          />
-        ) : (
-          issue.description.trim() && (
-            <p
-              className="text-[13px] leading-5 whitespace-pre-wrap text-foreground [text-wrap:pretty]"
-              data-testid="dock-description"
-            >
-              {issue.description}
-            </p>
-          )
-        )}
-
-        {/* The agent's latest posted update: quiet and clamped to four lines,
-            because the chat beside this column is where the work is narrated.
-            A click unfolds the whole text. */}
-        {issue.activityNotes === LOADING ? (
-          <BodyPending value={LOADING} what="state line" />
-        ) : (
-          issue.activityNotes?.trim() && (
-            <div
-              className="-mt-2 flex flex-col gap-1"
-              data-testid="dock-current-update"
-              data-part="Current update"
-            >
-              <span className="text-[11px] text-text-faint">
-                Agent status
-                {notesAt && notesAt !== LOADING ? (
-                  <>
-                    {' '}
-                    · <IssueAge stamp={notesAt} />
-                  </>
-                ) : null}
-              </span>
-              <ClampedText
-                text={issue.activityNotes}
-                className="text-muted-foreground"
-                testId="dock-current-update-body"
-              />
-            </div>
-          )
-        )}
-
-        <ArtifactsPart
-          issue={issue}
-          machineId={machineId}
-          onViewAll={() =>
-            onViewAllArtifacts
-              ? onViewAllArtifacts(issue.id)
-              : openArtifactsTab(issue.id, issue.worktreePath ?? issue.repoPath)
-          }
-        />
-
-        {linkCount > 0 && (
-          <PanelSection
-            title="Relations"
-            count={linkCount}
-            testId="dock-relations"
-            className="gap-1"
-          >
-            <div className="flex flex-col">
-              {linkGroups.map((group) => (
-                <div
-                  key={group.label}
-                  className="flex flex-col border-t border-hairline-soft py-[3px]"
-                  data-testid={group.label === 'Parent' ? 'dock-parent' : undefined}
-                >
-                  {group.ids.map((id, index) => {
-                    const target = edgeIssue(resolve(id))
-                    const label = index === 0 ? group.label : ''
-                    return target ? (
-                      <LinkRow
-                        key={id}
-                        issue={target}
-                        label={label}
-                        onOpen={openLinked}
-                        onStatusPick={rowStatus.pick}
-                      />
-                    ) : (
-                      <div key={id} className="flex h-[26px] items-center gap-2 text-[12.5px]">
-                        <span className="w-[78px] flex-none truncate text-[11px] text-text-faint">
-                          {label}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-text-faint">
-                          {id}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
+          {showSubtasks && children.length > 0 && (
+            <div className="-mt-2 flex flex-col" data-testid="dock-subissues" data-part="Subtasks">
+              {openChildren.map((sub) => (
+                <DockChildRow
+                  key={sub.id}
+                  sub={sub}
+                  views={page.views}
+                  onOpen={openLinked}
+                  onStatusPick={rowStatus.pick}
+                />
+              ))}
+              {doneChildren.map((sub) => (
+                <LinkRow
+                  key={sub.id}
+                  issue={sub}
+                  onOpen={openLinked}
+                  onStatusPick={rowStatus.pick}
+                />
               ))}
             </div>
-          </PanelSection>
-        )}
+          )}
+
+          {/* The task in the author's own words, uncapped (POD-516 r3 #2). It
+            loads on read (POD-7545): quiet until it is on the device. */}
+          {issue.description === LOADING ? (
+            <BodyPending
+              value={LOADING}
+              what="description"
+              unavailable={issue.descriptionUnavailable}
+            />
+          ) : (
+            issue.description.trim() && (
+              <p
+                className="text-[13px] leading-5 whitespace-pre-wrap text-foreground [text-wrap:pretty]"
+                data-testid="dock-description"
+              >
+                {issue.description}
+              </p>
+            )
+          )}
+
+          {/* The agent's latest posted update: quiet and clamped to four lines,
+            because the chat beside this column is where the work is narrated.
+            A click unfolds the whole text. */}
+          {issue.activityNotes === LOADING ? (
+            <BodyPending value={LOADING} what="state line" />
+          ) : (
+            issue.activityNotes?.trim() && (
+              <div
+                className="-mt-2 flex flex-col gap-1"
+                data-testid="dock-current-update"
+                data-part="Current update"
+              >
+                <span className="text-[11px] text-text-faint">
+                  Agent status
+                  {notesAt && notesAt !== LOADING ? (
+                    <>
+                      {' '}
+                      · <IssueAge stamp={notesAt} />
+                    </>
+                  ) : null}
+                </span>
+                <ClampedText
+                  text={issue.activityNotes}
+                  className="text-muted-foreground"
+                  testId="dock-current-update-body"
+                />
+              </div>
+            )
+          )}
+
+          <ArtifactsPart
+            issue={issue}
+            machineId={machineId}
+            onViewAll={() =>
+              onViewAllArtifacts
+                ? onViewAllArtifacts(issue.id)
+                : openArtifactsTab(issue.id, issue.worktreePath ?? issue.repoPath)
+            }
+          />
+
+          {linkCount > 0 && (
+            <PanelSection
+              title="Relations"
+              count={linkCount}
+              testId="dock-relations"
+              className="gap-1"
+            >
+              <div className="flex flex-col">
+                {linkGroups.map((group) => (
+                  <div
+                    key={group.label}
+                    className="flex flex-col border-t border-hairline-soft py-[3px]"
+                    data-testid={group.label === 'Parent' ? 'dock-parent' : undefined}
+                  >
+                    {group.ids.map((id, index) => {
+                      const target = edgeIssue(resolve(id))
+                      const label = index === 0 ? group.label : ''
+                      return target ? (
+                        <LinkRow
+                          key={id}
+                          issue={target}
+                          label={label}
+                          onOpen={openLinked}
+                          onStatusPick={rowStatus.pick}
+                        />
+                      ) : (
+                        <div key={id} className="flex h-[26px] items-center gap-2 text-[12.5px]">
+                          <span className="w-[78px] flex-none truncate text-[11px] text-text-faint">
+                            {label}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-text-faint">
+                            {id}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+            </PanelSection>
+          )}
+        </IssueLoadingBlock>
 
         <CommentsPart issue={issue} />
       </div>

@@ -16546,6 +16546,23 @@ button.waterfall-fold:hover {
   margin-left: -8px;
 }
 /* Set up agents (POD-6858): an install with no progress data yet. */
+.issue-sections-enter {
+  animation: issue-sections-enter 160ms ease-out;
+}
+@keyframes issue-sections-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .issue-sections-enter {
+    animation: none;
+  }
+}
+
 .setup-agents-indeterminate {
   animation: sync-indeterminate 1.4s ease-in-out infinite;
 }
