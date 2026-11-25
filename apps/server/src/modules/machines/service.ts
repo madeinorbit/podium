@@ -2061,13 +2061,13 @@ export class MachinesService {
     const machine = (await this.listMachines()).find((candidate) => candidate.id === machineId)
     if (machine && structuralEligibility(machine, HOST_REPOS) === 'no-daemon') {
       throw new TRPCError({
-        code: 'PRECONDITION_FAILED',
+        code: 'SERVICE_UNAVAILABLE',
         message: machineRejectionMessage(name, 'no-daemon', 'host repositories'),
       })
     }
     if (!this.daemons.has(machineId)) {
       throw new TRPCError({
-        code: 'PRECONDITION_FAILED',
+        code: 'SERVICE_UNAVAILABLE',
         message: `machine '${name}' is offline — bring its daemon online or clear the issue's machine pin`,
       })
     }

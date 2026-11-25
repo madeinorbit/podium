@@ -11,12 +11,15 @@
  * in MessageDeliveryService.trySpawn. This module only knows how to spawn.
  */
 
-import { describeError } from '@podium/logger'
+import { createLogger } from '@podium/logger'
 import type { AgentKind, IssueId, MachineId, SessionId, UserId } from '@podium/model'
 import { type SpawnedByRef, spawnedByTag } from '@podium/model'
+import { failureTextLogged } from '../../client-error-diagnostics'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
 import type { SpawnOnWake } from './service'
+
+const log = createLogger('server:messages:spawn')
 
 export interface SpawnOnWakeDeps {
   issues: IssueService
@@ -102,7 +105,9 @@ export function makeSpawnOnWake(deps: SpawnOnWakeDeps): SpawnOnWake {
         })
         return { ok: true, sessionId }
       } catch (error) {
-        return { ok: false, reason: describeError(error) }
+        // A refusal's words, or for a fault a reference to the log (POD-7617):
+        // the reason is shown to people as an attention item and a mail result.
+        return { ok: false, reason: failureTextLogged(error, log, 'spawn on wake failed') }
       }
     },
   }

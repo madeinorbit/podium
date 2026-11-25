@@ -1,4 +1,4 @@
-import { createLogger, describeError } from '@podium/logger'
+import { createLogger } from '@podium/logger'
 import type {
   AgentKind,
   AgentPhase,
@@ -8,9 +8,10 @@ import type {
   TranscriptItem,
   UserId,
 } from '@podium/model'
+import { failureTextLogged } from '../../client-error-diagnostics'
 import type { MessagingSessionAttachmentRow } from '../../store/messaging-session-attachments'
 import type { EventBus } from '../bus'
-import { parseSessionCallbackData, sessionCallbackData, type SlashCommand } from './commands'
+import { parseSessionCallbackData, type SlashCommand, sessionCallbackData } from './commands'
 import { formatTopicRecap } from './topic-recap'
 import type { ConversationRef, InboundChatMessage, InlineButton, SendOptions } from './types'
 
@@ -84,7 +85,12 @@ export interface SessionAttachmentStore {
   listForSession(sessionId: SessionId): Promise<MessagingSessionAttachmentRow[]>
   upsert(row: MessagingSessionAttachmentRow): Promise<void>
   remove(chatId: string, threadRef: string): Promise<void>
-  markRelayed(chatId: string, threadRef: string, sessionId: SessionId, itemId: string): Promise<void>
+  markRelayed(
+    chatId: string,
+    threadRef: string,
+    sessionId: SessionId,
+    itemId: string,
+  ): Promise<void>
 }
 
 export interface SessionAttachmentDeps {
@@ -212,7 +218,11 @@ export class SessionAttachments {
 
   /** Slash commands this feature owns, plus `/stop` and `/new` while attached.
    *  Answers whether it handled the command. */
-  async handleSlash(userId: UserId, source: ConversationRef, slash: SlashCommand): Promise<boolean> {
+  async handleSlash(
+    userId: UserId,
+    source: ConversationRef,
+    slash: SlashCommand,
+  ): Promise<boolean> {
     switch (slash.command) {
       case 'sessions':
         await this.listSessions(userId, source)
@@ -238,7 +248,9 @@ export class SessionAttachments {
         const result = await this.deps.sessions.interrupt(userId, row.sessionId)
         await this.deps.reply(
           source,
-          result.ok ? 'Stopping the attached session’s turn…' : `⚠️ ${result.reason ?? 'Could not stop it.'}`,
+          result.ok
+            ? 'Stopping the attached session’s turn…'
+            : `⚠️ ${result.reason ?? 'Could not stop it.'}`,
         )
         return true
       }
@@ -283,10 +295,15 @@ export class SessionAttachments {
     try {
       outcome = await this.deps.sessions.send(userId, row.sessionId, msg.text)
     } catch (err) {
-      outcome = { ok: false, reason: describeError(err) }
+      // A refusal's words, or for a fault a reference to the log (POD-7617):
+      // the reason is posted back to the chat.
+      outcome = { ok: false, reason: failureTextLogged(err, log, 'chat delivery failed') }
     }
     if (!outcome.ok) {
-      await this.deps.reply(msg.source, `⚠️ Not delivered to ${nameOf(session)}: ${outcome.reason ?? 'unknown reason'}.`)
+      await this.deps.reply(
+        msg.source,
+        `⚠️ Not delivered to ${nameOf(session)}: ${outcome.reason ?? 'unknown reason'}.`,
+      )
       return true
     }
     if (outcome.queued) {
@@ -327,7 +344,10 @@ export class SessionAttachments {
     // Another user's session is the SAME answer as no session: the bridge must
     // not tell a chat which sessions exist beyond its own user's.
     if (!session || session.ownerUserId !== userId) {
-      await this.deps.reply(source, `⚠️ No session of yours matches “${identifier}”. /sessions lists them.`)
+      await this.deps.reply(
+        source,
+        `⚠️ No session of yours matches “${identifier}”. /sessions lists them.`,
+      )
       return
     }
     const refusal = attachRefusal(session)
@@ -380,7 +400,10 @@ export class SessionAttachments {
     const row = await this.attachmentFor(source, userId)
     const route = await this.deps.defaultRoute(source)
     if (!row) {
-      await this.deps.reply(source, `This chat talks to ${route}. /sessions to attach one of your sessions.`)
+      await this.deps.reply(
+        source,
+        `This chat talks to ${route}. /sessions to attach one of your sessions.`,
+      )
       return
     }
     const session = await this.deps.sessions.describe(userId, row.sessionId)
@@ -400,16 +423,25 @@ export class SessionAttachments {
   private async wake(userId: UserId, source: ConversationRef): Promise<void> {
     const row = await this.attachmentFor(source, userId)
     if (!row) {
-      await this.deps.reply(source, 'This chat is not attached to a session. /sessions to attach one.')
+      await this.deps.reply(
+        source,
+        'This chat is not attached to a session. /sessions to attach one.',
+      )
       return
     }
     const session = await this.deps.sessions.describe(userId, row.sessionId)
     if (!session || session.ownerUserId !== userId || session.archived) {
-      await this.deps.reply(source, '⚠️ The attached session is no longer available. /detach to leave it.')
+      await this.deps.reply(
+        source,
+        '⚠️ The attached session is no longer available. /detach to leave it.',
+      )
       return
     }
     if (!parked(session)) {
-      await this.deps.reply(source, `${nameOf(session)} is already running (${sessionStateWords(session)}).`)
+      await this.deps.reply(
+        source,
+        `${nameOf(session)} is already running (${sessionStateWords(session)}).`,
+      )
       return
     }
     if (!session.resumable) {
@@ -434,7 +466,10 @@ export class SessionAttachments {
       .filter((s) => s.ownerUserId === userId && !attachRefusal(s))
       .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))
     if (sessions.length === 0) {
-      await this.deps.reply(source, 'No running sessions of yours. /attach <id> attaches a parked one.')
+      await this.deps.reply(
+        source,
+        'No running sessions of yours. /attach <id> attaches a parked one.',
+      )
       return
     }
     const shown = sessions.slice(0, LIST_CAP)
@@ -492,7 +527,11 @@ export class SessionAttachments {
   }
 
   /** Relay each attached conversation's new reply, one relay per session at a time. */
-  private async relay(sessionId: SessionId, state: AgentRuntimeState, retry: boolean): Promise<void> {
+  private async relay(
+    sessionId: SessionId,
+    state: AgentRuntimeState,
+    retry: boolean,
+  ): Promise<void> {
     const before = this.relayTails.get(sessionId) ?? Promise.resolve()
     const run = before.then(async () => await this.relayNow(sessionId, state, retry))
     const tail = run.catch((err: unknown) => {
@@ -503,7 +542,11 @@ export class SessionAttachments {
     if (this.relayTails.get(sessionId) === tail) this.relayTails.delete(sessionId)
   }
 
-  private async relayNow(sessionId: SessionId, state: AgentRuntimeState, retry: boolean): Promise<void> {
+  private async relayNow(
+    sessionId: SessionId,
+    state: AgentRuntimeState,
+    retry: boolean,
+  ): Promise<void> {
     const rows = await this.deps.store.listForSession(sessionId)
     let pending = false
     const tails = new Map<UserId, Promise<TranscriptItem[]>>()
@@ -538,7 +581,8 @@ function attachRefusal(session: AttachableSession): string | undefined {
   if (session.headless) return 'That is the superagent’s own session; talk to it in the main chat.'
   if (session.agentKind === 'shell') return 'That is a plain terminal, not an agent session.'
   if (session.archived) return `${nameOf(session)} is archived.`
-  if (parked(session) && !session.resumable) return `${nameOf(session)} has ended and cannot be resumed.`
+  if (parked(session) && !session.resumable)
+    return `${nameOf(session)} has ended and cannot be resumed.`
   return undefined
 }
 

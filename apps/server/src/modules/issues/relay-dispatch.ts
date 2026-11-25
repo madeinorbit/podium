@@ -292,7 +292,7 @@ export function makeAgentRelayDispatch(
       }
       if (!machine.online)
         throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
+          code: 'SERVICE_UNAVAILABLE',
           message: `machine '${machine.name}' is offline`,
         })
       modules().machines.toMachine(asMachineId(machine.id), { type: 'inventoryRequest' })

@@ -12,7 +12,7 @@
 import { CLIENT_REFUSAL, type RefusalCode } from '../../client-refusal'
 export class RefusedSendError extends Error {
   get [CLIENT_REFUSAL](): RefusalCode {
-    return 'PRECONDITION_FAILED'
+    return 'SERVICE_UNAVAILABLE'
   }
   override readonly name = 'RefusedSendError'
 }

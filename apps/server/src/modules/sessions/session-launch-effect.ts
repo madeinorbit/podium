@@ -48,6 +48,7 @@ import {
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import { isClientRefusal } from '../../client-error-diagnostics'
 import {
   attributionOf,
   type CommandPrincipal,
@@ -455,9 +456,30 @@ const refused = (message: string): EffectOutcome => ({
 function launchFailed(error: unknown): EffectOutcome {
   const message = error instanceof Error ? error.message : String(error)
   const refusal = credentialRefusalIn(error)?.refusal
-  return refusal
-    ? { status: 'failed', error: { code: credentialRefusalCode(refusal), message } }
-    : refused(message)
+  if (refusal) return { status: 'failed', error: { code: credentialRefusalCode(refusal), message } }
+  // Any other refusal is `refused`; a fault is `failed`, so a caller that has
+  // only the record does not hand its text on as a refusal (POD-7617).
+  return isClientRefusal(error)
+    ? refused(message)
+    : { status: 'failed', error: { code: LAUNCH_FAULT, message } }
+}
+
+/** The record code of a launch that failed rather than refused. */
+const LAUNCH_FAULT = 'failed'
+
+/**
+ * The error a failed launch's caller gets when the run's own error is not in
+ * this process (`errorOf` no longer holds it, or another
+ * process ran the record): a refusal in its own words, a fault as a plain error,
+ * which every transport answers with a generic sentence (POD-7617).
+ */
+export function launchErrorOfRecord(
+  row: { readonly error?: { readonly code: string; readonly message: string } | undefined },
+  fallback: string,
+): Error {
+  const message = row.error?.message ?? fallback
+  if (row.error === undefined || row.error.code === LAUNCH_FAULT) return new Error(message)
+  return new TRPCError({ code: 'PRECONDITION_FAILED', message })
 }
 
 /**
@@ -535,7 +557,7 @@ export async function settledSpawnLaunch(
   if (settled?.status === 'failed') {
     throw (
       modules.sessionLaunches?.errorOf(effectId) ??
-      new Error(settled.error?.message ?? 'the agent could not start')
+      launchErrorOfRecord(settled, 'the agent could not start')
     )
   }
   throw new TRPCError({

@@ -15,7 +15,7 @@ import { fetchRequestHandler } from '@trpc/server/adapters/fetch'
 import { DrizzleQueryError } from 'drizzle-orm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-import { failureForClient } from './client-error-diagnostics'
+import { failureForClient, failureTextLogged, typedRefusal } from './client-error-diagnostics'
 import { CloudRuntimeUserError } from './cloud-runtime'
 import { MemberHasNoAccount } from './identity/member-credentials'
 import { LlmConfigError } from './llm-error'
@@ -35,9 +35,11 @@ import { MailRefusal } from './modules/messages/refusal'
 import { HandoffRefusalError } from './modules/sessions/handoff/refusal'
 import { SESSION_NOT_FOUND, SessionGateRefusal } from './modules/sessions/session-access'
 import { errorOfRecord } from './modules/sessions/session-handoff-effect'
+import { launchErrorOfRecord } from './modules/sessions/session-launch-effect'
 import { SettingsPatchRefused } from './modules/settings/service'
 import { ShippingAdmissionError, ShippingOrderAccessError } from './modules/shipping/service'
 import { SuperagentRefusal } from './modules/superagent/refusal'
+import { trpcErrorRefusal } from './modules/sync-write/family'
 import { ReleaseApprovalRefusal } from './modules/updates/release-approval'
 import { UsageAttributionUnavailable } from './modules/usage-summary'
 import { WorkflowRefusal } from './modules/workflows/handlers/context'
@@ -265,21 +267,12 @@ const BRANDED: ReadonlyArray<{ name: string; error: () => Error; code: TRPCError
   {
     name: 'RefusedSendError',
     error: () => new RefusedSendError('no daemon is connected to m1'),
-    code: 'PRECONDITION_FAILED',
+    code: 'SERVICE_UNAVAILABLE',
   },
   {
     name: 'CloudRuntimeUserError',
     error: () => new CloudRuntimeUserError('FORBIDDEN', 'grant the repository first'),
     code: 'FORBIDDEN',
-  },
-  {
-    name: 'ZodError',
-    error: () => {
-      const parsed = z.object({ id: z.string() }).safeParse({})
-      if (parsed.success) throw new Error('unreachable')
-      return parsed.error
-    },
-    code: 'BAD_REQUEST',
   },
 ]
 
@@ -298,6 +291,79 @@ describe('a domain refusal thrown plainly from a procedure', () => {
   it.each(BRANDED)('$name reaches an agent in its own words', ({ error }) => {
     const answer = failureForClient(error(), false)
     expect(answer).toEqual({ text: error().message })
+  })
+})
+
+describe("a schema's own ZodError", () => {
+  function zodError(): Error {
+    const parsed = z.object({ id: z.string() }).safeParse({})
+    if (parsed.success) throw new Error('unreachable')
+    return parsed.error
+  }
+
+  it('reaches an agent as the list of what its input got wrong', () => {
+    expect(failureForClient(zodError(), false)).toEqual({ text: zodError().message })
+  })
+
+  it('stays a fault inside a procedure, whose input tRPC already validated', async () => {
+    const { error } = await wireErrorOf(zodError, PACKAGED)
+    expect(error.message).toMatch(GENERIC)
+    expect(error.data.code).toBe('INTERNAL_SERVER_ERROR')
+  })
+
+  it('is recorded as a fault by an issue command effect', () => {
+    expect(issueCommandFailure(zodError())).toMatchObject({ error: { code: 'failed' } })
+  })
+})
+
+describe('a wrapper that keeps a failure as text (POD-7617)', () => {
+  it("keeps a refusal's words and logs nothing", () => {
+    const warned: unknown[] = []
+    const text = failureTextLogged(new IssueRefusal('issue is closed'), {
+      warn: (...args: unknown[]) => warned.push(args),
+    })
+    expect(text).toBe('issue is closed')
+    expect(warned).toEqual([])
+  })
+
+  it('answers a fault with the generic sentence and logs it under that reference', () => {
+    const warned: Array<[string, Record<string, unknown>]> = []
+    const text = failureTextLogged(
+      driverFailure(),
+      { warn: (msg: string, fields?: Record<string, unknown>) => warned.push([msg, fields ?? {}]) },
+      'spawn on wake failed',
+      false,
+    )
+    expect(text).toMatch(GENERIC)
+    expect(warned).toHaveLength(1)
+    expect(text).toContain(`(reference: ${String(warned[0]?.[1].reference)})`)
+    expect(warned[0]?.[1].err).toBeInstanceOf(DrizzleQueryError)
+  })
+
+  it('passes a typed refusal on and leaves a fault for the transports', () => {
+    expect(typedRefusal(new MailRefusal('conflict', 'already replied'))).toMatchObject({
+      code: 'CONFLICT',
+      message: 'already replied',
+    })
+    expect(typedRefusal(new TRPCError({ code: 'BAD_REQUEST', message: 'bad path' }))?.message).toBe(
+      'bad path',
+    )
+    expect(typedRefusal(driverFailure())).toBeUndefined()
+    expect(
+      typedRefusal(new TRPCError({ code: 'INTERNAL_SERVER_ERROR', cause: driverFailure() })),
+    ).toBeUndefined()
+  })
+})
+
+describe('a refusal that clears on its own (POD-7617)', () => {
+  it('is not a definitive sync refusal, so the outbox retries it', () => {
+    const offline = typedRefusal(new RefusedSendError('no daemon is connected to m1'))
+    expect(offline?.code).toBe('SERVICE_UNAVAILABLE')
+    expect(trpcErrorRefusal(offline)).toBeUndefined()
+    // A state a person must change stays definitive.
+    expect(
+      trpcErrorRefusal(new TRPCError({ code: 'CONFLICT', message: 'issue is closed' })),
+    ).toEqual({ kind: 'conflict', message: 'issue is closed' })
   })
 })
 
@@ -328,6 +394,23 @@ describe('a failure an effect record carries back to its caller', () => {
     expect(classified).toBeInstanceOf(HandoffRefusalError)
     const fault = errorOfRecord({ error: { code: 'failed', message: 'Failed query: select 1' } })
     expect(fault).not.toBeInstanceOf(TRPCError)
+    expect(failureForClient(fault, false).text).toMatch(GENERIC)
+  })
+
+  it('rebuilds a launch record by its code when the run error is not in this process', () => {
+    expect(
+      launchErrorOfRecord(
+        { error: { code: 'refused', message: 'file attachments need a first prompt' } },
+        'the session could not start',
+      ),
+    ).toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'file attachments need a first prompt',
+    })
+    const fault = launchErrorOfRecord(
+      { error: { code: 'failed', message: 'Failed query: insert into "sessions"' } },
+      'the session could not start',
+    )
     expect(failureForClient(fault, false).text).toMatch(GENERIC)
   })
 

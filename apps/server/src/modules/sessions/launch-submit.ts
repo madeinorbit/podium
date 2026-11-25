@@ -20,7 +20,7 @@ import {
 import type { RegistryModules } from '../../relay'
 import { refusalAsTrpcError } from '../sync-write/route-adapter'
 import type { CreateInput, ResumeInput } from './command-plane'
-import type { SessionLaunchInput } from './session-launch-effect'
+import { launchErrorOfRecord, type SessionLaunchInput } from './session-launch-effect'
 import { sessionPrincipal } from './session-principal'
 import type { SessionSpawnResult } from './session-start'
 
@@ -162,7 +162,7 @@ export async function createThroughLaunchEffect(
     return { sessionId } as unknown as SessionSpawnResult
   }
   if (settled?.status === 'failed') {
-    throw launches.errorOf(id) ?? new Error(settled.error?.message ?? 'the session could not start')
+    throw launches.errorOf(id) ?? launchErrorOfRecord(settled, 'the session could not start')
   }
   throw new TRPCError({
     code: 'TIMEOUT',
@@ -225,9 +225,7 @@ export async function resumeThroughLaunchEffect(
     }
   }
   if (settled?.status === 'failed') {
-    throw (
-      launches.errorOf(id) ?? new Error(settled.error?.message ?? 'the session could not resume')
-    )
+    throw launches.errorOf(id) ?? launchErrorOfRecord(settled, 'the session could not resume')
   }
   throw new TRPCError({
     code: 'TIMEOUT',

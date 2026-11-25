@@ -379,7 +379,7 @@ export class ServerSecretsRepository {
     if (!isVaultSealedKey(key)) return value
     if (!this.vault)
       throw new TRPCError({
-        code: 'PRECONDITION_FAILED',
+        code: 'SERVICE_UNAVAILABLE',
         message: 'The vault is not open, so this secret cannot be stored.',
       })
     const plaintext = Buffer.from(value, 'utf8')

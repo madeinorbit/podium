@@ -9,7 +9,6 @@
  * be a behaviour change wearing a refactor's clothes.
  */
 
-import { describeError } from '@podium/logger'
 import { HOST_REPOS, MachineIdField } from '@podium/model'
 import { GitHubCliResultMessage } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
@@ -45,18 +44,9 @@ export const REPO_QUERIES = {
       // first action against the server-only coordinator spends 35 seconds in
       // a queue and comes back "directory browse failed", which names neither
       // the machine nor the reason.
-      try {
-        await s.modules.machines.requireCapability(
-          input.machineId,
-          HOST_REPOS,
-          'browse directories',
-        )
-      } catch (e) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: describeError(e),
-        })
-      }
+      // Its refusals are typed with their words (POD-7617); a fault stays a fault.
+      await s.modules.machines.requireCapability(input.machineId, HOST_REPOS, 'browse directories')
+
       const res = await s.modules.rpc.browseDirs(
         input.path,
         { ...(input.includeHidden === undefined ? {} : { includeHidden: input.includeHidden }) },

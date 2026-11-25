@@ -3232,11 +3232,7 @@ export class SessionRegistry {
                 notifyOwner: true,
               }),
           )
-          if (!stopped.ok)
-            throw new TRPCError({
-              code: 'PRECONDITION_FAILED',
-              message: stopped.reason ?? 'the session did not stop',
-            })
+          if (!stopped.ok) throw new Error(stopped.reason ?? 'the session did not stop')
         },
         // Judged as a launch is, from the durable row: no secret is read
         // (POD-7591). The credential is the one a revival reads, a headless

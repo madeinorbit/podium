@@ -18,7 +18,7 @@ import type { SyncWriteContext } from '../sync-write/registry'
  * dependency does not drag the whole fleet module into the hub role.
  */
 
-import { describeError } from '@podium/logger'
+import { createLogger } from '@podium/logger'
 import type { MachineId, UserId } from '@podium/model'
 import {
   asMachineId,
@@ -29,6 +29,7 @@ import {
   mintDeviceId,
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
+import { failureTextLogged, typedRefusal } from '../../client-error-diagnostics'
 import type { CommandPrincipal } from '../../command-principal'
 import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
@@ -73,6 +74,8 @@ import {
   type MachineUninstallResult,
 } from './uninstall-effect'
 import { MACHINE_UPDATE_KIND, MACHINE_UPDATE_WAIT_MS } from './update-effect'
+
+const log = createLogger('server:fleet')
 
 /** What the composition root supplies that core may not import for itself. */
 export interface FleetPorts {
@@ -140,14 +143,13 @@ export type FleetSyncHandler<In, Out> = (args: FleetSyncArgs<In>) => Out | Promi
 const machinesFor = async (env: FleetWriteEnv) =>
   await machinesForPrincipal(env.modules, env.principal)
 
-/** The shipped BAD_REQUEST mapping for store-level validation failures: the
- *  store's own message is what the UI renders, and since POD-3824 that is the
- *  whole `cause` chain rather than whichever wrapper happened to be outermost. */
+/** A machine or repository write's failure as its caller gets it: a refusal
+ *  (an unknown machine, a relative repo path, a taken prefix) with its own code
+ *  and words, anything else unchanged, which the transports answer as a fault
+ *  with a log reference. Re-coding every throw as BAD_REQUEST with its cause
+ *  chain sent store faults, SQL and all, to the client as a refusal (POD-7617). */
 const badRequest = (e: unknown): never => {
-  throw new TRPCError({
-    code: 'BAD_REQUEST',
-    message: describeError(e),
-  })
+  throw typedRefusal(e) ?? e
 }
 
 // ---------------------------------------------------------------------------
@@ -538,14 +540,8 @@ const requireRepoHost = async (
   machineId: MachineId,
   action: string,
 ): Promise<void> => {
-  try {
-    await mods(ctx).machines.requireCapability(machineId, HOST_REPOS, action)
-  } catch (e) {
-    throw new TRPCError({
-      code: 'PRECONDITION_FAILED',
-      message: describeError(e),
-    })
-  }
+  // Its refusals are typed with their words (POD-7617); a fault stays a fault.
+  await mods(ctx).machines.requireCapability(machineId, HOST_REPOS, action)
 }
 
 // ---------------------------------------------------------------------------
@@ -591,7 +587,7 @@ export const repoAddManyHandler = async ({
       // first), so the rest still register in the same unit of work.
       await addRepo(env, path, input.machineId)
     } catch (e) {
-      failed.push({ path, message: describeError(e) })
+      failed.push({ path, message: failureTextLogged(e, log, 'repo add failed') })
     }
   }
   return { repos: await env.repos.list(), failed }

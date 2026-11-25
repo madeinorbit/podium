@@ -849,7 +849,9 @@ function answerOf(name: IssueWorkCommand, id: string, row: EffectRow | undefined
       const message = row.error?.message ?? `issues.${name} failed`
       if (code === REFUSED) throw new IssueRefusal(message)
       if (code === NOT_FOUND) throw new TRPCError({ code: 'NOT_FOUND', message })
-      if (isTrpcCode(code)) throw new TRPCError({ code, message })
+      // A stored internal error is a fault, whatever an older run wrote with it.
+      if (isTrpcCode(code) && code !== 'INTERNAL_SERVER_ERROR')
+        throw new TRPCError({ code, message })
       throw new Error(message)
     }
     case 'pending':

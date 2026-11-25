@@ -30,20 +30,11 @@ export type RefusalCode = Exclude<TRPCError['code'], 'INTERNAL_SERVER_ERROR'>
  */
 export const CLIENT_REFUSAL: unique symbol = Symbol.for('podium.client-refusal')
 
-/**
- * The code a branded refusal answers with; `undefined` for anything else. A
- * schema's own `ZodError` (a command parsing its input past tRPC's validator,
- * the relay passing a write's invalid input on) is a `BAD_REQUEST`: its message
- * is the list of what the input got wrong, matched by name because the class
- * cannot carry the brand.
- */
+/** The code a branded refusal answers with; `undefined` for anything else. */
 export function clientRefusalCode(error: unknown): RefusalCode | undefined {
-  if (typeof error !== 'object' || error === null) return undefined
-  if (CLIENT_REFUSAL in error) {
-    const code = (error as { [CLIENT_REFUSAL]: unknown })[CLIENT_REFUSAL]
-    return typeof code === 'string' ? (code as RefusalCode) : undefined
-  }
-  return error instanceof Error && error.name === 'ZodError' ? 'BAD_REQUEST' : undefined
+  if (typeof error !== 'object' || error === null || !(CLIENT_REFUSAL in error)) return undefined
+  const code = (error as { [CLIENT_REFUSAL]: unknown })[CLIENT_REFUSAL]
+  return typeof code === 'string' ? (code as RefusalCode) : undefined
 }
 
 /** The tRPC code each sync refusal kind answers with, as `SYNC_REFUSAL_CODES`

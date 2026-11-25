@@ -33,9 +33,9 @@ import {
   SYNCED_FLEET_COMMANDS,
   type SyncedFleetCommand,
 } from '@podium/commands/fleet-synced'
-import { describeError } from '@podium/logger'
 import type { MachineId, UserId, UserRole } from '@podium/model'
 import { TRPCError } from '@trpc/server'
+import { typedRefusal } from '../../client-error-diagnostics'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
 import type { PreparedRepoAdd, RepoRegistry } from '../../repo-registry'
@@ -106,7 +106,11 @@ export async function fleetTarget(
     try {
       await deps.repos().verifyDefaultParentBranch(path, branch, machineId)
     } catch (error) {
-      return refusedAs(new TRPCError({ code: 'BAD_REQUEST', message: describeError(error) }))
+      // A refusal (no such branch, no machine) answers with its code and words;
+      // a fault (the store read under it) is not a refusal (POD-7617).
+      const refused = typedRefusal(error)
+      if (refused === undefined) throw error
+      return refusedAs(refused)
     }
   }
   return NO_TARGET

@@ -469,7 +469,10 @@ function settledOrThrow(id: string, row: EffectRow | undefined): void {
       const message = row.error?.message ?? 'issues.panelApply failed'
       if (code === REFUSED) throw new IssueRefusal(message)
       if (code === NOT_FOUND) throw new TRPCError({ code: 'NOT_FOUND', message })
-      if (/^[A-Z_]+$/.test(code)) throw new TRPCError({ code: code as TRPCError['code'], message })
+      // A stored internal error is a fault, whatever an older run wrote with it.
+      if (/^[A-Z_]+$/.test(code) && code !== 'INTERNAL_SERVER_ERROR') {
+        throw new TRPCError({ code: code as TRPCError['code'], message })
+      }
       throw new Error(message)
     }
     case 'pending':

@@ -487,7 +487,7 @@ export class SessionWorkspace {
       }
     }
     if (!sourceMachine?.online)
-      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'source machine is offline' })
+      throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'source machine is offline' })
 
     const repos = await this.ports.store.repos.listRepos()
     const sourceRepo = repos

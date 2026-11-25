@@ -392,14 +392,20 @@ describe('repos router', () => {
 
   it('repos.add rejects a non-absolute path', async () => {
     const { call } = await repoCaller()
-    await expect(call.repos.add({ path: 'relative/path' })).rejects.toThrow()
+    // The refusal's own words and code, not "TRPCError: …" or a cause chain (POD-7617).
+    await expect(call.repos.add({ path: 'relative/path' })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: 'repo path must be absolute: relative/path',
+    })
   })
 
   it('repos.addMany persists each path and reports failures', async () => {
     const { call } = await repoCaller()
     const res = await call.repos.addMany({ paths: ['/abs/a', '/abs/b', 'relative/bad'] })
     expect(res.repos).toEqual(['/abs/a', '/abs/b'])
-    expect(res.failed.map((f) => f.path)).toEqual(['relative/bad'])
+    expect(res.failed).toEqual([
+      { path: 'relative/bad', message: 'repo path must be absolute: relative/bad' },
+    ])
     expect(await call.repos.list()).toEqual(['/abs/a', '/abs/b'])
   })
 

@@ -950,7 +950,7 @@ export class ReposRepository {
     const id = (await this.repoIdResolver())(repoPath, machineId)
     if (!id)
       throw new TRPCError({
-        code: 'PRECONDITION_FAILED',
+        code: 'SERVICE_UNAVAILABLE',
         message: `no reporting machine for repo path ${repoPath}; choose a machine or wait for discovery`,
       })
     return id
@@ -1052,7 +1052,7 @@ export class ReposRepository {
     const id = (await this.issueRepoIdResolver())(repoPath, machineId)
     if (!id)
       throw new TRPCError({
-        code: 'PRECONDITION_FAILED',
+        code: 'SERVICE_UNAVAILABLE',
         message: `no reporting machine for repo path ${repoPath}; choose a machine or wait for discovery`,
       })
     return id

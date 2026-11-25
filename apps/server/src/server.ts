@@ -90,6 +90,7 @@ import {
 } from '@podium/runtime/task-attribution'
 import { listenUserSocket, serverControlSocketPath } from '@podium/runtime/user-socket'
 import { prepareLedgerBoot } from '@podium/sync'
+import { TRPCError } from '@trpc/server'
 import { Hono } from 'hono'
 import { registerAdminRoutes } from './admin-routes'
 import { clientAuthGuard, registerAuthRoute } from './auth-route'
@@ -2572,7 +2573,9 @@ export async function startServer(
     issueTools.setClientResolver(async (threadId) => {
       const ownerUserId = await superagent.threadOwner(threadId)
       const account = ownerUserId ? await store.users.get(ownerUserId) : undefined
-      if (!ownerUserId || !account) throw new Error('MCP thread owner is unavailable')
+      if (!ownerUserId || !account) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'MCP thread owner is unavailable' })
+      }
       return registry.issueCommands.asIssueTrpc(
         userCommandPrincipal(store.workspaceId, ownerUserId, account.role).capability,
       )
