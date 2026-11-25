@@ -73,8 +73,10 @@ export const IssueDetailHeader = observer(function IssueDetailHeader({
   const page = useIssuePageContext()
   const resolve = useIssueEdgeResolver()
   const parent = edgeIssue(resolve(issue.parentId))
-  const members = suppliedSessions ?? page?.views.row(issue.id).activeSessions
-  if (typeof members === 'symbol') throw members
+  const held = suppliedSessions ?? page?.views.row(issue.id).activeSessions
+  // The bar draws at once: sessions still on their way (or offline) read as
+  // no live readout yet, never as a missing header (POD-7579).
+  const members = typeof held === 'symbol' ? undefined : held
   const phases = (members ?? []).map((session) =>
     'motion' in session
       ? isFinished(issue)

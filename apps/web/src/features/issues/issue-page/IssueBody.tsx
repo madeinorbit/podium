@@ -94,8 +94,9 @@ export const IssueTitle = observer(function IssueTitle({
   edit: TextEdit
 }): JSX.Element {
   const page = useIssuePageContext()
-  const title = edit.pending ?? page?.views.row(issue.id).title ?? issue.title
   const input = useRef<HTMLInputElement>(null)
+  // After the last hook: the page's title of a draft can still be loading.
+  const title = edit.pending ?? page?.views.row(issue.id).title ?? issue.title
   if (edit.editing) {
     return (
       <>

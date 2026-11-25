@@ -382,7 +382,8 @@ export const IssueDecisionBand = observer(function IssueDecisionBand({
   const { trpc } = { trpc: useRequestClient<Trpc>() }
   const sessions = useIssuePageSessions()
   const page = useIssuePageContext()
-  if (sessions === LOADING) throw LOADING
+  // Sessions still on their way: the band waits for them, quietly.
+  if (sessions === LOADING) return null
   const active = page ? sessions : issueSessions(issue, sessions).filter(isOpenSession)
   if (!issueNeedsHuman(issue, active)) return null
 
@@ -556,8 +557,10 @@ export const IssueCompactControls = observer(function IssueCompactControls({
   const machines = usePoolMachines()
   const resolve = useIssueEdgeResolver()
   const pageSessions = useIssuePageSessions()
-  // Read as empty until every hook below has run; LOADING is thrown after them.
-  const sessions = pageSessions === LOADING ? NO_SESSIONS : pageSessions
+  // The strip draws at once (POD-7579): while the sessions are on their way
+  // (or offline) it has no session-derived action yet, and no launch box.
+  const sessionsPending = pageSessions === LOADING
+  const sessions = sessionsPending ? NO_SESSIONS : pageSessions
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const menuIssues = useIssuePageCatalog(Boolean(menu))
   // The status menu, the Done button and the context menu all close through the
@@ -567,7 +570,7 @@ export const IssueCompactControls = observer(function IssueCompactControls({
 
   const page = useIssuePageContext()
   const active = page ? sessions : issueSessions(issue, sessions).filter(isOpenSession)
-  const action = resolveTaskAction(issue, active)
+  const action = sessionsPending ? null : resolveTaskAction(issue, active)
   const closed = isFinished(issue) || issue.archived
   const workBegun = useIssueWorkBegun(issue.id)
   const statusLabel = issueStatusControlLabel(issue)
@@ -586,7 +589,6 @@ export const IssueCompactControls = observer(function IssueCompactControls({
     const source = edgeIssue(resolve(origin))
     return discoveredPlacement(issue, source ? new Map([[source.id, source]]) : undefined)
   }, [action?.kind, issue, resolve])
-  if (pageSessions === LOADING) throw LOADING
 
   if (isSystemOwnedIssueStage(issue.stage)) {
     return (
@@ -671,7 +673,7 @@ export const IssueCompactControls = observer(function IssueCompactControls({
    * LEFT for a spin-off, so starting is not the move, and it keeps the panel's
    * one-yellow-object rule intact.
    */
-  const launchable = !closed && action?.kind !== 'mark-done' && !workBegun
+  const launchable = !sessionsPending && !closed && action?.kind !== 'mark-done' && !workBegun
 
   return (
     // TWO TIERS, AND THE GAP BETWEEN THEM IS THE POINT (POD-1457).

@@ -67,6 +67,10 @@ describe('the dock target of a draft without a checkout', () => {
     expect(answers.at(-1)).toBe('d1')
     expect(device.requestedKeys()).toContain('session.ofIssue{"issueId":"d1"}')
     close()
+    await device.untilIdle()
+    expect(
+      device.liveHolds({ collection: 'session.ofIssue', args: { issueId: 'd1' }, part: 'main' }),
+    ).toBe(0)
   })
 
   it('is nothing when every session on it is archived', async () => {

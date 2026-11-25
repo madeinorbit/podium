@@ -857,11 +857,13 @@ export const IssuePanelBody = observer(function IssuePanelBody({
     (target: IssueViewModel): void => {
       const root = page.views.destination(target.id)
       if (!root || typeof root === 'symbol') return
-      const resolved = page.views.row(target.id).dockActiveSessions
-      if (!resolved || typeof resolved === 'symbol') return
       setSelectedIssueId(root.id)
       setFocusedIssueId(target.id)
       void markIssueRead(target.id)
+      // The task's open seats, behind its tree. Still on their way, there is
+      // no session to put on screen yet: the move itself always happens.
+      const seats = page.views.row(target.id).dockOpenSessions
+      const resolved = seats && typeof seats !== 'symbol' ? seats : []
       const targetSession =
         resolved.find((session) => session.sessionId === target.coordinatorSessionId) ??
         resolved.reduce<(typeof resolved)[number] | undefined>(
@@ -1121,7 +1123,9 @@ const DockChildRow = observer(function DockChildRow({
   onOpen: (issue: IssueViewModel) => void
   onStatusPick: (issue: IssueViewModel, value: string) => void
 }) {
-  const sessions = views.row(sub.id).dockActiveSessions
+  // Open seats only, behind the tree the panel already holds for its
+  // sub-tasks: never one whole session history per row (POD-7579).
+  const sessions = views.row(sub.id).dockOpenSessions
   if (sessions === LOADING) throw LOADING
   const state = operationalState(sub, sessions)
   const errored = state.state === 'error'
