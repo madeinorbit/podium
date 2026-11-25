@@ -205,6 +205,26 @@ it.runIf(process.env.PODIUM_ROUND_TRIP_REPORT === '1')(
 )
 // END FOCUS CENSUS
 
+it('user focus: fixed statements for one and fifty visible sessions', async () => {
+  await expectConstantStatements(focusPin, 15)
+}, 120_000)
+
+it('user focus: fixed round trips for one and fifty visible sessions', async () => {
+  await expectConstantRoundTrips(focusPin, 6)
+}, 120_000)
+
+it('user focus pin is armed', async () => {
+  await expectArmed(focusPin, 15, (f) => {
+    const reports = f.reg.issues.reports
+    const original = reports.getMany.bind(reports)
+    const spy = vi.spyOn(reports, 'getMany').mockImplementation(async (ids, reader) => {
+      for (const id of ids) await f.store.issues.getIssue(id)
+      return await original(ids, reader)
+    })
+    return () => spy.mockRestore()
+  })
+}, 120_000)
+
 it('user focus preserves pane order, repeated panes, missing sessions and open issue details', async () => {
   const f = await fixture(3)
   try {

@@ -446,7 +446,9 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
   // session's driver calls that wait for the server, by the Postgres driver's pipelining.
   // About 2.6 ms each on hosted Postgres; docs/measurements/pod-6958-hosted-round-trips.md.
   it('a bootstrap for the owner: round trips', async () => {
-    await expectConstantRoundTrips(bootstrap, 80, (_w, go) => countWorkerTrips(go))
+    // Two sets of five independent session-record reads share pipelines (POD-7030).
+    // The 79 statements and the snapshot's closing round trip are unchanged.
+    await expectConstantRoundTrips(bootstrap, 72, (_w, go) => countWorkerTrips(go))
   }, 60_000)
 
   const delta = pin(

@@ -4,6 +4,8 @@
  *
  * Both revisions generate their own data on disposable Postgres stores. The baseline
  * has its own checkout and dependency tree. No live server or daemon is contacted.
+ * --fixture-baseline instead runs the four original SQLite fixture cases at their
+ * original 20-second budget, before any timeout adjustment is considered.
  */
 import assert from 'node:assert/strict'
 import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
@@ -19,7 +21,7 @@ const files = ['session-create', 'mail-send', 'steward.subscriptions', 'sync-fee
   (name) => `apps/server/src/${name}.statement-count.test.ts`,
 )
 const pattern = [
-  'round trips',
+  '^(?!.*user focus: fixed).*round trips',
   'Postgres measurement',
   'in process, a session on an issue',
   'over tRPC, to a running session$',
