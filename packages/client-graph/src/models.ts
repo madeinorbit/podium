@@ -141,7 +141,14 @@ export interface ModelHost {
   /** The device's collections: a holding relation's read holds its instance or its tree (POD-7545, POD-7582). */
   readonly collections: Pick<
     PoolCollections,
-    'held' | 'holding' | 'subtreeHeld' | 'subtreeHolding' | 'treeHeld' | 'available' | 'childIds'
+    | 'held'
+    | 'holding'
+    | 'subtreeHeld'
+    | 'subtreeHolding'
+    | 'treeBrings'
+    | 'treeHeld'
+    | 'available'
+    | 'childIds'
   >
   /** An issue's stub: its resident row first (local edits), else the stub the device holds (`MobxPool.stub`). */
   stub(id: string): Lookup<IssueStub>
@@ -812,13 +819,14 @@ export class IssueModel extends EntityModel {
    * LOADING until the device holds the issue's tree: held from its top-level
    * issue, one instance for the whole parent chain, it comes with every
    * visible seat (`DECK_SESSION_WHERE`), parked ones included, and never with
-   * archived history (POD-7579). */
+   * archived history (POD-7579). So the seats in memory (`ready`) are every
+   * seat it reads, without holding the history (POD-7580). */
   @lazy
   get liveSeatId(): string | undefined {
     const coordinator = this.storedField('coordinatorSessionId')
     if (!this.host.collections.treeHeld(this.id)) throw LOADING
     let best: { id: string; at: string } | null = null
-    for (const id of this.host.relations.subset('issue', this.id, 'pageSessions', 'unarchived')) {
+    for (const { id } of this.pageSessions.unarchived.ready) {
       if (this.host.queries.collapsed(id)) continue
       const session = this.host.sessionObject(id)
       let at: string
@@ -957,10 +965,11 @@ export class IssueModel extends EntityModel {
   }
 
   /** The raw execution fact does not let an offer hide ongoing computation. */
+  /** Whether one of its sessions works. A working session is live, and the
+   * policy (`session.live`) holds every live one, so the sessions in memory
+   * (`ready`) answer it without holding the issue's history (POD-7580). */
   @lazy get missionWorking(): boolean {
-    for (const id of this.host.relations.many('issue', this.id, 'missionSessions')) {
-      if (this.host.sessionObject(id).workingFact) return true
-    }
+    for (const session of this.missionSessions.ready) if (session.workingFact) return true
     return false
   }
 

@@ -97,6 +97,12 @@ export type HoldingRead =
   | {
       readonly collection: string
       readonly instance: (owner: string) => LoaderInstance
+      /**
+       * The source's tree collection comes with this collection whole for
+       * each of its records (POD-7580): a complete tree the source is in
+       * holds what the read reads, so the read holds that tree instead.
+       */
+      readonly broughtByTree?: true
     }
   | { readonly collection: string; readonly tree: true }
   | { readonly problem: string }
@@ -118,6 +124,7 @@ export type Holding = 'held' | 'loading' | 'refused'
 export interface HoldingCollections {
   holding(spec: LoaderInstance): Holding
   subtreeHolding(id: string): Holding
+  treeBrings(id: string): 'held' | 'loading' | undefined
 }
 
 /**
@@ -130,6 +137,9 @@ export type HoldingCheck = (collections: HoldingCollections, owner: string) => H
 
 /** The check a holding read makes, from the derivation. */
 export function holdingCheckOf(read: HoldingRead): HoldingCheck | undefined {
+  if ('instance' in read && read.broughtByTree === true)
+    return (collections, owner) =>
+      collections.treeBrings(owner) ?? collections.holding(read.instance(owner))
   if ('instance' in read) return (collections, owner) => collections.holding(read.instance(owner))
   if ('tree' in read) return (collections, owner) => collections.subtreeHolding(owner)
   return undefined
@@ -151,6 +161,25 @@ function treeCollectionOf(record: RecordDeclaration, field: string): Collection 
     if (typeof test === 'object' && test !== null && 'descendantsOf' in test) return collection
   }
   return undefined
+}
+
+/**
+ * Whether `record`'s tree collection (the `descendantsOf` collection on its
+ * parent link) comes with `collection` whole, keyed by each record of the
+ * tree: then a complete tree holds that collection's instance for every
+ * record in it (POD-7580: a flight deck's tree brings the edges into its
+ * issues).
+ */
+function treeBrings(record: RecordDeclaration, collection: string): boolean {
+  if (record.parentLink === undefined) return false
+  const tree = treeCollectionOf(record, record.parentLink)
+  return (tree?.comesWith ?? []).some(
+    (entry) =>
+      entry.collection === collection &&
+      entry.where === undefined &&
+      entry.if === undefined &&
+      (entry.key === undefined || entry.key === record.key),
+  )
 }
 
 /**
@@ -244,8 +273,16 @@ export function holdingReadOf(
   )
     return undefined
   const record = recordOfEntity(schema, spec.to, records)
-  if (spec.kind === 'edge')
-    return record === undefined ? undefined : incomingEdgeRead(schema, spec, record, records)
+  if (spec.kind === 'edge') {
+    const read = record === undefined ? undefined : incomingEdgeRead(schema, spec, record, records)
+    const source = recordOfEntity(schema, from, records)
+    return read !== undefined &&
+      'instance' in read &&
+      source !== undefined &&
+      treeBrings(source, read.collection)
+      ? { ...read, broughtByTree: true }
+      : read
+  }
   if (record === undefined || !HOLDING_GROUPS.has(record.group)) return undefined
   const back = schema[spec.to].relations[spec.inverse]
   if (back?.kind !== 'belongsTo' || back.targetKey !== schema[from].key)

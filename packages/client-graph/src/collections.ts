@@ -961,6 +961,40 @@ export class PoolCollections {
     })
   }
 
+  /**
+   * TRACKED (POD-7580): whether a tree brings what a holding read of `id`
+   * reads, for a collection the tree comes with whole for each of its issues
+   * (`issueProjection.tree` comes with the edges into them,
+   * `holding-relations.ts` `broughtByTree`). 'held' when the tree of `id` or of
+   * an ancestor is complete; the reader holds that tree (the widest complete
+   * one) while it reads. 'loading' while an open view holds such a tree that
+   * is still loading (a flight deck opening on its root): the reader holds it
+   * too and waits, asking for nothing per issue. Undefined when no tree holds
+   * `id`, or the one a view holds was refused: the read holds its own
+   * instance, and settles as that instance does (`holding`).
+   */
+  treeBrings(id: string): 'held' | 'loading' | undefined {
+    return this.behind(() => {
+      const loader = this.loader()
+      if (loader === undefined) return undefined
+      const chain = this.chainOf(id)
+      for (const at of [...chain].reverse()) {
+        const tree = treeOf(at, 'main')
+        if (!this.complete(tree)) continue
+        this.holdWhileRead(tree)
+        return 'held'
+      }
+      // A refused tree never completes: the read holds its own instance (POD-7595).
+      for (const at of chain) {
+        const tree = treeOf(at, 'main')
+        if (!this.heldByView(tree) || loader.wasRefused(tree)) continue
+        this.holdWhileRead(tree)
+        return 'loading'
+      }
+      return undefined
+    })
+  }
+
   /** Whether an open view holds `spec` now: it asked for it, and it is on its way or here. */
   private heldByView(spec: LoaderInstance): boolean {
     const key = readKey(spec)
