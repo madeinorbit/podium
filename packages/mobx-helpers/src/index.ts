@@ -22,6 +22,8 @@ export {
   type KeyedComputed,
   type KeyedComputedOptions,
   keyedComputed,
+  observerWalkVisits,
   observingViews,
+  sharingObserverWalks,
 } from './keyed-computed'
 export { type LazyOptions, lazy, lazyKeptCount } from './lazy'

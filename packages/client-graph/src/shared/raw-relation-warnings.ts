@@ -1,5 +1,5 @@
 /** Development guard for readers that bypass the holding model relation getters. */
-import { currentDerivation, observingViews } from '@podium/mobx-helpers'
+import { currentDerivation, observingViews, sharingObserverWalks } from '@podium/mobx-helpers'
 import { getDebugName } from 'mobx'
 import { holdingInstanceOf } from './holding-relations'
 import { readingModelRelation } from './model-relation-read'
@@ -60,28 +60,61 @@ export class RawRelationWarnings {
     const caller = currentDerivation()
     if (caller === undefined) return
     const reader = rawReaderName(getDebugName(caller))
-    const instance = row.instance?.(id)
-    queueMicrotask(() => {
-      for (const { view, name } of observingViews(caller)) {
-        // Generated collection getters also read the raw bucket, but their
-        // observing view holds its instance by the end of the tracking run.
-        if (instance !== undefined && this.heldBy(instance, view)) continue
-        const known = this.knownReader(reader, row.relation)
-        if (known !== undefined) {
-          if (process.env.NODE_ENV === 'test') continue
-          const key = `${reader}\0${row.relation}`
-          if (warnedKnown.has(key)) continue
-          warnedKnown.add(key)
-        } else if (process.env.NODE_ENV === 'test') {
-          if (
-            !violations.some((entry) => entry.reader === reader && entry.relation === row.relation)
-          )
-            violations.push({ reader, relation: row.relation })
-        }
-        console.warn(
-          `[pool] Raw on-demand relation read: ${reader} (${name}) reads ${row.relation} without its holding or loading model relation getter. Read the model relation and handle LOADING.${known === undefined ? '' : ` Follow-up: ${known.followUp}.`}`,
-        )
-      }
+    const known = this.knownReader(reader, row.relation)
+    // POD-7608: a known reader is silent in tests and warns once elsewhere.
+    // Decided here, before any walk: each walk visits every node above the
+    // reader, and a deck's readers read once per row (quadratic in its rows).
+    if (
+      known !== undefined &&
+      (process.env.NODE_ENV === 'test' || warnedKnown.has(`${reader}\0${row.relation}`))
+    )
+      return
+    this.pending.push({
+      caller,
+      reader,
+      relation: row.relation,
+      known,
+      instance: row.instance?.(id),
+    })
+    if (this.pending.length === 1) queueMicrotask(() => this.flush())
+  }
+
+  /** Reads to check once their tracking runs have bound, one batch per microtask. */
+  private pending: PendingRead[] = []
+
+  /** POD-7608: the batch shares its walks, so it visits each node of the graph once. */
+  private flush(): void {
+    const reads = this.pending
+    this.pending = []
+    sharingObserverWalks(() => {
+      for (const read of reads) this.check(read)
     })
   }
+
+  private check({ caller, reader, relation, known, instance }: PendingRead): void {
+    for (const { view, name } of observingViews(caller)) {
+      // Generated collection getters also read the raw bucket, but their
+      // observing view holds its instance by the end of the tracking run.
+      if (instance !== undefined && this.heldBy(instance, view)) continue
+      if (known !== undefined) {
+        const key = `${reader}\0${relation}`
+        if (warnedKnown.has(key)) continue
+        warnedKnown.add(key)
+      } else if (process.env.NODE_ENV === 'test') {
+        if (!violations.some((entry) => entry.reader === reader && entry.relation === relation))
+          violations.push({ reader, relation })
+      }
+      console.warn(
+        `[pool] Raw on-demand relation read: ${reader} (${name}) reads ${relation} without its holding or loading model relation getter. Read the model relation and handle LOADING.${known === undefined ? '' : ` Follow-up: ${known.followUp}.`}`,
+      )
+    }
+  }
+}
+
+interface PendingRead {
+  readonly caller: object
+  readonly reader: string
+  readonly relation: string
+  readonly known: ReturnType<typeof rawRelationReader>
+  readonly instance: LoaderInstance | undefined
 }

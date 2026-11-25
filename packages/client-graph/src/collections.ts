@@ -25,7 +25,7 @@
  * collection definition.
  */
 
-import { createDemandAtoms, observingViews } from '@podium/mobx-helpers'
+import { createDemandAtoms, observingViews, sharingObserverWalks } from '@podium/mobx-helpers'
 import { RECORDS } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
 import { SideMap, SideSet, sideStateUpkeep, signalledRead } from '@podium/sync/side-state'
@@ -244,21 +244,24 @@ class BodyReadWarnings {
       this.queued = false
       this.active = false
       const views = new Map<object, { name: string; count: number; kinds: Set<string> }>()
-      for (const { spec, atom } of this.held()) {
-        const kind = this.kinds.get(spec.collection)
-        if (kind === undefined) continue
-        this.active = true
-        for (const { view, name } of observingViews(atom)) {
-          if (this.warned.has(view)) continue
-          let seen = views.get(view)
-          if (seen === undefined) {
-            seen = { name, count: 0, kinds: new Set() }
-            views.set(view, seen)
+      // POD-7608: one walk per held instance, over one graph: shared.
+      sharingObserverWalks(() => {
+        for (const { spec, atom } of this.held()) {
+          const kind = this.kinds.get(spec.collection)
+          if (kind === undefined) continue
+          this.active = true
+          for (const { view, name } of observingViews(atom)) {
+            if (this.warned.has(view)) continue
+            let seen = views.get(view)
+            if (seen === undefined) {
+              seen = { name, count: 0, kinds: new Set() }
+              views.set(view, seen)
+            }
+            seen.count += 1
+            seen.kinds.add(kind)
           }
-          seen.count += 1
-          seen.kinds.add(kind)
         }
-      }
+      })
       for (const [view, seen] of views) {
         if (seen.count <= BODY_INSTANCE_WARNING_THRESHOLD) continue
         this.warned.add(view)
