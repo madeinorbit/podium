@@ -461,6 +461,40 @@ describe('review focus', () => {
     expect(refused.code).toBe('BAD_REQUEST')
   })
 
+  // POD-7594, operator decision on spec §12: a removal keeps the removed
+  // manager's own `manage` edge so the grants they gave stand. That edge must
+  // never let the removed person act: every command refuses them.
+  it('a removed manager can neither grant, revoke nor use through the kept edge', async () => {
+    const { store, as, credentialId } = await harness()
+    await outcomeOf(invoke(as(member(MANAGER)), 'share', credentialId))
+    expect(await mayUse(store, CAROL, { id: credentialId, ownerUserId: OWNER })).toBe('use')
+    await memberFacts(store).removeMember(MANAGER, OWNER)
+    const edges = await store.grants.listForResource('credential', credentialId)
+    expect(edges.some((e) => e.grantee === MANAGER && e.verb === 'manage')).toBe(true)
+    const removed = as(member(MANAGER))
+    for (const name of [
+      'share',
+      'unshare',
+      'rename',
+      'renew',
+      'remove',
+      'allowMachine',
+      'disallowMachine',
+    ] as const) {
+      expect([name, await outcomeOf(invoke(removed, name, credentialId))]).not.toEqual([
+        name,
+        'applied',
+      ])
+    }
+    expect(await mayUse(store, MANAGER, { id: credentialId, ownerUserId: OWNER })).toBeNull()
+    // Nothing they tried took: the key, its name and its shares are as they were.
+    const record = await store.credentials.get(credentialId)
+    expect(record).toMatchObject({ status: 'ok', label: 'Team key' })
+    expect(await mayUse(store, USER, { id: credentialId, ownerUserId: OWNER })).toBe('use')
+    // What they gave before the removal stands.
+    expect(await mayUse(store, CAROL, { id: credentialId, ownerUserId: OWNER })).toBe('use')
+  })
+
   it('sharing with a disabled member is refused', async () => {
     const { store, as, credentialId } = await harness()
     await memberFacts(store).disable(CAROL, new Date().toISOString())
