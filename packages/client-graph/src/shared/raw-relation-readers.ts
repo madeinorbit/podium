@@ -26,92 +26,24 @@ function reader(
 }
 
 export const RAW_RELATION_READERS: readonly RawRelationReader[] = [
+  // Mission provenance: an issue a member's session started joins the
+  // mission. The deck's tree brings its issues and their roster seats, not
+  // the archived senders nor the issues they started outside the tree.
+  // Holding session.ofIssue per member and issueProjection.startedBy per
+  // session is the per-row history POD-7555 reverted; the walk reads memory
+  // until one tree-wide read answers provenance, which belongs with POD-7602
+  // (the loader widens per-row demand).
   ...reader(
     'Mission@*.members',
-    ['issue.children', 'issue.missionSessions', 'session.missionStartedIssues'],
+    ['issue.missionSessions', 'session.missionStartedIssues'],
     'POD-7580',
     'mission.ts',
     "const members = cachedKey('Mission', 'members',",
   ),
-  ...reader(
-    'MissionDeckModel@*.topology',
-    ['issue.children'],
-    'POD-7580',
-    'mission-view.ts',
-    'get topology() { return topology(this) }',
-  ),
-  ...reader(
-    'MissionDeckModel@*.progress',
-    ['issue.children'],
-    'POD-7580',
-    'mission-view.ts',
-    'get progress() { return progress(this) }',
-  ),
-  ...reader(
-    'MissionDeckModel@*.continuation',
-    ['issue.spinOffs', 'issue.discoveredFrom'],
-    'POD-7580',
-    'mission-view.ts',
-    'get continuation() { return rootContinuation(this) }',
-  ),
-  ...reader(
-    'MissionDeckModel@*.note',
-    ['issue.spinOffs', 'issue.discoveredFrom'],
-    'POD-7580',
-    'mission-view.ts',
-    'get note() { return rootNote(this) }',
-  ),
-  ...reader(
-    'MissionDeckModel@*.presence',
-    ['issue.spinOffs', 'issue.discoveredFrom'],
-    'POD-7580',
-    'mission-view.ts',
-    'get presence() { return rootPresence(this) }',
-  ),
-  ...reader(
-    'MissionDeckModel@*.departures',
-    ['issue.spinOffs'],
-    'POD-7580',
-    'mission-view.ts',
-    'get departures() { return rootDepartures(this) }',
-  ),
-  ...reader(
-    'MissionIssueReader@*.rules',
-    ['issue.pageDependents'],
-    'POD-7580',
-    'mission-view.ts',
-    'get rules() { return this.view.readRulesIssue(this.id) }',
-  ),
-  ...reader(
-    'MissionIssueReader@*.earliestChild',
-    ['issue.children'],
-    'POD-7580',
-    'mission-view.ts',
-    '@lazy get earliestChild() {',
-  ),
-  ...reader(
-    'MissionIssueReader@*.issue',
-    ['issue.treeChildren', 'issue.pageDependents'],
-    'POD-7580',
-    'mission-view.ts',
-    'get issue() { return this.view.readIssue(this.id) }',
-  ),
-  ...reader(
-    'MissionIssueReader@*.progressUnit',
-    ['issue.spinOffs', 'issue.discoveredFrom'],
-    'POD-7580',
-    'mission-view.ts',
-    'get progressUnit(): boolean',
-  ),
-  ...reader(
-    'MissionIssueReader@*.spinOffDependent',
-    ['issue.pageDependents'],
-    'POD-7580',
-    'mission-view.ts',
-    'get spinOffDependent(): boolean',
-  ),
-  // The deck's per-task facts over an issue's whole session history. The
-  // sidebar's and the board's rows read what the policy holds instead
+  // The per-task facts over an issue's whole session history. The deck reads
+  // them only behind its open archive's hold (POD-7580); the header's mission
+  // fold and navigation activity still read them raw. The sidebar's and the
+  // board's rows read what the policy holds instead
   // (policy-relation-readers.ts, POD-7581); the issue page holds its own
   // rosters (issue-page.ts, POD-7579).
   ...reader(
@@ -120,29 +52,6 @@ export const RAW_RELATION_READERS: readonly RawRelationReader[] = [
     'POD-7580',
     'session-seats.ts',
     "'partition', (issueId)",
-  ),
-  // Whether a session is open or working: such a session is starting or live,
-  // and `session.live` (a policy collection) always holds every one of them,
-  // so memory answers it. The sidebar's read is a declared policy read
-  // (POD-7581); POD-7580 confirms the deck's.
-  ...reader(
-    'IssueModel@*.missionWorking',
-    ['issue.missionSessions'],
-    'POD-7580',
-    'models.ts',
-    'get missionWorking(): boolean',
-  ),
-  // The live seat (a reference card's "go to session", walked up the parent
-  // chain by seatHolderId) reads the unarchived seats behind the issue's tree
-  // hold, one instance for the whole chain: the tree comes with every visible
-  // seat (DECK_SESSION_WHERE), parked ones included, without the archived
-  // history session.ofIssue would bring. POD-7580 audits reads under treeHeld.
-  ...reader(
-    'IssueModel@*.liveSeatId',
-    ['issue.pageSessions'],
-    'POD-7580',
-    'models.ts',
-    'get liveSeatId(): string | undefined',
   ),
   // The continuation walks the spin-off tree (MissionView.readTips): no
   // collection holds the issues whose deps name this one, and each spin-off's

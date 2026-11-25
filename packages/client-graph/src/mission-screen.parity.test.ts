@@ -92,7 +92,8 @@ function newDeck(screen: MissionScreen) {
     workingCount: screen.workingCount,
     waitingCount: screen.waitingCount,
     progress: screen.progress,
-    archivedCount: screen.archivedCount,
+    // The deck's own count: the screen shows it only once the archive opens (POD-7580).
+    archivedCount: requireLoaded(screen.deck.archivedCount),
     note: screen.note,
     presence: screen.presence,
     continuation: continuationFacts(screen.continuation),
@@ -258,7 +259,7 @@ for (const { label, scale, cold } of cases)
             await settle(pool)
             same(answers, `${rootId} ${mode}`, current)
             compared++
-            if (screen.archivedCount > 0) archived++
+            if (requireLoaded(screen.deck.archivedCount) > 0) archived++
             // Folds: close every branch, open them all, then a mixed map that
             // also names the one-agent leaves the default rule folds.
             const foldable = screen.foldable.map((row) => row.id)

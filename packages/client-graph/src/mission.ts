@@ -67,7 +67,13 @@ export function createMissionViews(pool: MobxPool): MissionViews {
       const id = stack.pop()!
       if (ids.has(id)) continue
       ids.add(id)
-      stack.push(...pool.graph.many('issue', id, MISSION_SCHEMA.members.children))
+      // The children the device holds now, through the relation that holds
+      // their tree (POD-7580). This walk holds nothing itself: the flight
+      // deck reads it behind its root's tree (MissionDeckModel.members reads
+      // treeHeld), which brings every child, and its counts wait for it. A
+      // gesture (a click, no observer) must not ask for one subtree per node.
+      for (const child of pool.issueObject(id)[MISSION_SCHEMA.members.children].ready)
+        stack.push(child.id)
     }
     // Only sessions of admitted members can supply provenance. The declared
     // relation includes archived/headless senders and applies resume collapse.

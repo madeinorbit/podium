@@ -1,6 +1,4 @@
-import type { Trpc } from '@/app/trpc'
-import { useCommands } from '@podium/client-core/react'
-import { useUiValue } from '@podium/client-core/react'
+import { useCommands, useUiValue } from '@podium/client-core/react'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
 import type { SessionModel } from '@podium/client-graph/models'
@@ -9,6 +7,7 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import type { Trpc } from '@/app/trpc'
 import { IssueCloseDialog, useIssueCloseGuard } from '@/features/issues/issue-lifecycle'
 import { useOperatorFocus } from './operator-focus'
 
@@ -60,8 +59,9 @@ export function useMissionEndings(screen: MissionScreen): {
     setFocusedIssueId(issue.id)
     void markIssueRead(issue.id)
     if (issue.worktreePath) setSelectedWorktree(issue.worktreePath)
-    const attached = screen.reader.attached(issue.id)
-    const live = (attached === LOADING ? [] : attached)
+    // An open seat is never archived: the present seats, without history (POD-7580).
+    const present = screen.reader.present(issue.id)
+    const live = (present === LOADING ? [] : present)
       .filter((session) => (session as SessionModel).open)
       .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))[0]
     if (live) {

@@ -125,8 +125,9 @@ const MissionOpening = observer(function MissionOpening({
         const root = missions(pool).rootFor(id)
         return root === LOADING ? null : (root ?? id)
       },
+      // The seats that are not archived: no gesture here reads history (POD-7580).
       attached: (id) => {
-        const sessions = reader.attached(id)
+        const sessions = reader.present(id)
         return sessions === LOADING ? [] : sessions
       },
     }

@@ -146,9 +146,11 @@ it('counts an archived seat of a finished mission without putting it in the phon
   )
   // POD-7112: every row the device holds is in memory (POD-7094), so the
   // finished mission answers at once. The phone's crew holds only seated
-  // senders; the archived seat is counted, not drawn.
+  // senders; the archived seat is counted once the archive opens, not drawn.
   expect(reader.mission('root')).toMatchObject({ missionSessions: [] })
-  expect(reader.open('root')).toMatchObject({ archivedCount: 1 })
+  const opened = reader.open('root') as MissionScreen
+  opened.setArchivedOpen(true)
+  expect(opened.archivedCount).toBe(1)
 })
 it('does not resurrect a collapsed resume twin as a mission author', async () => {
   const seat = {

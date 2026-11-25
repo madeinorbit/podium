@@ -11,6 +11,7 @@ import { autorun, observable, runInAction } from 'mobx'
 import { afterEach, beforeAll, expect, it, vi } from 'vitest'
 import { missionView, readMissionActionInputs } from './mission-view'
 import { loadSyncedModels } from './models'
+import { fullDevice } from './full-device-fixture'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
@@ -41,8 +42,9 @@ function fixture(scale: number, capable = 2) {
   const input = new Map<string, object>([...rows.map(row => [`issue:${row.id}`, row] as const),
     ...seats.map(row => [`session:${row.sessionId}`, row] as const)])
   const load = vi.fn((entity: string, id: string) => input.get(`${entity}:${id}`))
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined,
-    { load, schedule: () => () => {} })
+  // Every row is supplied: the menu's holding read of the issue's sessions (POD-7580) is complete.
+  const pool = fullDevice(new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined,
+    { load, schedule: () => () => {} }))
   pools.push(pool)
   pool.apply({ type: 'replace', rows: [...rows.map(value => ({ kind: 'issue' as const, id: value.id, value })),
     ...seats.map(value => ({ kind: 'session' as const, id: value.sessionId, value }))] })

@@ -1576,7 +1576,8 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     })
     await deck()
     const toggle = screen.getByTestId('flight-archived-toggle')
-    expect(toggle.textContent).toContain('1 archived session')
+    // Counted only once open (POD-7580): closed, the toggle names no number.
+    expect(toggle.textContent).toContain('Archived sessions')
     expect(document.querySelector('[data-flight-session="gone"]')).toBeNull()
     act(() => {
       fireEvent.click(toggle)

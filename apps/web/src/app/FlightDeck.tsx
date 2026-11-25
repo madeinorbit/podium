@@ -1056,10 +1056,10 @@ const DeckArchive = observer(function DeckArchive({
   activeSessionId: string | null
   onSelect: (session: SessionView, permanent: boolean) => void
 }): JSX.Element | null {
+  // Counted only once open: a closed archive holds no row's history (POD-7580).
   const archivedCount = screen.archivedCount
   const archivedOpen = screen.archivedOpen
   const ArchivedSessions = source.ArchivedSessions
-  if (archivedCount <= 0) return null
   return (
     <DeckSection label="Archived" className="mt-6" testId="flight-archived">
       <button
@@ -1073,8 +1073,10 @@ const DeckArchive = observer(function DeckArchive({
         <Archive size={11} aria-hidden className="flex-none" />
         <span className="truncate">
           {archivedOpen
-            ? 'Hide archived'
-            : `${archivedCount} archived session${archivedCount === 1 ? '' : 's'}`}
+            ? archivedCount === 0
+              ? 'No archived sessions'
+              : 'Hide archived'
+            : 'Archived sessions'}
         </span>
       </button>
       {archivedOpen && (

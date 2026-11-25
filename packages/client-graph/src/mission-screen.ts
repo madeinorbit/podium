@@ -238,7 +238,6 @@ export class MissionScreen {
         const reads = [
           deck.topology,
           deck.progress,
-          deck.archivedCount,
           deck.headerReady,
           this.reader.issue(this.rootId),
           settled(() => deck.rowIds()),
@@ -413,18 +412,22 @@ export class MissionScreen {
     if (settled(() => this.root.visible) !== false) return progress
     // A phone can open a hidden root by id. The visible-root meter's fallback
     // must not count it as a unit; accepted formal children still count.
-    const stack = [...this.pool.graph.many('issue', this.rootId, 'children')]
+    // Behind deck.progress, so behind the root's tree: the children relation
+    // answers from it (POD-7580).
+    const childIds = (id: string) =>
+      requireLoaded(this.reader.facts(id).children.members).map((child) => child.id)
+    const stack = childIds(this.rootId)
     const seen = new Set<string>([this.rootId])
     while (stack.length) {
       const id = stack.pop()!
       if (seen.has(id)) continue
       seen.add(id)
-      const child = requireLoaded(omitGone(this.pool.row('issueBoardRow', id))) as
-        | IssueNavigationModel
-        | undefined
+      // The issue's own row (its stage and close), not the board's: the board
+      // source is not attached on every device, and its row never loads there.
+      const child = requireLoaded(this.reader.catalogIssue(id))
       if (!child || !this.reader.facts(child.id).visible) continue
       if (child.stage !== 'proposed' && !issueAbandoned(child)) return progress
-      stack.push(...this.pool.graph.many('issue', id, 'children'))
+      stack.push(...childIds(id))
     }
     return { total: 0, done: 0, working: 0, waiting: 0, todo: 0 }
   }
@@ -440,8 +443,14 @@ export class MissionScreen {
   @lazy get waitingCount(): number {
     return this.rootRow?.waitingAgentCount ?? 0
   }
-  @lazy get archivedCount(): number {
-    return requireLoaded(this.deck.archivedCount)
+  /**
+   * The archived sessions of the drawn rows, counted once the archive is
+   * open; undefined while it is closed. Counting them needs every row's
+   * history, which only an open archive holds (POD-7580), so a closed deck
+   * never downloads it; there is no count without it.
+   */
+  @lazy get archivedCount(): number | undefined {
+    return this.archivedOpen ? requireLoaded(this.deck.archivedCount) : undefined
   }
   @lazy({ equals: compareStructural }) get note() {
     return this.deck.note
@@ -471,7 +480,7 @@ export class MissionScreen {
   @lazy get conversationMoved(): boolean {
     return (
       this.continuation?.kind === 'spinoff' &&
-      this.pool.graph.size('issue', this.rootId, 'children') === 0
+      requireLoaded(this.root.children.members).length === 0
     )
   }
   /** What this task wrote down before its conversation moved. */
@@ -481,8 +490,11 @@ export class MissionScreen {
   }
   /** Proposals this task filed as their own issues, in the deck's proposal rows. */
   @lazy({ equals: compareShallow }) get spinOffProposalIds(): readonly string[] {
-    return [...this.pool.graph.many('issue', this.rootId, 'spinOffs')]
-      .filter((id) => this.pool.graph.one('issue', id, 'discoveredFrom') === this.rootId)
+    // The root's spin-offs through their holding read (the edges into it,
+    // issueDep.toIssue), each one's origin through its lookup (POD-7580).
+    return requireLoaded(this.root.spinOffs.members)
+      .map((issue) => issue.id)
+      .filter((id) => requireLoaded(this.reader.originOf(id)) === this.rootId)
       .filter((id) => settled(() => this.full.task(id).proposed) === true)
       .sort()
   }

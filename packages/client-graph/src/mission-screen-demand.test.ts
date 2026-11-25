@@ -134,7 +134,8 @@ it('folded branches and archived crew get no display fields prepared before they
     expect(archive).not.toHaveBeenCalled()
     expect(roster.mock.calls.filter(([, archived]) => archived === true)).toEqual([])
     expect(attached).not.toHaveBeenCalled()
-    expect(screen.archivedCount).toBe(2)
+    // Closed, the archive is not counted: that needs every row's history (POD-7580).
+    expect(screen.archivedCount).toBeUndefined()
     // Unfolding draws them: the guard sees reads when they happen.
     screen.fold('branch', false)
     await flush()
@@ -143,6 +144,10 @@ it('folded branches and archived crew get no display fields prepared before they
       presentation.mock.calls.filter(([issue]) => hidden.has(issue.id)).map(([issue]) => issue.id)
         .length,
     ).toBeGreaterThan(0)
+    // Opened, it counts the archived senders from their roster flag.
+    screen.setArchivedOpen(true)
+    await flush()
+    expect(screen.archivedCount).toBe(2)
   } finally {
     stop()
     screen.close()

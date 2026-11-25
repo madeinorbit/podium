@@ -151,6 +151,24 @@ export function settledAll<T, R>(
   return pending ? LOADING : values
 }
 const NO_CHILDREN: readonly string[] = Object.freeze([])
+/** The archived sessions of a tree's issues, one instance (`issueProjection.treeArchive`). */
+const treeArchiveOf = (root: string) =>
+  ({ collection: 'issueProjection.treeArchive', args: { root }, part: 'main' }) as const
+/**
+ * The children of `id` a deck draws (POD-7580), through the issue's
+ * `children` relation, which holds the tree they sit in
+ * (`collections.subtreeHeld`): under the deck's root that is the root's tree,
+ * which the deck holds (`MissionDeckModel.treeHeld`), one instance for every
+ * row; for a provenance member outside it, the member's own subtree. Until
+ * that tree is complete it answers the children in memory (`ready`), so the
+ * open members paint first and the closed ones arrive with the tree
+ * (POD-7088); what must count them all (`progress`) waits for `treeHeld`.
+ */
+function deckChildIds(view: MissionViewReader, id: string): string[] {
+  const children = view.facts(id).children
+  const all = children.members
+  return (all === LOADING ? children.ready : all).map((child) => child.id)
+}
 interface DeckTopology {
   readonly scope: ReadonlySet<string>
   readonly children: ReadonlyMap<string, readonly string[]>
@@ -184,7 +202,7 @@ const topology = (deck: MissionDeckModel): DeckTopology | typeof LOADING =>
       if (scope.has(id)) continue
       scope.add(id)
       if (visible(id) === false) continue
-      const kids = [...view.pool.graph.many('issue', id, 'children')]
+      const kids = deckChildIds(view, id)
       stack.push(...kids)
       children.set(
         id,
@@ -198,14 +216,20 @@ const topology = (deck: MissionDeckModel): DeckTopology | typeof LOADING =>
       const issue = view.facts(id)
       if (!issue.visible || id === deck.id || (issue.parentId && members.has(issue.parentId)))
         continue
-      const owner = issue.startedBySession
-        ? view.pool.graph.one('session', issue.startedBySession, 'missionIssue')
-        : null
+      // The starter's own issue (session.missionIssue, its stored issueId):
+      // the starter is looked up by id, so an absent one loads (POD-7580).
+      const starter = issue.startedBySession ? view.rawSession(issue.startedBySession) : undefined
+      if (starter === LOADING) {
+        pending = true
+        continue
+      }
+      const owner = starter?.issueId ?? null
       const parent = owner && members.has(owner) && owner !== id ? owner : deck.id
       const siblings = children.get(parent) ?? []
       if (!siblings.includes(id)) siblings.push(id)
       children.set(parent, siblings)
     }
+    if (pending) return LOADING
     const order = new Map<string, Pick<MissionIssue, 'sortKey' | 'seq'>>()
     const orderOf = (id: string) => {
       let key = order.get(id)
@@ -400,7 +424,11 @@ const descendants = (row: MissionDeckIssueModel) => {
 const childrenOf = (row: MissionDeckIssueModel) => row.deck.childrenIn(row.id)
 const crewIds = (row: MissionDeckIssueModel) => {
   const { view, facts } = row
-  return [...view.pool.graph.many('issue', row.id, 'missionSessions')]
+  // The roster seats (`onRoster`) are what the deck's tree comes with
+  // (DECK_SESSION_WHERE): in memory (`ready`) once the tree is, without the
+  // archived history (POD-7580).
+  return facts.missionSessions.unarchived.ready
+    .map((session) => session.id)
     .filter((id) => view.pool.sessionObject(id).onRoster)
     .sort(
       (a, b) =>
@@ -960,10 +988,11 @@ const progress = (deck: MissionDeckModel): MissionProgress | typeof LOADING =>
     if (pending) return LOADING
     const leaves = leafTasks(deck.id, {
       task: (id) => view.facts(id),
+      // Behind treeHeld: the root's tree holds every child (POD-7580).
       children: (id) =>
-        [...view.pool.graph.many('issue', id, 'children')].filter(
-          (child) => view.facts(child).visible && view.facts(child).stage !== 'proposed',
-        ),
+        requireLoaded(view.facts(id).children.members)
+          .map((child) => child.id)
+          .filter((child) => view.facts(child).visible && view.facts(child).stage !== 'proposed'),
     })
     // Settle every leaf's session demand before propagating LOADING, so cold
     // history hydrates as one batch rather than restarting the leaf walk per seat.
@@ -1227,7 +1256,7 @@ class MissionIssueReader {
   }
   @lazy get earliestChild() {
     let first: string | undefined
-    for (const id of this.view.pool.graph.many('issue', this.id, 'children'))
+    for (const id of deckChildIds(this.view, this.id))
       if (first === undefined || id < first) first = id
     return first
   }
@@ -1255,9 +1284,10 @@ class MissionIssueReader {
   @lazy get spinOffDependent(): boolean {
     const raw = this.view.catalogIssue(this.id)
     if (!raw) return false
-    let pending = raw === LOADING,
+    const sources = this.view.incoming(this.id, 'pageDependents')
+    let pending = raw === LOADING || sources === LOADING,
       found = false
-    for (const sourceId of this.view.pool.graph.many('issue', this.id, 'pageDependents')) {
+    for (const sourceId of sources === LOADING ? [] : sources) {
       const source = this.view.catalogIssue(sourceId)
       if (source === LOADING) pending = true
       else if (source?.deps?.some((dep) => dep.id === this.id && dep.type === 'discovered-from'))
@@ -1291,14 +1321,14 @@ class MissionIssueReader {
     return this.view.readHistoryRosterCount(this.id)
   }
   @lazy get menuHandoff(): MissionMenuHandoff | typeof LOADING {
-    const count = this.view.pool.graph.size('issue', this.id, 'handoffSessions')
-    if (count === 0) return { blocker: 'no-agent-session' }
-    if (count > 1) return { blocker: 'multiple-sessions' }
-    const sessionId = this.view.pool.graph
-      .many('issue', this.id, 'handoffSessions')
-      [Symbol.iterator]()
-      .next().value!
-    const session = this.view.menuSession(sessionId)
+    // Every handoff subject, archived and headless ones included: through the
+    // holding read of the issue's sessions, LOADING until the device holds
+    // them all (POD-7580). One open menu, one issue's history.
+    const senders = this.entity.handoffSessions.members
+    if (senders === LOADING) return LOADING
+    if (senders.length === 0) return { blocker: 'no-agent-session' }
+    if (senders.length > 1) return { blocker: 'multiple-sessions' }
+    const session = this.view.menuSession(senders[0]!.id)
     return session === LOADING ? LOADING : session ? { session } : { blocker: 'no-agent-session' }
   }
 }
@@ -1356,6 +1386,9 @@ export class MissionViewReader {
     // Over all history from the stubs: LOADING until they answer (POD-7088).
     const children = this.pool.queries.issueChildCounts(id)
     if (children === LOADING) return LOADING
+    // Every agent session over history, through the holding read (POD-7580).
+    const sessions = this.facts(id).pageSessions.members
+    if (sessions === LOADING) return LOADING
     const readAt = this.pool.readCursor(id) ?? null,
       readTime = Date.parse(readAt ?? '')
     return menuIssueOverlay(
@@ -1369,7 +1402,7 @@ export class MissionViewReader {
             Date.parse(row.updatedAt) > readTime ||
             (this.pool.visibleInputs.seatSummary?.(id).activity ?? 0) > readTime),
         ...children,
-        sessionSummary: { total: this.pool.graph.size('issue', id, 'pageSessions'), byPhase: {} },
+        sessionSummary: { total: sessions.length, byPhase: {} },
       },
       MENU_OMISSIONS,
     ) as IssueNavigationModel
@@ -1465,6 +1498,7 @@ export class MissionViewReader {
   }
   /** The archived list under a mission root's drawn rows, in row order. */
   archive(rootId: string, mode: FlightDeckMode): SessionView[] | typeof LOADING {
+    if (!this.archiveHeld(rootId)) return LOADING
     return deriveMissionArchive(this, this.deck(rootId, mode).rowIds(mode))
   }
   /** An archived session's facts: its shared seat when the whole row is in
@@ -1536,9 +1570,23 @@ export class MissionViewReader {
     }
     return pending ? LOADING : found
   }
+  /**
+   * The issue's seats that are not archived, in session order. The deck's
+   * tree brings every one a roster draws (`DECK_SESSION_WHERE`, which is
+   * `onRoster`) and the policy every live or asking one, so this reads them
+   * as they are in memory (`ready`) without holding the issue's archived
+   * history (POD-7580). A parked headless seat is in neither.
+   */
   readPresent(id: string): readonly SessionView[] | typeof LOADING {
-    const found = this.seatRows('missionSessions', id, false)
-    return found === LOADING ? LOADING : found.sort(this.sessionOrder)
+    const found: SessionView[] = []
+    let pending = false
+    for (const { id: sessionId } of this.facts(id).missionSessions.unarchived.ready) {
+      const session = this.pool.sessionObject(sessionId)
+      const seated = settled(() => session.exists && !session.archived)
+      if (seated === LOADING) pending = true
+      else if (seated) found.push(session as SessionView)
+    }
+    return pending ? LOADING : found.sort(this.sessionOrder)
   }
   readHistory(id: string): MissionHistory | typeof LOADING {
     const ids = this.seatIds('missionSessions', id, true)
@@ -1598,12 +1646,6 @@ export class MissionViewReader {
       summary: issue.memberSummary,
     }))
   }
-  /** The present and archived seats are both settled (history rows loaded). */
-  settled(id: string): boolean {
-    const present = this.present(id),
-      history = this.history(id)
-    return present !== LOADING && history !== LOADING
-  }
   /** First session in session order among the present and archived candidates. */
   earlier(
     present: SessionView | undefined,
@@ -1650,20 +1692,28 @@ export class MissionViewReader {
     const raw = omitGone(this.pool.row('issue', id))
     if (raw === LOADING || !raw) return raw
     const row = raw as IssueNavigationModel
-    if (!this.settled(id)) return LOADING
+    // The present seats only: nothing below reads the archived ones, which
+    // are held only while the archive is open (POD-7580).
+    if (this.present(id) === LOADING) return LOADING
     // Replica-derived member IDs exclude shells, but include archived/headless
     // attachments. The drawn roster applies its additional headless filter.
     // Archived members contribute through their own cached facts.
     // Without archived members a heartbeat walks only seated ones.
     const members = this.issueMembers(id)
     let pending = members === LOADING
-    const childIds = [...this.pool.graph.many('issue', id, 'treeChildren')]
+    // The sub-issues through the relation that holds their tree, as the
+    // deck's rows draw them: complete once the tree is (POD-7580).
+    const tree = this.facts(id).treeChildren,
+      held = tree.members
+    const childIds = (held === LOADING ? tree.ready : held).map((child) => child.id)
     const children = this.pool.queries.issueChildCounts(id)
     if (children === LOADING) pending = true
     // One declared inverse yields source IDs. Reading each source's declared
     // edge list preserves custom types, duplicate edges and per-source order.
     const dependents: IssueNavigationModel['dependents'] = []
-    for (const sourceId of [...this.pool.graph.many('issue', id, 'pageDependents')].sort()) {
+    const sources = this.incoming(id, 'pageDependents')
+    if (sources === LOADING) pending = true
+    for (const sourceId of sources === LOADING ? [] : sources) {
       const source = omitGone(this.pool.row('issue', sourceId)) as Loaded<IssueNavigationModel>
       if (source === LOADING) pending = true
       else if (source)
@@ -1742,7 +1792,7 @@ export class MissionViewReader {
       return root === LOADING ? LOADING : undefined
     if (root.isDraftVessel && !root.worktreePath) {
       const sessions = this.present(rootId)
-      if (sessions === LOADING || this.history(rootId) === LOADING) return LOADING
+      if (sessions === LOADING) return LOADING
       if (sessions.length === 0) return undefined
     }
     return root
@@ -1757,8 +1807,21 @@ export class MissionViewReader {
       (crew[0] ? `New ${panelLabel(crew[0].agentKind)} session` : 'New agent')
     )
   }
+  /**
+   * Whether the device holds the archived sessions of every issue in the
+   * tree under `rootId`: one instance for the whole deck
+   * (`issueProjection.treeArchive`, which comes with each issue's archived
+   * roster seats), held while observed, never one per row (POD-7580). The
+   * deck reads it only while its archive is open, so a closed deck never
+   * downloads history. A provenance member outside the tree is not in it.
+   */
+  archiveHeld(rootId: string): boolean {
+    return this.pool.collections.held(treeArchiveOf(rootId))
+  }
+  /** Every drawn row's archived roster, counted: read only while the archive is open. */
   readArchiveCount(deck: MissionDeckModel): number | typeof LOADING {
     return settled(() => {
+      if (!this.archiveHeld(deck.id)) return LOADING
       let count = 0,
         pending = false
       for (const id of requireLoaded(deck.rowIds())) {
@@ -1776,7 +1839,12 @@ export class MissionViewReader {
     let pending = false
     for (const id of [...members].sort()) {
       if (!this.facts(id).visible) continue
-      if (this.pool.graph.size('issue', id, 'spinOffs') === 0) continue
+      const spinOffs = this.incoming(id, 'spinOffs')
+      if (spinOffs === LOADING) {
+        pending = true
+        continue
+      }
+      if (spinOffs.length === 0) continue
       const result = settled(() => {
         const empty = !requireLoaded(this.roster(id)).some(
           (session) => this.pool.sessionObject(session.sessionId).open,
@@ -1813,9 +1881,10 @@ export class MissionViewReader {
   readRulesIssue(id: string): IssueNavigationModel | undefined {
     const raw = this.catalogIssue(id)
     if (!raw) return undefined
-    let pending = raw === LOADING
+    const sources = this.incoming(id, 'pageDependents')
+    let pending = raw === LOADING || sources === LOADING
     const dependents: IssueNavigationModel['dependents'] = []
-    for (const sourceId of [...this.pool.graph.many('issue', id, 'pageDependents')].sort()) {
+    for (const sourceId of sources === LOADING ? [] : sources) {
       const source = this.catalogIssue(sourceId)
       if (source === LOADING) pending = true
       else if (source)
@@ -1879,8 +1948,20 @@ export class MissionViewReader {
       (a, b) => this.lastActive(b, local).localeCompare(this.lastActive(a, local)),
     )[0]
   }
+  /**
+   * The issues whose dependency edges name `id`, sorted: every one
+   * (`pageDependents`) or the spin-offs discovered from it (`spinOffs`).
+   * Through the relation's holding read of the edges into the issue
+   * (`issueDep.toIssue`, which comes with each source issue), LOADING until
+   * the device holds them (POD-7580). The deck's tree does not bring them: a
+   * spin-off is an issue of its own, outside the tree it came from.
+   */
+  incoming(id: string, relation: 'spinOffs' | 'pageDependents'): string[] | typeof LOADING {
+    const sources = this.facts(id)[relation].members
+    return sources === LOADING ? LOADING : sources.map((source) => source.id).sort()
+  }
   tips(origin: string, local = false): IssueNavigationModel[] {
-    if (this.pool.graph.size('issue', origin, 'spinOffs') === 0) return []
+    if (requireLoaded(this.incoming(origin, 'spinOffs')).length === 0) return []
     return local ? this.node(origin).localTips : this.node(origin).liveTips
   }
   readTips(origin: string, local: boolean): IssueNavigationModel[] {
@@ -1890,13 +1971,22 @@ export class MissionViewReader {
     const stack = [origin]
     while (stack.length) {
       const parentId = stack.pop()!
-      const children = [...this.pool.graph.many('issue', parentId, 'spinOffs')].sort()
+      const children = this.incoming(parentId, 'spinOffs')
+      if (children === LOADING) {
+        pending = true
+        continue
+      }
       for (const id of children) {
         if (seen.has(id)) continue
         seen.add(id)
         // The relation preserves the legacy first discovered-from edge.
         // Parenting is an ID question; it need not wait for rich issue rows.
-        if (this.pool.graph.one('issue', id, 'discoveredFrom') !== parentId) continue
+        const from = this.originOf(id)
+        if (from === LOADING) {
+          pending = true
+          continue
+        }
+        if (from !== parentId) continue
         const visible = settled(() => this.facts(id).visible)
         if (visible === false) continue
         // Metadata, dependent-source fields and staffing are independent
@@ -1921,7 +2011,7 @@ export class MissionViewReader {
     for (const issue of descendants) {
       if (!leftMission(issue) && (local || !this.facts(issue.id).live)) continue
       let branchId: string = issue.id,
-        parentId = this.pool.graph.one('issue', issue.id, 'discoveredFrom')
+        parentId = requireLoaded(this.originOf(issue.id))
       const path = new Set<string>([issue.id])
       while (parentId && parentId !== origin) {
         if (path.has(parentId)) {
@@ -1930,7 +2020,7 @@ export class MissionViewReader {
         }
         path.add(parentId)
         branchId = parentId
-        parentId = this.pool.graph.one('issue', parentId, 'discoveredFrom')
+        parentId = requireLoaded(this.originOf(parentId))
       }
       if (parentId !== origin) continue
       const candidates = branches.get(branchId) ?? []
@@ -1941,6 +2031,16 @@ export class MissionViewReader {
       const tip = this.preferred(candidates, local)
       return tip ? [tip] : []
     })
+  }
+  /**
+   * The issue a spin-off was discovered from (`discoveredFrom`, its first
+   * discovered-from edge), through the model's lookup: LOADING while an
+   * absent origin loads, never null for an origin that is not in memory
+   * (POD-7580). Null when it names none, or names one that is gone.
+   */
+  originOf(id: string): string | null | typeof LOADING {
+    const origin = this.facts(id).discoveredFrom
+    return origin === LOADING ? LOADING : (origin?.id ?? null)
   }
   continuation(issue: IssueNavigationModel, local = false): IssueContinuation | null {
     // The successor is named by the stored field; the catalog read below looks

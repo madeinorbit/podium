@@ -118,13 +118,15 @@ function open(rows: IssueNavigationModel[], seats: SessionView[]) {
   return { pool, load, reader: missionView(pool) }
 }
 
-it('preserves real history errors at the mission pane boundary', () => {
+it('preserves real history errors at the reader boundary', () => {
   const { pool, reader } = open([issue('root')], [session('old', 'root')])
   const failure = new Error('Broken history')
   vi.spyOn(pool.sessionObject('old'), 'moved', 'get').mockImplementation(() => {
     throw failure
   })
-  const projection = createPoolProjection(pool, () => pane(reader.pool, 'root'))
+  // The pane reads no history while its archive is closed (POD-7580); a
+  // history reader still surfaces a real error, never LOADING.
+  const projection = createPoolProjection(pool, () => reader.history('root'))
   try {
     expect(() => projection.getSnapshot()).toThrow(failure)
   } finally {
