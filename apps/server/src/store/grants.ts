@@ -760,7 +760,8 @@ export class GrantsRepository {
                   newOwner,
                 }),
               ),
-            'update',
+            // The reparented rows, as they are now.
+            'upsert',
           )
           changes += result.changes
         }
