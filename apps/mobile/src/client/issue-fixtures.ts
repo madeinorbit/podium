@@ -1,5 +1,5 @@
 /** Demo/test scaffolding only. Live mobile reads never adapt a legacy row. */
-import type { IssueViewModel, Replica } from '@podium/client-core/replica'
+import type { IssueViewModel, IssueWithBodies, Replica } from '@podium/client-core/replica'
 import { LOADING } from '@podium/client-graph/loading'
 import {
   asIssuePanelItemId,
@@ -14,10 +14,12 @@ import {
   type UserId,
 } from '@podium/model'
 
+type IssueFixture = IssueViewModel & Partial<Pick<IssueWithBodies, 'description'>>
+
 /** Seed all normalized homes alongside the support-window legacy fixtures. */
 export function seedIssueFixtures(
   replica: Replica,
-  issues: readonly IssueViewModel[],
+  issues: readonly IssueFixture[],
   userId: UserId,
 ): void {
   let panelId = 0

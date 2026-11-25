@@ -119,7 +119,7 @@ it('phone list rows request no body and never warn about many body holds', async
         try {
           void issue.confirmedWorkingAgents
           void issue.taskProgress
-          void issue.dependencyNote
+          void issue.dependents
           void view.task(issue.id).mark
           void view.task(issue.id).progress
         } catch (error) {

@@ -57,15 +57,15 @@
       "tokens": "98a8aa825d8c5a944ac260f7d5ac72922a231ef25000665c78be1c37c715709a",
       "gate": [],
       "origin": [
-        "b260981f94e757d299cf9a1c01ef0b7a3d9869e9a3d944af8518c85a193743e1"
+        "d5c7b20b34032b78bb8f09a33a61287ba3d63f72ee7c6aa6ff181dce2b5fc82d"
       ],
-      "fingerprint": "70dcddaa8564e8d8054309da7343fa96cb738a3ef168efc5c2ffd8352a91a891",
+      "fingerprint": "edb23b21e8df72d4776bf102caf4ba1e2bb861acd20d0f26031e9035cf834ced",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of seedIssueFixtures",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-7546: pending body values are omitted only in this phone fixture seeder; the fixture input and its existing classification are unchanged. POD-7555: preserve pending body answers; record and collection scope are unchanged.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-7546: pending body values are omitted only in this phone fixture seeder; the fixture input and its existing classification are unchanged. POD-7555: preserve pending body answers; record and collection scope are unchanged. POD-7555: preserve pending body answers; record and collection scope are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
