@@ -83,6 +83,12 @@ function openDeck(
   return { answers, screen: opened.model, close: opened.close }
 }
 
+/**
+ * Pins, not regressions: the deck holds its root's tree, which brings every
+ * sub-issue, so the old raw child read saw them too (these pass without the
+ * change). They hold the getter to the same answer, and to one tree for every
+ * row: no sub-issue asks for a subtree of its own.
+ */
 describe('the deck reads the children of its rows from its tree', () => {
   it('draws a closed sub-issue the policy never brought, from the root tree alone', async () => {
     const device = await open(epic)
@@ -188,17 +194,23 @@ describe("the deck reads a spin-off's origin through its lookup", () => {
 })
 
 describe('the deck reads the issues that depend on a row from its tree', () => {
-  /** An open root with a finished spin-off and an issue blocked by it, both changed long ago. */
+  /**
+   * An open root with a finished spin-off and an issue blocked by it, both
+   * changed long ago. The spin-off has a spin-off of its own, outside the
+   * tree too.
+   */
   const world = (server: Server) => {
     openIssue(server, 'top')
     oldIssue(server, 'spin', 92)
     putDep(server, 'spin', 'top', 'discovered-from')
     oldIssue(server, 'blocked', 93)
     putDep(server, 'blocked', 'top', 'blocked-by')
+    oldIssue(server, 'spin2', 94)
+    putDep(server, 'spin2', 'spin', 'discovered-from')
   }
   const EDGES = 'issueDep.toIssue{"issueId":"top"}'
 
-  it('outside a tree, the read holds the edges into the issue itself', async () => {
+  it('outside a tree, the reader holds nothing; the issue its screen shows holds its edges', async () => {
     const device = await open(world)
     const reader = new MissionViewReader(device.pool)
     const answers: unknown[] = []
@@ -207,9 +219,18 @@ describe('the deck reads the issues that depend on a row from its tree', () => {
       (view) => answers.push(view.incoming('top', 'pageDependents')),
     )
     await device.untilIdle()
-    expect(answers[0]).toBe(LOADING)
-    expect(answers.at(-1)).toEqual(['blocked', 'spin'])
+    // What the device holds: nothing asked, nothing per issue.
+    expect(answers.at(-1)).toEqual([])
+    expect(device.requestedKeys()).toEqual([])
+    // The screen that shows the issue holds them (IssuePageRow.spinOffsHeld).
+    const page = device.observe(
+      () => device.pool.issueObject('top'),
+      (issue) => void issue.pageDependents.members,
+    )
+    await device.untilIdle()
     expect(device.requestedKeys()).toEqual([EDGES])
+    expect(answers.at(-1)).toEqual(['blocked', 'spin'])
+    page.close()
     opened.close()
   })
 
@@ -220,7 +241,9 @@ describe('the deck reads the issues that depend on a row from its tree', () => {
     const deck = openDeck(device, 'top', answer)
     await device.untilIdle()
     // The root's tree brings the edges into its issues and their sources:
-    // no row holds an instance of its own (POD-7580).
+    // no row holds an instance of its own, and no spin-off outside the tree
+    // asks for its edges or its subtree (POD-7580, review B1).
+    expect(device.requestedKeys().filter((key) => !key.includes('"top"'))).toEqual([])
     expect(device.requestedKeys()).toContain('issueProjection.tree{"root":"top"}')
     expect(device.requestedKeys()).not.toContain(EDGES)
     deck.close()

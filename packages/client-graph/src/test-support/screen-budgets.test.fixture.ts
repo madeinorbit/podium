@@ -43,8 +43,10 @@ const EPICS = 10
 /**
  * A workspace: `issues` closed issues under one mission `R` (ten epics, the
  * rest under them), each with an ended session, every tenth depending on the
- * one before it; and `open` open top-level issues for the sidebar. Returns
- * the mission's issues.
+ * one before it, and every tenth (from the sixth) with a spin-off of its own
+ * outside the mission, which has a spin-off of its own (POD-7580: the deck
+ * walks them for its tips, asking nothing per spin-off); and `open` open
+ * top-level issues for the sidebar. Returns the mission's issues.
  */
 export function budgetWorkspace(server: CollectionServer, size: WorkspaceSize): readonly string[] {
   server.pageRows = 50
@@ -69,6 +71,23 @@ export function budgetWorkspace(server: CollectionServer, size: WorkspaceSize): 
       `S-${id}`,
       session(`S-${id}`, { issueId: id, status: 'ended', cwd: '/synthetic' }),
     )
+    if (n % 10 === 5)
+      for (const [spin, from] of [
+        [`X${n}`, id],
+        [`XX${n}`, `X${n}`],
+      ] as const) {
+        server.put(
+          ISSUE,
+          spin,
+          closedValue(spin, { deps: [{ id: from, type: 'discovered-from' }] }),
+        )
+        server.put('issueDep', `${spin}-discovered-from`, {
+          id: `${spin}-discovered-from`,
+          fromId: spin,
+          toId: from,
+          type: 'discovered-from',
+        })
+      }
     ids.push(id)
   }
   return ids

@@ -159,14 +159,15 @@ const treeArchiveOf = (root: string) =>
  * `children` relation, which holds the tree they sit in
  * (`collections.subtreeHeld`): under the deck's root that is the root's tree,
  * which the deck holds (`MissionDeckModel.treeHeld`), one instance for every
- * row; for a provenance member outside it, the member's own subtree. Until
- * that tree is complete it answers the children in memory (`ready`), so the
- * open members paint first and the closed ones arrive with the tree
- * (POD-7088); what must count them all (`progress`) waits for `treeHeld`.
+ * row. A provenance member outside it is read as the device holds it: the
+ * deck asks no subtree per member. Until the tree is complete it answers the
+ * children in memory (`ready`), so the open members paint first and the
+ * closed ones arrive with the tree (POD-7088); what must count them all
+ * (`progress`) waits for `treeHeld`.
  */
 function deckChildIds(view: MissionViewReader, id: string): string[] {
   const children = view.facts(id).children
-  const all = children.members
+  const all = view.treeCovers(id) ? children.members : LOADING
   return (all === LOADING ? children.ready : all).map((child) => child.id)
 }
 interface DeckTopology {
@@ -1710,9 +1711,11 @@ export class MissionViewReader {
     const members = this.issueMembers(id)
     let pending = members === LOADING
     // The sub-issues through the relation that holds their tree, as the
-    // deck's rows draw them: complete once the tree is (POD-7580).
+    // deck's rows draw them: complete once the tree is (POD-7580). A tip
+    // outside every held tree (a spin-off) lists the ones in memory and
+    // asks for no tree of its own.
     const tree = this.facts(id).treeChildren,
-      held = tree.members
+      held = this.treeCovers(id) ? tree.members : LOADING
     const childIds = (held === LOADING ? tree.ready : held).map((child) => child.id)
     const children = this.pool.queries.issueChildCounts(id)
     if (children === LOADING) pending = true
@@ -1963,16 +1966,28 @@ export class MissionViewReader {
   /**
    * The issues whose dependency edges name `id`, sorted: every one
    * (`pageDependents`) or the spin-offs discovered from it (`spinOffs`).
-   * Through the relation's holding read of the edges into the issue
-   * (`issueDep.toIssue`, which comes with each source issue), LOADING until
-   * the device holds them (POD-7580). Under the deck that read is the root's
-   * tree, which comes with the edges into each of its issues and their source
-   * issues (a spin-off sits outside the tree); outside a held tree it holds
-   * the issue's own edges.
+   * For an issue a tree covers (the deck's rows), through the relation's
+   * holding read, which reads the tree: the deck's tree comes with the edges
+   * into each of its issues and their source issues, so it is LOADING until
+   * the tree is here (POD-7580). For an issue no tree covers (a spin-off
+   * outside the deck's tree, an issue page's issue), what the device holds
+   * now: this reader holds nothing per issue, so a deck asks the same
+   * instances whatever the number of its spin-offs. A screen that shows one
+   * such issue holds its edges itself (`IssuePageRow`).
    */
   incoming(id: string, relation: 'spinOffs' | 'pageDependents'): string[] | typeof LOADING {
-    const sources = this.facts(id)[relation].members
+    const edges = this.facts(id)[relation]
+    if (!this.treeCovers(id)) return edges.ready.map((source) => source.id).sort()
+    const sources = edges.members
     return sources === LOADING ? LOADING : sources.map((source) => source.id).sort()
+  }
+  /**
+   * Whether a tree on the issue's parent chain is held complete, or on its
+   * way for an open view (`collections.treeBrings`): then the tree answers
+   * the issue's relations, and a read through it asks nothing per issue.
+   */
+  treeCovers(id: string): boolean {
+    return this.pool.collections.treeBrings(id) !== undefined
   }
   tips(origin: string, local = false): IssueNavigationModel[] {
     if (requireLoaded(this.incoming(origin, 'spinOffs')).length === 0) return []
@@ -2204,8 +2219,11 @@ export class MissionViewReader {
       roster === undefined ? sessions.find((session) => session.handoffTarget) : this.moved(roster)
     if (moved)
       return { kind: 'moved', text: `Session moved to ${moved.handoffTarget}`, attention: false }
-    const continuation = this.continuation(issue, local)
-    if (continuation) return { kind: 'moved', text: continuation.full, attention: false }
+    // A continuation still loading is no continuation yet: the lines below
+    // are known without it (offline too), and it wins once it is here.
+    const continuation = settled(() => this.continuation(issue, local))
+    if (continuation !== LOADING && continuation)
+      return { kind: 'moved', text: continuation.full, attention: false }
     if (issue.blocked) return { kind: 'blocked', text: this.blockLabel(issue), attention: false }
     const waiting = this.waitingLabel(issue)
     if (waiting) return { kind: 'waiting', text: waiting, attention: false }

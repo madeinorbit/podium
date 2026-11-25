@@ -252,6 +252,8 @@ export interface EmptyDeviceScreenOptions extends DeviceOptions {
   readonly answer?: RequestAnswer
   /** Mount with the connection already cut: what the screen asks for is refused. */
   readonly offline?: boolean
+  /** The shell's selected issue (`useUiValue('selectedIssueId')`): the flight deck opens its mission. */
+  readonly selectedIssueId?: string
 }
 
 /**
@@ -286,6 +288,7 @@ export async function mountOnEmptyDevice(
   if (current !== null) throw new Error('one empty device at a time')
   state = screenState()
   state.answers.current = options.answer
+  state.selectedIssueId = options.selectedIssueId ?? null
   vi.stubGlobal('fetch', fakeNetwork(state.fetched, options.members))
   const device = await openEmptyDevice(options)
   current = device

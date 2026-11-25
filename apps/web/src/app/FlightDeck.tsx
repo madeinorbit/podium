@@ -1104,6 +1104,10 @@ const DeckArchive = observer(function DeckArchive({
       {archivedOpen && archiveUnavailable && (
         <NotAvailable what="archived sessions" className="mt-1" />
       )}
+      {/* The open archive's one instance is on its way (POD-7580). */}
+      {archivedOpen && !archiveUnavailable && archivedCount === LOADING && (
+        <BodyPending value={LOADING} what="archived sessions" className="mt-1" />
+      )}
       {archivedOpen && !archiveUnavailable && (
         <ArchivedSessions rootId={screen.rootId} mode={screen.mode}>
           {(archivedSessions) => (

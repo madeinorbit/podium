@@ -350,19 +350,29 @@ export class IssuePageRow {
     const reader = missionView(this.pool),
       present = reader.present(this.issue.id)
     if (present === LOADING) throw LOADING
-    // The continuation in it waits for the edges into the issue (POD-7580):
-    // an optional line, absent until they answer, never a blank panel offline.
-    const note = settled(() => reader.presence(this.issue, present, false, this.issue.id))
-    return note === LOADING ? null : note
+    // Its continuation reads the spin-offs: held here (`spinOffsHeld`).
+    // While they load the line says what is known without them (blocked,
+    // waiting, done, review), offline too (POD-7580).
+    void this.spinOffsHeld
+    return reader.presence(this.issue, present, false, this.issue.id)
   }
   /** Where this task's work went on (a spin-off tip, a superseding task),
    *  for the panel's one-line notice; null while an agent is still on it.
-   *  The spin-off tips read the edges into the issue through their holding
-   *  read (POD-7580): the notice is absent until they answer, so the panel
-   *  draws offline. */
+   *  Absent until the page holds the edges into its issue (`spinOffsHeld`),
+   *  so the panel draws while they load and offline (POD-7580). */
   @lazy get continuation() {
+    if (!this.spinOffsHeld) return null
     const continuation = settled(() => missionView(this.pool).continuation(this.issue, false))
     return continuation === LOADING ? null : continuation
+  }
+  /**
+   * POD-7580 — the page holds the edges into its one issue
+   * (`issue.spinOffs`, `issueDep.toIssue`): the mission reader reads an
+   * issue no tree covers from memory and holds nothing per issue, so the
+   * screen that shows the issue holds them. True once they are all here.
+   */
+  @lazy get spinOffsHeld(): boolean {
+    return this.pool.issueObject(this.issue.id).spinOffs.members !== LOADING
   }
   @lazy get hasTargets(): boolean {
     if (this.pool.collections.available) {

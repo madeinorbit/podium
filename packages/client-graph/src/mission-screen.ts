@@ -467,8 +467,10 @@ export class MissionScreen {
    * history, which only an open archive holds (POD-7580), so a closed deck
    * never downloads it; there is no count without it.
    */
-  @lazy get archivedCount(): number | undefined {
-    return this.archivedOpen ? requireLoaded(this.deck.archivedCount) : undefined
+  @lazy get archivedCount(): number | undefined | typeof LOADING {
+    // LOADING while the open archive loads, and while the server refuses it
+    // (`archiveUnavailable` says which): never a throw out of the section.
+    return this.archivedOpen ? settled(() => this.deck.archivedCount) : undefined
   }
   @lazy({ equals: compareStructural }) get note() {
     return this.deck.note
