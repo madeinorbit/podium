@@ -216,7 +216,8 @@ describe('session create: pinned statement counts at 5 and 200', () => {
     // POD-6920 derived capture had put this at 41; the current resolver is measured below.
     // Credential resolution replaced the old accounts environment lookup (POD-6890).
     // The no-credential path no longer reads accounts, but still checks native opt-in.
-    const counts = await expectConstantStatements(draft, 42)
+    // POD-7594 (db531e59bf, review N4): a launch re-reads its owner's membership whether or not it carries a secret: 42 -> 43.
+    const counts = await expectConstantStatements(draft, 43)
     for (const tally of [counts.small, counts.large]) {
       expect([...tally.byQuery.keys()].some((key) => /from "accounts"/.test(key))).toBe(false)
       expect(
@@ -234,7 +235,7 @@ describe('session create: pinned statement counts at 5 and 200', () => {
   })
 
   it('in-process pin is armed', async () => {
-    await expectArmed(draft, 42, plantPerSession)
+    await expectArmed(draft, 43, plantPerSession)
   })
 
   // ROUND TRIPS ON HOSTED POSTGRES [POD-6992, POD-6958 design 2.11]: the driver calls that
@@ -242,7 +243,8 @@ describe('session create: pinned statement counts at 5 and 200', () => {
   // statement or with the workspace lock, one per statement, one per COMMIT). About 2.6 ms
   // each on hosted Postgres; docs/measurements/pod-6958-hosted-round-trips.md.
   it('in process, a draft session in a repo: round trips', async () => {
-    await expectConstantRoundTrips(draft, 50)
+    // POD-7594 (db531e59bf, review N4): a launch re-reads its owner's membership whether or not it carries a secret: 50 -> 51.
+    await expectConstantRoundTrips(draft, 51)
   }, 60_000)
 
   it('in process, a session on an issue', async () => {
@@ -257,7 +259,8 @@ describe('session create: pinned statement counts at 5 and 200', () => {
           }),
       ),
       // POD-6890: the credential resolver removes the old accounts environment read: 46 -> 45.
-      47,
+      // POD-7594 (db531e59bf, review N4): a launch re-reads its owner's membership whether or not it carries a secret: 47 -> 48.
+      48,
     )
   })
 

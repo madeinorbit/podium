@@ -148,7 +148,9 @@ describe('statement counts of the per-user record writes', () => {
   it('a preference edit does not grow with the preferences the table holds', async () => {
     // POD-7068: its delivery is counted whole; a window that ended when the submit
     // returned could miss the delivery's scoping read of workspace_meta: 16 -> 17.
-    await expectConstantStatements(preferencesEdit, 17)
+    // 5309e313d7 (POD-7289): the process-wide settings snapshot is gone, and with
+    // it the instance-blob re-read every member's settings.changed ran: 17 -> 16.
+    await expectConstantStatements(preferencesEdit, 16)
   })
 
   it('a read position edit does not grow with the positions the table holds', async () => {

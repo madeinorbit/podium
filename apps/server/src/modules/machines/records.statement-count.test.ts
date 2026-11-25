@@ -247,7 +247,9 @@ describe('statement counts of the machine record writes', () => {
     // POD-6934: the setup's own deliveries now run before the count (they had spilled into it): 18 -> 16.
     // POD-7068: its delivery is counted whole; the window had ended before the
     // delivery's checkouts read and the second checkout_lost and checkout_reach reads: 16 -> 19.
-    await expectConstantStatements(grantWrite, 19)
+    // POD-7552 (6ac0969a11): the delivery records the grantee's access move
+    // (one sync_access_moves upsert, constant at both sizes): 19 -> 20.
+    await expectConstantStatements(grantWrite, 20)
   })
 
   it('a member role comparison reads a fixed number of times across the fleet', async () => {
@@ -306,6 +308,10 @@ describe('statement counts of the machine record writes', () => {
 // change: the change log gains no checkout row, and no machine row.
 it('a burst of agent edits, commits and heartbeats writes no worktree or machine rows', async () => {
   const f = await fixture(8)
+  // The fixture enrolls its machine as `fixture-machine` since bad285a503; a
+  // heartbeat naming another host is a hostname change, which every access row
+  // reads, not a heartbeat from the same host.
+  const hostname = (await f.o.store.machines.getMachine(f.machine))!.hostname
   const before = await f.o.store.sync.maxChangeSeq()
   const repo = f.scan.repositories[0]!
   for (let step = 0; step < 40; step++) {
@@ -313,7 +319,7 @@ it('a burst of agent edits, commits and heartbeats writes no worktree or machine
     repo.worktrees = repo.worktrees.map((tree, at) => ({ ...tree, headSha: `wt-${at}-${step}` }))
     await f.o.reg.modules.checkouts.rescan(f.machine)
     // A heartbeat from the same host (the fixture's hostname).
-    await f.o.store.machines.touchMachine(f.machine, 'test')
+    await f.o.store.machines.touchMachine(f.machine, hostname)
   }
   const changed = (await f.o.store.sync.changesSince(before)).filter(
     (row) =>

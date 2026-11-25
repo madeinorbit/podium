@@ -349,7 +349,9 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
       // runs four times, formerly three, for current queue state in session
       // projection/publication. Transcript presence moved from podium_events
       // GROUP BY to an indexed sessions SELECT (one for one). Net 29 -> 30.
-      30,
+      // POD-7597 (bd9965a2a4): an in-process session read no longer asks first
+      // whether the instance has an active admin: 30 -> 29.
+      29,
     )
     expectGrantReads(counts, 0)
   })
@@ -664,7 +666,8 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
       // As for runtimeEvent: one more grouped queued_messages COUNT supplies
       // the fresh queue tally; transcript presence switches tables one for one.
       // Measured at both sizes, 26 -> 27, without another session write.
-      27,
+      // POD-7597 (bd9965a2a4): no active-admin read on an in-process session read: 27 -> 26.
+      26,
     )
     // The accepted state is part of the existing row upsert, never a second write.
     for (const tally of [counts.small, counts.large])

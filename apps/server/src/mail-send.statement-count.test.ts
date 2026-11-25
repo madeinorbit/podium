@@ -238,7 +238,8 @@ describe('mail send: pinned statement counts', { timeout: fixtureTimeout }, () =
   // not repeated lookups inside a per-message loop.
   const pgPublicationReason =
     'Postgres separates post-commit publication and held-mail eligibility into more passes; each reads its live retention floor, message/target records and authorization facts.'
-  const trpcSessionStatements = { sqlite: 93, pg: 98, reason: pgPublicationReason }
+  // POD-7597 (bd9965a2a4): an in-process session read no longer asks first whether the instance has an active admin, so the default principal's account read is gone: 93 -> 92 (pg 98 -> 97).
+  const trpcSessionStatements = { sqlite: 92, pg: 97, reason: pgPublicationReason }
 
   // POD-6218: the earliest admin is one statement (its row) and is read once per
   // operation, and so are its settings (`meta`, `user_preferences`). tRPC to a session
@@ -298,7 +299,8 @@ describe('mail send: pinned statement counts', { timeout: fixtureTimeout }, () =
   it('over tRPC, to a running session: round trips', async () => {
     await expectConstantRoundTrips(
       trpcToSession,
-      pinnedCountFor({ sqlite: 135, pg: 140, reason: pgPublicationReason }, testStoreEngine()),
+      // POD-7597 (bd9965a2a4): no active-admin read on a session read: 135 -> 134 (pg 140 -> 139).
+      pinnedCountFor({ sqlite: 134, pg: 139, reason: pgPublicationReason }, testStoreEngine()),
     )
   })
 
@@ -327,7 +329,9 @@ describe('mail send: pinned statement counts', { timeout: fixtureTimeout }, () =
         async (f) => await f.call.messages.send({ to: f.target, body: 'counted' }),
       ),
       // POD-6920: derived change capture (no build before the write; one drain after it): 125 -> 99.
-      { sqlite: 100, pg: 111, reason: pgPublicationReason },
+      // POD-7597 (bd9965a2a4): no active-admin read on an in-process session read,
+      // once per operation (the send and its delivery passes): 100 -> 98 (pg 111 -> 108).
+      { sqlite: 98, pg: 108, reason: pgPublicationReason },
     )
   })
 
@@ -341,7 +345,9 @@ describe('mail send: pinned statement counts', { timeout: fixtureTimeout }, () =
       // POD-7558: unchanged. The relayed sender's human is checked for
       // membership (+1), and queued input resolves through the session
       // service's principalFor, which reads no session view (-1).
-      { sqlite: 92, pg: 100, reason: pgPublicationReason },
+      // POD-7597 (bd9965a2a4): no active-admin read on an in-process session read,
+      // once per operation: 92 -> 90 (pg 100 -> 97).
+      { sqlite: 90, pg: 97, reason: pgPublicationReason },
     )
   })
 
@@ -385,7 +391,8 @@ describe('mail send: pinned statement counts', { timeout: fixtureTimeout }, () =
         async (f) => await f.call.messages.send({ to: f.issueId, body: 'counted' }),
       ),
       // POD-6920: derived change capture (no build before the write; one drain after it): 17 -> 20.
-      20,
+      // POD-7597 (bd9965a2a4): no active-admin read on an in-process session read: 20 -> 19.
+      19,
     )
   })
 
@@ -396,7 +403,8 @@ describe('mail send: pinned statement counts', { timeout: fixtureTimeout }, () =
   )
   // POD-7558: unchanged; the member read (+1) is offset by queued input resolving
   // through principalFor instead of the session view (-1).
-  const relaySessionStatements = { sqlite: 85, pg: 87, reason: pgPublicationReason }
+  // POD-7597 (bd9965a2a4): no active-admin read on an in-process session read: 85 -> 84 (pg 87 -> 86).
+  const relaySessionStatements = { sqlite: 84, pg: 86, reason: pgPublicationReason }
 
   it('through the agent relay, to a running session', async () => {
     // POD-6920: derived change capture (no build before the write; one drain after it): relayed messages.send to a session 110 -> 84.
@@ -410,7 +418,8 @@ describe('mail send: pinned statement counts', { timeout: fixtureTimeout }, () =
   it('through the agent relay, to a running session: round trips (POD-6992)', async () => {
     if (testStoreEngine() !== 'pg') {
       // POD-7558: unchanged (member read +1, queued input via principalFor -1).
-      await expectConstantRoundTrips(relayToSession, 121)
+      // POD-7597 (bd9965a2a4): no active-admin read on a session read: 121 -> 120.
+      await expectConstantRoundTrips(relayToSession, 120)
       return
     }
     // The independent 12-second activity tick can land during the slower PG
@@ -453,7 +462,8 @@ describe('mail send: pinned statement counts', { timeout: fixtureTimeout }, () =
       }
       expect(families, detail).toEqual({
         // POD-7558: unchanged (member read +1, queued input via principalFor -1).
-        statement: 87 + activityScans + 2 * activityWrites,
+        // POD-7597 (bd9965a2a4): no active-admin read on a session read: 87 -> 86.
+        statement: 86 + activityScans + 2 * activityWrites,
         begin: 10 + activityWrites,
         commit: 10 + activityWrites,
         savepoint: 8,
@@ -479,7 +489,8 @@ describe('mail send: pinned statement counts', { timeout: fixtureTimeout }, () =
       ),
       // POD-6920: derived change capture (no build before the write; one drain after it): 28 -> 33.
       // POD-7558: the sender's human is checked for membership (one users read): 33 -> 34.
-      34,
+      // POD-7597 (bd9965a2a4): no active-admin read on an in-process session read: 34 -> 33.
+      33,
     )
   })
 
@@ -493,11 +504,14 @@ describe('mail send: pinned statement counts', { timeout: fixtureTimeout }, () =
       // POD-7558: the dispatcher resolves the agent in the store (its session row, its
       // owner, the owner's member row) instead of through the session view, which also
       // read the issue and the session's queued-message count: 31 -> 29.
-      29,
+      // POD-7597 (bd9965a2a4): no active-admin read on an in-process session read: 29 -> 28.
+      28,
     )
   })
 })
 
 // Measured on the polaris VM (POD-6218). POD-6525: the counted send's target
 // check reads the sender's account for its role floor, once: 1 -> 2.
-const HELD_PASS_USERS_READS = 2
+// POD-7597 (bd9965a2a4): the default principal's account (the active admin an
+// in-process session read asked for) is no longer read: 2 -> 1.
+const HELD_PASS_USERS_READS = 1

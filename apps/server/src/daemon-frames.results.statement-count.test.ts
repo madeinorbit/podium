@@ -382,7 +382,9 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
     // Diffed against the original pin: issueAccessByIds adds one scoped
     // SELECT of execution pointers and quarantine fields for the sharing rules
     // before publishing the notice/effect (POD-7153). Fixed cost 20 -> 21.
-    await expectConstantStatements(approval, 21)
+    // POD-7597 (bd9965a2a4): an in-process session read no longer asks first
+    // whether the instance has an active admin: 21 -> 20.
+    await expectConstantStatements(approval, 20)
   })
 
   it('approvalExecResult pin is armed', async () => {
