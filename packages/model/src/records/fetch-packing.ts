@@ -32,6 +32,8 @@ export interface PackableInstance {
   readonly via?: string
   readonly after?: readonly unknown[]
   readonly keys?: readonly string[]
+  /** POD-7609 — the instance whose rows the device holds; such an instance goes alone. */
+  readonly rowsHeld?: { readonly collection: string; readonly seq: number }
 }
 
 const keyedArguments = new Map<string, string | undefined>()
@@ -70,7 +72,12 @@ export function keyedArgument(collectionId: string): string | undefined {
 
 /** The group an instance packs into, or `undefined` when it goes on the wire alone. */
 function packGroup(instance: PackableInstance): { group: string; key: string } | undefined {
-  if (instance.after !== undefined || instance.keys !== undefined) return undefined
+  if (
+    instance.after !== undefined ||
+    instance.keys !== undefined ||
+    instance.rowsHeld !== undefined
+  )
+    return undefined
   // An omitted part is the collection's own: only a main part packs.
   if ((instance.part ?? COLLECTIONS.get(instance.collection)?.part) !== 'main') return undefined
   const param = keyedArgument(instance.collection)

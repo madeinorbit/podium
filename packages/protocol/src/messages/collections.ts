@@ -73,6 +73,16 @@ export const CollectionInstance = z.object({
    * that argument out.
    */
   keys: z.array(z.string().min(1)).min(1).max(COLLECTION_FETCH_MAX_KEYS).optional(),
+  /**
+   * POD-7609 — the device holds the records of this collection's instance
+   * with the same arguments complete as of feed number `seq` (a deck's tree,
+   * asked with its archive). The two collections' rules must be the same. The
+   * server sends only the members changed after `seq`, and still answers what
+   * the instance comes with. The marker is the instance's own.
+   */
+  rowsHeld: z
+    .object({ collection: z.string().min(1), seq: z.number().int().nonnegative() })
+    .optional(),
 })
 export type CollectionInstance = z.infer<typeof CollectionInstance>
 
@@ -147,6 +157,12 @@ export const CompleteInstance = z.object({
   range: CollectionRange.optional(),
   /** A paged instance's first page: how many records the whole instance holds for this viewer. */
   total: z.number().int().nonnegative().optional(),
+  /**
+   * POD-7609 — the instance was asked naming held rows, and the answer left
+   * out the members the device holds unchanged: they are among its members.
+   * Absent, every member was sent.
+   */
+  rowsHeld: z.literal(true).optional(),
 })
 export type CompleteInstance = z.infer<typeof CompleteInstance>
 

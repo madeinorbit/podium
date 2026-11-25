@@ -31,6 +31,7 @@ export * from './define-record'
 export * from './fetch-packing'
 export * from './live'
 export * from './live-payloads'
+export * from './rows-held'
 export * from './rule'
 export * from './rule-corpus'
 
