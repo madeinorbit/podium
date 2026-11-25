@@ -11,6 +11,7 @@ import { useAgeNow } from '../../lib/clock-hooks'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { alpha } from '../../theme/mix'
 import { color, font, leading, radius, sans, space, tracking } from '../../theme/theme'
+import { BodyPending } from '../BodyPending'
 import { PressableScale } from '../PressableScale'
 import { RichMarkdown, RichMarkdownPreview } from '../RichMarkdown'
 import { Disclosure, InlineEditable } from './chrome'
@@ -135,15 +136,14 @@ export const IssueDescription = observer(function IssueDescription({
   busy: boolean
   commands: IssueCommands
 }) {
+  if (issue.description === LOADING) return <BodyPending label="Description" />
   return (
     <View>
       <InlineEditable
-        value={issue.description === LOADING ? '' : issue.description} // POD-7555: LOADING reads as empty on the phone
+        value={issue.description}
         placeholder="Add a description…"
         ariaLabel="Task description"
         busy={busy}
-        // POD-7545: no edit starts over a description not on the device (POD-7555 owns the screen).
-        loading={issue.description === LOADING}
         onCommit={commands.commitDescription}
         render={(text) => <RichMarkdown text={text} />}
       />
@@ -155,16 +155,18 @@ export const IssueDescriptionPreview = observer(function IssueDescriptionPreview
   props: Parameters<typeof IssueDescription>[0],
 ) {
   const [open, setOpen] = useState(false)
-  const description = props.issue.description === LOADING ? '' : props.issue.description // POD-7555: LOADING reads as empty on the phone
+  const description = props.issue.description
   return (
     <View style={styles.descriptionPreview} testID="issue-description-section">
       <Text style={styles.previewLabel}>Description</Text>
-      {open || !description.trim() ? (
+      {description === LOADING ? (
+        <BodyPending label="Description" />
+      ) : open || !description.trim() ? (
         <IssueDescription {...props} />
       ) : (
         <RichMarkdownPreview text={description} />
       )}
-      {description.trim() ? (
+      {description !== LOADING && description.trim() ? (
         <PressableScale
           accessibilityRole="button"
           accessibilityLabel={open ? 'Less description' : 'More description'}
@@ -185,7 +187,8 @@ export const IssueDescriptionPreview = observer(function IssueDescriptionPreview
  *  label until asked for. */
 export const IssueBrief = observer(function IssueBrief({ issue }: { issue: IssueWithBodies }) {
   const [open, setOpen] = useState(false)
-  if (!issue.brief || issue.brief === LOADING) return null // POD-7555: LOADING reads as empty on the phone
+  if (issue.brief === LOADING) return <BodyPending label="Brief" />
+  if (!issue.brief) return null
   // A fold among folds now: no section gap of its own.
   return (
     <View>

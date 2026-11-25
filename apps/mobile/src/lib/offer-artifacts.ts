@@ -49,13 +49,14 @@ export function offerArtifactRows(args: {
   workspace?: string
   /** Available tile slots, including the overflow tile. */
   max?: number
-}): { rows: OfferArtifactRow[]; extra: number; allRows: OfferArtifactRow[] } {
+}): { rows: OfferArtifactRow[]; extra: number; allRows: OfferArtifactRow[] } | typeof LOADING {
   const held = resolveOfferArtifacts({
     offer: args.offer,
     issue: args.issue,
     ...(args.lastInputAt ? { lastInputAt: args.lastInputAt } : {}),
   })
-  const resolved = held === LOADING ? [] : held // POD-7555: LOADING reads as empty on the phone
+  if (held === LOADING) return LOADING
+  const resolved = held
   const issue = args.issue
   if (!issue || resolved.length === 0) return { rows: [], extra: 0, allRows: [] }
 

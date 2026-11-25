@@ -154,6 +154,8 @@ export function issueCommands({
   /** Generic field patch — the single `issues.update` call site. Keep the
    *  page's existing clear-value surface intact at this transport seam. */
   const update = (patch: Record<string, unknown>): void => {
+    if ('description' in patch && issue.description === LOADING) return
+    if ('brief' in patch && issue.brief === LOADING) return
     void run(() => actions.updateIssue(id, patch as IssueUpdatePatch))
   }
 
@@ -184,8 +186,7 @@ export function issueCommands({
       update({ title })
     },
     commitDescription: (value: string): void => {
-      // POD-7545: never a whole-text replace over a description not on the
-      // device yet; the phone's editor itself is POD-7555's.
+      // A whole-text replacement requires the existing text on this device.
       if (issue.description === LOADING) return
       if (value === issue.description) return
       update({ description: value })

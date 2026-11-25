@@ -32,9 +32,16 @@ export function seedIssueFixtures(
   const repos = new Map<string, RepoProjection>()
   const deps: IssueDepProjection[] = []
   for (const issue of issues) {
-    const panel = issue.panel === LOADING ? undefined : issue.panel // POD-7555: LOADING reads as empty on the phone
-    const activityNotes = issue.activityNotes === LOADING ? undefined : issue.activityNotes // POD-7555: LOADING reads as empty on the phone
-    const notesUpdatedAt = issue.notesUpdatedAt === LOADING ? undefined : issue.notesUpdatedAt // POD-7555: LOADING reads as empty on the phone
+    const panel = issue.panel
+    const activityNotes = issue.activityNotes
+    const notesUpdatedAt = issue.notesUpdatedAt
+    if (
+      panel === LOADING ||
+      activityNotes === LOADING ||
+      notesUpdatedAt === LOADING ||
+      issue.description === LOADING
+    )
+      throw new Error('Issue fixtures must supply loaded bodies')
     const source = issue as unknown as Record<string, unknown>
     const row: Record<string, unknown> = {}
     for (const key of Object.keys(IssueProjection.shape)) {
@@ -45,7 +52,7 @@ export function seedIssueFixtures(
     row.repoId = repoId
     // A fixture paints its bodies on the row; a painted text wins over the
     // issueBrief / issueDescription records (POD-6921).
-    row.description = { value: (issue as { description?: string }).description ?? '' }
+    row.description = { value: issue.description ?? '' }
     row.intentOrigin = issue.intentOrigin
     row.isDraftVessel = issue.isDraftVessel
     delete row.panel

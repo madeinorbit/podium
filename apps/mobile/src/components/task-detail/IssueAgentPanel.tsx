@@ -12,6 +12,7 @@ import { useOptionalServerProfile } from '../../client/server-profile-context'
 import { issueArtifactHref, issueArtifactLabel } from '../../lib/issue-artifacts'
 import { color, font, leading, radius, sans, space } from '../../theme/theme'
 import { ArtifactViewer, type ArtifactViewerItem } from '../ArtifactViewer'
+import { BodyPending } from '../BodyPending'
 import { Icon } from '../Icon'
 import { FileText, Play } from '../icons'
 import { PressableScale } from '../PressableScale'
@@ -52,7 +53,8 @@ export const IssueAgentPanel = observer(function IssueAgentPanel({
   const workspace = profile?.config.workspaceId ?? profile?.config.workspaceSlug
 
   const [openKey, setOpenKey] = useState<string | null>(null)
-  const panel = issue.panel === LOADING ? undefined : issue.panel // POD-7555: LOADING reads as empty on the phone
+  const panel = issue.panel
+  if (panel === LOADING) return <BodyPending label={only ?? 'Artifacts and deferred items'} />
   const artifacts = only === 'deferred' ? [] : (panel?.artifacts ?? [])
   const deferred = only === 'artifacts' ? [] : (panel?.deferred ?? [])
   if (artifacts.length === 0 && deferred.length === 0) return null

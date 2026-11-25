@@ -1,7 +1,24 @@
 import type { IssueWithBodies } from '@podium/client-core/replica'
+import { LOADING } from '@podium/client-graph/loading'
 import { asArtifactId, asIssueId, type IssuePanelArtifact, type SessionOffer } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { offerArtifactRows, resolveOfferArtifacts } from './offer-artifacts'
+import { offerArtifactRows as readRows, resolveOfferArtifacts } from './offer-artifacts'
+
+function offerArtifactRows(args: Parameters<typeof readRows>[0]) {
+  const rows = readRows(args)
+  if (rows === LOADING) throw new Error('Expected loaded artifacts')
+  return rows
+}
+
+it('preserves an unanswered panel instead of resolving an empty strip', () => {
+  expect(
+    readRows({
+      offer: offerFor(['proof.html']),
+      issue: { panel: LOADING } as IssueWithBodies,
+      httpOrigin: ORIGIN,
+    }),
+  ).toBe(LOADING)
+})
 
 // Offer evidence on the phone [POD-120]: the desktop's resolution, plus the
 // per-row draw/open facts the strip needs — kept pure so the mapping is

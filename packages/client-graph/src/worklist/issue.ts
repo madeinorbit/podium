@@ -433,7 +433,11 @@ export class WorklistIssue implements HeldIssue, RowView {
   }
 
   private readUnitOwn(): UnitOwn {
-    return unitOwnFields(this.host.rollupInputs, this.id, this)
+    return unitOwnFields(this.host.rollupInputs, this.id, this, () => {
+      const spinOffs = this.issue.spinOffs.members
+      if (spinOffs === LOADING) throw LOADING
+      return spinOffs.length
+    })
   }
 
   get label(): Label {
@@ -941,8 +945,10 @@ export class WorklistIssue implements HeldIssue, RowView {
    * to one child's row re-reads this list only when that answer moves.
    */
   @lazy({ equals: compareShallow }) private get formalChildIds(): readonly string[] {
+    const children = this.issue.children.members
+    if (children === LOADING) throw LOADING
     const ids: string[] = []
-    for (const child of this.host.visibleInputs.formalChildren(this.id)) {
+    for (const { id: child } of children) {
       const held = this.worklist.knownRow(child)
       if (held === undefined ? formalMemberOf(this.host.rollupInputs.loadedIssue(child)) : held.formalMember)
         ids.push(child)

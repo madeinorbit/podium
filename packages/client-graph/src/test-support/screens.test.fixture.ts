@@ -138,6 +138,29 @@ export function phoneMissionReaders(device: Device, selectedId: string): ScreenR
   }
 }
 
+/** The visible body fields of the redesigned phone's reader surfaces. */
+export const PHONE_BODY_FIELDS = {
+  taskOverview: ['description', 'brief', 'panel', 'activityNotes'],
+  taskSheet: ['description', 'panel', 'activityNotes', 'notesUpdatedAt'],
+  proposal: ['description', 'brief'],
+  offer: ['panel'],
+  chatUpload: ['chatUploads'],
+} as const
+
+export function phoneBodyReaders(
+  device: Device,
+  id: string,
+  surface: keyof typeof PHONE_BODY_FIELDS,
+) {
+  const issue = device.pool.issueObject(id)
+  const content = () =>
+    Object.fromEntries(PHONE_BODY_FIELDS[surface].map((field) => [field, issue[field]]))
+  return {
+    content,
+    loading: () => Object.values(content()).includes(LOADING),
+  }
+}
+
 /** The page of a stage column. */
 export const stagePage = (stage: string): InstanceSpec => ({
   collection: 'issueProjection.byStage',

@@ -34,6 +34,7 @@ import {
   sans,
   space,
 } from '../theme/theme'
+import { BodyPending } from './BodyPending'
 import { IdSquare } from './IdSquare'
 import { PressableScale } from './PressableScale'
 import { Pill } from './ui'
@@ -220,8 +221,8 @@ export const ScreeningCard = issueObserver(function ScreeningCard({
   const blockers = issue.blockedByNotes.length
   const progress = childProgressOf(issue)
   const openChildren = progress ? Math.max(0, progress.childCount - progress.childDoneCount) : 0
-  const brief = issue.brief === LOADING ? undefined : issue.brief?.trim() // POD-7555: LOADING reads as empty on the phone
-  const description = issue.description === LOADING ? '' : issue.description.trim() // POD-7555: LOADING reads as empty on the phone
+  const brief = issue.brief === LOADING ? LOADING : issue.brief?.trim()
+  const description = issue.description === LOADING ? LOADING : issue.description.trim()
   const agentKind = issueDefaultAgentKind(issue.defaultAgent, codingHarness)
   const modelBits = [issueAgentLabel(agentKind), issue.defaultModel, issue.defaultEffort]
     .filter((bit) => bit && bit !== 'auto')
@@ -288,14 +289,18 @@ export const ScreeningCard = issueObserver(function ScreeningCard({
         </View>
 
         <View style={styles.body}>
-          {description ? (
+          {description === LOADING ? (
+            <BodyPending label="Description" />
+          ) : description ? (
             <Text style={styles.description} numberOfLines={expanded ? undefined : brief ? 5 : 9}>
               {description}
             </Text>
           ) : (
             <Text style={styles.noDescription}>No summary was filed with this proposal.</Text>
           )}
-          {brief ? (
+          {brief === LOADING ? (
+            <BodyPending label="Brief" />
+          ) : brief ? (
             <View style={styles.briefBlock}>
               <Text style={styles.briefLabel}>BRIEF</Text>
               <Text style={styles.brief} numberOfLines={5}>

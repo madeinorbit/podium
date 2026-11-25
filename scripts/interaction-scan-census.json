@@ -54,18 +54,18 @@
       "file": "apps/mobile/src/client/issue-fixtures.ts",
       "holder": "seedIssueFixtures",
       "rule": "loop:for-of",
-      "tokens": "040fcf3461e7db7cf28258daec54297a7f6482ef527308c23cfabf39d7bcfff9",
+      "tokens": "98a8aa825d8c5a944ac260f7d5ac72922a231ef25000665c78be1c37c715709a",
       "gate": [],
       "origin": [
         "b260981f94e757d299cf9a1c01ef0b7a3d9869e9a3d944af8518c85a193743e1"
       ],
-      "fingerprint": "ee59cd72fbbe09c763cca9181b07a6fd61373285acf414f28c1e29be15884731",
+      "fingerprint": "70dcddaa8564e8d8054309da7343fa96cb738a3ef168efc5c2ffd8352a91a891",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of seedIssueFixtures",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-7546: pending body values are omitted only in this phone fixture seeder; the fixture input and its existing classification are unchanged.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-7546: pending body values are omitted only in this phone fixture seeder; the fixture input and its existing classification are unchanged. POD-7555: preserve pending body answers; record and collection scope are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -100,7 +100,7 @@
       "file": "apps/mobile/src/client/test-support.tsx",
       "holder": "renderWithMobileStore",
       "rule": "helper-consumer",
-      "tokens": "30cd2a828c69c51c6b1dc7db66338c60a584b05b7e4fbffb8204e6c772b41a01",
+      "tokens": "8ae30ff747bd8ef790580407bedb077227b6c4c3200abe2842cfdce844fc0249",
       "gate": [
         "then:340050db2368d08922eee549b81b405b8afd7f6857e8dc18875cb9e8e9cd8f23"
       ],
@@ -108,13 +108,13 @@
         "241a0331a71588c9cfd9dee4a0d372658006f11d0778e6476f836b12089cb86f",
         "6f11c75cfd59086594ade3cce541105aa89e50bdeacf7b6418f676ea43226c12"
       ],
-      "fingerprint": "da20abd9a7204d71617607bde60c1b4ce9d42f338335c5a7770985ddeec18edf",
+      "fingerprint": "d65730787b9ce4965bb9c84200a508e45e611b4884e5ff3a1a8ca6c4dd76882a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of renderWithMobileStore",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-7546: the called fixture seeder now handles pending body values; this caller and its input bound are unchanged. Merging dev/mw into integrate (POD-7592) combined both sides’ changes to this fixture helper (POD-7546 here, the new phone app upstream); the caller, its input bound and the classification are unchanged.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-7546: the called fixture seeder now handles pending body values; this caller and its input bound are unchanged. Merging dev/mw into integrate (POD-7592) combined both sides’ changes to this fixture helper (POD-7546 here, the new phone app upstream); the caller, its input bound and the classification are unchanged. POD-7555: preserve pending body answers; record and collection scope are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -37021,7 +37021,7 @@
       "file": "apps/mobile/src/screens/IssueScreen.tsx",
       "holder": "IssueContent/IssueContent/commands",
       "rule": "helper-consumer",
-      "tokens": "060e0c651f97d7112ff3586b80fc12ba3022557b101c1140f0acc7d6e75ae202",
+      "tokens": "fa2899ad75af1f4b8ba51afc0eab1b673580b58d3d04d5deef5207525c2a5148",
       "gate": [],
       "origin": [
         "2da686ae13c8d602a2f6590aaa5f967dd5f4f634022be47a4f93180d9b8541cf",
@@ -37034,13 +37034,13 @@
         "d05c1e54e8eac028d5312ed64716bf92cfd5382d32a6f6292799a6ea5677ddac",
         "f54332cb25c02ffc0d4f9a7d3d69d15a6ba8995dc995a2f574baacfdf994dea4"
       ],
-      "fingerprint": "3b174c0674e2117d6dc8efb9315f6e685dc0ad1281fa47a307a8bfb4375f2a5f",
+      "fingerprint": "6e318adf71d7962fa29f67e120aa7bd61115621d053198113b25e462c4974ac8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-6707",
       "trigger": "Invocation of IssueContent/IssueContent/commands",
       "bound": "No cardinality bound is newly claimed for this transitive collection path.",
-      "reason": "POD-6682 exposes this existing command/helper path through explicit command modules and root readers. The command bodies and collection operations are unchanged; this entry preserves the existing scan debt rather than claiming a bounded replacement.",
+      "reason": "POD-6682 exposes this existing command/helper path through explicit command modules and root readers. The command bodies and collection operations are unchanged; this entry preserves the existing scan debt rather than claiming a bounded replacement. POD-7555: preserve pending body answers; record and collection scope are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This move is not a scan repair; the whole-data scan sweep remains responsible for proving or replacing this path."
     },
     {

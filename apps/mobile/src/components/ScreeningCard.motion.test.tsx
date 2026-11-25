@@ -1,4 +1,10 @@
 import type { IssueWithBodies } from '@podium/client-core/replica'
+import type { MobxPool } from '@podium/client-graph/pool'
+import {
+  FULL_BODIES,
+  openEmptyDevice,
+  putIssueWithBodies,
+} from '@podium/client-graph/test-support/empty-device.test.fixture'
 import { asIssueId } from '@podium/model'
 import { act, render } from '@testing-library/react'
 import { observable, runInAction } from 'mobx'
@@ -6,6 +12,7 @@ import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const motion = vi.hoisted(() => ({
+  pool: null as MobxPool | null,
   reduceMotion: false,
   gesture: undefined as
     | {
@@ -19,6 +26,8 @@ const motion = vi.hoisted(() => ({
   springExecutions: [] as { target: number; suppressed: boolean }[],
   timingExecutions: [] as { target: number; suppressed: boolean }[],
 }))
+
+vi.mock('../client/mobile-pool', () => ({ useMobilePool: () => motion.pool }))
 
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => motion.reduceMotion }))
 const settings = vi.hoisted(() => ({ model: undefined as { codingHarness: string } | undefined }))
@@ -105,6 +114,36 @@ vi.mock('./PressableScale', async () => {
 vi.mock('./ui', () => ({ Pill: () => null }))
 
 const { ScreeningCard } = await import('./ScreeningCard')
+
+it.each([false, true])('proposal bodies on an empty phone, offline=%s', async (offline) => {
+  const device = await openEmptyDevice({
+    world: (server) => putIssueWithBodies(server, 'proposal', { stage: 'proposed' }),
+  })
+  motion.pool = device.pool
+  if (offline) device.offline()
+  const view = render(
+    <ScreeningCard
+      issue={device.pool.issueObject('proposal') as unknown as IssueWithBodies}
+      repoName="podium"
+      onSkip={() => {}}
+      onOpen={() => {}}
+    />,
+  )
+  try {
+    expect(view.queryByText('No summary was filed with this proposal.')).toBeNull()
+    expect(view.getAllByText(offline ? 'Not available offline' : 'Loading…')).toHaveLength(2)
+    await act(async () => {
+      if (offline) device.online()
+      await device.untilIdle()
+    })
+    expect(view.getByText(FULL_BODIES.description)).toBeTruthy()
+    expect(view.getByText(FULL_BODIES.brief)).toBeTruthy()
+  } finally {
+    view.unmount()
+    device.dispose()
+    motion.pool = null
+  }
+})
 
 it('shows and follows the Settings harness for an auto proposal', () => {
   settings.model = observable({ codingHarness: 'codex' })

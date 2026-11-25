@@ -1,6 +1,7 @@
 import type { IssueWithBodies } from '@podium/client-core/replica'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 import { blockingCloseConcerns, issueCloseConcerns } from '@podium/client-core/values'
+import { LOADING } from '@podium/client-graph/loading'
 import { asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { MobileTrpc } from '../client/trpc'
@@ -59,8 +60,13 @@ function harness(
   const commands = issueCommands({
     trpc: {} as MobileTrpc,
     issue: over.issue ?? issue(),
-    hasCloseBlockers: (id) => blockingCloseConcerns(issueCloseConcerns(over.issue ?? issue(),
-      (over.sessions ?? []).filter(row => row.issueId === id))).length > 0,
+    hasCloseBlockers: (id) =>
+      blockingCloseConcerns(
+        issueCloseConcerns(
+          over.issue ?? issue(),
+          (over.sessions ?? []).filter((row) => row.issueId === id),
+        ),
+      ).length > 0,
     run: async (fn) => {
       await fn()
     },
@@ -77,6 +83,18 @@ const dirty = {
   dirtyFiles: 3,
   dirtyOwn: 3,
 }
+
+it('refuses description and brief replacements until their bodies arrive', () => {
+  const model = issue({ description: LOADING, brief: LOADING })
+  const { commands, updateIssue } = harness({ issue: model })
+  commands.commitDescription('Replacement')
+  commands.update({ description: 'Replacement' })
+  commands.update({ brief: 'Replacement' })
+  expect(updateIssue).not.toHaveBeenCalled()
+  Object.assign(model, { description: 'Existing description' })
+  commands.commitDescription('Replacement')
+  expect(updateIssue).toHaveBeenCalledWith('task', { description: 'Replacement' })
+})
 
 describe('selectStatus close guard', () => {
   it('closes on the press when the derivation found nothing at stake', async () => {

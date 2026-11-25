@@ -13,6 +13,7 @@ import { useOptionalServerProfile } from '../../client/server-profile-context'
 import { issueArtifactHref, issueArtifactLabel } from '../../lib/issue-artifacts'
 import { adaptiveColor, color, font, leading, radius, sans, space } from '../../theme/theme'
 import { ArtifactViewer, type ArtifactViewerItem } from '../ArtifactViewer'
+import { BodyPending } from '../BodyPending'
 import { Icon } from '../Icon'
 import { FileText, MessagesSquare, Play } from '../icons'
 import { PressableScale } from '../PressableScale'
@@ -104,7 +105,7 @@ export const TaskSummary = observer(function TaskSummary({
   } | null>(null)
   const [commenting, setCommenting] = useState(false)
   const [notesExpanded, setNotesExpanded] = useState(false)
-  const notes = issue.activityNotes === LOADING ? undefined : issue.activityNotes?.trim() // POD-7555: LOADING reads as empty on the phone
+  const notes = issue.activityNotes === LOADING ? LOADING : issue.activityNotes?.trim()
   const headline = offer?.message.split('\n')[0]?.trim()
   // Session rows already open chat. An empty task gets the launch action;
   // comments remain in Activity.
@@ -132,7 +133,9 @@ export const TaskSummary = observer(function TaskSummary({
             {offer.message}
           </Text>
         ) : null}
-        {notes && notes !== offer?.message ? (
+        {notes === LOADING ? (
+          <BodyPending label="Current update" />
+        ) : notes && notes !== offer?.message ? (
           <Text
             numberOfLines={notesExpanded ? undefined : 4}
             style={[styles.summary, offer?.message && styles.summaryAfterHeadline]}
@@ -141,7 +144,7 @@ export const TaskSummary = observer(function TaskSummary({
             {notes}
           </Text>
         ) : null}
-        {notes && notes !== offer?.message && !notesExpanded ? (
+        {notes !== LOADING && notes && notes !== offer?.message && !notesExpanded ? (
           <PressableScale
             accessibilityRole="button"
             accessibilityLabel="More update"
@@ -270,7 +273,9 @@ export const ArtifactStrip = observer(function ArtifactStrip({
   const workspace = profile?.config.workspaceId ?? profile?.config.workspaceSlug
   const [all, setAll] = useState(false)
   const [openKey, setOpenKey] = useState<string | null>(null)
-  const artifacts = issue.panel === LOADING ? [] : (issue.panel?.artifacts ?? []) // POD-7555: LOADING reads as empty on the phone
+  const panel = issue.panel
+  if (panel === LOADING) return <BodyPending label="Artifacts" />
+  const artifacts = panel?.artifacts ?? []
   if (artifacts.length === 0) return null
   // The viewer pages through every openable artifact ("2 of 3"), not just the
   // five the strip draws, so a swipe reaches the rest.

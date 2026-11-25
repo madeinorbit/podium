@@ -1,5 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { LOADING } from '@podium/client-graph/loading'
 import type { SessionOffer } from '@podium/model'
+import { observer } from 'mobx-react-lite'
 import { useState } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
 import { authenticatedImageSource } from '../client/authenticated-assets'
@@ -10,6 +12,7 @@ import { useIssueModel } from '../client/use-issue-model'
 import { OFFER_STRIP_MAX, type OfferArtifactRow, offerArtifactRows } from '../lib/offer-artifacts'
 import { color, monoLabel, radius, sans, space } from '../theme/theme'
 import { ArtifactViewer, type ArtifactViewerItem } from './ArtifactViewer'
+import { BodyPending } from './BodyPending'
 import { Icon } from './Icon'
 import { FileText, Globe, Image as ImageGlyph, Play } from './icons'
 import { PressableScale } from './PressableScale'
@@ -25,7 +28,7 @@ const TILE_GAP = 10
  * or scrolls sideways. Taps open the phone's existing artifact viewer; +N opens
  * the task's full artifact list.
  */
-export function OfferArtifactStrip({
+export const OfferArtifactStrip = observer(function OfferArtifactStrip({
   offer,
   issue,
   lastInputAt,
@@ -55,7 +58,7 @@ export function OfferArtifactStrip({
   // The panel the paths resolve against is its own records (POD-6778): the
   // pool's issue model answers it; the session header's summary row carries none.
   const model = useIssueModel(issue?.id)
-  const { rows, extra, allRows } = offerArtifactRows({
+  const resolved = offerArtifactRows({
     offer,
     issue: model ?? undefined,
     httpOrigin,
@@ -63,6 +66,8 @@ export function OfferArtifactStrip({
     ...(workspace ? { workspace } : {}),
     ...(lastInputAt ? { lastInputAt } : {}),
   })
+  if (resolved === LOADING) return <BodyPending label="Offer artifacts" />
+  const { rows, extra, allRows } = resolved
   if (rows.length === 0 && extra === 0) return null
   // The viewer pages through every offered artifact this phone can reach, in
   // the strip's order, including the ones folded into +N.
@@ -161,7 +166,7 @@ export function OfferArtifactStrip({
       ) : null}
     </>
   )
-}
+})
 
 function glyphFor(preview: OfferArtifactRow['preview']) {
   if (preview === 'video') return Play

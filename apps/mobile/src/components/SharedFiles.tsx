@@ -1,4 +1,5 @@
 import { isImagePath, stagedAttachmentId } from '@podium/client-core/values'
+import { LOADING } from '@podium/client-graph/loading'
 import type { TranscriptItem } from '@podium/model'
 import { machinePathBasename, resolveMachinePath } from '@podium/model'
 import { useEffect, useState } from 'react'
@@ -14,6 +15,7 @@ import { sessionAssetUrl, type TranscriptAssetContext } from '../lib/transcript-
 import { useDismissOnRootLeave } from '../navigation/use-dismiss-on-root-leave'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
 import { ActivityModal as Modal } from './ActivityModal'
+import { BodyPending } from './BodyPending'
 import { Icon } from './Icon'
 import { ImageLightbox } from './ImageLightbox'
 import { FileText, X } from './icons'
@@ -58,6 +60,13 @@ function SharedPath({
     uploadId ?? (context ? stagedAttachmentId(resolveMachinePath(context.cwd, path)) : undefined),
     context?.httpOrigin,
   )
+  if (stored === LOADING)
+    return (
+      <View>
+        <FileChip label={name} />
+        <BodyPending label={name} />
+      </View>
+    )
   const url =
     stored ?? (context && uploadId === undefined ? sessionAssetUrl(context, path) : undefined)
   // Failure belongs to the URL that failed: the issue's copy landing after a

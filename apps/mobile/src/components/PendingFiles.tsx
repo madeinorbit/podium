@@ -1,4 +1,4 @@
-import { FileText } from './icons'
+import { LOADING } from '@podium/client-graph/loading'
 import { useState } from 'react'
 import { Image, StyleSheet, Text, View } from 'react-native'
 import { authenticatedImageSource } from '../client/authenticated-assets'
@@ -6,7 +6,9 @@ import { useChatUploadUrl } from '../client/chat-uploads'
 import { useServerProfile } from '../client/server-profile-context'
 import type { TranscriptAssetContext } from '../lib/transcript-assets'
 import { color, font, radius, sans, space } from '../theme/theme'
+import { BodyPending } from './BodyPending'
 import { Icon } from './Icon'
+import { FileText } from './icons'
 
 type PendingFile = {
   path: string
@@ -35,6 +37,13 @@ function HeldFile({ file, context }: { file: PendingFile; context?: TranscriptAs
   const url = useChatUploadUrl(context?.sessionId, file.attachmentId, context?.httpOrigin)
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const name = file.name ?? file.path
+  if (url === LOADING)
+    return (
+      <View>
+        <FileChip name={name} />
+        <BodyPending label={name} />
+      </View>
+    )
   // Only an image is drawn; a document, a copy not stored yet, or one that
   // fails to decode is its name.
   if (file.kind !== 'image' || !url || failedUrl === url) return <FileChip name={name} />

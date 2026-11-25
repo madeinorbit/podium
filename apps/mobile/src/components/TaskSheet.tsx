@@ -47,6 +47,7 @@ import {
 import { ActionSheet } from './ActionSheet'
 import { AgentMark, kindTone, markSize } from './AgentMark'
 import { ArtifactViewer } from './ArtifactViewer'
+import { BodyPending } from './BodyPending'
 import { BottomSheet } from './BottomSheet'
 import { Composer } from './Composer'
 import { Icon } from './Icon'
@@ -341,38 +342,47 @@ const SheetBody = observer(function SheetBody({
   const detail = views?.row(issue.id)
   const children = detail?.children ?? []
   const mine = detail?.inspectorSessions ?? []
-  if (typeof children === 'symbol' || typeof mine === 'symbol') throw LOADING
-  const heldRelations = (issue as PageIssue).relationGroups
-  const relations = heldRelations === LOADING ? [] : heldRelations // POD-7555: LOADING reads as empty on the phone
   // Prefer the immutable hosted id. The slug fallback keeps URL-selected web
   // profiles scoped when an id is not available yet.
   const workspace = profile?.config.workspaceId ?? profile?.config.workspaceSlug
-  const artifacts = issue.panel === LOADING ? [] : (issue.panel?.artifacts ?? []) // POD-7555: LOADING reads as empty on the phone
-  const notesUpdatedAt = issue.notesUpdatedAt === LOADING ? undefined : issue.notesUpdatedAt // POD-7555: LOADING reads as empty on the phone
-  const activityNotes = issue.activityNotes === LOADING ? undefined : issue.activityNotes // POD-7555: LOADING reads as empty on the phone
+  const panel = issue.panel
+  const notesUpdatedAt = issue.notesUpdatedAt
+  const activityNotes = issue.activityNotes
+  const description = issue.description
   const git = issue.gitState
 
   return (
     <View style={styles.body}>
       {/* The task in the author's own words, UNCAPPED — it sits in the scroll
           precisely so it can be. */}
-      {/* POD-7555: LOADING reads as empty on the phone. */}
-      {issue.description !== LOADING && issue.description.trim() ? (
-        <Text style={styles.prose}>{issue.description}</Text>
+      {description === LOADING ? (
+        <BodyPending label="Description" />
+      ) : description.trim() ? (
+        <Text style={styles.prose}>{description}</Text>
       ) : null}
 
       <Part
         title="Current update"
-        meta={notesUpdatedAt ? relativeTime(notesUpdatedAt, Date.now()) : undefined}
+        meta={
+          notesUpdatedAt !== LOADING && notesUpdatedAt
+            ? relativeTime(notesUpdatedAt, Date.now())
+            : undefined
+        }
       >
-        <Text style={[styles.proseTight, activityNotes ? null : styles.proseEmpty]}>
-          {activityNotes || 'No status posted yet.'}
-        </Text>
+        {activityNotes === LOADING || notesUpdatedAt === LOADING ? (
+          <BodyPending label="Current update" />
+        ) : (
+          <Text style={[styles.proseTight, activityNotes ? null : styles.proseEmpty]}>
+            {activityNotes || 'No status posted yet.'}
+          </Text>
+        )}
       </Part>
 
-      {artifacts.length > 0 ? (
-        <Part title="Artifacts" meta={String(artifacts.length)}>
-          {artifacts.map((artifact) => {
+      {panel === LOADING ? (
+        <BodyPending label="Artifacts" />
+      ) : panel?.artifacts.length ? (
+        <Part title="Artifacts" meta={String(panel.artifacts.length)}>
+          {panel.artifacts.map((artifact) => {
             const url = issueArtifactHref(issue, artifact, httpOrigin, workspace)
             const label = issueArtifactLabel(artifact)
             return (
@@ -394,7 +404,9 @@ const SheetBody = observer(function SheetBody({
           })}
         </Part>
       ) : null}
-      {children.length > 0 ? (
+      {typeof children === 'symbol' ? (
+        <BodyPending label="Subtasks" />
+      ) : children.length > 0 ? (
         <Part title="Subtasks" meta={subtaskMeta(issue)}>
           {children.map((child) => (
             <SheetChildRow key={child.id} child={child} onOpenIssue={onOpenIssue} />
@@ -402,7 +414,9 @@ const SheetBody = observer(function SheetBody({
         </Part>
       ) : null}
 
-      {mine.length > 0 ? (
+      {typeof mine === 'symbol' ? (
+        <BodyPending label="Agents and sessions" />
+      ) : mine.length > 0 ? (
         <Part title="Agents & sessions" meta={String(mine.length)}>
           {mine.map((session) => (
             <SheetSessionRow
@@ -414,13 +428,7 @@ const SheetBody = observer(function SheetBody({
         </Part>
       ) : null}
 
-      {relations.length > 0 ? (
-        <Part title="Relations" meta={String(relations.length)}>
-          {relations.map((rel) => (
-            <SheetRelationRow key={rel.section} rel={rel} pool={pool ?? null} />
-          ))}
-        </Part>
-      ) : null}
+      <SheetRelations issue={issue} pool={pool ?? null} />
 
       {issue.branch ? (
         <Part title="Branch & worktree">
@@ -436,6 +444,23 @@ const SheetBody = observer(function SheetBody({
       ) : null}
     </View>
   )
+})
+
+const SheetRelations = observer(function SheetRelations({
+  issue,
+  pool,
+}: {
+  issue: IssueWithBodies
+  pool: MobxPool | null
+}) {
+  const relations = (issue as PageIssue).relationGroups
+  return relations.length > 0 ? (
+    <Part title="Relations" meta={String(relations.length)}>
+      {relations.map((rel) => (
+        <SheetRelationRow key={rel.section} rel={rel} pool={pool} />
+      ))}
+    </Part>
+  ) : null
 })
 
 function Part({

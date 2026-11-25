@@ -1,8 +1,13 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { fullDevice } from '@podium/client-graph/full-device-fixture'
 import { MobxPool } from '@podium/client-graph/pool'
+import {
+  FULL_BODIES,
+  openEmptyDevice,
+  putIssueWithBodies,
+} from '@podium/client-graph/test-support/empty-device.test.fixture'
 import type { IssuePanelArtifact } from '@podium/model'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 /**
@@ -18,7 +23,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
  */
 
 afterEach(cleanup)
-vi.mock('../client/mobile-pool', () => ({ useMobilePool: () => null }))
+const state = vi.hoisted(() => ({ pool: null as MobxPool | null }))
+vi.mock('../client/mobile-pool', () => ({ useMobilePool: () => state.pool }))
 vi.mock('../client/use-issue-close', () => ({ useIssueCloseGuard: () => () => false }))
 
 vi.mock('expo-haptics', () => ({
@@ -70,6 +76,42 @@ vi.mock('./ArtifactViewer', async () => {
 })
 
 const { TaskSheet } = await import('./TaskSheet')
+
+it.each([
+  false,
+  true,
+])('the empty-device sheet keeps the state line pending, offline=%s', async (offline) => {
+  const device = await openEmptyDevice({ world: (server) => putIssueWithBodies(server, 'sheet') })
+  state.pool = device.pool
+  if (offline) device.offline()
+  const view = render(
+    <TaskSheet
+      issue={device.pool.issueObject('sheet') as unknown as IssueViewModel}
+      pool={device.pool}
+      onClose={() => {}}
+      onOpenSession={() => {}}
+    />,
+  )
+  try {
+    expect(view.queryByText('No status posted yet.')).toBeNull()
+    await act(() => device.untilIdle())
+    if (offline) {
+      expect(view.getAllByText('Not available offline').length).toBeGreaterThan(0)
+      expect(view.queryByText('No status posted yet.')).toBeNull()
+      await act(async () => {
+        device.online()
+        await device.untilIdle()
+      })
+    }
+    expect(view.getByText(FULL_BODIES.description)).toBeTruthy()
+    expect(view.getByText(FULL_BODIES.stateLine)).toBeTruthy()
+    expect(view.getByText(FULL_BODIES.artifacts[0]!.title)).toBeTruthy()
+  } finally {
+    view.unmount()
+    device.dispose()
+    state.pool = null
+  }
+})
 
 const artifact = { path: 'report.html', addedAt: '2026-08-28T10:00:00.000Z' } as IssuePanelArtifact
 

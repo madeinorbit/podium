@@ -35,6 +35,7 @@ import {
 } from '../client/use-issue-model'
 import { useSessionContextBooting as useBooting } from '../client/use-session-context'
 import { ActionSheet } from '../components/ActionSheet'
+import { BodyPending } from '../components/BodyPending'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
 import { IssueQuestionCard } from '../components/IssueQuestionCard'
 import { IssueTargetSheet } from '../components/IssueTargetSheet'
@@ -291,9 +292,8 @@ const IssueContent = observer(function IssueContent({
     if (pool) issueActivity(pool, issue.id).appendComment(body)
   }
 
-  // Seats still loading are thrown only after every hook below has run: the
-  // issue observer catches LOADING inside this render, so an early throw would
-  // change the hook count between renders.
+  // Seats and bodies load independently: an unanswered roster must not hide
+  // the task's text or its offline availability.
   const rawSessions = detail?.phoneSessions ?? EMPTY_SESSIONS
   const rawActive = detail?.dockActiveSessions ?? EMPTY_SESSIONS
   const rawMembers = detail?.memberSessions ?? EMPTY_SESSIONS
@@ -322,8 +322,8 @@ const IssueContent = observer(function IssueContent({
         ? agents
         : members.filter((session) => session.agentKind !== 'shell')
   const lead = seats[0]
-  const brief = issue.brief === LOADING ? undefined : issue.brief // POD-7555: LOADING reads as empty on the phone
-  const panel = issue.panel === LOADING ? undefined : issue.panel // POD-7555: LOADING reads as empty on the phone
+  const brief = issue.brief
+  const panel = issue.panel
 
   // The ••• menu, built once per change of the facts that gate its entries.
   // Its actions reach the current commands through a ref, so an unrelated
@@ -351,7 +351,6 @@ const IssueContent = observer(function IssueContent({
     }
   }
   const menuBarActions = menuCache.current.actions
-  if (seatsLoading) throw seatsLoading
 
   /**
    * Dismiss THIS sheet, and only if it is still the one showing.
@@ -419,7 +418,11 @@ const IssueContent = observer(function IssueContent({
               />
             </View>
           </DetailContent>
-          <TaskSessions issue={issue} sessions={active} onOpenSession={openSession} />
+          {seatsLoading ? (
+            <BodyPending label="Agents and sessions" />
+          ) : (
+            <TaskSessions issue={issue} sessions={active} onOpenSession={openSession} />
+          )}
           <IssueSubIssuesSection
             key={issue.id}
             issue={issue}
@@ -472,15 +475,17 @@ const IssueContent = observer(function IssueContent({
               {issue.acceptance?.trim() ? (
                 <LongFormFields issue={issue} busy={busy} commands={commands} />
               ) : null}
-              {brief?.trim() ? <IssueBrief issue={issue} /> : null}
-              {panel?.artifacts?.length ? (
+              {brief === LOADING || brief?.trim() ? <IssueBrief issue={issue} /> : null}
+              {panel === LOADING ? (
+                <BodyPending label="Artifacts and deferred items" />
+              ) : panel?.artifacts?.length ? (
                 <FoldedSection label="Artifacts" count={String(panel.artifacts.length)}>
                   <ArtifactStrip issue={issue}>
                     <IssueAgentPanel issue={issue} only="artifacts" />
                   </ArtifactStrip>
                 </FoldedSection>
               ) : null}
-              {panel?.deferred?.length ? (
+              {panel !== LOADING && panel?.deferred?.length ? (
                 <FoldedSection label="Deferred" count={String(panel.deferred.length)}>
                   <IssueAgentPanel issue={issue} only="deferred" />
                 </FoldedSection>

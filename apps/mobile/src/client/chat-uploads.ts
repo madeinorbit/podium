@@ -18,9 +18,9 @@ export function chatUploadUrl(
   attachmentId: string,
   httpOrigin: string,
   workspace?: string,
-): string | null {
+): string | null | typeof LOADING {
   const found = chatUploadArtifact(pool, sessionId, attachmentId)
-  if (found === LOADING) return null // POD-7555: LOADING reads as empty on the phone
+  if (found === LOADING) return LOADING
   return found
     ? artifactUrl({
         httpOrigin,
@@ -35,7 +35,7 @@ export function useChatUploadUrl(
   sessionId: string | undefined,
   attachmentId: string | undefined,
   httpOrigin: string | undefined,
-): string | null {
+): string | null | typeof LOADING {
   const profile = useOptionalServerProfile()
   const workspace = profile?.config.workspaceId ?? profile?.config.workspaceSlug
   const read = useCallback(
@@ -45,7 +45,7 @@ export function useChatUploadUrl(
         : null,
     [sessionId, attachmentId, httpOrigin, workspace],
   )
-  return useMobilePoolProjection(read, null)
+  return useMobilePoolProjection(read, LOADING)
 }
 
 const NO_ATTACHMENTS: readonly { id?: string; filename: string; kind: 'image' | 'file' }[] = []

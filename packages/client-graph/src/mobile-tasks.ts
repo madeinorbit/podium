@@ -113,12 +113,9 @@ class BoardTask {
   /** The board glyph follows the same attention rule as Work and the deck. */
   @lazy get mark(): TaskRowMark {
     if (this.finished) return 'done'
-    const sessions = [
-      ...this.board.pool.graph.subset('issue', this.id, 'missionSessions', 'unarchived'),
-    ].flatMap((id) => {
-      const session = requireRow(omitGone(this.board.pool.row('session', id)))
-      return session ? [session as unknown as SessionView] : []
-    })
+    const members = this.issue.missionSessions.unarchived.members
+    if (members === LOADING) throw LOADING
+    const sessions = members as unknown as SessionView[]
     if (issueNeedsHuman(this.issue as unknown as IssueNavigationModel, sessions)) return 'needs'
     return this.stage === 'in_progress' ? 'working' : 'resting'
   }
