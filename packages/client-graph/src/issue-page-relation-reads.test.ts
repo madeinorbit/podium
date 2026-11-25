@@ -51,6 +51,34 @@ async function openOldIssue(more: (server: CollectionServer) => void = () => {})
   return device
 }
 
+/** How often the device asked for the whole session history of `issueId`: the
+ * instance itself, not what a tree comes with (`via`). */
+const historyAsks = (device: EmptyDevice, issueId: string): number =>
+  device
+    .requested()
+    .filter(
+      (instance) =>
+        instance.collection === 'session.ofIssue' &&
+        instance.via === undefined &&
+        (instance.args as { issueId?: string } | undefined)?.issueId === issueId,
+    ).length
+
+/** A sub-issue of `old`, closed long ago, with a headless live session and a parked agent. */
+const putKid = (server: CollectionServer) => {
+  server.put(
+    ISSUE,
+    'kid',
+    closedValue('kid', { seq: 91, updatedAt: OLD, deps: [], parentId: 'old' }),
+  )
+  putSession(server, 'kid-now', {
+    issueId: 'kid',
+    status: 'live',
+    lastActiveAt: RECENT,
+    headless: true,
+  })
+  putSession(server, 'kid-parked', { issueId: 'kid', status: 'hibernated', lastActiveAt: OLD })
+}
+
 const ids = (value: unknown): unknown =>
   value === LOADING
     ? 'LOADING'
@@ -132,14 +160,21 @@ describe('the issue page of a closed issue opened from search', () => {
     const device = await openOldIssue((server) => {
       putSession(server, 'now', { status: 'live', lastActiveAt: RECENT, headless: true })
       putSession(server, 'parked', { status: 'hibernated', lastActiveAt: OLD })
+      putKid(server)
     })
-    const page = openPage(device, () => device.pool.issueObject('old').liveSeatId)
+    const page = openPage(device, () => [
+      device.pool.issueObject('old').liveSeatId,
+      device.pool.issueObject('kid').liveSeatId,
+    ])
     await device.untilIdle()
     expect(page.answers).toContain('LOADING')
-    expect(page.answers.at(-1)).toBe('parked')
-    // The tree brings the visible seats; the archived history is not asked for.
+    expect(page.answers.at(-1)).toEqual(['parked', 'kid-parked'])
+    // The tree brings the visible seats. The page asks its own issue's
+    // history in the record's window, once (POD-7602); a sub-issue's
+    // history is never asked for.
     expect(device.requestedKeys()).toContain('issueProjection.tree{"root":"old"}')
-    expect(device.requestedKeys()).not.toContain('session.ofIssue{"issueId":"old"}')
+    expect(historyAsks(device, 'old')).toBe(1)
+    expect(historyAsks(device, 'kid')).toBe(0)
     page.close()
     await device.untilIdle()
     expect(device.liveHolds(TREE)).toBe(0)
@@ -149,12 +184,21 @@ describe('the issue page of a closed issue opened from search', () => {
     const device = await openOldIssue((server) => {
       putSession(server, 'now', { status: 'live', lastActiveAt: RECENT, headless: true })
       putSession(server, 'parked', { status: 'hibernated', lastActiveAt: OLD })
+      putKid(server)
     })
-    const page = openPage(device, (views) => ids(views.row('old').dockOpenSessions))
+    const page = openPage(device, (views) => [
+      ids(views.row('old').dockOpenSessions),
+      ids(views.row('kid').dockOpenSessions),
+    ])
     await device.untilIdle()
-    expect(page.answers).toContain('LOADING')
-    expect(page.answers.at(-1)).toEqual(['now', 'parked'])
-    expect(device.requestedKeys()).not.toContain('session.ofIssue{"issueId":"old"}')
+    expect(page.answers.flat()).toContain('LOADING')
+    expect(page.answers.at(-1)).toEqual([
+      ['now', 'parked'],
+      ['kid-now', 'kid-parked'],
+    ])
+    // Only the page's own issue's history, once (POD-7602); none per row.
+    expect(historyAsks(device, 'old')).toBe(1)
+    expect(historyAsks(device, 'kid')).toBe(0)
     page.close()
     await device.untilIdle()
     expect(device.liveHolds(TREE)).toBe(0)
@@ -173,9 +217,8 @@ describe('the issue page of a closed issue opened from search', () => {
     expect(page.answers.at(-1)).toEqual({ sessions: 'LOADING', unavailable: true })
     expect(device.pool.collections.refused(SESSIONS)).toBe(true)
     await device.untilIdle()
-    expect(
-      device.requestedKeys().filter((key) => key === 'session.ofIssue{"issueId":"old"}'),
-    ).toHaveLength(1)
+    // The history itself; the sessions the tree comes with are another instance.
+    expect(historyAsks(device, 'old')).toBe(1)
     page.close()
   })
 
