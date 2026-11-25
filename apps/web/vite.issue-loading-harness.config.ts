@@ -9,7 +9,11 @@ export default defineConfig(async (env) => {
   const config = await (deck as (env: ConfigEnv) => Promise<UserConfig>)(env)
   return {
     ...config,
-    optimizeDeps: { entries: ['harness/issue-loading.html'] },
+    optimizeDeps: {
+      entries: ['harness/issue-loading.html'],
+      // Late discovery would reload the page while the timing capture is paused.
+      include: ['motion/react', 'motion/react-m'],
+    },
     plugins: [
       {
         name: 'issue-loading-fixture',

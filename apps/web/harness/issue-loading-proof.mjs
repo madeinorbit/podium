@@ -10,6 +10,11 @@ import { createServer } from 'vite'
 
 const webRoot = fileURLToPath(new URL('..', import.meta.url))
 const out = resolve(process.argv[2] ?? '.artifacts/issue-loading')
+const surfaces = process.argv.length > 3 ? process.argv.slice(3) : ['panel', 'page']
+assert(
+  surfaces.every((surface) => ['panel', 'page'].includes(surface)),
+  'Unknown issue surface',
+)
 const cache = mkdtempSync(resolve(tmpdir(), 'issue-loading-vite-'))
 mkdirSync(out, { recursive: true })
 const result = { sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() }
@@ -23,7 +28,7 @@ const browser = await chromium.launch({
 })
 let shutdownTimedOut = false
 try {
-  for (const surface of ['panel', 'page']) {
+  for (const surface of surfaces) {
     for (const before of [true, false]) {
       const name = `${surface}-${before ? 'before' : 'after'}`
       const prefix = surface === 'page' ? 'page-' : ''
