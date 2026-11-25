@@ -115,22 +115,45 @@ export type CloudAgentInput = Omit<CloudAgentRequest, 'tenantId'>
  *  id picks the session; the rest must agree with its row (see `sourceOf`). */
 type StatedSourceSession = NonNullable<CloudAgentInput['sourceSession']>
 
-/** The shipped mapping, moved verbatim: an unconfigured provider is a
- *  PRECONDITION, not an internal error. */
-function cloudError(error: unknown): never {
-  if (error instanceof CloudRuntimeUnavailableError) {
-    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message })
-  }
-  throw error
-}
+/** Only refusals written here for the caller may cross the cloud boundary.
+ * A provider throwing a TRPCError is still an unexpected provider failure. */
+class CloudRefusal extends TRPCError {}
+
+export const CLOUD_REQUEST_FAILED = 'cloud request failed; try again'
+export const CLOUD_HIBERNATE_FAILED = 'local session could not be hibernated; try again'
 
 /** The one answer a failed read beneath the session gate gives the caller. */
 export const CLOUD_SESSION_READ_FAILED = 'could not read the session; try again'
 
+/** Keep the full error (including its causes) in the server log only. The
+ * reference joins a caller's report to that log without exposing the cause
+ * through tRPC's `data.causeChain`. */
+function cloudFailure(
+  error: unknown,
+  operation: string,
+  message = CLOUD_REQUEST_FAILED,
+  code: 'INTERNAL_SERVER_ERROR' | 'PRECONDITION_FAILED' = 'INTERNAL_SERVER_ERROR',
+): never {
+  const correlationId = crypto.randomUUID()
+  log.error('cloud operation failed', { operation, correlationId, err: error })
+  throw new CloudRefusal({
+    code,
+    message: `${message} (reference: ${correlationId})`,
+  })
+}
+
+function cloudError(error: unknown, operation: string): never {
+  if (error instanceof CloudRefusal) throw error
+  if (error instanceof CloudRuntimeUnavailableError) {
+    throw new CloudRefusal({ code: 'PRECONDITION_FAILED', message: error.message })
+  }
+  cloudFailure(error, operation)
+}
+
 /** An unknown runtime id and another workspace's fail alike (the contract's
  *  D20.2 note), so the id space cannot be iterated. */
 const runtimeNotFound = () =>
-  new TRPCError({ code: 'NOT_FOUND', message: 'cloud runtime not found' })
+  new CloudRefusal({ code: 'NOT_FOUND', message: 'cloud runtime not found' })
 
 export class CloudService {
   private readonly provider: CloudRuntimeProvider
@@ -140,16 +163,24 @@ export class CloudService {
   }
 
   async capabilities() {
-    return await this.provider.capabilities()
+    try {
+      return await this.provider.capabilities()
+    } catch (error) {
+      cloudError(error, 'cloud.capabilities')
+    }
   }
 
   /** A runtime of the bound workspace, or null: another workspace's runtime
    *  reads as absent, exactly like an unknown id. */
   async getRuntime(id: string): Promise<CloudRuntime | null> {
     if (this.provider === disabledCloudRuntimeProvider) return null
-    const tenantId = this.tenant()
-    const runtime = await this.provider.getRuntime(id)
-    return runtime !== null && runtime.tenantId === tenantId ? runtime : null
+    try {
+      const tenantId = this.tenant()
+      const runtime = await this.provider.getRuntime(id)
+      return runtime !== null && runtime.tenantId === tenantId ? runtime : null
+    } catch (error) {
+      cloudError(error, 'cloud.runtime')
+    }
   }
 
   async createCloudMachine(input: CloudMachineInput) {
@@ -157,7 +188,7 @@ export class CloudService {
       const tenantId = this.tenantOfConfiguredProvider()
       return this.owned(await this.provider.createCloudMachine({ ...input, tenantId }), tenantId)
     } catch (error) {
-      cloudError(error)
+      cloudError(error, 'cloud.createMachine')
     }
   }
 
@@ -183,7 +214,7 @@ export class CloudService {
         tenantId,
       )
     } catch (error) {
-      cloudError(error)
+      cloudError(error, 'cloud.createAgent')
     }
   }
 
@@ -192,7 +223,7 @@ export class CloudService {
       const tenantId = await this.ownRuntimeId(id)
       return this.owned(await this.provider.stopRuntime(id), tenantId)
     } catch (error) {
-      cloudError(error)
+      cloudError(error, 'cloud.stop')
     }
   }
 
@@ -201,17 +232,14 @@ export class CloudService {
       const tenantId = await this.ownRuntimeId(id)
       return this.owned(await this.provider.wakeRuntime(id), tenantId)
     } catch (error) {
-      cloudError(error)
+      cloudError(error, 'cloud.wake')
     }
   }
 
   /** The bound workspace, as the provider's tenant. */
   private tenant(): WorkspaceId {
     if (this.deps.workspace === undefined) {
-      throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: 'cloud commands need a request bound to a workspace',
-      })
+      throw new Error('cloud commands need a request bound to a workspace')
     }
     return this.deps.workspace
   }
@@ -242,10 +270,7 @@ export class CloudService {
    *  other answer is refused rather than shown to this workspace. */
   private owned(runtime: CloudRuntime, tenantId: WorkspaceId): CloudRuntime {
     if (runtime.tenantId !== tenantId) {
-      throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: 'cloud provider answered with a runtime of another workspace',
-      })
+      throw new Error('cloud provider answered with a runtime of another workspace')
     }
     return runtime
   }
@@ -280,22 +305,22 @@ export class CloudService {
   }) {
     const session = await this.commandable(input.sessionId, 'cloud.moveSession')
     if (!session) {
-      throw new TRPCError({ code: 'NOT_FOUND', message: SESSION_NOT_FOUND })
+      throw new CloudRefusal({ code: 'NOT_FOUND', message: SESSION_NOT_FOUND })
     }
     const agent = this.cloudAgentKind(session.agentKind)
     if (!session.resume?.value) {
-      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'session has no resume ref' })
+      throw new CloudRefusal({ code: 'PRECONDITION_FAILED', message: 'session has no resume ref' })
     }
     if (input.hibernateLocal) {
       if (session.status !== 'live') {
-        throw new TRPCError({
+        throw new CloudRefusal({
           code: 'PRECONDITION_FAILED',
           message: 'local session cannot be hibernated: not running',
         })
       }
       const phase = session.agentState?.phase
       if (phase === 'working' || phase === 'compacting') {
-        throw new TRPCError({
+        throw new CloudRefusal({
           code: 'PRECONDITION_FAILED',
           message: 'local session cannot be hibernated: agent is working',
         })
@@ -326,16 +351,18 @@ export class CloudService {
       if (input.hibernateLocal) {
         const parked = await this.deps.hibernateLocal(session.sessionId)
         if (!parked.ok) {
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: `local session could not be hibernated: ${parked.reason ?? 'unknown reason'}`,
-          })
+          cloudFailure(
+            new Error(parked.reason ?? 'local session could not be hibernated'),
+            'cloud.moveSession',
+            CLOUD_HIBERNATE_FAILED,
+            'PRECONDITION_FAILED',
+          )
         }
       }
 
       return runtime
     } catch (error) {
-      cloudError(error)
+      cloudError(error, 'cloud.moveSession')
     }
   }
 
@@ -350,7 +377,7 @@ export class CloudService {
   private async sourceOf(stated: StatedSourceSession) {
     const session = await this.commandable(stated.sessionId, 'cloud.createAgent')
     if (!session) {
-      throw new TRPCError({ code: 'NOT_FOUND', message: SESSION_NOT_FOUND })
+      throw new CloudRefusal({ code: 'NOT_FOUND', message: SESSION_NOT_FOUND })
     }
     const source = toCloudAgentSourceSession({
       sessionId: session.sessionId,
@@ -361,7 +388,7 @@ export class CloudService {
     })
     for (const field of ['agent', 'resumeRef', 'cwd', 'machineId'] as const) {
       if (stated[field] !== undefined && stated[field] !== source[field]) {
-        throw new TRPCError({
+        throw new CloudRefusal({
           code: 'BAD_REQUEST',
           message: `sourceSession.${field} does not match the session`,
         })
@@ -385,13 +412,16 @@ export class CloudService {
     try {
       return await this.deps.commandableSession(sessionId, proc)
     } catch (error) {
-      if (error instanceof TRPCError) throw error
+      // The gate's typed refusals are written for the caller. Rebuild them so
+      // even a refusal cannot carry a driver's cause into the formatter.
+      if (error instanceof TRPCError && error.code !== 'INTERNAL_SERVER_ERROR') {
+        throw new CloudRefusal({ code: error.code, message: error.message })
+      }
       if (error instanceof SessionGateRefusal) {
         if (error.message === SESSION_NOT_FOUND) return undefined
-        throw new TRPCError({ code: 'FORBIDDEN', message: error.message })
+        throw new CloudRefusal({ code: 'FORBIDDEN', message: error.message })
       }
-      log.error('cloud session gate failed', { sessionId, error })
-      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: CLOUD_SESSION_READ_FAILED })
+      cloudFailure(error, proc, CLOUD_SESSION_READ_FAILED)
     }
   }
 
@@ -400,7 +430,7 @@ export class CloudService {
   private cloudAgentKind(agentKind: string): CloudAgentKind {
     if (isAgentKind(agentKind) && harnessSupportsCloud(agentKind))
       return agentKind as CloudAgentKind
-    throw new TRPCError({
+    throw new CloudRefusal({
       code: 'BAD_REQUEST',
       message: `agent kind ${agentKind} cannot be moved to cloud yet`,
     })
@@ -422,7 +452,7 @@ export class CloudService {
   ): Promise<CloudRepoRequest> {
     const repoPath = await this.deps.repos.inferFromPath(session.cwd, session.machineId)
     if (!repoPath) {
-      throw new TRPCError({
+      throw new CloudRefusal({
         code: 'PRECONDITION_FAILED',
         message: 'session cwd is not inside a registered repo; pass repo explicitly',
       })
@@ -434,7 +464,7 @@ export class CloudService {
       ) ?? (await this.deps.store.repos.listRepos()).find((row) => row.path === repoPath)
     const repo = githubRepoFromOrigin(repoRow?.originUrl)
     if (!repo) {
-      throw new TRPCError({
+      throw new CloudRefusal({
         code: 'PRECONDITION_FAILED',
         message: 'registered repo has no GitHub origin; pass repo explicitly',
       })

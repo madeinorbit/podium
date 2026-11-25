@@ -1,6 +1,7 @@
 import type { SessionId, UserId } from '@podium/model'
 import { asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { TRPCError } from '@trpc/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
   CloudAgentRequest,
@@ -10,7 +11,11 @@ import type {
 } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
 import type { Capability } from './issue-authz'
-import { CLOUD_SESSION_READ_FAILED } from './modules/cloud/service'
+import {
+  CLOUD_HIBERNATE_FAILED,
+  CLOUD_REQUEST_FAILED,
+  CLOUD_SESSION_READ_FAILED,
+} from './modules/cloud/service'
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -18,9 +23,11 @@ import { appRouter } from './router'
 import type { SessionStore } from './store'
 import { memberFacts } from './store/fixtures/test-support'
 import { permissiveFixturePrincipal } from './test-support/capabilities'
+import { captureLogs } from './test-support/capture-logs'
 import { attachDaemonWithInventory } from './test-support/daemon-inventory'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openWorkspaceStores } from './test-support/workspace-stores'
+import { errorShapeWithCause } from './trpc'
 
 const geometry = { cols: 80, rows: 24 }
 
@@ -62,7 +69,51 @@ async function caller(
     capability: operator,
     principal: permissiveFixturePrincipal(registry.workspaceId, operator),
   })
-  return { call, registry }
+  return { call, registry, repos }
+}
+
+/** Assert the actual formatter boundary: createCaller alone never runs it. */
+async function expectCloudFailure(
+  attempt: () => Promise<unknown>,
+  operation: string,
+  detail: Error,
+  {
+    message = CLOUD_REQUEST_FAILED,
+    code = 'INTERNAL_SERVER_ERROR',
+  }: {
+    message?: string
+    code?: TRPCError['code']
+  } = {},
+) {
+  const logs = captureLogs()
+  try {
+    const error: unknown = await attempt().catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(TRPCError)
+    if (!(error instanceof TRPCError)) throw new Error('expected a tRPC error')
+    expect(error.code).toBe(code)
+    const reference = error.message.match(/\(reference: ([0-9a-f-]{36})\)$/)?.[1]
+    expect(reference).toBeDefined()
+    expect(error.message).toBe(`${message} (reference: ${reference})`)
+    expect(error.cause).toBeUndefined()
+
+    const shape = errorShapeWithCause({ message: error.message, data: { code: error.code } }, error)
+    expect(shape.data).not.toHaveProperty('causeChain')
+    const wire = JSON.stringify(shape)
+    expect(wire).not.toContain(detail.message)
+    if (detail.cause instanceof Error) expect(wire).not.toContain(detail.cause.message)
+
+    const record = logs.at('error').find((entry) => entry.correlationId === reference)
+    expect(record).toMatchObject({
+      ns: 'server:cloud',
+      operation,
+      err: { message: detail.message, stack: expect.any(String) },
+    })
+    if (detail.cause instanceof Error) {
+      expect(record?.err?.cause?.message).toBe(detail.cause.message)
+    }
+  } finally {
+    logs.restore()
+  }
 }
 
 /** An older client's input: it still sends the `tenantId` the contracts no
@@ -143,7 +194,11 @@ describe('cloud router', () => {
         displayName: 'Demo cloud agent',
         repo: { provider: 'github', owner: 'madeinorbit', name: 'podium' },
       }),
-    ).rejects.toThrow('cloud runtime provider is not configured')
+    ).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'cloud runtime provider is not configured',
+      cause: undefined,
+    })
   })
 
   it('moves a resumable codex session to a cloud agent request', async () => {
@@ -253,6 +308,198 @@ describe('cloud router', () => {
         repo: { provider: 'github', owner: 'madeinorbit', name: 'podium' },
       }),
     ).rejects.toThrow('session has no resume ref')
+  })
+})
+
+describe('cloud failures keep internal details in the server log', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  const repo = { provider: 'github', owner: 'madeinorbit', name: 'podium' } as const
+  const internalError = () =>
+    new Error('INTERNAL_DRIVER_DETAIL: relation cloud_private.runtime_records does not exist', {
+      cause: new Error('INTERNAL_CAUSE_DETAIL: provider pool timed out on db.example.test'),
+    })
+
+  async function world() {
+    const cloud = captureCloudProvider()
+    const context = await caller(cloud.provider)
+    const { registry } = context
+    const machine = registry.sessionStore.hostMachine
+    if (!machine) throw new Error('cloud fixture needs a host machine')
+    const machineId = machine.id
+    await registry.sessionStore.repos.addRepo(
+      '/workspace/podium',
+      machineId,
+      'https://github.com/madeinorbit/podium.git',
+    )
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/workspace/podium',
+      spawnedBy: 'user',
+    })
+    await registry.gateway.routeDaemonFrame(
+      machineId,
+      bind(sessionId, '/workspace/podium', 'codex'),
+    )
+    await registry.gateway.routeDaemonFrame(machineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'codex-thread', value: 'thread-failure-test' },
+    })
+    const runtime = await cloud.provider.createCloudAgent({
+      tenantId: registry.workspaceId,
+      displayName: 'Existing runtime',
+      repo,
+    })
+    cloud.createdAgents.length = 0
+    vi.spyOn(cloud.provider, 'getRuntime').mockResolvedValue(runtime)
+    return { ...context, cloud, sessionId }
+  }
+
+  type World = Awaited<ReturnType<typeof world>>
+  const providerFailures = [
+    {
+      method: 'capabilities',
+      operation: 'cloud.capabilities',
+      attempt: ({ call }: World) => call.cloud.capabilities(),
+    },
+    {
+      method: 'getRuntime',
+      operation: 'cloud.runtime',
+      attempt: ({ call }: World) => call.cloud.runtime({ id: 'cloud-runtime-1' }),
+    },
+    {
+      method: 'createCloudMachine',
+      operation: 'cloud.createMachine',
+      attempt: ({ call }: World) =>
+        call.cloud.createMachine({ displayName: 'New machine', size: 'small' }),
+    },
+    {
+      method: 'createCloudAgent',
+      operation: 'cloud.createAgent',
+      attempt: ({ call }: World) => call.cloud.createAgent({ displayName: 'New agent', repo }),
+    },
+    {
+      method: 'createCloudAgent',
+      operation: 'cloud.moveSession',
+      attempt: ({ call, sessionId }: World) => call.cloud.moveSession({ sessionId, repo }),
+    },
+    {
+      method: 'stopRuntime',
+      operation: 'cloud.stop',
+      attempt: ({ call }: World) => call.cloud.stop({ id: 'cloud-runtime-1' }),
+    },
+    {
+      method: 'wakeRuntime',
+      operation: 'cloud.wake',
+      attempt: ({ call }: World) => call.cloud.wake({ id: 'cloud-runtime-1' }),
+    },
+    {
+      method: 'getRuntime',
+      operation: 'cloud.stop',
+      attempt: ({ call }: World) => call.cloud.stop({ id: 'cloud-runtime-1' }),
+    },
+    {
+      method: 'getRuntime',
+      operation: 'cloud.wake',
+      attempt: ({ call }: World) => call.cloud.wake({ id: 'cloud-runtime-1' }),
+    },
+  ] as const
+
+  it.each(
+    providerFailures,
+  )('$operation hides a thrown $method provider error and its causes', async ({
+    method,
+    operation,
+    attempt,
+  }) => {
+    const context = await world()
+    const detail = internalError()
+    vi.spyOn(context.cloud.provider, method).mockRejectedValue(detail)
+    await expectCloudFailure(() => attempt(context), operation, detail)
+  })
+
+  it('does not treat a provider TRPCError as a caller-facing refusal', async () => {
+    const { call, cloud } = await world()
+    const detail = new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'INTERNAL_PROVIDER_DETAIL: account token rejected by provider',
+      cause: internalError(),
+    })
+    vi.spyOn(cloud.provider, 'createCloudAgent').mockRejectedValue(detail)
+    await expectCloudFailure(
+      () => call.cloud.createAgent({ displayName: 'New agent', repo }),
+      'cloud.createAgent',
+      detail,
+    )
+  })
+
+  it.each([
+    'inferFromPath',
+    'machine repos',
+    'fallback repos',
+    'hibernate',
+  ] as const)('moveSession hides a thrown driver error during %s', async (path) => {
+    const { call, cloud, registry, repos, sessionId } = await world()
+    const detail = internalError()
+    if (path === 'inferFromPath') {
+      vi.spyOn(repos, 'inferFromPath').mockRejectedValue(detail)
+    } else if (path === 'hibernate') {
+      // desire's first store read happens only after the provider succeeds.
+      vi.spyOn(registry.modules.sessions, 'desiredStateOf').mockRejectedValue(detail)
+    } else {
+      vi.spyOn(repos, 'inferFromPath').mockResolvedValue('/workspace/podium')
+      const read = vi.spyOn(registry.sessionStore.repos, 'listRepos')
+      if (path === 'fallback repos') read.mockResolvedValueOnce([])
+      read.mockRejectedValue(detail)
+    }
+    await expectCloudFailure(
+      () =>
+        call.cloud.moveSession({
+          sessionId,
+          ...(path === 'hibernate' ? { hibernateLocal: true } : {}),
+        }),
+      'cloud.moveSession',
+      detail,
+    )
+    expect(cloud.createdAgents).toHaveLength(path === 'hibernate' ? 1 : 0)
+  })
+
+  it.each([
+    [
+      'unregistered cwd',
+      undefined,
+      'session cwd is not inside a registered repo; pass repo explicitly',
+    ],
+    [
+      'missing origin',
+      '/workspace/local-only',
+      'registered repo has no GitHub origin; pass repo explicitly',
+    ],
+  ] as const)('keeps the actionable repo refusal for %s', async (_name, repoPath, message) => {
+    const { call, repos, sessionId } = await world()
+    vi.spyOn(repos, 'inferFromPath').mockResolvedValue(repoPath)
+    await expect(call.cloud.moveSession({ sessionId })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message,
+      cause: undefined,
+    })
+  })
+
+  it('logs a failed hibernation outcome without forwarding its reason', async () => {
+    const { call, cloud, registry, sessionId } = await world()
+    const detail = new Error('INTERNAL_HIBERNATE_DETAIL: provider could not retire runtime')
+    vi.spyOn(registry.modules.sessionLifecycleController, 'outcomeFor').mockReturnValue({
+      ok: false,
+      reason: detail.message,
+    })
+    await expectCloudFailure(
+      () => call.cloud.moveSession({ sessionId, repo, hibernateLocal: true }),
+      'cloud.moveSession',
+      detail,
+      { message: CLOUD_HIBERNATE_FAILED, code: 'PRECONDITION_FAILED' },
+    )
+    expect(cloud.createdAgents).toHaveLength(1)
   })
 })
 
@@ -408,6 +655,43 @@ describe('cloud commands act on the bound workspace only', () => {
     expect(cloud.agents.map((request) => request.tenantId)).toEqual([A])
   })
 
+  it('a member of A cannot seed createAgent from a session of B', async () => {
+    const { cloud, a, b, A } = await twoWorkspaces()
+    const source = await b.registry.modules.issueSessionLifecycle.resumeSession({
+      agentKind: 'codex',
+      cwd: '/workspace/podium',
+      resume: { kind: 'codex-thread', value: 'thread-in-b' },
+      conversationId: 'conversation-in-b',
+      title: 'Source in B',
+      spawnedBy: 'user',
+    })
+    const repo = { provider: 'github', owner: 'madeinorbit', name: 'podium' } as const
+    const seed = (sessionId: SessionId) => ({
+      displayName: 'Seeded agent',
+      repo,
+      sourceSession: { sessionId, agent: 'codex' as const },
+    })
+    const notFound = { code: 'NOT_FOUND', message: 'session not found', cause: undefined }
+    await expect(a.call.cloud.createAgent(seed(source.sessionId))).rejects.toMatchObject(notFound)
+    await expect(a.call.cloud.createAgent(seed('ses_missing' as SessionId))).rejects.toMatchObject(
+      notFound,
+    )
+    expect(cloud.agents).toEqual([])
+
+    const own = await a.registry.modules.issueSessionLifecycle.resumeSession({
+      agentKind: 'codex',
+      cwd: '/workspace/podium',
+      resume: { kind: 'codex-thread', value: 'thread-in-a' },
+      conversationId: 'conversation-in-a',
+      title: 'Source in A',
+      spawnedBy: 'user',
+    })
+    await a.call.cloud.createAgent(seed(own.sessionId))
+    expect(cloud.agents).toMatchObject([
+      { tenantId: A, sourceSession: { sessionId: own.sessionId, resumeRef: 'thread-in-a' } },
+    ])
+  })
+
   it('an older client sending another workspace’s tenantId acts on its own bound workspace only', async () => {
     const { cloud, a, A, B } = await twoWorkspaces()
     const repo = { provider: 'github', owner: 'madeinorbit', name: 'podium' } as const
@@ -448,12 +732,13 @@ describe('cloud commands act on the bound workspace only', () => {
     const [store] = await workspaceStores(['ws_cloud_unbound'])
     const cloud = sharedProvider({ a: store.workspaceId, b: 'ws_other' })
     const { call } = await caller(cloud.provider, () => {}, { store, bound: 'none' })
-    await expect(
-      call.cloud.createMachine({ displayName: 'Unbound', size: 'small' }),
-    ).rejects.toThrow('cloud commands need a request bound to a workspace')
-    await expect(call.cloud.stop({ id: 'rt_a' })).rejects.toThrow(
-      'cloud commands need a request bound to a workspace',
+    const detail = new Error('cloud commands need a request bound to a workspace')
+    await expectCloudFailure(
+      () => call.cloud.createMachine({ displayName: 'Unbound', size: 'small' }),
+      'cloud.createMachine',
+      detail,
     )
+    await expectCloudFailure(() => call.cloud.stop({ id: 'rt_a' }), 'cloud.stop', detail)
     expect(cloud.machines).toEqual([])
     expect(cloud.acts).toEqual([])
   })
@@ -469,9 +754,11 @@ describe('cloud commands act on the bound workspace only', () => {
       }),
     }
     const { call } = await caller(misrouting, () => {}, { store })
-    await expect(
-      call.cloud.createMachine({ displayName: 'Misrouted', size: 'small' }),
-    ).rejects.toThrow('cloud provider answered with a runtime of another workspace')
+    await expectCloudFailure(
+      () => call.cloud.createMachine({ displayName: 'Misrouted', size: 'small' }),
+      'cloud.createMachine',
+      new Error('cloud provider answered with a runtime of another workspace'),
+    )
   })
 })
 
@@ -711,27 +998,30 @@ describe('cloud.moveSession acts on the caller’s own sessions only', () => {
 
   it('a failed read beneath the gate is a generic internal error, never the driver’s text', async () => {
     const { cloud, registry, as, session } = await world()
-    const driverText = 'SQLITE_BUSY: database is locked (pool timeout on sessions_pkey)'
-    const read = vi
-      .spyOn(registry.modules.sessions, 'sessionById')
-      .mockRejectedValue(new Error(driverText))
+    const detail = new Error('SQLITE_BUSY: database is locked (pool timeout on sessions_pkey)', {
+      cause: new Error('INTERNAL_CAUSE_DETAIL: driver could not read sessions'),
+    })
+    const read = vi.spyOn(registry.modules.sessions, 'sessionById').mockRejectedValue(detail)
     try {
       const alice = await as(ALICE, 'member')
       const admin = await as(ADMIN, 'admin')
-      const generic = { code: 'INTERNAL_SERVER_ERROR', message: CLOUD_SESSION_READ_FAILED }
-      const moved = alice.cloud.moveSession({ sessionId: session(ALICE), repo })
-      await expect(moved).rejects.toMatchObject(generic)
-      const seeded = admin.cloud.createAgent({
-        displayName: 'Seeded',
-        repo,
-        sourceSession: { sessionId: session(ADMIN), agent: 'codex' },
-      })
-      await expect(seeded).rejects.toMatchObject(generic)
-      for (const attempt of [moved, seeded]) {
-        const error = await attempt.catch((caught: unknown) => caught)
-        expect(JSON.stringify(error)).not.toContain('SQLITE_BUSY')
-        expect((error as { cause?: unknown }).cause).toBeUndefined()
-      }
+      await expectCloudFailure(
+        () => alice.cloud.moveSession({ sessionId: session(ALICE), repo }),
+        'cloud.moveSession',
+        detail,
+        { message: CLOUD_SESSION_READ_FAILED },
+      )
+      await expectCloudFailure(
+        () =>
+          admin.cloud.createAgent({
+            displayName: 'Seeded',
+            repo,
+            sourceSession: { sessionId: session(ADMIN), agent: 'codex' },
+          }),
+        'cloud.createAgent',
+        detail,
+        { message: CLOUD_SESSION_READ_FAILED },
+      )
       expect(read).toHaveBeenCalled()
       expect(cloud.createdAgents).toEqual([])
     } finally {
@@ -903,6 +1193,22 @@ describe('cloud.createAgent seeds from the caller’s own session only', () => {
     ).rejects.toMatchObject({
       code: 'BAD_REQUEST',
       message: 'sourceSession.resumeRef does not match the session',
+    })
+    expect(cloud.createdAgents).toEqual([])
+  })
+
+  it.each([
+    ['agent', { agent: 'claude-code' as const }],
+    ['cwd', { cwd: `/workspace/${ALICE}` }],
+  ] as const)('the owner cannot pair their session with a different %s', async (field, mismatch) => {
+    const { cloud, as, session } = await world()
+    const admin = await as(ADMIN, 'admin')
+    await expect(
+      admin.cloud.createAgent(seed({ sessionId: session(ADMIN), agent: 'codex', ...mismatch })),
+    ).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: `sourceSession.${field} does not match the session`,
+      cause: undefined,
     })
     expect(cloud.createdAgents).toEqual([])
   })
