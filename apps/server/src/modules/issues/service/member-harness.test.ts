@@ -88,6 +88,8 @@ async function fixture() {
     now: () => AT,
   }
   const svc = await IssueService.create(deps)
+  // issueTestPlumbing begins attaching capture; finish before measuring reads.
+  await store.attachChangeLog()
   const create = async (owner: UserId = BOB, picks: { model?: string; effort?: string } = {}) =>
     await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/repo',
@@ -227,7 +229,10 @@ describe('issue harness and model preferences belong to the issue member', () =>
 
   it('uses workspace defaults with nobody known, even when the first admin has preferences', async () => {
     const { store } = await memberStore()
-    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(store, undefined, {
+      instanceId: 'default',
+      backgroundWork: false,
+    })
     registries.push(registry)
     const row = issueRowFixture({
       defaultAgent: 'auto',
