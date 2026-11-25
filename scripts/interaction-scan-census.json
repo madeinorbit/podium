@@ -65,7 +65,7 @@
       "owner": "POD-5530",
       "trigger": "Invocation of seedIssueFixtures",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-7546: pending body values are omitted only in this phone fixture seeder; the fixture input and its existing classification are unchanged. POD-7555: preserve pending body answers; record and collection scope are unchanged. POD-7555: preserve pending body answers; record and collection scope are unchanged.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6778: normalized panel records change fixture/bootstrap payloads and remove the panel body request; the collection bound and classification are unchanged. POD-7546: pending body values are omitted only in this phone fixture seeder; the fixture input and its existing classification are unchanged. POD-7555: preserve pending body answers; record and collection scope are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {

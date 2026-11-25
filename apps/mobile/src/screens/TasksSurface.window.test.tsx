@@ -1,7 +1,12 @@
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import { MOBILE_TASK_WINDOW_SIZE, MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
 import { MobxPool } from '@podium/client-graph/pool'
+import {
+  openEmptyDevice,
+  putIssueWithBodies,
+} from '@podium/client-graph/test-support/empty-device.test.fixture'
 import { type Worklist, worklistView } from '@podium/client-graph/worklist/view-model'
+import { issueDisplayRef } from '@podium/protocol'
 import { act, cleanup, fireEvent, render, renderHook, screen, within } from '@testing-library/react'
 import { type ReactNode, useEffect, useImperativeHandle } from 'react'
 import type { SearchBarCommands, SearchBarProps } from 'react-native-screens'
@@ -98,6 +103,19 @@ vi.mock('expo-router', () => ({
   useFocusEffect: () => {},
 }))
 vi.mock('../components/Screen', () => ({
+  HeaderButton: ({
+    children,
+    label,
+    onPress,
+  }: {
+    children: ReactNode
+    label: string
+    onPress: () => void
+  }) => (
+    <button type="button" aria-label={label} onClick={onPress}>
+      {children}
+    </button>
+  ),
   Screen: ({
     children,
     actions = [],
@@ -300,7 +318,83 @@ vi.mock('@expo/ui/swift-ui', () => {
   }
 })
 const { TasksSurface } = await import('./TasksSurface.ios')
+const { TasksSurface: WebTasksSurface } = await import('./TasksSurface')
 const { WorkSurface } = await import('./WorkSurface.ios')
+
+it.each([
+  { name: 'native', Surface: TasksSurface, offline: false },
+  { name: 'native', Surface: TasksSurface, offline: true },
+  { name: 'web', Surface: WebTasksSurface, offline: false },
+  { name: 'web', Surface: WebTasksSurface, offline: true },
+])('empty-device list: $name rows retain titles without history loads, offline=$offline', async ({
+  Surface,
+  offline,
+}) => {
+  const device = await openEmptyDevice({
+    world(server) {
+      putIssueWithBodies(server, 'parent', { title: 'Visible parent', seq: 1 })
+      putIssueWithBodies(server, 'child', { title: 'Visible child', seq: 2, parentId: 'parent' })
+      putIssueWithBodies(server, 'leaf', { title: 'Visible leaf', seq: 3 })
+      server.put('session', 'history', {
+        sessionId: 'history',
+        issueId: 'parent',
+        agentKind: 'codex',
+        status: 'ended',
+        archived: true,
+        cwd: '/synthetic',
+        createdAt: '2024-01-01T00:00:00Z',
+        lastActiveAt: '2024-01-01T00:00:00Z',
+      })
+    },
+  })
+  state.pool = device.pool
+  if (offline) device.offline()
+  await attachMobileScreens(device.pool)
+  const board = new MobileTasksBoard(device.pool, {
+    showDone: false,
+    expanded: ['parent'],
+    filter: {},
+    ordering: 'priority',
+    showAgentTasks: false,
+  })
+  const props = {
+    board,
+    booting: false,
+    chips: [],
+    filterCount: 0,
+    refresh: { connected: !offline, refreshing: false, onRefresh: () => {} },
+    minimizeOnScroll: {},
+    bottomInset: 0,
+    onOpen: () => {},
+    onScreenProposals: () => {},
+    onRemoveFilter: () => {},
+    onOpenActions: () => {},
+    onAction: () => {},
+    onStatus: () => {},
+    onClose: () => {},
+    onFilters: () => {},
+    onNewTask: () => {},
+  } as unknown as TasksSurfaceProps
+  try {
+    expect(device.pool.tables.session.has('history')).toBe(false)
+    const view = render(<Surface {...props} />)
+    // These assertions run before the first load window, with a real loader.
+    for (const title of ['Visible parent', 'Visible child', 'Visible leaf'])
+      expect(view.getByText(title)).toBeTruthy()
+    expect(
+      view.getAllByText(issueDisplayRef(device.pool.issueObject('parent'))).length,
+    ).toBeGreaterThan(0)
+    await act(() => device.untilIdle())
+    expect(device.requested()).toEqual([])
+    expect(device.pool.tables.session.has('history')).toBe(false)
+    view.unmount()
+  } finally {
+    cleanup()
+    board.dispose()
+    device.dispose()
+    state.pool = null
+  }
+})
 
 it.each([
   'snoozed',

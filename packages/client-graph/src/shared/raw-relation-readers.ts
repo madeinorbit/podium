@@ -186,6 +186,52 @@ export const RAW_RELATION_READERS: readonly RawRelationReader[] = [
     'issue-page.ts',
     'get continuation() { return missionView(this.pool).continuation(this.issue, false) }',
   ),
+  // List rows must not hold each row's session history, dependency edges or
+  // subtree. Keep these resident reads until filtered or aggregate collections
+  // can answer the decorations without blanking titles and refs offline.
+  // POD-7581 owns the row/board follow-up; deck aggregates remain with POD-7580.
+  ...reader(
+    'observerTaskRow',
+    ['issue.pageSessions', 'issue.pageDependents'],
+    'POD-7581',
+    'apps/mobile/src/screens/TasksSurface.tsx',
+    'const TaskRow = observer(function TaskRow({',
+  ),
+  ...reader(
+    'BoardTask.mark',
+    ['issue.missionSessions'],
+    'POD-7581',
+    'mobile-tasks.ts',
+    '@lazy get mark(): TaskRowMark {',
+  ),
+  ...reader(
+    'IssueModel.descendantTaskProgress',
+    ['issue.treeChildren', 'issue.pageSessions'],
+    'POD-7581',
+    'models.ts',
+    'private get descendantTaskProgress(): TaskProgress | null {',
+  ),
+  ...reader(
+    'WorklistIssue.formalChildIds',
+    ['issue.children'],
+    'POD-7581',
+    'worklist/issue.ts',
+    'private get formalChildIds(): readonly string[] {',
+  ),
+  ...reader(
+    'WorklistIssue.unitOwnUnit',
+    ['issue.spinOffs'],
+    'POD-7581',
+    'worklist/issue.ts',
+    "private get unitOwnUnit(): UnitOwn['unit'] {",
+  ),
+  ...reader(
+    'WorklistIssue.unitOwnDone',
+    ['issue.spinOffs'],
+    'POD-7581',
+    'worklist/issue.ts',
+    "private get unitOwnDone(): UnitOwn['done'] {",
+  ),
 ]
 
 /** Names can carry an instance id; the reader's declared name is stable. */

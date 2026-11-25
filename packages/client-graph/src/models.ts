@@ -85,6 +85,8 @@ import type { VisibleInputs } from './worklist/visible'
 import type { IssueChildCounts } from './shared/issue-questions'
 import { EDITABLE_FIELDS, type EditableStage, type EditPatch, type TxId, type WritableKind } from './write/commands'
 
+const EMPTY_DEPENDENTS: readonly { id: string; type: string }[] = Object.freeze([])
+
 // Direct work-row paint readers need scalar equality when an unrelated stored
 // field changes. Other installed stored getters stay plain.
 // side-state: declaration: a fixed table, never written after module initialization
@@ -935,15 +937,13 @@ export class IssueModel extends EntityModel {
   get childDoneCount(): number { return this.closeChildren.childDoneCount }
 
   get confirmedWorkingAgents(): number {
-    return this.confirmedWorkerCount
+    return this.memberCount ? this.confirmedWorkerCount : 0
   }
 
   @lazy
   private get confirmedWorkerCount(): number {
-    const sessions = this.pageSessions.unarchived.members
-    if (sessions === LOADING) throw LOADING
     let count = 0
-    for (const session of sessions) if (session.confirmedWorking) count++
+    for (const id of this.livePageSessionIds()) if (this.host.sessionObject(id).confirmedWorking) count++
     return count
   }
 
@@ -958,11 +958,9 @@ export class IssueModel extends EntityModel {
   @lazy({ equals: compareStructural })
   private get descendantTaskProgress(): TaskProgress | null {
     let total = 0, done = 0, liveAgents = 0
-    const children = this.treeChildren.members
-    if (children === LOADING) throw LOADING
-    const seen = new Set([this.id]), stack = [...children]
+    const seen = new Set([this.id]), stack = [...this.host.relations.many('issue', this.id, 'treeChildren')]
     while (stack.length) {
-      const child = stack.pop()!, id = child.id
+      const id = stack.pop()!
       if (seen.has(id)) continue
       seen.add(id)
       const row = omitGone(this.host.row('issue', id)) as LoadedRow<SliceIssue>
@@ -971,25 +969,23 @@ export class IssueModel extends EntityModel {
       total++
       if (isFinished(row)) done++
       liveAgents += this.host.issueObject(id).confirmedWorkingAgents
-      const descendants = child.treeChildren.members
-      if (descendants === LOADING) throw LOADING
-      stack.push(...descendants)
+      stack.push(...this.host.relations.many('issue', id, 'treeChildren'))
     }
     return total ? { total, done, liveAgents } : null
   }
 
   // Links: all reverse dependency edges, including their declared type.
   get dependents(): readonly { id: string; type: string }[] {
-    return this.dependencySources
+    return this.host.relations.size('issue', this.id, 'pageDependents') ? this.dependencySources : EMPTY_DEPENDENTS
   }
 
   @lazy({ equals: compareStructural })
   private get dependencySources(): readonly { id: string; type: string }[] {
-    const sources = this.pageDependents.members
-    if (sources === LOADING) throw LOADING
     const result: { id: string; type: string }[] = []
-    for (const source of [...sources].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)) {
-      for (const dep of source.deps ?? []) if (dep.id === this.id) result.push({ id: source.id, type: dep.type })
+    for (const id of [...this.host.relations.many('issue', this.id, 'pageDependents')].sort()) {
+      const row = omitGone(this.host.row('issue', id)) as LoadedRow<SliceIssue>
+      if (row === LOADING) throw LOADING
+      for (const dep of row?.deps ?? []) if (dep.id === this.id) result.push({ id, type: dep.type })
     }
     return result
   }

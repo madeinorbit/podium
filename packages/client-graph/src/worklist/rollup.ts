@@ -1571,12 +1571,11 @@ export function aggregateFieldsOver(
 
 export function unitOwnFields(
   input: RollupInputs, id: string, self: Pick<RollupSelf, 'openOwn' | 'unitsBelow'> & Partial<Pick<RollupSelf, 'ownFacts'>>,
-  spinOffCount: () => number = () => input.spinOffCount(id),
 ): UnitOwn {
   const issue = input.loadedIssue(id)
   if (issue === LOADING) return PENDING_UNIT
   if (issue === undefined) return NO_UNIT
-  const vacated = () => spinOffCount() > 0 && !self.openOwn
+  const vacated = () => input.spinOffCount(id) > 0 && !self.openOwn
   const member = () => issue.stage !== 'proposed' && issue.type !== 'phase'
   const unit = () => member() && !issueAbandoned(issue) && !vacated()
   const staffed = () => self.openOwn || self.unitsBelow.staffed === true

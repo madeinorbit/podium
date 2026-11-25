@@ -335,7 +335,7 @@ const IssueContent = observer(function IssueContent({
   menuRun.current = { commands, onBack, launch }
   const menuKey = JSON.stringify({
     live: !issue.deletedAt,
-    noAgents: agents.length === 0,
+    noAgents: !seatsLoading && agents.length === 0,
     pinned: issue.pinned === true,
     archived: issue.archived === true,
     finished: isFinished(issue),
@@ -432,7 +432,7 @@ const IssueContent = observer(function IssueContent({
             onStatus={(child) => setSheet({ kind: 'child-status', child })}
             onAdd={() => setSheet({ kind: 'add-child' })}
           />
-          <IssueStartAction issue={issue} onStart={launch} />
+          {!seatsLoading ? <IssueStartAction issue={issue} onStart={launch} /> : null}
           <IssueCost issueId={issue.id} />
           <DetailContent bleed>
             <IssueBanners issue={issue} busy={busy} commands={commands} onRestored={onBack} />

@@ -116,22 +116,16 @@ it('phone list rows request no body and never warn about many body holds', async
       void view.stageCounts
       for (let i = 0; i < 30; i++) {
         const issue = device.pool.issueObject(`i${i}`)
-        try {
-          void issue.confirmedWorkingAgents
-          void issue.taskProgress
-          void issue.dependents
-          void view.task(issue.id).mark
-          void view.task(issue.id).progress
-        } catch (error) {
-          if (error !== LOADING) throw error
-        }
+        void issue.confirmedWorkingAgents
+        void issue.taskProgress
+        void issue.dependents
+        void view.task(issue.id).mark
+        void view.task(issue.id).progress
       }
     },
   )
   await device.untilIdle()
-  expect(
-    device.requested().filter((spec) => /^issue(Description|Brief|Panel)/.test(spec.collection)),
-  ).toEqual([])
+  expect(device.requested()).toEqual([])
   expect(
     warn.mock.calls.filter(([message]) => String(message).includes('Body read misuse:')),
   ).toEqual([])

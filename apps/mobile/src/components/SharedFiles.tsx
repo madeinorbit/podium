@@ -60,15 +60,15 @@ function SharedPath({
     uploadId ?? (context ? stagedAttachmentId(resolveMachinePath(context.cwd, path)) : undefined),
     context?.httpOrigin,
   )
-  if (stored === LOADING)
+  const fallback = context && uploadId === undefined ? sessionAssetUrl(context, path) : undefined
+  if (stored === LOADING && !fallback)
     return (
       <View>
         <FileChip label={name} />
         <BodyPending label={name} />
       </View>
     )
-  const url =
-    stored ?? (context && uploadId === undefined ? sessionAssetUrl(context, path) : undefined)
+  const url = (stored === LOADING ? undefined : stored) ?? fallback
   // Failure belongs to the URL that failed: the issue's copy landing after a
   // swept daemon file failed gets its own attempt.
   const failed = failedUrl !== null && failedUrl === url
