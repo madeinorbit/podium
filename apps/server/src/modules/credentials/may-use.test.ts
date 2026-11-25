@@ -130,10 +130,10 @@ describe('mayUse', () => {
     expect(await mayUse(store, CAROL, credential)).toBe('use')
   })
 
-  // POD-7594, final review N1: a removal ends the shares of the keys the person
-  // owns, in its own transaction. It also ends their own grants, their manage
-  // grant included, so what they gave through it ends too (unlike a disable).
-  it('removing a member ends the shares of their keys at once, and the grants they gave as a manager', async () => {
+  // POD-7594: a removal ends the shares of the keys the person owns, in its own
+  // transaction (final review N1); the grants they gave as a manager on someone
+  // else's key stand (operator decision), until that key's owner revokes them.
+  it("removing a member ends the shares of their keys at once, and keeps the grants they gave on another's key", async () => {
     await grant(MANAGER, 'manage', OWNER)
     await grant(CAROL, 'use', MANAGER)
     const managers = await store.credentials.insert({
@@ -158,8 +158,12 @@ describe('mayUse', () => {
     // Their own key: no share left, before any cleanup runs.
     expect(await store.grants.listForResource('credential', managers.id)).toEqual([])
     expect(await mayUse(store, BOB, managers)).toBeNull()
-    // Their manage grant on the owner's key went with them, and what they gave
-    // through it with that.
+    // The grant they gave on the owner's key stands: Carol keeps access, and
+    // the removed manager uses nothing.
+    expect(await mayUse(store, CAROL, credential)).toBe('use')
+    expect(await mayUse(store, MANAGER, credential)).toBeNull()
+    // The owner revokes it like any other share: take the manager's edge back.
+    expect(await store.grants.remove('credential', credential.id, MANAGER, 'manage')).toBe(true)
     expect(await mayUse(store, CAROL, credential)).toBeNull()
   })
 

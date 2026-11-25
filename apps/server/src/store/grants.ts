@@ -291,6 +291,29 @@ const deleteCredentialGrantsOfOwner = prepared((db, t) =>
   ).prepare(),
 )
 
+/**
+ * A removed member's incoming grants, but for their `manage` on credentials
+ * (POD-7594, operator decision): the grants they gave as a manager on someone
+ * else's key stand, and those need the manager's own edge to reach the owner.
+ * The person can act on nothing (the resolver refuses a non-member); the key's
+ * owner revokes the edge, or the grants given through it, like any other share.
+ * Through `idx_grants_grantee`.
+ */
+const deleteGrantsOfRemovedMember = prepared((db, t) =>
+  captureWrite(
+    db
+      .delete(t.grants)
+      .where(
+        inWorkspace(
+          t.grants,
+          eq(t.grants.grantee, param(t.grants.grantee, 'grantee')),
+          sql`NOT (${t.grants.resourceKind} = ${CREDENTIAL_KIND} AND ${t.grants.verb} = 'manage')`,
+        ),
+      )
+      .returning(),
+  ).prepare(),
+)
+
 const machinesGrantedTo = prepared((db, t) =>
   db
     .select({ id: t.grants.resourceId })
@@ -646,6 +669,21 @@ export class GrantsRepository {
     await this.machineRecordWrites.compare(async () => {
       const result = await this.committed.write(
         async () => await deleteCredentialGrantsOfOwner(this.db).all({ ownerUserId }),
+        'delete',
+      )
+      this.resourceGrants.invalidate()
+      if (result.changes > 0) this.visibilityRevisionValue += 1
+    })
+  }
+
+  /**
+   * A member was removed: every grant to them goes, but for their `manage` on
+   * credentials, so what they gave as a manager stands (POD-7594).
+   */
+  async removeForRemovedMember(grantee: string): Promise<void> {
+    await this.machineRecordWrites.compare(async () => {
+      const result = await this.committed.write(
+        async () => await deleteGrantsOfRemovedMember(this.db).all({ grantee }),
         'delete',
       )
       this.resourceGrants.invalidate()
