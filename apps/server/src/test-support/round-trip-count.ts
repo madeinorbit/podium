@@ -131,6 +131,11 @@ export async function expectConstantRoundTrips<Fixture>(
       const counted = countOn
         ? await countOn(fixture, run)
         : await countRoundTrips(pin.target(fixture), run, ignore)
+      if (process.env.PODIUM_ROUND_TRIP_REPORT === '1') {
+        console.log(
+          `ROUND-TRIP-SAMPLE ${JSON.stringify({ name: pin.name, roundTrips: counted.roundTrips, statements: counted.statements, byCall: Object.fromEntries(counted.byCall) })}`,
+        )
+      }
       return { result: counted.result, ...asTally(counted) }
     },
   })
