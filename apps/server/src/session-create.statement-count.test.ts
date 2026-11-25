@@ -293,10 +293,13 @@ describe('session create: pinned statement counts at 5 and 200', () => {
     async () => {
       const f = await fixture(50)
       try {
-        const ids = (await f.store.sessions.getSessions(f.others as never)).values()
+        const ids = [...(await f.store.sessions.getSessions(f.others as never)).values()].flatMap(
+          (row) => (row.issueId ? [row.issueId] : []),
+        )
         const counted = await countRoundTrips(f.store, async () => {
           await f.reg.issues.reports.readyList('/repo')
-          for (const row of ids) if (row.issueId) await f.reg.issues.reports.get(row.issueId)
+          const reports = await f.reg.issues.reports.getMany(ids)
+          expect(reports.size).toBe(50)
         })
         expect(counted.roundTrips).toBeGreaterThan(0)
         console.log(

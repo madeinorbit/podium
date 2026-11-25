@@ -599,12 +599,14 @@ async function measureRoundTrips(latencyMs: number, repeat: number): Promise<Rou
           parentBranch: 'main',
         } as never,
       ),
-    'issue frame reads (readyList + one get per session)': async () => {
+    'issue frame reads (readyList + bulk reports)': async () => {
       await fixture.registry.issues.reports.readyList('/repo')
+      const ids: IssueId[] = []
       for (let index = 0; index < SESSION_COUNT; index += 1) {
         const owner = fixture.issueIds[index % fixture.issueIds.length]
-        if (owner !== undefined) await fixture.registry.issues.reports.get(owner)
+        if (owner !== undefined) ids.push(owner)
       }
+      await fixture.registry.issues.reports.getMany(ids)
     },
   }
   const measured: Record<string, RoundTripMeasurement> = {}

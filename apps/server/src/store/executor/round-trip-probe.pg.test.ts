@@ -34,6 +34,7 @@ import type { QueryClient } from './driver'
 import { createStoreExecutor, type RootStoreExecutor, workspaceContext } from './executor'
 import { createPgStoreDriver } from './pg-driver'
 import { pgQueryLayer } from './pg-drizzle'
+import { withReadBatch } from './read-batch'
 import {
   injectRoundTripLatency,
   instrumentDriver,
@@ -70,6 +71,34 @@ const touchFeed = (s: ProbedStore) =>
   `UPDATE sync_feed SET head_seq = head_seq WHERE workspace_id = ${s.p(1)}`
 
 const SHAPES: readonly Shape[] = [
+  {
+    name: 'independent root reads share one explicit batch',
+    roundTrips: 1,
+    run: async (s) =>
+      await withReadBatch(
+        async () =>
+          await Promise.all([
+            s.executor.drizzle.all('SELECT 1 AS one'),
+            s.executor.drizzle.all('SELECT 2 AS two'),
+          ]),
+      ),
+  },
+  {
+    name: 'independent snapshot reads share one batch, then COMMIT',
+    roundTrips: 2,
+    run: async (s) =>
+      await s.executor.read(
+        async () =>
+          await withReadBatch(
+            async () =>
+              await Promise.all([
+                s.executor.drizzle.all('SELECT 1 AS one'),
+                s.executor.drizzle.all('SELECT 2 AS two'),
+              ]),
+          ),
+        WORKSPACE,
+      ),
+  },
   {
     name: 'a read body of two statements: BEGIN rides on the first, then COMMIT',
     roundTrips: 3,

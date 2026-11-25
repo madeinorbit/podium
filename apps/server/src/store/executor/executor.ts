@@ -36,6 +36,7 @@ import {
   createInFlight,
   currentScope,
   poisonUnit,
+  rootStatementContext,
   runInScope,
   type StoreScope,
   settleInFlight,
@@ -69,6 +70,7 @@ import {
   PostCommitRunner,
   type PostCommitStep,
 } from './post-commit'
+import { assertReadBatchIntent, batchRead } from './read-batch'
 import { createScheduler, type Lease, type Scheduler, type WatchdogOptions } from './scheduler'
 import { type QueryLayer, type StoreQueries, storeQueriesOver } from './sync-drizzle'
 
@@ -498,6 +500,8 @@ export function createStoreExecutor<TClient>(
    * in — this is the mechanism the whole "root set routes ambiently" sentence
    * rests on.
    */
+  const readBatchOwner = {}
+  const rootReadScope = {}
   const ambientRouter: StatementRouter = async (statement) => {
     const scope = currentScope()
     try {
@@ -510,18 +514,41 @@ export function createStoreExecutor<TClient>(
 
   async function routeStatement(statement: Statement, scope: StoreScope): Promise<StatementResult> {
     assertHealthy()
+    assertReadBatchIntent(statement)
     if (scope.kind === 'transaction') {
       assertAddressable(scope.frame)
       assertWritable(scope.frame, [statement])
       return await scope.frame.unit.inFlight.track(
-        async () => await scope.frame.lease.session.execute(statement),
+        async () => await executeInFrame(statement, scope.frame),
       )
     }
     if (scope.kind === 'post-commit') {
       // The transaction is closed, so this is a root statement — but it stays
       // on the held lease, inside the scheduler's ordered operation.
       assertDraining(scope)
-      return await scope.inFlight.track(async () => await scope.lease.session.execute(statement))
+      return await scope.inFlight.track(
+        async () =>
+          await (batchRead(readBatchOwner, scope, statement, async (statements) =>
+            statements.length === 1
+              ? [await scope.lease.session.execute(statement)]
+              : await scope.lease.session.executeBatch(statements),
+          ) ?? scope.lease.session.execute(statement)),
+      )
+    }
+    if (statement.intent === 'read') {
+      const batched = batchRead(
+        readBatchOwner,
+        rootStatementContext() ?? rootReadScope,
+        statement,
+        async (statements) =>
+          await scheduler.run('read', async (lease) => {
+            assertHealthy()
+            return statements.length === 1
+              ? [await lease.session.execute(statement)]
+              : await lease.session.executeBatch(statements)
+          }),
+      )
+      if (batched) return await batched
     }
     const lane: Lane = laneFor([statement])
     return await scheduler.run(lane, async (lease) => {
@@ -570,6 +597,7 @@ export function createStoreExecutor<TClient>(
     scope: StoreScope,
   ): Promise<readonly StatementResult[]> {
     assertHealthy()
+    for (const statement of statements) assertReadBatchIntent(statement)
     if (scope.kind === 'transaction') {
       assertAddressable(scope.frame)
       assertWritable(scope.frame, statements)
@@ -628,15 +656,14 @@ export function createStoreExecutor<TClient>(
     return async (statement) => {
       try {
         assertHealthy()
+        assertReadBatchIntent(statement)
         assertAddressable(frame)
         assertWritable(frame, [statement])
       } catch (error) {
         reportRefusal(error, 'statement', frame)
         throw error
       }
-      return await frame.unit.inFlight.track(
-        async () => await frame.lease.session.execute(statement),
-      )
+      return await frame.unit.inFlight.track(async () => await executeInFrame(statement, frame))
     }
   }
 
@@ -644,6 +671,7 @@ export function createStoreExecutor<TClient>(
     return async (statements) => {
       try {
         assertHealthy()
+        for (const statement of statements) assertReadBatchIntent(statement)
         assertAddressable(frame)
         assertWritable(frame, statements)
       } catch (error) {
@@ -654,6 +682,17 @@ export function createStoreExecutor<TClient>(
         async () => await frame.lease.session.executeBatch(statements),
       )
     }
+  }
+
+  async function executeInFrame(
+    statement: Statement,
+    frame: TransactionFrame,
+  ): Promise<StatementResult> {
+    return await (batchRead(readBatchOwner, frame, statement, async (statements) =>
+      statements.length === 1
+        ? [await frame.lease.session.execute(statement)]
+        : await frame.lease.session.executeBatch(statements),
+    ) ?? frame.lease.session.execute(statement))
   }
 
   const boundExecutors = new WeakMap<TransactionFrame, StoreExecutor<TClient>>()

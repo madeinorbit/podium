@@ -41,6 +41,7 @@ import {
 import { jaccard, tokenize } from '../../../issue-similarity'
 import { sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, SessionStore, StoredIssueUserState } from '../../../store'
+import { withReadBatch } from '../../../store/executor/read-batch'
 import type {
   IssueListingInput,
   IssueListingKeyset,
@@ -497,38 +498,51 @@ export class IssueReportsModule {
   ): Promise<IssueReportBatch> {
     const ids = rows.map((row) => row.id)
     const issues = this.store.deps.store.issues
-    const labelsByIssue = await issues.labelsOfIssues(ids)
+    const viewer = reader.viewer() ?? undefined
+    const [
+      labelsByIssue,
+      outgoing,
+      incoming,
+      children,
+      commentCounts,
+      markers,
+      gitRows,
+      panels,
+      prefixOf,
+    ] = await Promise.all([
+      issues.labelsOfIssues(ids),
+      issues.depsFromIssues(ids),
+      issues.depsToIssues(ids),
+      issues.liveChildrenOf(ids),
+      issues.commentCountsOfIssues(ids),
+      // Server reads use each task's assignee; a member reads their own markers.
+      this.store.issueUserStates(ids, viewer),
+      issues.gitStates.getMany(ids),
+      includePanels ? issues.panel.readMany(ids) : Promise.resolve(new Map()),
+      this.store.deps.store.repos.prefixResolver(),
+    ])
     const depsByFrom = groupBy(
-      await issues.depsFromIssues(ids),
+      outgoing,
       (dep) => dep.fromId,
       (dep) => ({ toId: dep.toId, type: dep.type }),
     )
     const dependentsByTo = groupBy(
-      await issues.depsToIssues(ids),
+      incoming,
       (dep) => dep.toId,
       (dep) => ({ fromId: dep.fromId, type: dep.type }),
     )
     const childrenByParent = groupBy(
-      await issues.liveChildrenOf(ids),
+      children,
       (child) => child.parentId,
       (child) => child,
     )
-    const commentCounts = await issues.commentCountsOfIssues(ids)
-    // The reader's own markers (design §4.1 "Self", POD-6288); the server's
-    // own reads read each task's assignee's (POD-6291).
-    const markers = await this.store.issueUserStates(ids, reader.viewer() ?? undefined)
     const blockers = [...depsByFrom.values()].flatMap((deps) =>
       deps.flatMap((dep) => (dep.type === 'blocked-by' ? [dep.toId] : [])),
     )
     const closure = blockers.length > 0 ? await issues.closureOf(blockers) : new Map()
     return {
-      gitStates: new Map(
-        [...(await issues.gitStates.getMany(ids))].map(([id, { id: _id, ...state }]) => [
-          id,
-          state,
-        ]),
-      ),
-      panels: includePanels ? await issues.panel.readMany(ids) : new Map(),
+      gitStates: new Map([...gitRows].map(([id, { id: _id, ...state }]) => [id, state])),
+      panels,
       labelsByIssue,
       depsByFrom,
       dependentsByTo,
@@ -536,7 +550,7 @@ export class IssueReportsModule {
       commentCounts,
       markers,
       closure,
-      prefixOf: await this.store.deps.store.repos.prefixResolver(),
+      prefixOf,
     }
   }
 
@@ -1378,6 +1392,21 @@ export class IssueReportsModule {
   async get(id: string, reader: IssueReader = UNRESTRICTED_READER): Promise<IssueReport | null> {
     const r = await this.store.row(await this.store.resolveRef(id))
     return r ? ((await this.reportsFor([r], undefined, reader))[0] ?? null) : null
+  }
+
+  /** Reports for a known set of issue IDs, in input order, absent IDs omitted.
+   * Joins run once per chunk of IDs, rather than once for each issue frame. */
+  async getMany(
+    ids: readonly string[],
+    reader: IssueReader = UNRESTRICTED_READER,
+  ): Promise<Map<string, IssueReport>> {
+    return await withReadBatch(async () => {
+      const found = await this.store.rowsByIds(ids)
+      const rows = [...new Set(ids)].flatMap((id) => found.get(id) ?? [])
+      return new Map(
+        (await this.reportsFor(rows, undefined, reader)).map((report) => [report.id, report]),
+      )
+    })
   }
 
   /**

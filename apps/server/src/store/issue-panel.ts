@@ -521,10 +521,12 @@ export class IssuePanelRepository {
     }
   }
   async readMany(ids: readonly string[]) {
-    const todos = (await this.forIssues('issuePanelTodo', ids)) as IssuePanelTodoWire[]
-    const artifacts = (await this.forIssues('issuePanelArtifact', ids)) as IssuePanelArtifactWire[]
-    const deferred = (await this.forIssues('issuePanelDeferred', ids)) as IssuePanelDeferredWire[]
-    const states = (await this.forIssues('issuePanelState', ids)) as IssuePanelStateWire[]
+    const [todos, artifacts, deferred, states] = await Promise.all([
+      this.forIssues('issuePanelTodo', ids) as Promise<IssuePanelTodoWire[]>,
+      this.forIssues('issuePanelArtifact', ids) as Promise<IssuePanelArtifactWire[]>,
+      this.forIssues('issuePanelDeferred', ids) as Promise<IssuePanelDeferredWire[]>,
+      this.forIssues('issuePanelState', ids) as Promise<IssuePanelStateWire[]>,
+    ])
     const out = new Map(
       ids.map((id) => [
         id,

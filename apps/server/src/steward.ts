@@ -17,6 +17,7 @@ import type { IssueService } from './modules/issues/service'
 import type { MessageDeliveryService } from './modules/messages/service'
 import type { SessionFacts } from './modules/sessions/facts'
 import type { MessageLifecycle, SessionStore, Subscription } from './store'
+import { withReadBatch } from './store/executor/read-batch'
 import { NotificationArbiter } from './store/notification-facts'
 
 const log = createLogger('server:steward')
@@ -1129,9 +1130,9 @@ export class StewardService {
       const already = (await this.deps.issues.reports.comments(dependent.id)).some(
         (c) => c.author === 'steward' && c.body.includes(marker),
       )
-      const closed = await this.deps.issues.reports.getBySeq(
-        e.repoPath ?? dependent.repoPath,
-        closedSeq,
+      const closed = await withReadBatch(
+        async () =>
+          await this.deps.issues.reports.getBySeq(e.repoPath ?? dependent.repoPath, closedSeq),
       )
       if (!already) {
         const note = completionNote(
@@ -1321,7 +1322,10 @@ export class StewardService {
         (c) => c.author === 'steward' && c.body.includes(marker),
       )
       if (already) continue
-      const child = await this.deps.issues.reports.getBySeq(e.repoPath ?? parent.repoPath, childSeq)
+      const child = await withReadBatch(
+        async () =>
+          await this.deps.issues.reports.getBySeq(e.repoPath ?? parent.repoPath, childSeq),
+      )
       // Empty excerpt (no note / question) → bare marker, no trailing space.
       // The marker keeps its colon so replay dedup still matches.
       const excerpt = sub.excerpt(
@@ -1345,12 +1349,17 @@ export class StewardService {
     // Same target filter as unblock: no resurrect, no shells.
     if (lastChildSeq == null) return
     // Full wire is intentional: the nudge reports derived child completion counts.
-    const fresh = await this.deps.issues.reports.get(parentId)
+    const [fresh, lastChild] = await withReadBatch(
+      async () =>
+        await Promise.all([
+          this.deps.issues.reports.get(parentId),
+          this.deps.issues.reports.getBySeq(parent.repoPath, lastChildSeq),
+        ]),
+    )
     const total = fresh?.childCount ?? 0
     const remaining = Math.max(0, total - (fresh?.childDoneCount ?? 0))
     // Resolved once for the already-communicated check below — the child whose
     // transition drove this coalesced nudge.
-    const lastChild = await this.deps.issues.reports.getBySeq(parent.repoPath, lastChildSeq)
     const candidates = sessionsForIssue(
       parent.worktreePath,
       this.deps.runningSessionFacts(),
