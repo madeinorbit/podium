@@ -13,8 +13,9 @@
  * re-judge of a running session they own says no. What they shared stays
  * shared while they are disabled, which is temporary: the owner and the
  * granters count while their member row exists. A removal deletes the
- * credentials they own everywhere and ends their shares, and their own
- * grants with them: what they gave as a manager ends too (spec §12).
+ * credentials they own everywhere and ends their shares; what they gave as a
+ * manager on someone else's key stands until that key's owner revokes it
+ * (spec §12).
  */
 
 import { ALL_MEMBERS_GRANTEE, type CredentialId, type UserId } from '@podium/model'
@@ -60,10 +61,10 @@ export async function accessFrom(
   // Someone who may not act uses nothing, their own included.
   if (acting === undefined) return null
   if (userId === credential.ownerUserId) return 'owner'
-  // A grant outlives a DISABLE of the person who gave it (spec §12, operator
-  // decision POD-7594): a disabled member's row counts here. A removal deletes
-  // their own grants (their `manage` included) and the shares of the keys they
-  // own, in its own transaction (users.ts), so what hung on them ends.
+  // A grant outlives the person who gave it (spec §12, operator decision
+  // POD-7594): a disabled or removed member's row counts here, and a removal
+  // keeps their `manage` on credentials. Only their own keys and sessions go;
+  // the key's owner can revoke what they gave, like any other share.
   const live = new Set(givers.filter((_, i) => rows[i] === true))
   // Nobody else may use the credential of an owner with no member row.
   if (!live.has(credential.ownerUserId)) return null

@@ -825,12 +825,12 @@ and for ChatGPT plans other than Plus and Pro.
 - Like every grant it is checked at each use, not copied: take the grant away and the access is
   gone at the next launch or call. A session may use a credential only if the person it acts
   for is a member who may act, and owns it or holds `use` on it.
-- **A grant outlives a disable of the person who gave it** (operator decision, POD-7594). When
-  Alice, a manager of Carol's key, gave Bob `use` and Alice is then disabled, Bob keeps
-  access: a disable is temporary, and only Alice's own sessions stop. A removal ends Alice's
-  own grants, her `manage` on Carol's key included, so what she gave through it ends too. It
-  also ends the shares of the keys Alice owns, in the removal's own transaction, and removes
-  those keys everywhere.
+- **A grant outlives the person who gave it** (operator decision, POD-7594). When Alice, a
+  manager of Carol's key, gave Bob `use` and Alice is then disabled or removed, Bob keeps
+  access. Only Alice's own keys and sessions go: her sessions stop, and on a removal the keys
+  she owns are removed everywhere and their shares end in the removal's own transaction.
+  Carol, the key's owner, can revoke what Alice gave at any time, like any other share: take
+  back Alice's `manage`, or Bob's `use`.
 - **Use means the other person can obtain it.** Until a broker keeps secrets out of processes
   (section 15), someone who runs a session on a shared key or token on their own machine can
   read it there. The share dialog says so for every type.
