@@ -163,11 +163,12 @@ describe('body holds per observing view', () => {
 })
 
 describe('raw on-demand relation reads', () => {
-  it('counts policy-held workers reactively without requesting each issue history', async () => {
+  it('reads policy-held seats reactively without requesting each issue history', async () => {
     const warn = warnings()
     const stamp = new Date(WORLD_NOW).toISOString()
     const worker = session('worker', {
       issueId: 'i0',
+      origin: { kind: 'spawn' },
       cwd: '/synthetic',
       lastActiveAt: stamp,
       agentState: { phase: 'working', since: stamp },
@@ -192,10 +193,16 @@ describe('raw on-demand relation reads', () => {
     const counts: number[] = []
     const opened = device.observe(
       () => device.pool.issueObject('i0'),
-      (issue) => counts.push(issue.confirmedWorkingAgents),
+      (issue) => {
+        counts.push(issue.confirmedWorkingAgents)
+        void issue.live
+        void issue.memberSessionIds
+      },
     )
     await device.untilIdle()
     expect(counts.at(-1)).toBe(1)
+    expect(opened.model.live).toBe(true)
+    expect(opened.model.memberSessionIds).toEqual(['worker'])
     runInAction(() =>
       device.pool.apply({
         type: 'update',
@@ -213,6 +220,7 @@ describe('raw on-demand relation reads', () => {
     )
     await device.untilIdle()
     expect(counts.at(-1)).toBe(0)
+    expect(opened.model.live).toBe(true)
     expect(device.requested()).toEqual([])
     expect(rawWarnings(warn)).toEqual([])
     opened.close()

@@ -782,10 +782,16 @@ export class IssueModel extends EntityModel {
 
   @lazy
   get live(): boolean {
-    let live = false, pending = false
-    for (const id of this.host.relations.many('issue', this.id, 'missionSessions')) {
-      try { live ||= this.host.sessionObject(id).open }
-      catch (error) { if (error !== LOADING) throw error; pending = true }
+    const sessions = this.missionSessions
+    let live = false,
+      pending = sessions.loading > 0
+    for (const session of sessions.ready) {
+      try {
+        live ||= session.open
+      } catch (error) {
+        if (error !== LOADING) throw error
+        pending = true
+      }
     }
     if (!live && pending) throw LOADING
     return live
@@ -873,7 +879,7 @@ export class IssueModel extends EntityModel {
 
   @lazy({ equals: compareStructural })
   get memberSessionIds(): ReturnType<typeof asSessionId>[] {
-    return [...this.host.relations.many('issue', this.id, 'pageSessions')].sort().map(asSessionId)
+    return this.pageSessions.ready.map((session) => asSessionId(session.id)).sort()
   }
 
   // History: scalar session fields stop display-only changes at each member.

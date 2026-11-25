@@ -106,14 +106,6 @@ const BORN: Reads = {
   why: 'Whether a session born on this task keeps it waiting. One that now works on an issue closed and idle for N days is not seen, and does not.',
 }
 
-/** Open sessions: not archived and not exited. */
-const OPEN: Reads = {
-  bound: SESSION_BOUNDS,
-  covers:
-    'every starting or live session; hibernated ones that are unarchived on an open issue or active in the last N days',
-  why: 'Whether the issue has an open session. Every starting or live one is held. A hibernated session of an issue closed and idle for N days is not seen, so such an issue reads not live: nothing runs there.',
-}
-
 /** Working sessions: a working session is starting or live. */
 const WORKING: Reads = {
   bound: ['session.live'],
@@ -160,25 +152,11 @@ export const POLICY_RELATION_READERS: readonly PolicyRelationReader[] = [
     ),
   ]),
   ...reader(
-    'IssueModel@*.live',
-    ['issue.missionSessions'],
-    OPEN,
-    'models.ts',
-    'get live(): boolean',
-  ),
-  ...reader(
     'IssueModel.missionWorking',
     ['issue.missionSessions'],
     WORKING,
     'models.ts',
     'get missionWorking(): boolean',
-  ),
-  ...reader(
-    'IssueModel@*.memberSessionIds',
-    ['issue.pageSessions'],
-    SESSIONS,
-    'models.ts',
-    'get memberSessionIds(): ReturnType<typeof asSessionId>[]',
   ),
   // Progress walks the stubs; only its live-agent count reads sessions.
   ...['IssueModel@*.descendantTaskProgress', 'IssueModel.descendantTaskProgress'].flatMap((name) =>
