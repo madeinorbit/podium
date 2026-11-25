@@ -8,8 +8,9 @@ import { observer } from 'mobx-react-lite'
 import { useCallback, useState } from 'react'
 import { Platform } from 'react-native'
 import { useMissionOpening, useTaskSeatMemory } from '../client/hooks'
-import { useMobilePoolProjection } from '../client/mobile-pool'
+import { useMobilePool, useMobilePoolProjection } from '../client/mobile-pool'
 import { useScreenReadFocus } from '../client/screen-read-focus'
+import { BodyPending } from '../components/BodyPending'
 import { DetailSkeleton } from '../components/LaunchPlaceholders'
 import { MissionDeck, useRevealSeat } from '../components/MissionDeck'
 import { MissionNotFound } from '../components/MissionNotFound'
@@ -22,6 +23,7 @@ import { deckTaskOpen } from '../navigation/mission-deck-targets'
  * focused screens. Native shows the same deck as the page right of the chat.
  */
 export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
+  const pool = useMobilePool()
   const params = useLocalSearchParams<{
     missionId: string | string[]
     sessionId?: string | string[]
@@ -31,6 +33,7 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
   const missionId = asIssueId(decodeURIComponent(rawId ?? ''))
   const { screen, resolved } = useMissionOpening(missionId)
   const ready = resolved && screen?.ready === true
+  const offline = !ready && pool?.collections.reading(LOADING) === 'offline'
   const rootValue = ready ? screen.reader.issue(screen.rootId) : undefined
   const root = rootValue && rootValue !== LOADING ? rootValue : undefined
   const rootId = root?.id
@@ -96,7 +99,11 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
       backLabel={Platform.OS === 'web' ? 'Back' : 'Work'}
     >
       {!resolved ? (
-        <DetailSkeleton />
+        offline ? (
+          <BodyPending label="Mission" />
+        ) : (
+          <DetailSkeleton />
+        )
       ) : root && screen ? (
         <MissionDeck
           screen={screen}

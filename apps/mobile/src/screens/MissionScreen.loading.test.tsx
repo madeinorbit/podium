@@ -5,6 +5,8 @@
  * any text probe read "not found" for a mission that was loading. Not found is
  * only the opening's settled answer.
  */
+
+import { MobxPool } from '@podium/client-graph/pool'
 import { cleanup, render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -12,6 +14,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 const opening = vi.hoisted(() => ({
   value: { screen: null as unknown, resolved: false },
   connected: true,
+  pool: null as MobxPool | null,
   router: { canGoBack: () => false, back: () => {}, replace: () => {}, push: () => {} },
   navigation: { addListener: () => () => {}, dispatch: () => {} },
   seatMemory: { recall: () => null, remember: () => {} },
@@ -40,7 +43,7 @@ vi.mock('../client/hooks', () => ({
   useTaskSeatMemory: () => opening.seatMemory,
 }))
 vi.mock('../client/mobile-pool', () => ({
-  useMobilePool: () => null,
+  useMobilePool: () => opening.pool,
   useMobilePoolProjection: <T,>(_read: unknown, empty: T) => empty,
 }))
 vi.mock('../client/screen-read-focus', () => ({ useScreenReadFocus: () => {} }))
@@ -60,11 +63,27 @@ vi.mock('../components/MissionBar', () => ({ MissionBar: () => null }))
 vi.mock('../components/AgentMark', () => ({ HarnessChip: () => null }))
 
 const { MissionScreen } = await import('./MissionScreen')
+const { MissionDetailsScreen } = await import('./MissionDetailsScreen')
 
 afterEach(() => {
   cleanup()
   opening.value = { screen: null, resolved: false }
   opening.connected = true
+  opening.pool?.dispose()
+  opening.pool = null
+})
+
+it.each([
+  ['mission', MissionScreen],
+  ['mission details', MissionDetailsScreen],
+] as const)('%s shows offline availability while shared body readiness remains unresolved', (_name, Route) => {
+  opening.pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  opening.connected = false
+  opening.value = { screen: null, resolved: false }
+  const view = render(<Route />)
+  expect(view.getByText('Not available offline')).toBeTruthy()
+  expect(view.container.querySelector('[aria-busy="true"]')).toBeNull()
+  expect(view.container.textContent).not.toContain('Mission not found')
 })
 
 it('never says "not found" while the mission is on its way; says it once the opening settles without one', () => {

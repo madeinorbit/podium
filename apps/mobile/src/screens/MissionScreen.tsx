@@ -22,6 +22,7 @@ import {
   useSessionContextChromeIssue,
   useSessionContextSession,
 } from '../client/use-session-context'
+import { BodyPending } from '../components/BodyPending'
 import { ChatDeckPager } from '../components/ChatDeckPager'
 import type { ChatDeckPagerHandle, PagerPage } from '../components/chat-deck-pager.types'
 import { HeaderBand, HeaderExtension } from '../components/HeaderExtension'
@@ -85,6 +86,7 @@ export const MissionScreen = observer(function MissionScreen() {
   // on the same deck the sidebar would have given you.
   const { screen, resolved } = useMissionOpening(selectedId)
   const ready = resolved && screen?.ready === true
+  const offline = !ready && pool?.collections.reading(LOADING) === 'offline'
   // biome-ignore lint/correctness/useExhaustiveDependencies: a navigation starts a new screen opening
   const noteReadiness = useMemo(() => createScreenReadinessDiagnostic('flight-deck'), [selectedId])
   const refreshing = screen?.refreshing === true
@@ -419,6 +421,8 @@ export const MissionScreen = observer(function MissionScreen() {
         )
       ) : resolved ? (
         <MissionNotFound />
+      ) : offline ? (
+        <BodyPending label="Mission" />
       ) : null}
 
       <TaskSheet

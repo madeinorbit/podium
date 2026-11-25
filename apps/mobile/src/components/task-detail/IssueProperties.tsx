@@ -8,6 +8,7 @@ import {
   sessionTitle,
 } from '@podium/client-core/values'
 import type { PageIssue } from '@podium/client-graph/issue-page'
+import { LOADING } from '@podium/client-graph/loading'
 import {
   IssueType,
   issueStatusMenuEntries,
@@ -22,6 +23,7 @@ import { issueObserver as observer } from '../../client/issue-observer'
 import type { IssueCommands } from '../../lib/issue-detail'
 import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
 import { NativePicker, type NativePickerOption } from '../action-sheet-native'
+import { BodyPending } from '../BodyPending'
 import { Icon } from '../Icon'
 import { ChevronRight, ExternalLink, X } from '../icons'
 import { PressableScale } from '../PressableScale'
@@ -87,11 +89,10 @@ export const IssueProperties = observer(function IssueProperties({
 }) {
   const { size: textSize, accessorySize: size, accessibility } = useDetailLayout()
   const [label, setLabel] = useState('')
-  const heldRelations =
+  const relations =
     'relationGroups' in issue
       ? (issue as import('@podium/client-graph/issue-page').PageIssue).relationGroups
       : groupRelations(issue)
-  const relations = typeof heldRelations === 'symbol' ? [] : heldRelations // POD-7555: LOADING reads as empty on the phone
   // Merge axis only: a shared checkout's `ahead` is not this task's to land.
   const ahead = issue.gitState?.shared ? 0 : (issue.gitState?.ahead ?? 0)
 
@@ -175,18 +176,22 @@ export const IssueProperties = observer(function IssueProperties({
             </View>
           </View>
 
-          {relations.map((group) =>
-            group.entries.map((entry) => (
-              <PropertyRelationRow
-                key={`${entry.direction}:${entry.type}:${entry.id}`}
-                section={group.section}
-                entry={entry}
-                resolveEdge={resolveEdge}
-                busy={busy}
-                commands={commands}
-                onOpenIssue={onOpenIssue}
-              />
-            )),
+          {relations === LOADING ? (
+            <BodyPending label="Relations" />
+          ) : (
+            relations.map((group) =>
+              group.entries.map((entry) => (
+                <PropertyRelationRow
+                  key={`${entry.direction}:${entry.type}:${entry.id}`}
+                  section={group.section}
+                  entry={entry}
+                  resolveEdge={resolveEdge}
+                  busy={busy}
+                  commands={commands}
+                  onOpenIssue={onOpenIssue}
+                />
+              )),
+            )
           )}
           <ActionRow label="Add relation…" busy={busy} onPress={onAddRelation} />
 

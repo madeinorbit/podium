@@ -454,6 +454,7 @@ const SheetRelations = observer(function SheetRelations({
   pool: MobxPool | null
 }) {
   const relations = (issue as PageIssue).relationGroups
+  if (relations === LOADING) return <BodyPending label="Relations" />
   return relations.length > 0 ? (
     <Part title="Relations" meta={String(relations.length)}>
       {relations.map((rel) => (
