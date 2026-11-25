@@ -5,10 +5,12 @@ import {
   FULL_BODIES,
   openEmptyDevice,
   putIssueWithBodies,
+  refuseCollections,
 } from '@podium/client-graph/test-support/empty-device.test.fixture'
 import type { IssuePanelArtifact } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { session } from '../../../../packages/sync/src/conformance/collection-server'
 
 /**
  * THE VIEWER MUST NOT BE BORN INSIDE THE SHEET'S MODAL.
@@ -106,6 +108,48 @@ it.each([
     expect(view.getByText(FULL_BODIES.description)).toBeTruthy()
     expect(view.getByText(FULL_BODIES.stateLine)).toBeTruthy()
     expect(view.getByText(FULL_BODIES.artifacts[0]!.title)).toBeTruthy()
+  } finally {
+    view.unmount()
+    device.dispose()
+    state.pool = null
+  }
+})
+
+it('a refused session history: no queued claim, no Run now or Answer (POD-7595)', async () => {
+  const device = await openEmptyDevice({
+    world: (server) => {
+      putIssueWithBodies(server, 'sheet')
+      // A live agent on the task; the server refuses the task's session history.
+      server.put(
+        'session',
+        'live-agent',
+        session('live-agent', {
+          status: 'live',
+          issueId: 'sheet',
+          lastActiveAt: '2026-11-17T12:00:00.000Z',
+        }) as Record<string, unknown>,
+      )
+      refuseCollections(server, (instance) => instance.collection === 'session.ofIssue')
+    },
+  })
+  state.pool = device.pool
+  const view = render(
+    <TaskSheet
+      issue={device.pool.issueObject('sheet') as unknown as IssueViewModel}
+      pool={device.pool}
+      onClose={() => {}}
+      onOpenSession={() => {}}
+    />,
+  )
+  try {
+    await act(() => device.untilIdle())
+    expect(view.getByTestId('sheet-sessions-unavailable')).toBeTruthy()
+    expect(view.queryByLabelText('Run now')).toBeNull()
+    expect(view.queryByLabelText('Answer')).toBeNull()
+    expect(view.getByLabelText('Agents and sessions: Not available')).toBeTruthy()
+    expect(
+      device.requestedKeys().filter((key) => key === 'session.ofIssue{"issueId":"sheet"}'),
+    ).toHaveLength(1)
   } finally {
     view.unmount()
     device.dispose()

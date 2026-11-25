@@ -197,9 +197,10 @@ const SheetHead = observer(function SheetHead({
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
   const views = useIssueOpening()
   const detail = views?.row(issue.id)
-  // Refused (POD-7595): the head reads the issue's own facts, never a
-  // session history that will not load by itself.
-  const mine = detail?.sessionsUnavailable ? NO_SESSIONS : (detail?.inspectorSessions ?? [])
+  // Refused (POD-7595): the head claims nothing about who is on the task and
+  // offers no Run now or Answer: an agent may be working or asking.
+  const unavailable = detail?.sessionsUnavailable === true
+  const mine = unavailable ? NO_SESSIONS : (detail?.inspectorSessions ?? [])
   if (typeof mine === 'symbol') throw mine
   const asking = mine.filter((session) => session.attention)
   const op = operationalState(issue, mine)
@@ -210,7 +211,15 @@ const SheetHead = observer(function SheetHead({
       <View style={styles.identRow}>
         <IdSquare
           issue={issue}
-          state={issue.needsHuman ? 'waiting' : mine.length > 0 ? 'working' : 'queued'}
+          state={
+            issue.needsHuman
+              ? 'waiting'
+              : unavailable
+                ? 'idle'
+                : mine.length > 0
+                  ? 'working'
+                  : 'queued'
+          }
           size={22}
         />
         <Text style={[styles.chip, styles.chipRef]}>{issueDisplayRef(issue)}</Text>
@@ -247,23 +256,29 @@ const SheetHead = observer(function SheetHead({
         {/* `Answer` is a ROUTE, not a second answering surface: the agent that
             stopped already has its offer card and its buttons in the transcript.
             With nobody on the task at all, the same slot starts one. */}
-        <PressableScale
-          style={styles.primary}
-          accessibilityRole="button"
-          accessibilityLabel={asking.length > 0 ? 'Answer' : 'Run now'}
-          onPress={() => {
-            const target = asking[0]
-            if (target) return onOpenSession(target)
-            // An `issue.begin` record (POD-6526): the session paints at once and
-            // a failure is told once, on the shell's banner.
-            startIssueSession({ issueId: issue.id as IssueId, mode: 'begin' })
-          }}
-        >
-          <Text style={styles.primaryText}>{asking.length > 0 ? 'Answer' : 'Run now'}</Text>
-        </PressableScale>
+        {unavailable ? null : (
+          <PressableScale
+            style={styles.primary}
+            accessibilityRole="button"
+            accessibilityLabel={asking.length > 0 ? 'Answer' : 'Run now'}
+            onPress={() => {
+              const target = asking[0]
+              if (target) return onOpenSession(target)
+              // An `issue.begin` record (POD-6526): the session paints at once and
+              // a failure is told once, on the shell's banner.
+              startIssueSession({ issueId: issue.id as IssueId, mode: 'begin' })
+            }}
+          >
+            <Text style={styles.primaryText}>{asking.length > 0 ? 'Answer' : 'Run now'}</Text>
+          </PressableScale>
+        )}
       </View>
 
-      {asking.length > 0 ? (
+      {unavailable ? (
+        <Text style={styles.presence} testID="sheet-sessions-unavailable">
+          Sessions not available
+        </Text>
+      ) : asking.length > 0 ? (
         <View style={styles.asking}>
           <Text style={styles.askingText}>
             <Text style={styles.askingLead}>
