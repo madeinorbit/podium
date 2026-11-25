@@ -199,13 +199,12 @@ export function issuePageReaders(device: Device, id: string): ScreenReaders {
       if (issue === LOADING) return true
       if (issue === undefined) return false
       const row = views.row(id)
-      // The page draws the description and the brief, which load on read (POD-7545).
-      return (
-        (row.children as unknown) === LOADING ||
-        (row.memberSessions as unknown) === LOADING ||
-        issue.description === LOADING ||
-        issue.brief === LOADING
-      )
+      // The page draws the description and the brief, which load on read
+      // (POD-7545). Its blocks read in one pass, each in its own component
+      // (`IssueSubIssues`, `IssueSessionsBlock`): every read is made, so one
+      // still loading never keeps the next from asking (POD-7602).
+      const reads: unknown[] = [row.children, row.memberSessions, issue.description, issue.brief]
+      return reads.includes(LOADING)
     },
     close: () => views.dispose(),
   }

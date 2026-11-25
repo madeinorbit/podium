@@ -606,11 +606,17 @@ export function createIssuePageViews(pool: MobxPool) {
    * model's fields: while the row is on its way their loads join its batch
    * window instead of waiting a hop for it, and once it is here the page keeps
    * holding them, with no release and retake when the sections mount (POD-7545).
+   * The page's own issue reads its sub-issues' tree and its sessions the same
+   * way: asked in the record's window, not a hop after it (POD-7602).
    */
   function issue(id: string, bodies: readonly PageBody[] = PAGE_BODIES): Loaded<PageIssue> {
     if (disposed) return LOADING
     const found = readPageIssue(pool, id)
     if (found !== undefined) readBodies(pool, id, bodies)
+    if (found === LOADING && bodies === PAGE_BODIES) {
+      void pool.collections.subtreeHeld(id)
+      void sessionsHeld(pool, id, 'pageSessions')
+    }
     return found
   }
   /** Resolve identity before any detail section subscribes to its own fields. */
