@@ -74,14 +74,16 @@ describe('a relayed agent command that fails', () => {
   it('preserves an expected refusal message while logging its diagnostic cause', async () => {
     const logs = captureLogs()
     try {
-      const { gate, sent } = gateFor(() =>
-        Promise.reject(
-          new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: 're-run with --outside-scope to confirm',
-            cause: new Error('private policy context'),
-          }),
-        ),
+      const { gate, sent } = gateFor(
+        () =>
+          Promise.reject(
+            new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: 're-run with --outside-scope to confirm',
+              cause: new Error('private policy context'),
+            }),
+          ),
+        true,
       )
       await relay(gate)
       const reply = sent[0] as Extract<ControlMessage, { type: 'agentRelayResult' }>
