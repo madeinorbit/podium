@@ -15,6 +15,7 @@ import type {
   Simplify,
   UnsetMarker,
 } from '@trpc/server/unstable-core-do-not-import'
+import { CLIENT_ERROR_DIAGNOSTICS } from './client-error-diagnostics'
 import type { CloudRuntimeProvider } from './cloud-runtime'
 import { actsInOrReport, type CommandPrincipal } from './command-principal'
 import type { Capability } from './issue-authz'
@@ -207,25 +208,38 @@ export function issueCaller(ctx: Context): IssueCaller {
  * why and offers the way out by the code, never by the sentence. The sentence
  * is the message, so a refusal carries no `causeChain`.
  *
- * Exported because it is the only testable seam here — `initTRPC.create()`
- * swallows the formatter, and `createCaller` never runs it.
+ * `diagnostics` off (production, {@link CLIENT_ERROR_DIAGNOSTICS}) sends neither
+ * the cause chain nor a stack: both are the server's own text (driver errors,
+ * install paths), and the server log keeps them (POD-7615). `conflict` and
+ * `refusalCode` are structured answers written for the client and always go.
+ *
+ * The router's formatter. It is exported for tests that build a shape by hand;
+ * `createCaller` never runs it, so a test of the wire goes through tRPC's
+ * `getErrorShape` with `t._config`.
  */
 export function errorShapeWithCause<TShape extends { data: Record<string, unknown> }>(
   shape: TShape,
   error: { readonly cause?: unknown },
+  diagnostics: boolean = CLIENT_ERROR_DIAGNOSTICS,
 ): TShape {
   const conflict = error.cause instanceof IssueRevisionConflict ? error.cause.detail : undefined
   const refused = credentialRefusalIn(error.cause)
   const refusalCode = refused ? credentialRefusalCode(refused.refusal) : undefined
   const causeChain =
-    refused || error.cause === undefined || error.cause === null
+    !diagnostics || refused || error.cause === undefined || error.cause === null
       ? undefined
       : describeError(error.cause)
-  if (conflict === undefined && causeChain === undefined && refusalCode === undefined) return shape
+  // tRPC adds `data.stack` only under `isDev`, which follows the same decision;
+  // dropping it here as well keeps one rule for every shape this returns.
+  const { stack: _stack, ...rest } = shape.data
+  const data = diagnostics ? shape.data : rest
+  if (conflict === undefined && causeChain === undefined && refusalCode === undefined) {
+    return data === shape.data ? shape : { ...shape, data }
+  }
   return {
     ...shape,
     data: {
-      ...shape.data,
+      ...data,
       ...(conflict === undefined ? {} : { conflict }),
       ...(causeChain === undefined ? {} : { causeChain }),
       ...(refusalCode === undefined ? {} : { refusalCode }),
@@ -290,8 +304,11 @@ const core = initTRPC
   .context<Context>()
   .meta<RouteMeta>()
   .create({
+    // Not tRPC's default (`NODE_ENV !== 'production'`): the installed service
+    // sets no NODE_ENV, so every packaged server sent its stacks (POD-7615).
+    isDev: CLIENT_ERROR_DIAGNOSTICS,
     errorFormatter({ shape, error }) {
-      return errorShapeWithCause(shape, error)
+      return errorShapeWithCause(shape, error, CLIENT_ERROR_DIAGNOSTICS)
     },
   })
 

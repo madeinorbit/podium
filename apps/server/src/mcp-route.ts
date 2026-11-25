@@ -1,6 +1,9 @@
-import { describeError } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import type { ThreadId } from '@podium/model'
 import type { Hono } from 'hono'
+import { CLIENT_ERROR_DIAGNOSTICS } from './client-error-diagnostics'
+
+const log = createLogger('server:mcp')
 
 /**
  * A provider of MCP tools — implemented by SuperagentService so a harness agent
@@ -47,8 +50,15 @@ export function registerMcpRoute(
   app: Hono,
   provider: McpToolProvider,
   token: string,
-  opts?: { resolveThread?: (threadToken: string) => ThreadId | undefined },
+  opts?: {
+    resolveThread?: (threadToken: string) => ThreadId | undefined
+    /** Whether a failed tool call's text carries its cause chain
+     *  ({@link CLIENT_ERROR_DIAGNOSTICS}, the default). Off, the agent gets the
+     *  error's own message and the server log keeps the chain (POD-7615). */
+    diagnostics?: boolean
+  },
 ): void {
+  const diagnostics = opts?.diagnostics ?? CLIENT_ERROR_DIAGNOSTICS
   const tokenOf = (header: string | undefined): string | undefined =>
     header?.replace(/^Bearer\s+/i, '')
 
@@ -124,11 +134,13 @@ export function registerMcpRoute(
         const text = await provider.callMcpTool(name, body.params?.arguments ?? {}, threadId)
         return c.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text }] } })
       } catch (err) {
+        log.info('mcp tool call failed', { tool: name, err })
+        const text = diagnostics ? describeError(err) : messageOf(err)
         return c.json({
           jsonrpc: '2.0',
           id,
           result: {
-            content: [{ type: 'text', text: `error: ${describeError(err)}` }],
+            content: [{ type: 'text', text: `error: ${text}` }],
             isError: true,
           },
         })
@@ -140,4 +152,9 @@ export function registerMcpRoute(
       error: { code: -32601, message: `method not found: ${method}` },
     })
   })
+}
+
+/** The error's own sentence, without what lies under it. */
+function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
