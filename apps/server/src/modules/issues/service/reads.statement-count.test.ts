@@ -1,4 +1,4 @@
-import { asIssueId, type IssueId, type IssueReport } from '@podium/model'
+import { asIssueId, asIssuePanelItemId, type IssueId, type IssueReport } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
@@ -77,7 +77,7 @@ describe('issue frame bulk reads', { timeout: 60_000 }, () => {
       await seedRows(f.store, async () => {
         await f.store.issues.setIssueLabels(child, ['generated'])
         await f.store.issues.panel.save(fixtureWriteScope(), 'issuePanelTodo', {
-          id: 'todo-generated',
+          id: asIssuePanelItemId('todo-generated'),
           issueId: child,
           position: 0,
           text: 'Generated task',
