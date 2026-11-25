@@ -79,7 +79,9 @@ const providers = (element: ReactElement): ReactElement => (
   </ConfirmProvider>
 )
 
-const mountPanel = (options: { offline?: boolean } = {}) =>
+const mountPanel = (
+  options: { offline?: boolean; world?: (server: CollectionServer) => void } = {},
+) =>
   mountOnEmptyDevice(providers(<IssuePanelView cwd="/synthetic" issueId={ID as never} />), {
     world,
     ...options,
