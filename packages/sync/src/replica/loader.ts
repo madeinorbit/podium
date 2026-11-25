@@ -428,16 +428,14 @@ export class CollectionLoader {
       case 'stub-upserted':
         if (hasStub(event.record.entity)) this.notify('stubs')
         return
-      case 'evicted':
-        // A record left this viewer's view: access changed.
-        this.accessChanged()
-        if (hasStub(event.entity)) this.notify('stubs')
-        return
       case 'kind-reload-installed':
         this.accessChanged()
         return
       case 'released':
       case 'removed':
+      // An eviction only narrows this viewer's access: it cannot turn a
+      // refusal into an answer, so it is no trigger.
+      case 'evicted':
       // POD-7160: a feed change written to disk only moves its stub too.
       case 'unloaded':
         if (hasStub(event.entity)) this.notify('stubs')

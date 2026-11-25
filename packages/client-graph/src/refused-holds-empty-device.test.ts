@@ -163,6 +163,43 @@ describe('a holding relation over a keyed instance (LazyCollection.members)', ()
   })
 })
 
+describe('a trigger while the server keeps refusing', () => {
+  it('asks once per trigger and settles refused again, with no loop', async () => {
+    const device = await openEmptyDevice({
+      world: (server) => {
+        sessionsWorld(server)
+        refuseCollections(server, named('session.ofIssue'))
+      },
+    })
+    devices.push(device)
+    const issue = device.pool.issueObject('c1') as unknown as { sessions: Members }
+    const page = reader(device, () => [ids(issue.sessions.members), issue.sessions.unavailable])
+    await device.untilIdle()
+    expect(asked(device, SESSIONS)).toBe(1)
+    // The connection drops and returns; the server still refuses.
+    device.offline()
+    await device.untilIdle()
+    device.online()
+    await device.untilIdle()
+    expect(asked(device, SESSIONS)).toBe(2)
+    expect(device.pool.collections.holding(SESSIONS)).toBe('refused')
+    expect(page.answers.at(-1)).toEqual(['LOADING', true])
+    // An access change; still refused.
+    device.loader.onEvent({ type: 'kind-reload-installed' })
+    await device.untilIdle()
+    expect(asked(device, SESSIONS)).toBe(3)
+    expect(page.answers.at(-1)).toEqual(['LOADING', true])
+    // A retry; still refused. Then nothing more while the page stays open.
+    device.pool.collections.retry(SESSIONS)
+    await device.untilIdle()
+    await device.untilIdle()
+    expect(asked(device, SESSIONS)).toBe(4)
+    expect(device.pool.collections.holding(SESSIONS)).toBe('refused')
+    expect(page.answers.at(-1)).toEqual(['LOADING', true])
+    page.close()
+  })
+})
+
 describe('a holding relation over a tree (subtreeHolding)', () => {
   it('a refused subtree stays LOADING, unavailable, asked once until a retry', async () => {
     const refusal = { on: true }

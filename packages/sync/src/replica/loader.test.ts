@@ -1048,7 +1048,6 @@ describe('a refused instance settles until a real trigger', () => {
 
   it.each([
     ['a kind reload', { type: 'kind-reload-installed' }],
-    ['an eviction', { type: 'evicted', entity: ISSUE, entityId: 'X' }],
     [
       'a readmitted record',
       { type: 'upserted', record: { entity: ISSUE, entityId: 'X' }, readmitted: true },
@@ -1075,8 +1074,10 @@ describe('a refused instance settles until a real trigger', () => {
     expect(requestsNaming(server, tree('R'))).toBe(2)
   })
 
-  it('a record moving through the feed is no access change', async () => {
+  it('a record moving through the feed, or leaving the view, is no access change', async () => {
     const { d } = await refusedTree()
+    d.loader.onEvent({ type: 'evicted', entity: ISSUE, entityId: 'X' } as unknown as ReplicaEvent)
+    expect(d.loader.wasRefused(tree('R'))).toBe(true)
     d.loader.onEvent({
       type: 'upserted',
       record: { entity: ISSUE, entityId: 'R' },

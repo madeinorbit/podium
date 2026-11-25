@@ -506,13 +506,19 @@ export class PoolCollections {
   reading(answer: unknown, instances: readonly AnswerSource[] = []): Reading {
     if (typeof answer === 'object' && answer !== null && (answer as Gone).kind === 'gone')
       return 'gone'
+    // A LOADING answer reads only its instances' markers: no record
+    // freshness, whose read may queue a background reload.
+    if (answer === LOADING)
+      return instances.some((spec) => 'collection' in spec && this.status(spec) === 'unavailable')
+        ? 'unavailable'
+        : this.online
+          ? 'loading'
+          : 'offline'
     const statuses = instances.map((spec) =>
       'collection' in spec ? this.status(spec) : this.recordStale(spec.entity, spec.id),
     )
-    const refused = statuses.includes('unavailable')
-    if (answer === LOADING) return refused ? 'unavailable' : this.online ? 'loading' : 'offline'
     if (statuses.some((status) => status === 'refreshing' || status === true)) return 'refreshing'
-    return refused ? 'unavailable' : 'here'
+    return statuses.includes('unavailable') ? 'unavailable' : 'here'
   }
 
   /** TRACKED: freshness of a lookup/search hit, regardless of which instance fetched it. */
