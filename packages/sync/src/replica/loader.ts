@@ -183,8 +183,10 @@ export class CollectionLoader {
     this.connected = isConnected(this.replica.posture)
     this.fresh = !this.replica.canFetch
     this.connectivity = options.connectivity
+    this.wasOnline = this.online
     this.stopConnectivity = this.connectivity?.subscribe(() => {
       if (this.disposed) return
+      this.reconnected()
       this.notify('connection')
       if (this.queue.size > 0) this.arm()
     })
@@ -212,6 +214,9 @@ export class CollectionLoader {
       const key = instanceKey(request)
       if (this.held(request)) continue
       if (this.riding.has(key)) continue
+      // A refused instance is asked again only on a real trigger (reconnect,
+      // access change, `retryRefused`), never because a reader read it.
+      if (this.refusedKeys.has(key)) continue
       const sending = this.inFlight.get(key)
       // POD-7560: a later page of a held instance, asked while another
       // position of it is answered (a stale board's whole reload), is
@@ -223,7 +228,6 @@ export class CollectionLoader {
           this.replica.isComplete(request) === undefined)
       )
         continue
-      this.refusedKeys.delete(key)
       const queued = this.queue.get(key)
       if (queued !== undefined) {
         if (priority === 'visible' && queued.priority !== 'visible') {
@@ -398,6 +402,7 @@ export class CollectionLoader {
         const connected = isConnected(event.posture)
         const moved = connected !== this.connected
         this.connected = connected
+        this.reconnected()
         // A first download that ended without its view step gives those back.
         if (event.previous === 'bootstrapping' && event.posture !== 'bootstrapping') this.unride()
         if (moved) this.notify('connection')
@@ -407,18 +412,32 @@ export class CollectionLoader {
       case 'markers':
         for (const [key, request] of this.riding)
           if (this.replica.isComplete(request) !== undefined) this.riding.delete(key)
+        // An instance completed another way (a reload, the feed): no longer refused.
+        for (const [key, spec] of this.refusedKeys)
+          if (this.replica.isComplete(spec) !== undefined) this.refusedKeys.delete(key)
         this.notify('markers')
         return
       case 'cursor':
         if (this.queue.size > 0 && this.replica.canFetch) this.arm()
         return
       case 'upserted':
+        // A readmitted record came back into this viewer's view: access changed.
+        if (event.readmitted) this.accessChanged()
+        if (hasStub(event.record.entity)) this.notify('stubs')
+        return
       case 'stub-upserted':
         if (hasStub(event.record.entity)) this.notify('stubs')
         return
+      case 'evicted':
+        // A record left this viewer's view: access changed.
+        this.accessChanged()
+        if (hasStub(event.entity)) this.notify('stubs')
+        return
+      case 'kind-reload-installed':
+        this.accessChanged()
+        return
       case 'released':
       case 'removed':
-      case 'evicted':
       // POD-7160: a feed change written to disk only moves its stub too.
       case 'unloaded':
         if (hasStub(event.entity)) this.notify('stubs')
@@ -427,6 +446,8 @@ export class CollectionLoader {
       // store's memory (POD-7122), not when they are durable.
       case 'load-installed':
       case 'bootstrap-installed':
+        // A rebootstrap (a rescope among its causes) may answer differently.
+        if (event.type === 'bootstrap-installed') this.accessChanged()
         if (this.fresh) {
           this.fresh = false
           this.notify('markers')
@@ -586,7 +607,7 @@ export class CollectionLoader {
       if (failed) {
         if (!this.queue.has(key)) this.queue.set(key, { request, priority: 'background' })
         retry = true
-      } else this.refusedKeys.add(key)
+      } else this.refusedKeys.set(key, request)
     }
     if (retry) this.retryLater()
     else {
@@ -625,12 +646,45 @@ export class CollectionLoader {
     return range === undefined || range.end || !samePosition(range.through, request.after)
   }
 
-  /** Answered in full without a marker: the server will not say this one is complete. */
-  private readonly refusedKeys = new SideSet<string>('loader.refusedKeys')
+  /**
+   * Answered in full without a marker: the server will not say this one is
+   * complete (POD-7595). A refused instance SETTLES: `request` drops it, so a
+   * reader that reads it again asks for nothing. It is asked again only on a
+   * real trigger: the connection returns (`reconnected`), this viewer's
+   * access changes (`accessChanged`), or a view retries it (`retryRefused`).
+   */
+  private readonly refusedKeys = new SideMap<string, InstanceSpec>('loader.refusedKeys')
+  /** The last connection state `reconnected` saw: a refusal is forgotten on the way back up. */
+  private wasOnline = false
 
   /** Whether an answer came back in full without this instance's marker. */
   wasRefused(spec: InstanceSpec): boolean {
     return this.refusedKeys.has(instanceKey(spec))
+  }
+
+  /**
+   * Forget a refusal (POD-7595): the instance, or every refused one, may be
+   * asked for again. The views hear the markers moved, and a reader that
+   * still reads the instance asks for it. A view's explicit retry.
+   */
+  retryRefused(spec?: InstanceSpec): void {
+    if (this.disposed || this.refusedKeys.size === 0) return
+    if (spec === undefined) this.refusedKeys.clear()
+    else if (!this.refusedKeys.delete(instanceKey(spec))) return
+    this.notify('markers')
+  }
+
+  /** The connection came back: what the server refused may be answered now. */
+  private reconnected(): void {
+    const online = this.online
+    const back = online && !this.wasOnline
+    this.wasOnline = online
+    if (back) this.retryRefused()
+  }
+
+  /** This viewer's access may have changed: every refusal is asked again. */
+  private accessChanged(): void {
+    this.retryRefused()
   }
 
   private unride(): void {

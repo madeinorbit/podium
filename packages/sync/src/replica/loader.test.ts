@@ -957,3 +957,147 @@ describe('one fetch at a time, and a wait after a failed one (POD-6951 hotfix)',
     expect(d.replica.isComplete(oneRecord(ISSUE, 'I2'))).toBeDefined()
   })
 })
+
+/**
+ * POD-7595 — a refused instance SETTLES. The server answered it in full
+ * without its marker; asking again because a view read it again only repeats
+ * the same answer. It is asked again only on a real trigger: the connection
+ * returns, this viewer's access changes, or a view retries it.
+ */
+describe('a refused instance settles until a real trigger', () => {
+  /** Withhold `collection`'s marker from every answer while `on`. */
+  function refusing(server: CollectionServer, collection: string): { on: boolean } {
+    const state = { on: true }
+    const answer = server.collections.bind(server)
+    server.collections = (instances) =>
+      (async function* () {
+        for await (const chunk of answer(instances))
+          yield !state.on || chunk.complete === undefined
+            ? chunk
+            : {
+                ...chunk,
+                complete: chunk.complete.filter((marker) => marker.collection !== collection),
+              }
+      })()
+    return state
+  }
+
+  async function refusedTree(connectivity?: LoaderOptions['connectivity']) {
+    const server = new CollectionServer()
+    server.policy = POLICY
+    server.put(ISSUE, 'R', issue('R', { stage: 'done', closedReason: 'completed' }))
+    const refusal = refusing(server, 'issueProjection.tree')
+    const d = device(await inMemoryInstantiation.open(), server, undefined, {}, connectivity)
+    d.replica.connect()
+    await settle(d)
+    d.loader.request([tree('R')], 'visible')
+    await settle(d)
+    expect(d.loader.wasRefused(tree('R'))).toBe(true)
+    expect(requestsNaming(server, tree('R'))).toBe(1)
+    return { server, d, refusal }
+  }
+
+  it('is not asked again however often it is read', async () => {
+    const { server, d } = await refusedTree()
+    for (let round = 0; round < 5; round += 1) {
+      d.loader.request([tree('R')], 'visible')
+      d.loader.show(tree('R'))()
+      await settle(d)
+    }
+    expect(requestsNaming(server, tree('R'))).toBe(1)
+    expect(d.loader.wasRefused(tree('R'))).toBe(true)
+  })
+
+  it('is asked again once when the connection returns', async () => {
+    const { server, d, refusal } = await refusedTree()
+    d.replica.disconnect()
+    expect(d.loader.wasRefused(tree('R'))).toBe(true)
+    refusal.on = false
+    d.replica.connect()
+    await settle(d)
+    expect(d.loader.wasRefused(tree('R'))).toBe(false)
+    // Nothing reads it: forgotten, not asked. The next read asks once.
+    d.loader.request([tree('R')], 'visible')
+    await settle(d)
+    expect(requestsNaming(server, tree('R'))).toBe(2)
+    expect(d.loader.isComplete(tree('R'))).toBeDefined()
+  })
+
+  it('is asked again when the platform comes back online', async () => {
+    let online = true
+    let changed: (() => void) | undefined
+    const { server, d } = await refusedTree({
+      isOnline: () => online,
+      subscribe: (listener) => {
+        changed = listener
+        return () => {
+          changed = undefined
+        }
+      },
+    })
+    online = false
+    changed?.()
+    expect(d.loader.wasRefused(tree('R'))).toBe(true)
+    online = true
+    changed?.()
+    expect(d.loader.wasRefused(tree('R'))).toBe(false)
+    d.loader.request([tree('R')], 'visible')
+    await settle(d)
+    expect(requestsNaming(server, tree('R'))).toBe(2)
+  })
+
+  it.each([
+    ['a kind reload', { type: 'kind-reload-installed' }],
+    ['an eviction', { type: 'evicted', entity: ISSUE, entityId: 'X' }],
+    [
+      'a readmitted record',
+      { type: 'upserted', record: { entity: ISSUE, entityId: 'X' }, readmitted: true },
+    ],
+    [
+      'a rebootstrap',
+      {
+        type: 'bootstrap-installed',
+        cause: 'rescope',
+        snapshotSeq: 1,
+        entityCount: 0,
+        bufferedFramesApplied: 0,
+      },
+    ],
+  ] as const)('is forgotten on an access change: %s', async (_name, event) => {
+    const { server, d } = await refusedTree()
+    const markers: string[] = []
+    d.loader.subscribe((change) => markers.push(change))
+    d.loader.onEvent(event as unknown as ReplicaEvent)
+    expect(d.loader.wasRefused(tree('R'))).toBe(false)
+    expect(markers).toContain('markers')
+    d.loader.request([tree('R')], 'visible')
+    await settle(d)
+    expect(requestsNaming(server, tree('R'))).toBe(2)
+  })
+
+  it('a record moving through the feed is no access change', async () => {
+    const { d } = await refusedTree()
+    d.loader.onEvent({
+      type: 'upserted',
+      record: { entity: ISSUE, entityId: 'R' },
+      readmitted: false,
+    } as unknown as ReplicaEvent)
+    expect(d.loader.wasRefused(tree('R'))).toBe(true)
+  })
+
+  it('is asked again when a view retries it, that instance alone', async () => {
+    const { server, d, refusal } = await refusedTree()
+    d.loader.request([tree('Q')], 'visible')
+    await settle(d)
+    expect(d.loader.wasRefused(tree('Q'))).toBe(true)
+    refusal.on = false
+    d.loader.retryRefused(tree('R'))
+    expect(d.loader.wasRefused(tree('R'))).toBe(false)
+    expect(d.loader.wasRefused(tree('Q'))).toBe(true)
+    d.loader.request([tree('R'), tree('Q')], 'visible')
+    await settle(d)
+    expect(requestsNaming(server, tree('R'))).toBe(2)
+    expect(requestsNaming(server, tree('Q'))).toBe(1)
+    expect(d.loader.isComplete(tree('R'))).toBeDefined()
+  })
+})
