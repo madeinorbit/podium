@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import type { PageIssue } from '@podium/client-graph/issue-page'
+import { type PageIssue, subTaskStateWord } from '@podium/client-graph/issue-page'
 import { childProgressOf } from '@podium/client-graph/lookup'
 /**
  * The sub-task list — one flat list in slice order, plus an inline add-row.
@@ -32,7 +32,7 @@ import type { IssueId } from '@podium/model/browser'
 import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Plus } from 'lucide-react'
-import { type JSX, useMemo } from 'react'
+import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -75,9 +75,15 @@ const SubTaskRow = observer(function SubTaskRow({
   onNavigate: (id: IssueId) => void
   onStatusPick: (issue: IssueViewModel, value: string) => void
 }): JSX.Element {
-  const count =
-    'confirmedWorkingAgents' in child ? (child as PageIssue).confirmedWorkingAgents : workingAgents
-  const state = issueStateWord(child, count)
+  // A pooled child reads what the page's tree brings, and draws without its
+  // word while that is on its way (POD-7611); a supplied one is complete.
+  const held = 'heldDependents' in child ? subTaskStateWord(child as PageIssue) : undefined
+  const state =
+    held === undefined
+      ? issueStateWord(child, workingAgents)
+      : typeof held === 'symbol'
+        ? null
+        : held
   const finished = isFinished(child)
   return (
     <button

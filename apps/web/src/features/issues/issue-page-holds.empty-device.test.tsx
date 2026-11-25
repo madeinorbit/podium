@@ -150,6 +150,74 @@ describe('show in deck from a sub-task row', () => {
   })
 })
 
+describe('a sub-task row on the issue page (POD-7611)', () => {
+  /** world(), with named sessions, a live one on the sub-task, and a task the sub-task blocks. */
+  function rowWorld(server: CollectionServer): void {
+    world(server)
+    for (const [id, issueId, fields] of [
+      ['past', ID, { status: 'exited', lastActiveAt: OLD }],
+      ['child-past', CHILD, { status: 'exited', lastActiveAt: OLD }],
+      ['child-live', CHILD, { status: 'live', lastActiveAt: new Date().toISOString() }],
+    ] as const)
+      server.put(
+        'session',
+        id,
+        session(id, {
+          issueId,
+          name: `agent-${id}`,
+          title: `The ${id} agent`,
+          ...fields,
+        }) as Record<string, unknown>,
+      )
+    putIssueWithBodies(server, 'waiting', { seq: 3, title: 'The waiting task' })
+    server.put('issueDep', `waiting-blocked-by-${CHILD}`, {
+      id: `waiting-blocked-by-${CHILD}`,
+      fromId: 'waiting',
+      toId: CHILD,
+      type: 'blocked-by',
+    })
+  }
+
+  it('reads its sessions and dependents through the tree the page holds, asking nothing per row', async () => {
+    const mounted = await mountPage({ world: rowWorld })
+    await mounted.untilIdle()
+    const row = screen.getByText('The open sub-task').closest('button')
+    expect(row, 'the sub-task row').toBeTruthy()
+    // The task it blocks came with the page's tree: the row says so.
+    expect(row!.textContent).toContain('blocking')
+    expect(mounted.requestedKeys()).toContain(`issueProjection.tree{"root":"${ID}"}`)
+    for (const key of [
+      `session.ofIssue{"issueId":"${CHILD}"}`,
+      `issueDep.toIssue{"issueId":"${CHILD}"}`,
+    ])
+      expect(mounted.requestedKeys(), key).not.toContain(key)
+  })
+
+  it('keeps its rows beside the bodies the server refused', async () => {
+    const refused = ['issueDescription.ofIssue', 'issuePanelState.ofIssue']
+    const mounted = await mountPage({
+      world: (server) => {
+        rowWorld(server)
+        refuseCollections(server, (instance) => refused.includes(instance.collection))
+      },
+    })
+    await mounted.untilIdle()
+    expect(screen.getByLabelText('Description: not available')).toBeTruthy()
+    expect(screen.getByText('The open sub-task').closest('button')?.textContent).toContain(
+      'blocking',
+    )
+  })
+
+  it('draws no row offline, then the row and its state once the tree is here', async () => {
+    const mounted = await mountPage({ world: rowWorld, offline: true })
+    expect(screen.queryByText('The open sub-task')).toBeNull()
+    mounted.online()
+    await mounted.untilIdle()
+    const row = screen.getByText('The open sub-task').closest('button')
+    expect(row!.textContent).toContain('blocking')
+  })
+})
+
 describe('what the server refused (POD-7595)', () => {
   it.each([
     'page',

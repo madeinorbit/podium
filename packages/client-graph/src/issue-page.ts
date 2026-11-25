@@ -5,6 +5,8 @@ import {
   type IssueCloseScalarSubject,
   isEmptyDraftVessel,
   issueDisplayTitle,
+  type TaskStateWord,
+  taskStateWord,
 } from '@podium/client-core/values'
 import { clearCompanions, companion, keyedComputed, lazy } from '@podium/mobx-helpers'
 import { asIssueId } from '@podium/model/browser'
@@ -281,6 +283,36 @@ function sessionsHolding(
  */
 export function seatsHeld(pool: MobxPool, issueId: string): boolean {
   return pool.collections.treeHeld(issueId)
+}
+
+/**
+ * POD-7611 — the one state word a sub-task row ends in (`taskStateWord`),
+ * from what the page holds: the row's issue is in the tree the page holds
+ * (`IssuePageRow.children` waits for it), which brings the edges into it
+ * (`heldDependents`), and its confirmed workers are live sessions, every one
+ * of which the policy holds. LOADING while any of it is on its way: the row
+ * draws without its word, and asks nothing of its own.
+ */
+export function subTaskStateWord(child: PageIssue): Loaded<TaskStateWord | null> {
+  try {
+    const dependents = child.heldDependents
+    if (dependents === LOADING) return LOADING
+    return taskStateWord(
+      {
+        deletedAt: child.deletedAt,
+        needsHuman: child.needsHuman,
+        blocked: child.blocked,
+        dependents,
+        gitState: child.gitState,
+        childCount: child.childCount,
+        childDoneCount: child.childDoneCount,
+      },
+      child.confirmedWorkingAgents,
+    )
+  } catch (error) {
+    if (error === LOADING) return LOADING
+    throw error
+  }
 }
 
 const EMPTY_CHILDREN: PageIssue[] = []

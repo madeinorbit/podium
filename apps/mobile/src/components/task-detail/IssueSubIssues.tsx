@@ -1,7 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { confirmedWorkingAgentCountsByIssue, taskStateWord } from '@podium/client-core/values'
-import type { PageIssue } from '@podium/client-graph/issue-page'
+import { type PageIssue, subTaskStateWord } from '@podium/client-graph/issue-page'
 import { childProgressOf } from '@podium/client-graph/lookup'
 import { sidebarIssueProgress } from '@podium/client-graph/worklist/sidebar'
 import { isFinished } from '@podium/model/browser'
@@ -215,9 +215,15 @@ const SubTaskRow = observer(function SubTaskRow({
 }) {
   const { size, accessorySize, accessibility } = useDetailLayout()
   const statusWidth = space.md + accessorySize(14) + space.sm
-  const count =
-    'confirmedWorkingAgents' in child ? (child as PageIssue).confirmedWorkingAgents : workingAgents
-  const state = taskStateWord(child, count)
+  // A pooled child reads what the page's tree brings, and draws without its
+  // word while that is on its way (POD-7611); a supplied one is complete.
+  const held = 'heldDependents' in child ? subTaskStateWord(child as PageIssue) : undefined
+  const state =
+    held === undefined
+      ? taskStateWord(child, workingAgents)
+      : typeof held === 'symbol'
+        ? null
+        : held
   const stateTint =
     state?.tone === 'attention'
       ? color.needsYouText

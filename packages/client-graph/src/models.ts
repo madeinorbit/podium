@@ -629,6 +629,20 @@ export class IssueModel extends EntityModel {
    * holds the issues that depend on it (`pageDependents`, a holding relation
    * on the incoming edges, POD-7582) and each of them is here (POD-7579). */
   @lazy get relationGroups(): ReturnType<typeof groupRelations> | typeof LOADING {
+    const dependents = this.heldDependents
+    if (dependents === LOADING) return LOADING
+    return groupRelations({
+      deps: (this.storedField('deps') ?? []) as Parameters<typeof groupRelations>[0]['deps'],
+      dependents: dependents as Parameters<typeof groupRelations>[0]['dependents'],
+    })
+  }
+  /** Every edge into the issue with its type, sorted by source, through the
+   * holding read of the edges into it (`pageDependents`, POD-7582): LOADING
+   * until the device holds them and each source is here. A tree the issue is
+   * in brings them (POD-7580), so a sub-task row of a page that holds its
+   * tree asks nothing of its own (POD-7611). */
+  @lazy({ equals: compareStructural })
+  get heldDependents(): readonly { id: string; type: string }[] | typeof LOADING {
     const sources = this.pageDependents.members
     if (sources === LOADING) return LOADING
     const dependents: { id: string; type: string }[] = []
@@ -637,10 +651,7 @@ export class IssueModel extends EntityModel {
       if (row === LOADING) return LOADING
       for (const dep of row?.deps ?? []) if (dep.id === this.id) dependents.push({ id, type: dep.type })
     }
-    return groupRelations({
-      deps: (this.storedField('deps') ?? []) as Parameters<typeof groupRelations>[0]['deps'],
-      dependents: dependents as Parameters<typeof groupRelations>[0]['dependents'],
-    })
+    return dependents
   }
 
   // Readiness: only the defer deadline depends on the pool clock.
@@ -987,8 +998,12 @@ export class IssueModel extends EntityModel {
 
   get childDoneCount(): number { return this.closeChildren.childDoneCount }
 
+  /** Its confirmed computing agents. A working session is live, and the
+   * policy (`session.live`) holds every live one, so memory answers it whole
+   * (a declared policy read, POD-7581); no gate on the raw member count,
+   * which a row would read itself (POD-7611). */
   get confirmedWorkingAgents(): number {
-    return this.memberCount ? this.confirmedWorkerCount : 0
+    return this.confirmedWorkerCount
   }
 
   @lazy
