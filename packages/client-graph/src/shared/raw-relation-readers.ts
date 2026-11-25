@@ -53,16 +53,6 @@ export const RAW_RELATION_READERS: readonly RawRelationReader[] = [
     'session-seats.ts',
     "'partition', (issueId)",
   ),
-  // The continuation walks the spin-off tree (MissionView.readTips): no
-  // collection holds the issues whose deps name this one, and each spin-off's
-  // origin is read on a member that walk found in memory. POD-7582.
-  ...reader(
-    'IssuePageRow.continuation',
-    ['issue.spinOffs', 'issue.discoveredFrom'],
-    'POD-7582',
-    'issue-page.ts',
-    'get continuation() { return missionView(this.pool).continuation(this.issue, false) }',
-  ),
 ]
 
 /** Names can carry an instance id; the reader's declared name is stable. */

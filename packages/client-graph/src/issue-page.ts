@@ -14,7 +14,7 @@ import { ISSUE_STUBS } from './collections'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import { here, omitGone } from './lookup'
 import { missions } from './mission'
-import { missionView } from './mission-view'
+import { missionView, settled } from './mission-view'
 import type { ModelOf, SessionModel } from './models'
 import type { MobxPool } from './pool'
 import { createQueryResult } from './query-result'
@@ -350,12 +350,19 @@ export class IssuePageRow {
     const reader = missionView(this.pool),
       present = reader.present(this.issue.id)
     if (present === LOADING) throw LOADING
-    return reader.presence(this.issue, present, false, this.issue.id)
+    // The continuation in it waits for the edges into the issue (POD-7580):
+    // an optional line, absent until they answer, never a blank panel offline.
+    const note = settled(() => reader.presence(this.issue, present, false, this.issue.id))
+    return note === LOADING ? null : note
   }
   /** Where this task's work went on (a spin-off tip, a superseding task),
-   *  for the panel's one-line notice; null while an agent is still on it. */
+   *  for the panel's one-line notice; null while an agent is still on it.
+   *  The spin-off tips read the edges into the issue through their holding
+   *  read (POD-7580): the notice is absent until they answer, so the panel
+   *  draws offline. */
   @lazy get continuation() {
-    return missionView(this.pool).continuation(this.issue, false)
+    const continuation = settled(() => missionView(this.pool).continuation(this.issue, false))
+    return continuation === LOADING ? null : continuation
   }
   @lazy get hasTargets(): boolean {
     if (this.pool.collections.available) {
