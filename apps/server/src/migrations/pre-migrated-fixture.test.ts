@@ -146,6 +146,16 @@ function allRows(db: SqlDatabase): Record<string, unknown[]> {
               )
               return [column, `<minted-${column}>`]
             }
+            // Every boot of a fresh store finishes the legacy plaintext step and
+            // stamps when (POD-7252): a wall-clock time, so shape, not value.
+            if (
+              table === 'meta' &&
+              row.key === 'legacy-plaintext:compacted-at' &&
+              column === 'value'
+            ) {
+              expect(value).toMatch(/^\d{13}$/)
+              return [column, '<compacted-at>']
+            }
             if (table === 'meta' && row.key === 'installation_identity' && column === 'value') {
               const metadata = JSON.parse(String(value))
               const secret = db

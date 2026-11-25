@@ -52,6 +52,8 @@ const BOOLEAN_COLUMNS = [
   'sessions.archived',
   // The materialized asking flag is maintained by the offer/checkpoint triggers.
   'sessions.asks_user',
+  // A session marked as the Concertmaster's own (POD-6951, a1277c5057).
+  'sessions.concertmaster',
   'sessions.desired_force',
   'sessions.headless',
   'subscriptions.deliver_notify',

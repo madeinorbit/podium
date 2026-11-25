@@ -43,6 +43,10 @@ const CREATED_AFTER_M1 = new Set([
   'credential_machines',
   'vault_key',
   'notices',
+  // Created already keyed by workspace: the Concertmaster's conversation store
+  // (a1277c5057) and each person's last access move (POD-7552).
+  'concertmaster_entries',
+  'sync_access_moves',
 ])
 
 /** The workspace tables the migration chain creates before M1 (planned and runtime ones excluded). */
