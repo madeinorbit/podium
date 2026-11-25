@@ -335,16 +335,7 @@ export class SessionCommandCtx {
    * as a repeat.
    */
   assertMachineUse(machineId: MachineId): void {
-    // No sentinel exemption here: `machine-access.ts` resolves the local
-    // sentinels to a SYNTHESIZED host row owned by the instance owner, so they
-    // go through the same rules as any other machine. An early return here
-    // would have been an exemption, and M4 is precisely the case where the host
-    // machine must NOT be ambient team compute.
-    const failure = checkMachineUse(this.principal, machineId, this.deps.ownership)
-    if (!failure) return
-    throw new Error(
-      machineAccessMessage(failure, machineId, this.deps.ownership.rowFor(machineId)?.name),
-    )
+    assertMachineUseFor(this.principal, machineId, this.deps.ownership)
   }
 
   /**
@@ -359,23 +350,82 @@ export class SessionCommandCtx {
     sessionId: SessionId,
     proc: string,
   ): Promise<(SessionTargetRow & { machineId?: MachineId }) | undefined> {
-    const resolved = await resolveSessionTarget(this.principal, sessionId, this.deps.access)
-    if (resolved.kind === 'absent') return undefined
-    if (resolved.kind === 'ambiguous') {
-      throw new Error(ambiguousSessionPrefixMessage(resolved.prefix, resolved.candidates))
-    }
-    await assertMayCommandSession(
-      this.principal,
-      resolved.session,
-      proc,
-      this.deps.access,
-      this.overrideScope,
-    )
-    const row = await this.sessions.sessionById(resolved.session.sessionId)
-    // Commanding an existing session is execution on the machine it lives on.
-    if (row?.machineId !== undefined) this.assertMachineUse(row.machineId)
-    return row ?? resolved.session
+    const gated = await commandSessionTarget(this.principal, sessionId, proc, {
+      access: this.deps.access,
+      ownership: this.deps.ownership,
+      sessionById: (id) => this.sessions.sessionById(id),
+      ...(this.overrideScope !== undefined ? { overrideScope: this.overrideScope } : {}),
+    })
+    return gated === undefined ? undefined : (gated.row ?? gated.target)
   }
+}
+
+/**
+ * Machine `use` for `principal` on `machineId`, or a throw naming the machine.
+ *
+ * No sentinel exemption here: `machine-access.ts` resolves the local sentinels
+ * to a SYNTHESIZED host row owned by the instance owner, so they go through the
+ * same rules as any other machine. An early return here would have been an
+ * exemption, and M4 is precisely the case where the host machine must NOT be
+ * ambient team compute.
+ */
+export function assertMachineUseFor(
+  principal: CommandPrincipal,
+  machineId: MachineId,
+  ownership: MachineOwnershipIndex,
+): void {
+  const failure = checkMachineUse(principal, machineId, ownership)
+  if (!failure) return
+  throw new Error(machineAccessMessage(failure, machineId, ownership.rowFor(machineId)?.name))
+}
+
+/** What {@link commandSessionTarget} reads through. */
+export interface SessionTargetGateDeps {
+  readonly access: SessionAccessDeps
+  readonly ownership: MachineOwnershipIndex
+  readonly sessionById: SessionCommandServices['sessionById']
+  readonly overrideScope?: boolean
+}
+
+/**
+ * THE GATE ON AN EXISTING SESSION TARGET: may `principal` command it?
+ *
+ * Resolve the id through the ONE shared helper, run both gates (the owner, then
+ * an agent's issue scope), then machine `use` on the session's host, and hand
+ * back the full row. `undefined` when the target is absent OR out of the
+ * principal's reach: one answer, so the gate is no existence oracle, and
+ * nothing is acted on before the owner check passes.
+ *
+ * An ambiguous prefix THROWS naming the candidates, so it can never read as
+ * "the session is gone". A refusal past the owner check (scope, machine use)
+ * throws naming its rule: the target is the caller's own, so there is nothing
+ * left to hide.
+ *
+ * The session commands use it through {@link SessionCommandCtx.target}, and
+ * `cloud.moveSession` directly (POD-7606), so both gate one way.
+ */
+export async function commandSessionTarget(
+  principal: CommandPrincipal,
+  sessionId: SessionId,
+  proc: string,
+  deps: SessionTargetGateDeps,
+): Promise<
+  | {
+      readonly target: SessionTargetRow
+      readonly row: Awaited<ReturnType<SessionCommandServices['sessionById']>>
+    }
+  | undefined
+> {
+  const resolved = await resolveSessionTarget(principal, sessionId, deps.access)
+  if (resolved.kind === 'absent') return undefined
+  if (resolved.kind === 'ambiguous') {
+    throw new Error(ambiguousSessionPrefixMessage(resolved.prefix, resolved.candidates))
+  }
+  await assertMayCommandSession(principal, resolved.session, proc, deps.access, deps.overrideScope)
+  const row = await deps.sessionById(resolved.session.sessionId)
+  // Commanding an existing session is execution on the machine it lives on.
+  if (row?.machineId !== undefined) assertMachineUseFor(principal, row.machineId, deps.ownership)
+  return { target: resolved.session, row }
 }
 
 // ---------------------------------------------------------------------------
