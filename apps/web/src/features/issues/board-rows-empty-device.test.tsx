@@ -5,6 +5,7 @@ import {
   openEmptyDevice,
   putIssueWithBodies,
 } from '@podium/client-graph/test-support/empty-device.test.fixture'
+import { asIssueId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -51,9 +52,9 @@ it.each([
             stage: 'in_progress',
             count: 3,
             rows: [
-              { id: 'parent', depth: 0, childCount: 1, expanded: true },
-              { id: 'child', depth: 1, childCount: 0, expanded: false },
-              { id: 'leaf', depth: 0, childCount: 0, expanded: false },
+              { id: asIssueId('parent'), depth: 0, childCount: 1, expanded: true },
+              { id: asIssueId('child'), depth: 1, childCount: 0, expanded: false },
+              { id: asIssueId('leaf'), depth: 0, childCount: 0, expanded: false },
             ],
           },
         ]}

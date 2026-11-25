@@ -25,23 +25,22 @@ const context = {
   httpOrigin: 'https://example.com',
   cwd: '/synthetic',
 }
+const transcript = (toolPaths: string[]): TranscriptItem => ({
+  id: 'turn',
+  role: 'assistant',
+  text: '',
+  toolPaths,
+})
 
 it('shows a named legacy image from its session URL while its stored copy loads', () => {
-  const view = render(
-    <SharedFiles
-      context={context}
-      item={{ id: 'turn', toolPaths: ['/synthetic/photo.png'] } as TranscriptItem}
-    />,
-  )
+  const view = render(<SharedFiles context={context} item={transcript(['/synthetic/photo.png'])} />)
   expect(view.getByRole('img', { name: 'photo.png' })).toBeTruthy()
   expect(view.queryByTestId('body-pending')).toBeNull()
 })
 
 it('keeps an upload known only by ID pending instead of inventing a session URL', () => {
   state.attachments = [{ id: 'upload-id', filename: 'photo.png', kind: 'image' }]
-  const view = render(
-    <SharedFiles context={context} item={{ id: 'turn', toolPaths: [] } as TranscriptItem} />,
-  )
+  const view = render(<SharedFiles context={context} item={transcript([])} />)
   expect(view.queryByRole('img')).toBeNull()
   expect(view.getByTestId('body-pending')).toBeTruthy()
 })
