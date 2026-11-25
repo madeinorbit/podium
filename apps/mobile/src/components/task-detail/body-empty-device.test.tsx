@@ -186,6 +186,6 @@ it.each([
     device.online()
     await act(() => device.untilIdle())
   }
-  expect(read()).toContain('/files/artifact/stored-photo')
+  expect(read()).toBe('https://example.com/files/artifact/i1/stored-photo/photo.png')
   opened.close()
 })
