@@ -1427,6 +1427,37 @@ describe('after the daemon reconnects (Task 5)', () => {
         seen.push(`left ${memberId === alice ? 'alice' : memberId} ${change}`)
         await left(memberId, change)
       }
+      const ports = health.sessions
+      const runningSessions = ports.runningSessions
+      ports.runningSessions = () => {
+        const all = runningSessions()
+        seen.push(
+          `running ${
+            all
+              .filter((r) => r.sessionId === alices)
+              .map((r) => (r.ownerUserId === alice ? 'alice' : r.ownerUserId))
+              .join(',') || 'missing'
+          }`,
+        )
+        return all
+      }
+      const standing = ports.standing
+      ports.standing = async (sessionId) => {
+        const answer = await standing(sessionId)
+        seen.push(`standing ${answer}`)
+        return answer
+      }
+      const flagOwnerLeft = ports.flagOwnerLeft
+      ports.flagOwnerLeft = async (sessionId, change, stops) => {
+        seen.push(`flag ${change} ${stops}`)
+        try {
+          await flagOwnerLeft(sessionId, change, stops)
+          seen.push('flagged')
+        } catch (err) {
+          seen.push(`flag failed: ${err instanceof Error ? err.message : String(err)}`)
+          throw err
+        }
+      }
       const stop = health.sessions.stop
       health.sessions.stop = async (sessionId) => {
         seen.push('stop')
