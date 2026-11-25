@@ -148,6 +148,19 @@ export class CloudRuntimeUserError extends Error {
   }
 }
 
+/** A server-wide credential failure, independent of any runtime's owner. */
+export class CloudRuntimeCredentialError extends CloudRuntimeUserError {
+  readonly status = 401
+
+  constructor() {
+    super(
+      'PRECONDITION_FAILED',
+      "The cloud service rejected this server's credentials; ask your admin to check the cloud settings.",
+    )
+    this.name = 'CloudRuntimeCredentialError'
+  }
+}
+
 export class CloudRuntimeUnavailableError extends CloudRuntimeUserError {
   constructor() {
     super('PRECONDITION_FAILED', 'cloud runtime provider is not configured')
@@ -194,8 +207,11 @@ export const disabledCloudRuntimeProvider: CloudRuntimeProvider = {
  * Proposed user-actionable extension, pending control-plane support:
  * {error: '<code>', message: '<authored user guidance>'}, with one of the codes
  * below and any 4xx status (the control plane has not chosen statuses yet).
- * The message must be 1–240 characters of single-line plain text, without
- * markup delimiters, controls or invisible formatting. A missing/invalid message,
+ * The message must be 1–240 characters of single-line plain text, without HTML
+ * delimiters, controls, invisible formatting or lone surrogates. Consumers must
+ * render it as plain text, never Markdown or HTML. Runtime lookups suppress this
+ * guidance because the runtime's tenant is not yet verified. Error-body reads
+ * have a five-second deadline. A missing/invalid message,
  * unknown code or non-4xx status remains a logged internal fault. Never show
  * other response fields (issues, debug, etc.) or guess a refusal from its status.
  */
@@ -226,33 +242,65 @@ class HostedCloudRuntimeHttpError extends Error {
   }
 }
 
-function hostedCloudError(status: number, body: unknown): Error {
+function hostedCloudError(status: number, body: unknown, allowUserErrors: boolean): Error {
   const envelope =
     typeof body === 'object' && body !== null && !Array.isArray(body)
       ? (body as Record<string, unknown>)
       : undefined
   const providerCode = envelope?.error
   if (status === 401 && providerCode === 'unauthorized') {
-    return new CloudRuntimeUserError(
-      'PRECONDITION_FAILED',
-      "The cloud service rejected this server's credentials; ask your admin to check the cloud settings.",
-    )
+    return new CloudRuntimeCredentialError()
   }
 
   const refusal = hostedCloudUserFailures.find((failure) => failure.error === providerCode)
   const message = envelope?.message
   if (
+    allowUserErrors &&
     refusal &&
     status >= 400 &&
     status < 500 &&
     typeof message === 'string' &&
     message.length <= 240 &&
     message.trim().length > 0 &&
-    !/[<>\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(message)
+    !/[<>\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u.test(message)
   ) {
     return new CloudRuntimeUserError(refusal.code, message.trim())
   }
   return new HostedCloudRuntimeHttpError(status, providerCode)
+}
+
+/** A stalled body must not hold the caller open after the error headers arrive.
+ * Cancel via the reader, so the deadline also works with injected fetches that
+ * do not implement AbortSignal. Cancellation itself is not awaited. */
+async function readHostedCloudErrorBody(response: Response): Promise<unknown> {
+  const reader = response.body?.getReader()
+  if (!reader) return undefined
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => {
+      resolve(undefined)
+      void reader.cancel().catch(() => {})
+    }, 5_000)
+  })
+  const read = async (): Promise<unknown> => {
+    try {
+      const decoder = new TextDecoder()
+      let text = ''
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) return JSON.parse(text + decoder.decode()) as unknown
+        text += decoder.decode(value, { stream: true })
+      }
+    } catch {
+      return undefined
+    }
+  }
+  try {
+    return await Promise.race([read(), timeout])
+  } finally {
+    clearTimeout(timer)
+    reader.releaseLock()
+  }
 }
 
 export function createHostedCloudRuntimeProvider({
@@ -262,14 +310,18 @@ export function createHostedCloudRuntimeProvider({
 }: HostedCloudRuntimeProviderOptions): CloudRuntimeProvider {
   const root = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
 
-  async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  async function request<T>(
+    path: string,
+    init: RequestInit = {},
+    { allowUserErrors = true } = {},
+  ): Promise<T> {
     const headers = new Headers(init.headers)
     headers.set('authorization', `Bearer ${token}`)
     if (init.body !== undefined) headers.set('content-type', 'application/json')
     const response = await fetchImpl(new URL(path.replace(/^\//, ''), root), { ...init, headers })
     if (!response.ok) {
-      const body: unknown = await response.json().catch(() => undefined)
-      throw hostedCloudError(response.status, body)
+      const body = await readHostedCloudErrorBody(response)
+      throw hostedCloudError(response.status, body, allowUserErrors)
     }
     return (await response.json()) as T
   }
@@ -287,7 +339,13 @@ export function createHostedCloudRuntimeProvider({
     createCloudAgent: async (body) => await post<CloudRuntime>('/v1/cloud-agents', body),
     async getRuntime(id) {
       try {
-        return await request<CloudRuntime>(`/v1/runtimes/${encodeURIComponent(id)}`)
+        // The service cannot check this runtime's tenant until it gets a record.
+        // A proposed refusal here could expose a foreign runtime's billing state.
+        return await request<CloudRuntime>(
+          `/v1/runtimes/${encodeURIComponent(id)}`,
+          {},
+          { allowUserErrors: false },
+        )
       } catch (error) {
         if (
           error instanceof HostedCloudRuntimeHttpError &&

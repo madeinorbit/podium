@@ -53,6 +53,7 @@ import {
   type CloudMachineRequest,
   type CloudRepoRequest,
   type CloudRuntime,
+  CloudRuntimeCredentialError,
   type CloudRuntimeProvider,
   CloudRuntimeUnavailableError,
   CloudRuntimeUserError,
@@ -146,6 +147,9 @@ function cloudFailure(
 
 function cloudError(error: unknown, operation: string): never {
   if (error instanceof CloudRefusal) throw error
+  if (error instanceof CloudRuntimeCredentialError) {
+    log.warn('cloud service rejected server credentials', { operation, status: error.status })
+  }
   if (error instanceof CloudRuntimeUserError) {
     throw new CloudRefusal({ code: error.code, message: error.message })
   }

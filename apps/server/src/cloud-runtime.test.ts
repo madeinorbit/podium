@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import responses from './__fixtures__/cloud-provider-errors.json'
 import {
   type CloudRuntimeProvider,
@@ -118,6 +118,21 @@ describe('hosted cloud runtime provider', () => {
     expect(error).not.toHaveProperty('cause')
   })
 
+  it.each(
+    responses.proposed,
+  )('keeps $body.error generic when looking up a runtime with an unverified owner', async (response) => {
+    const provider = providerResponse(response)
+    const error: unknown = await provider
+      .getRuntime('runtime_foreign')
+      .catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(Error)
+    expect(error).not.toBeInstanceOf(CloudRuntimeUserError)
+    expect(error).toMatchObject({
+      message: `cloud control plane request failed: ${response.status} (${response.body.error})`,
+    })
+    expect(error).not.toHaveProperty('code')
+  })
+
   it.each([
     400, 401, 404, 422, 499,
   ])('selects proposed user errors by body code at any 4xx status (%s)', async (status) => {
@@ -150,6 +165,8 @@ describe('hosted cloud runtime provider', () => {
     'Quota\u2029reached',
     'Quota\u202ereached',
     'Quota\u200breached',
+    'Quota\ud800reached',
+    'Quota\udfffreached',
     '<script>INTERNAL_PROVIDER_DETAIL</script>',
   ])('keeps a malformed user message generic (%j)', async (message) => {
     const provider = providerResponse({
@@ -170,6 +187,7 @@ describe('hosted cloud runtime provider', () => {
     'X',
     'x'.repeat(240),
     'Réglez votre quota cloud.',
+    'Cloud quota reached 🚀.',
     '  Cloud quota reached.  ',
   ])('accepts bounded plain-text guidance (%s)', async (message) => {
     const provider = providerResponse({
@@ -241,6 +259,43 @@ describe('hosted cloud runtime provider', () => {
       },
     })
     await expect(provider.getRuntime('runtime_1')).rejects.toBe(detail)
+  })
+
+  it('times out and cancels a stalled error body instead of exposing partial guidance', async () => {
+    vi.useFakeTimers()
+    const cancel = vi.fn()
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        // A complete JSON object without EOF: headers and bytes are not enough
+        // to trust a response whose body never finishes.
+        controller.enqueue(new TextEncoder().encode(JSON.stringify(responses.proposed[0]?.body)))
+      },
+      cancel,
+    })
+    const response = new Response(stream, { status: 429 })
+    try {
+      const provider = createHostedCloudRuntimeProvider({
+        baseUrl: 'https://cloud.example.com',
+        token: 'secret-token',
+        fetch: async () => response,
+      })
+      const settled = vi.fn()
+      const pending = provider.capabilities().catch((error: unknown) => error)
+      void pending.then(settled)
+      await vi.advanceTimersByTimeAsync(4_999)
+      expect(settled).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(settled).toHaveBeenCalledOnce()
+      expect(cancel).toHaveBeenCalledOnce()
+      const error: unknown = await pending
+      expect(error).not.toBeInstanceOf(CloudRuntimeUserError)
+      expect(error).toMatchObject({ message: 'cloud control plane request failed: 429' })
+      expect(response.body?.locked).toBe(false)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+      void stream.cancel().catch(() => {})
+    }
   })
 })
 

@@ -515,6 +515,43 @@ describe('cloud failures keep internal details in the server log', () => {
     expect(JSON.stringify(shape)).not.toMatch(/INTERNAL_PROVIDER_DETAIL|hidden-token|secret-token/)
   })
 
+  it('logs rejected server credentials without the token or provider body', async () => {
+    const provider = createHostedCloudRuntimeProvider({
+      baseUrl: 'https://cloud.example.com',
+      token: 'secret-token',
+      fetch: async () =>
+        Response.json(
+          { error: 'unauthorized', debug: 'INTERNAL_PROVIDER_DETAIL: hidden-token' },
+          { status: 401 },
+        ),
+    })
+    const { call } = await caller(provider)
+    const logs = captureLogs()
+    try {
+      const error: unknown = await call.cloud.capabilities().catch((caught: unknown) => caught)
+      expect(error).toBeInstanceOf(TRPCError)
+      if (!(error instanceof TRPCError)) throw new Error('expected a tRPC refusal')
+      expect(cloudErrorShape(error, 'cloud.capabilities')).toMatchObject({
+        data: { code: 'PRECONDITION_FAILED', httpStatus: 412 },
+      })
+      const warnings = logs.at('warn').filter((entry) => entry.operation === 'cloud.capabilities')
+      expect(warnings).toEqual([
+        expect.objectContaining({
+          ns: 'server:cloud',
+          msg: 'cloud service rejected server credentials',
+          status: 401,
+        }),
+      ])
+      expect(warnings[0]).not.toHaveProperty('err')
+      expect(warnings[0]).not.toHaveProperty('body')
+      expect(JSON.stringify(warnings)).not.toMatch(
+        /INTERNAL_PROVIDER_DETAIL|hidden-token|secret-token/,
+      )
+    } finally {
+      logs.restore()
+    }
+  })
+
   it.each([
     responses.current.invalidRequest,
     { status: 401, body: { error: 'invalid_token', message: 'INTERNAL_PROVIDER_DETAIL' } },
@@ -749,6 +786,47 @@ describe('cloud commands act on the bound workspace only', () => {
     const b = await caller(cloud.provider, () => {}, { store: storeB })
     return { cloud, a, b, A: storeA.workspaceId, B: storeB.workspaceId }
   }
+
+  it.each(
+    responses.proposed,
+  )('hides $body.error when a foreign runtime lookup fails before ownership is known', async (response) => {
+    const [storeA, storeB] = await workspaceStores(['ws_cloud_a', 'ws_cloud_b'])
+    const cloud = sharedProvider({ a: storeA.workspaceId, b: storeB.workspaceId })
+    const foreignRuntime = await cloud.provider.getRuntime('rt_b')
+    if (!foreignRuntime) throw new Error('fixture needs a foreign runtime')
+    let refuseLookup = false
+    const requests: string[] = []
+    const provider = createHostedCloudRuntimeProvider({
+      baseUrl: 'https://cloud.example.com',
+      token: 'secret-token',
+      fetch: async (input, init) => {
+        requests.push(`${init?.method ?? 'GET'} ${new URL(String(input)).pathname}`)
+        return refuseLookup
+          ? Response.json(response.body, { status: response.status })
+          : Response.json(foreignRuntime)
+      },
+    })
+    const { call } = await caller(provider, () => {}, { store: storeA })
+    // Prove the id belongs to B: with a record, A's ownership check hides it.
+    await expect(call.cloud.runtime({ id: foreignRuntime.id })).resolves.toBeNull()
+    refuseLookup = true
+    for (const action of ['runtime', 'stop', 'wake'] as const) {
+      const operation = `cloud.${action}`
+      const error = await expectCloudFailure(
+        () => call.cloud[action]({ id: foreignRuntime.id }),
+        operation,
+        new Error(
+          `cloud control plane request failed: ${response.status} (${response.body.error})`,
+        ),
+      )
+      expect(JSON.stringify(cloudErrorShape(error, operation))).not.toContain(response.body.message)
+    }
+    expect(requests).toEqual(
+      Array(4)
+        .fill('/v1/runtimes/rt_b')
+        .map((path) => `GET ${path}`),
+    )
+  })
 
   it('a member of A cannot get, stop or wake a runtime of B', async () => {
     const { cloud, a, b } = await twoWorkspaces()
