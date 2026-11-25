@@ -1074,6 +1074,14 @@ export class MissionDeckModel {
   @lazy get treeHeld(): boolean {
     return this.view.pool.collections.treeHeld(this.id)
   }
+  /**
+   * POD-7580 — the server refused the deck's tree (POD-7595): it is not held,
+   * so the deck's shape and numbers stay LOADING, and it will not load by
+   * itself. The screen says the deck is not available.
+   */
+  @lazy get treeUnavailable(): boolean {
+    return this.view.pool.collections.treeHolding(this.id) === 'refused'
+  }
   @lazy get topology() {
     return topology(this)
   }
@@ -1817,6 +1825,10 @@ export class MissionViewReader {
    */
   archiveHeld(rootId: string): boolean {
     return this.pool.collections.held(treeArchiveOf(rootId))
+  }
+  /** POD-7580 — the server refused the archive's instance (POD-7595): read only while it is open. */
+  archiveUnavailable(rootId: string): boolean {
+    return this.pool.collections.holding(treeArchiveOf(rootId)) === 'refused'
   }
   /** Every drawn row's archived roster, counted: read only while the archive is open. */
   readArchiveCount(deck: MissionDeckModel): number | typeof LOADING {

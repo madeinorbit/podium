@@ -27,6 +27,7 @@ import {
   type FlightDeckProps,
   type FlightDeckSource,
   SettlingDeck,
+  UnavailableDeck,
 } from './FlightDeck'
 import { measurePoolMission } from './mission-pane-perf'
 import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-pool'
@@ -132,7 +133,8 @@ const MissionOpening = observer(function MissionOpening({
       },
     }
   }, [pool, screen])
-  return ready ? <FlightDeckContent {...props} screen={screen} source={source} /> : <SettlingDeck />
+  if (ready) return <FlightDeckContent {...props} screen={screen} source={source} />
+  return screen.unavailable ? <UnavailableDeck onRetry={() => screen.retry()} /> : <SettlingDeck />
 })
 
 /** The archived list is read only while its section is open: the deck carries

@@ -17,7 +17,12 @@ import { MissionScreen } from './mission-screen'
 import { attachMissionTestPreferences } from './mission-screen.test.fixture'
 import { MissionViewReader, settled } from './mission-view'
 import { closedValue, ISSUE, issueValue } from './test-support/device.test.fixture'
-import { type EmptyDevice, openEmptyDevice } from './test-support/empty-device.test.fixture'
+import {
+  type EmptyDevice,
+  openEmptyDevice,
+  refuseCollections,
+  requestKey,
+} from './test-support/empty-device.test.fixture'
 
 const devices: EmptyDevice[] = []
 afterEach(() => {
@@ -398,6 +403,73 @@ describe('the archive holds the history of its tree, one instance, only while it
     deck.screen.setArchivedOpen(false)
     await device.untilIdle()
     expect(device.liveHolds(ARCHIVE)).toBe(0)
+    deck.close()
+  })
+})
+
+describe('a hold the server refuses reads as not available on the deck (POD-7595)', () => {
+  const ARCHIVE = {
+    collection: 'issueProjection.treeArchive',
+    args: { root: 'top' },
+    part: 'main',
+  } as const
+  const asked = (device: EmptyDevice, instance: typeof TREE | typeof ARCHIVE) =>
+    device.requestedKeys().filter((key) => key === requestKey(instance)).length
+
+  it('a refused tree says the deck is not available, asks once, and loads on retry', async () => {
+    let refusal = { on: true }
+    const device = await open((server) => {
+      epic(server)
+      refusal = refuseCollections(server, (each) => each.collection === 'issueProjection.tree')
+    })
+    const deck = openDeck(device, 'top', (screen) => screen.rows.map((row) => row.id))
+    await device.untilIdle()
+    expect(deck.screen.ready).toBe(false)
+    expect(deck.screen.unavailable).toBe(true)
+    expect(asked(device, TREE)).toBe(1)
+    refusal.on = false
+    deck.screen.retry()
+    await device.untilIdle()
+    expect(deck.screen.unavailable).toBe(false)
+    expect(deck.answers.at(-1)).toEqual(['top', 'mid', 'old'])
+    deck.close()
+  })
+
+  it('a refused description lets the deck draw and says the description is not available', async () => {
+    const device = await open((server) => {
+      epic(server)
+      refuseCollections(
+        server,
+        (each) =>
+          each.collection === 'issueDescription.ofIssue' && each.args?.['issueId'] === 'top',
+      )
+    })
+    const deck = openDeck(device, 'top', (screen) => [
+      screen.root.description === LOADING ? 'LOADING' : screen.root.description,
+      screen.root.descriptionUnavailable,
+    ])
+    await device.untilIdle()
+    expect(deck.screen.unavailable).toBe(false)
+    expect(deck.answers.at(-1)).toEqual(['LOADING', true])
+    deck.close()
+  })
+
+  it('a refused archive says it is not available while open, with no list, asked once', async () => {
+    const device = await open((server) => {
+      epic(server)
+      refuseCollections(server, (each) => each.collection === 'issueProjection.treeArchive')
+    })
+    const deck = openDeck(device, 'top', (screen) => {
+      if (!screen.archivedOpen) return 'closed'
+      const archive = screen.reader.archive(screen.rootId, screen.mode)
+      return [screen.archiveUnavailable, archive === LOADING ? 'LOADING' : archive.length]
+    })
+    await device.untilIdle()
+    expect(deck.screen.archiveUnavailable).toBe(false)
+    deck.screen.setArchivedOpen(true)
+    await device.untilIdle()
+    expect(deck.answers.at(-1)).toEqual([true, 'LOADING'])
+    expect(asked(device, ARCHIVE)).toBe(1)
     deck.close()
   })
 })

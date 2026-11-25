@@ -175,6 +175,22 @@ export class MissionScreen {
   @action setArchivedOpen(open: boolean): void {
     this.archivedOpen = open
   }
+  /**
+   * POD-7580 — the server refused the deck's tree (POD-7595). The deck never
+   * gets ready without it; the screen says it is not available instead of
+   * loading, and `retry` asks again.
+   */
+  @lazy get unavailable(): boolean {
+    return this.deck.treeUnavailable
+  }
+  /** POD-7580 — the open archive's instance was refused: the archive says it is not available. */
+  @lazy get archiveUnavailable(): boolean {
+    return this.archivedOpen && this.reader.archiveUnavailable(this.rootId)
+  }
+  /** Ask again for what the server refused (a view's "Try again", POD-7595). */
+  retry(): void {
+    this.pool.collections.retry()
+  }
 
   // The deck
   @lazy get refreshing(): boolean {
@@ -242,8 +258,10 @@ export class MissionScreen {
           this.reader.issue(this.rootId),
           settled(() => deck.rowIds()),
           this.folds,
-          this.rootModel.description,
-          this.rootModel.activityNotes,
+          // A body the server refused (POD-7595) will not load by itself: the
+          // deck draws without it and says it is not available (POD-7580).
+          this.rootModel.descriptionUnavailable ? null : this.rootModel.description,
+          this.rootModel.activityNotesUnavailable ? null : this.rootModel.activityNotes,
         ]
         return !reads.includes(LOADING)
       }) === true

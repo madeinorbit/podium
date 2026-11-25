@@ -45,7 +45,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { BodyPending } from '@/features/issues/BodyPending'
+import { BodyPending, NotAvailable } from '@/features/issues/BodyPending'
 import { useDockIssue } from '@/features/issues/dock-issue'
 import type { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
@@ -735,6 +735,22 @@ export function ReviewSignpost({
  */
 export const DECK_LOAD_LIMIT_MS = 60_000
 
+/**
+ * The server refused the deck's tree (POD-7595, POD-7580): it will not load
+ * by itself, so the deck says so at once instead of waiting out the settling
+ * limit. Reconnecting or an access change asks again; so does "Try again".
+ */
+export function UnavailableDeck({ onRetry }: { onRetry: () => void }): JSX.Element {
+  return (
+    <div className="m-6 flex flex-col items-start gap-3 text-sm" data-testid="flight-unavailable">
+      <NotAvailable what="flight deck" className="text-sm" />
+      <Button variant="outline" onClick={onRetry}>
+        Try again
+      </Button>
+    </div>
+  )
+}
+
 export function SettlingDeck(): JSX.Element {
   const [expired, setExpired] = useState(false)
   const [failure, setFailure] = useState<string>()
@@ -942,7 +958,11 @@ const FullDeckBrief = observer(function FullDeckBrief({
       <div className={open ? 'flight-full-description-panel' : undefined}>
         <div id={contentId} className={open ? 'flight-full-description-content' : undefined}>
           {answer === LOADING ? (
-            <BodyPending value={LOADING} what="description" />
+            <BodyPending
+              value={LOADING}
+              what="description"
+              unavailable={screen.root.descriptionUnavailable}
+            />
           ) : description ? (
             <div
               className={cn(
@@ -1059,6 +1079,8 @@ const DeckArchive = observer(function DeckArchive({
   // Counted only once open: a closed archive holds no row's history (POD-7580).
   const archivedCount = screen.archivedCount
   const archivedOpen = screen.archivedOpen
+  // The server refused the archive's instance (POD-7595): no list, no count.
+  const archiveUnavailable = screen.archiveUnavailable
   const ArchivedSessions = source.ArchivedSessions
   return (
     <DeckSection label="Archived" className="mt-6" testId="flight-archived">
@@ -1073,13 +1095,16 @@ const DeckArchive = observer(function DeckArchive({
         <Archive size={11} aria-hidden className="flex-none" />
         <span className="truncate">
           {archivedOpen
-            ? archivedCount === 0
+            ? archivedCount === 0 && !archiveUnavailable
               ? 'No archived sessions'
               : 'Hide archived'
             : 'Archived sessions'}
         </span>
       </button>
-      {archivedOpen && (
+      {archivedOpen && archiveUnavailable && (
+        <NotAvailable what="archived sessions" className="mt-1" />
+      )}
+      {archivedOpen && !archiveUnavailable && (
         <ArchivedSessions rootId={screen.rootId} mode={screen.mode}>
           {(archivedSessions) => (
             <DeckFlatRows
