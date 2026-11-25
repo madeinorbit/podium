@@ -375,6 +375,12 @@ export class PoolCollections {
     },
     sameChildCounts,
   )
+  /** POD-7581: a parent's children by the stubs, in id order, told only when they moved. */
+  private readonly childIdReads = new KeyedReads<readonly string[]>(
+    'pool.collections.childIds',
+    (parentId) => [...(this.loader()?.stubsByParent(parentId) ?? [])].sort(),
+    (a, b) => a.length === b.length && a.every((id, at) => id === b[at]),
+  )
 
   constructor(private source: () => CollectionLoaderPort | undefined) {
     this.markers = createAtom('pool.collections.markers')
@@ -842,6 +848,18 @@ export class PoolCollections {
     return this.childCountReads.read(parentId)
   }
 
+  /**
+   * TRACKED (POD-7581): a parent's children over all history, from the stubs,
+   * in id order; LOADING until the stubs cover its tree. A list row reads its
+   * children's stub fields through `stubOf`, never their rows: no child is
+   * held or loaded.
+   */
+  childIds(parentId: string): readonly string[] | typeof LOADING {
+    const loader = this.loader()
+    if (loader === undefined || !this.coversTreeOf(parentId)) return LOADING
+    return this.childIdReads.read(parentId)
+  }
+
   /** TRACKED: every issue under `root` and how many are done, from the stubs. */
   treeProgress(root: string): StubTreeProgress | typeof LOADING {
     return this.behind(() => {
@@ -1035,6 +1053,7 @@ export class PoolCollections {
       this.stubs.reportChanged()
       this.stubReads.moved()
       this.childCountReads.moved()
+      this.childIdReads.moved()
     })
   }
 
@@ -1123,6 +1142,7 @@ export class PoolCollections {
     this.markerSpecs.clear()
     this.stubReads.clear()
     this.childCountReads.clear()
+    this.childIdReads.clear()
     this.off?.()
     this.off = undefined
     this.bound = undefined

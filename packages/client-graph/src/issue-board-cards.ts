@@ -39,6 +39,8 @@ export function inBoardScope(
 }
 
 export type StageCount = { stage: IssueViewModel['stage']; count: number }
+/** What a stage count reads of a child: stub fields only. */
+type StageChild = ScopeRow & Pick<IssueViewModel, 'stage' | 'archived'>
 const NO_STAGES: readonly StageCount[] = Object.freeze([])
 
 /** A board card's own rule: where the children in the board's audience are. */
@@ -62,13 +64,23 @@ export class BoardCard {
     if (!own || own.archived || own.deletedAt || !inBoardScope(pool, own, issue.id, agents, true))
       return NO_STAGES
     const counts = new Map<IssueViewModel['stage'], number>()
-    for (const id of pool.graph.many('issue', issue.id, 'treeChildren')) {
-      const child = omitGone(pool.row('issue', id)) as Loaded<IssueViewModel>
-      if (child === LOADING) throw LOADING
+    const count = (id: string, child: StageChild | undefined) => {
       if (child && id !== issue.id && !child.archived && !child.deletedAt &&
         inBoardScope(pool, child, id, agents, true))
         counts.set(child.stage, (counts.get(child.stage) ?? 0) + 1)
     }
+    if (pool.collections.available) {
+      // Every child over all history, by its stub (POD-7581): a card holds no
+      // child row and loads none, and a child closed long ago still counts.
+      const ids = pool.collections.childIds(issue.id)
+      if (ids === LOADING) throw LOADING
+      for (const id of ids) count(id, pool.collections.stubOf(id) as StageChild | undefined)
+    } else
+      for (const id of pool.graph.many('issue', issue.id, 'treeChildren')) {
+        const child = omitGone(pool.row('issue', id)) as Loaded<IssueViewModel>
+        if (child === LOADING) throw LOADING
+        count(id, child)
+      }
     return counts.size
       ? ISSUE_STAGES.flatMap(stage => counts.has(stage) ? [{ stage, count: counts.get(stage)! }] : [])
       : NO_STAGES
