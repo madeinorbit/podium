@@ -289,6 +289,7 @@ function initials(name: string): string {
 /** How many comments the column shows before folding the older ones. */
 const COMMENTS_SHOWN = 3
 const NO_CHILDREN: readonly PageIssue[] = []
+const NO_RELATIONS: Exclude<PageIssue['relationGroups'], typeof LOADING> = []
 
 /**
  * The thread, oldest first, then the field to add to it. Comment bodies are
@@ -905,7 +906,10 @@ export const IssuePanelBody = observer(function IssuePanelBody({
   const heldChildren = detail.children
   const children = heldChildren === LOADING ? NO_CHILDREN : heldChildren
   const continuation = issue ? detail.continuation : null
-  const relations = issue.relationGroups
+  // The issues that depend on this one load with their edges (POD-7579):
+  // until then the panel draws with the parent link only, rather than blank.
+  const heldRelations = issue.relationGroups
+  const relations = heldRelations === LOADING ? NO_RELATIONS : heldRelations
 
   if (!issue) return <IssuePanelEmpty />
 

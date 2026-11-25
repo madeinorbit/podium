@@ -27,6 +27,7 @@ import { issueObserver as observer } from './issue-observer'
  */
 
 import { groupRelations } from '@podium/client-core/values'
+import { LOADING } from '@podium/client-graph/loading'
 import type { IssueId } from '@podium/model/browser'
 import { ISSUE_DEP_TYPES, issueStatusOf, type StoredIssueDepType } from '@podium/model/browser'
 import { Plus, X } from 'lucide-react'
@@ -67,6 +68,8 @@ export const IssueRelations = observer(function IssueRelations({
 }): JSX.Element {
   const resolve = useIssueEdgeResolver()
   const relations = useIssuePageContext()?.issue.relationGroups ?? groupRelations(issue)
+  // After the last hook: the issues that depend on this one are still on their way.
+  if (relations === LOADING) throw LOADING
   // NOTHING IS A BADGE, NOT A SENTENCE (POD-1224). "No links to other tasks."
   // took a full line under the heading to restate the heading's own subject in
   // the negative — on most tasks, the emptiest band in the rail was also its

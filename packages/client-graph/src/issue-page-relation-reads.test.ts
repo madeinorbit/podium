@@ -24,6 +24,7 @@ afterEach(() => {
 const RECENT = '2026-11-17T12:00:00.000Z'
 const OLD = '2020-01-01T00:00:00.000Z'
 const SESSIONS = { collection: 'session.ofIssue', args: { issueId: 'old' }, part: 'main' } as const
+const TREE = { collection: 'issueProjection.tree', args: { root: 'old' }, part: 'main' } as const
 
 const putSession = (server: CollectionServer, id: string, fields: Record<string, unknown>) =>
   server.put('session', id, session(id, { issueId: 'old', ...fields }) as Record<string, unknown>)
@@ -104,6 +105,8 @@ describe('the issue page of a closed issue opened from search', () => {
     expect(page.answers.at(-1)).toEqual([2, 1])
     expect(device.requestedKeys()).toContain('session.ofIssue{"issueId":"old"}')
     page.close()
+    await device.untilIdle()
+    expect(device.liveHolds(SESSIONS)).toBe(0)
   })
 
   it("the views' rosters ask for the sessions of the issue", async () => {
@@ -130,7 +133,53 @@ describe('the issue page of a closed issue opened from search', () => {
     await device.untilIdle()
     expect(page.answers).toContain('LOADING')
     expect(page.answers.at(-1)).toBe('parked')
-    expect(device.requestedKeys()).toContain('session.ofIssue{"issueId":"old"}')
+    // The tree brings the visible seats; the archived history is not asked for.
+    expect(device.requestedKeys()).toContain('issueProjection.tree{"root":"old"}')
+    expect(device.requestedKeys()).not.toContain('session.ofIssue{"issueId":"old"}')
+    page.close()
+    await device.untilIdle()
+    expect(device.liveHolds(TREE)).toBe(0)
+  })
+
+  it('a sub-task row reads the open seats behind the tree, not the whole history', async () => {
+    const device = await openOldIssue((server) => {
+      putSession(server, 'now', { status: 'live', lastActiveAt: RECENT, headless: true })
+      putSession(server, 'parked', { status: 'hibernated', lastActiveAt: OLD })
+    })
+    const page = openPage(device, (views) => ids(views.row('old').dockOpenSessions))
+    await device.untilIdle()
+    expect(page.answers).toContain('LOADING')
+    expect(page.answers.at(-1)).toEqual(['now', 'parked'])
+    expect(device.requestedKeys()).not.toContain('session.ofIssue{"issueId":"old"}')
+    page.close()
+    await device.untilIdle()
+    expect(device.liveHolds(TREE)).toBe(0)
+  })
+
+  it('a refused session history settles on what the device holds, asked once', async () => {
+    const device = await openOldIssue()
+    // The server answers the sessions of the issue without saying they are complete.
+    const answer = device.server.collections.bind(device.server)
+    device.server.collections = (instances) =>
+      (async function* () {
+        for await (const chunk of answer(instances))
+          yield chunk.complete === undefined
+            ? chunk
+            : {
+                ...chunk,
+                complete: chunk.complete.filter(
+                  (marker) => marker.collection !== 'session.ofIssue',
+                ),
+              }
+      })()
+    const page = openPage(device, (views) => ids(views.row('old').memberSessions))
+    await device.untilIdle()
+    expect(page.answers.at(-1)).toEqual(['now', 'past'])
+    expect(device.pool.collections.refused(SESSIONS)).toBe(true)
+    await device.untilIdle()
+    expect(
+      device.requestedKeys().filter((key) => key === 'session.ofIssue{"issueId":"old"}'),
+    ).toHaveLength(1)
     page.close()
   })
 
@@ -149,6 +198,45 @@ describe('the issue page of a closed issue opened from search', () => {
     expect(page.answers.at(-1)).toEqual(['kid'])
     expect(device.requestedKeys()).toContain('issueProjection.tree{"root":"old"}')
     page.close()
+    await device.untilIdle()
+    expect(device.liveHolds(TREE)).toBe(0)
+  })
+
+  it('the relations name an issue that depends on it, held while the page reads them', async () => {
+    const device = await openOldIssue((server) => {
+      server.put(
+        ISSUE,
+        'dep',
+        closedValue('dep', { seq: 93, updatedAt: OLD, deps: [{ id: 'old', type: 'blocked-by' }] }),
+      )
+      server.put('issueDep', 'dep-blocked-by-old', {
+        id: 'dep-blocked-by-old',
+        fromId: 'dep',
+        toId: 'old',
+        type: 'blocked-by',
+      })
+    })
+    expect(device.pool.tables.issue.has('dep'), 'the dependent is not on the device').toBe(false)
+    const page = openPage(device, (views) => {
+      const groups = views.issue('old')
+      if (groups === LOADING || groups === undefined) return 'LOADING'
+      const relations = groups.relationGroups
+      return relations === LOADING
+        ? 'LOADING'
+        : relations.flatMap((group) => group.entries.map((entry) => entry.id))
+    })
+    await device.untilIdle()
+    expect(page.answers).toContain('LOADING')
+    expect(page.answers.at(-1)).toEqual(['dep'])
+    const EDGES = {
+      collection: 'issueDep.toIssue',
+      args: { issueId: 'old' },
+      part: 'main',
+    } as const
+    expect(device.requestedKeys()).toContain('issueDep.toIssue{"issueId":"old"}')
+    page.close()
+    await device.untilIdle()
+    expect(device.liveHolds(EDGES)).toBe(0)
   })
 
   it('a superseded issue names its successor, looked up when absent', async () => {

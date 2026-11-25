@@ -342,7 +342,8 @@ const SheetBody = observer(function SheetBody({
   const children = detail?.children ?? []
   const mine = detail?.inspectorSessions ?? []
   if (typeof children === 'symbol' || typeof mine === 'symbol') throw LOADING
-  const relations = (issue as PageIssue).relationGroups
+  const heldRelations = (issue as PageIssue).relationGroups
+  const relations = heldRelations === LOADING ? [] : heldRelations // POD-7555: LOADING reads as empty on the phone
   // Prefer the immutable hosted id. The slug fallback keeps URL-selected web
   // profiles scoped when an id is not available yet.
   const workspace = profile?.config.workspaceId ?? profile?.config.workspaceSlug
@@ -512,7 +513,7 @@ const SheetRelationRow = observer(function SheetRelationRow({
   rel,
   pool,
 }: {
-  rel: PageIssue['relationGroups'][number]
+  rel: Exclude<PageIssue['relationGroups'], typeof LOADING>[number]
   pool: MobxPool | null
 }) {
   return (

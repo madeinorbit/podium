@@ -2938,11 +2938,13 @@
       "holder": "IssueCompactControls/IssueCompactControls/action",
       "rule": "helper-consumer",
       "tokens": "1b0ed9b6066fd4277619dcd32866d2c5c80d54c7796d37eacd70c1595e27a0f8",
-      "gate": [],
+      "gate": [
+        "else:348e30f21edef17a1c01cc795e47733774192414ec795479ab274d8499c95bc5"
+      ],
       "origin": [
         "979b537a8dd83840e84403789bd2176d451abbbdfd7c4206aaa8a64c1a3b5b92"
       ],
-      "fingerprint": "4aeb41606eefca4f8c176f3e7448660109d8c90b8b59231c15fd8c7341e37ee8",
+      "fingerprint": "e66567d4a92b390dea27882956bc1d6eef0a8f1a91425a0f56486bb946adac7e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -37637,13 +37639,12 @@
       "tokens": "f62a8b088e30caa75ab21797ad0c416f41fa155fd2c51fec13a1f89898d31336",
       "gate": [
         "exit:then:072be4420e192d0a320f4e7e5811c7b9bd6d7627bf4c35afb2d63ed1e067e844",
-        "exit:then:f42ba97118c3c03e5f21f99814bcf8972cd62fbae28a4165638b2442dae04864",
         "else:58c4f9c55bcf8de16eda50f1488ca43f56b8c92c318f615130906679aeb828cc"
       ],
       "origin": [
         "780457955c73ea86ccc5f913c34b10b4f905e13804c306828aff76071d12d292"
       ],
-      "fingerprint": "3c51b84a4f25d2ab37a6b74b406a7798eca06904e10cfc879318a72f38d76e5c",
+      "fingerprint": "7dc9db804b5bf850f25ca8fb725755b84ee5a72ac540034e3fd4be8aeec326af",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-6707",
@@ -42337,14 +42338,15 @@
       "file": "packages/client-graph/src/issue-page.ts",
       "holder": "createIssueDetailLists/seats/callback/get/callback",
       "rule": "reader-summary",
-      "tokens": "0afc08c71a46f4b8b6e674ef04081f30c0013b6f0298aa3b1951f49e4152046c",
+      "tokens": "904eeded49e2f7e6fa7380866ab9f2d6831fdf197c40b434def131f3ed07c157",
       "gate": [
-        "then:0afc08c71a46f4b8b6e674ef04081f30c0013b6f0298aa3b1951f49e4152046c"
+        "then:0505447d635c7775f3b081ef21a4604c51456be68313c5d533bbb3abc9221b3f",
+        "else:6f15a33b54cda63bda3f63c7f2acd07b257181db88b0d0e06f0939380122b383"
       ],
       "origin": [
-        "4252701295497ab65051dfd82348582253fddf0cf3c6be016e1519295e813efa"
+        "f82bcaa74a56dcdfea4297252ca9d1299dcede38be59974d327aaf6b2c366f97"
       ],
-      "fingerprint": "8d4998fd8cf31f7683048c8f5d62a78ff3d906f90e92bec8454eafd49ccdf26b",
+      "fingerprint": "8b3c6b4496a1c804e68a5bbc5892934402efc8d8d55dc272e95233bd6c5ac65f",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7579",
@@ -42355,16 +42357,37 @@
     },
     {
       "file": "packages/client-graph/src/issue-page.ts",
+      "holder": "createIssueDetailLists/seats/callback/get/callback",
+      "rule": "reader-summary",
+      "tokens": "6f3c745ffe04ff3017e7f12a27a812debe1b30a02dd2fb0d79a250f4ae3476eb",
+      "gate": [
+        "then:0505447d635c7775f3b081ef21a4604c51456be68313c5d533bbb3abc9221b3f",
+        "then:6f15a33b54cda63bda3f63c7f2acd07b257181db88b0d0e06f0939380122b383"
+      ],
+      "origin": [
+        "4cb95a10ceb8fe499cc578c2bbe8e1c1de97942bd07700439c0ca6fe12570a3d"
+      ],
+      "fingerprint": "131295287ca9d81a4fee2107c8833cb85fb41b7af529220d619caa013a3cc41e",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-7579",
+      "trigger": "A dock sub-task row, or show in deck, reads one issue's open seats.",
+      "bound": "One issue's open sessions, behind the held tree of its top-level issue (issueProjection.tree, whose comesWith brings the deck's sessions) and session.live.",
+      "reason": "The open-seat list answers LOADING until the tree is held complete, then reads its incremental query result; it never asks for the archived history.",
+      "guard": "issue-page-relation-reads.test.ts proves the tree request, no session.ofIssue request and the release on close."
+    },
+    {
+      "file": "packages/client-graph/src/issue-page.ts",
       "holder": "createIssuePageViews/attachedSessions",
       "rule": "reader-summary",
-      "tokens": "0caf61057c863779693582645429e415c815a34713e90d899548561a045682eb",
+      "tokens": "51fad36954b041cd61f5ace5575d8a8d44781ea5838c058fa5a9c2eb2b931f17",
       "gate": [
         "||:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8"
       ],
       "origin": [
-        "4252701295497ab65051dfd82348582253fddf0cf3c6be016e1519295e813efa"
+        "f82bcaa74a56dcdfea4297252ca9d1299dcede38be59974d327aaf6b2c366f97"
       ],
-      "fingerprint": "d22820cb2feff12a4df51732f5e09c8c21f961261720e22014904fbbdd394693",
+      "fingerprint": "d16cfd9bdae237b3a3ed7ccda1cda6977412211c67a6b34afa8f59d248b42ebc",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7579",
@@ -42377,14 +42400,14 @@
       "file": "packages/client-graph/src/issue-page.ts",
       "holder": "createIssuePageViews/memberSessions",
       "rule": "reader-summary",
-      "tokens": "02fdcbc65cdbc97352652bf6cac45f695aac1a69ebf7fe8c0ff881aa394e83b5",
+      "tokens": "c3d3707aa11eb54a014bbf480b297704ccfea4cfc8b6a79260ddf63a0bc9fc87",
       "gate": [
         "||:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8"
       ],
       "origin": [
-        "4252701295497ab65051dfd82348582253fddf0cf3c6be016e1519295e813efa"
+        "f82bcaa74a56dcdfea4297252ca9d1299dcede38be59974d327aaf6b2c366f97"
       ],
-      "fingerprint": "6cff2e20a35f4523d4862fbefdefe84066013dbfb9d6b1ce2013fcc9e4ccab73",
+      "fingerprint": "e90d6173bcfe20e7c48efbee98b2c6d24c3b2ffd87bab4b08e6a39443ee65a35",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7579",
@@ -42397,12 +42420,12 @@
       "file": "packages/client-graph/src/issue-page.ts",
       "holder": "IssuePageRow/retiredCount",
       "rule": "reader-summary",
-      "tokens": "47a27e4a199eaf9b533a101827b2c076707ad2728a3745f2eb8bef72e78c91a7",
+      "tokens": "0a021289feffaf6f415b40fdf1b9e56ff62e4e3cf7749dcaaeb5e7cacb922801",
       "gate": [],
       "origin": [
-        "4252701295497ab65051dfd82348582253fddf0cf3c6be016e1519295e813efa"
+        "f82bcaa74a56dcdfea4297252ca9d1299dcede38be59974d327aaf6b2c366f97"
       ],
-      "fingerprint": "dca9bd44014574c3e4b4790dad3759884463dd7176e8582ae4e078c3c60f2364",
+      "fingerprint": "4e14ecc8af9a344962c02522af4aebd60e714dce8f5e13415c34da6b6a544d7b",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7579",
@@ -42415,12 +42438,12 @@
       "file": "packages/client-graph/src/issue-page.ts",
       "holder": "IssuePageRow/rosterCount",
       "rule": "reader-summary",
-      "tokens": "47a27e4a199eaf9b533a101827b2c076707ad2728a3745f2eb8bef72e78c91a7",
+      "tokens": "0a021289feffaf6f415b40fdf1b9e56ff62e4e3cf7749dcaaeb5e7cacb922801",
       "gate": [],
       "origin": [
-        "4252701295497ab65051dfd82348582253fddf0cf3c6be016e1519295e813efa"
+        "f82bcaa74a56dcdfea4297252ca9d1299dcede38be59974d327aaf6b2c366f97"
       ],
-      "fingerprint": "e81b120f5dfe9a3da61155c51e1186a9cccedc8af65b7dbe1d7d7b55a9f700f9",
+      "fingerprint": "2a8436c36de9e8b494abc163cd82f6ff671e4ead796471b924f0b6f979d9e210",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-7579",

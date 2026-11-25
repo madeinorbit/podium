@@ -116,8 +116,9 @@ export const RAW_RELATION_READERS: readonly RawRelationReader[] = [
   // history; per-row counts need a small filtered or aggregate collection,
   // not full history. The issue page reads its own rosters and counts through
   // the holding read (issue-page.ts, POD-7579). The mission bucket also asks
-  // whether any session was born here (bornSessions), which no keyed
-  // collection holds (POD-7582); the whole getter moves with its readers.
+  // whether any session was born here (bornSessions, held per issue by
+  // session.bornOf since POD-7582, a whole history again); the whole getter
+  // moves with its readers.
   ...reader(
     'Seats.missionSessions@*.partition',
     ['issue.missionSessions'],
@@ -163,6 +164,18 @@ export const RAW_RELATION_READERS: readonly RawRelationReader[] = [
     'models.ts',
     'get missionWorking(): boolean',
   ),
+  // The live seat (a reference card's "go to session", walked up the parent
+  // chain by seatHolderId) reads the unarchived seats behind the issue's tree
+  // hold, one instance for the whole chain: the tree comes with every visible
+  // seat (DECK_SESSION_WHERE), parked ones included, without the archived
+  // history session.ofIssue would bring. POD-7580 audits reads under treeHeld.
+  ...reader(
+    'IssueModel@*.liveSeatId',
+    ['issue.pageSessions'],
+    'POD-7580',
+    'models.ts',
+    'get liveSeatId(): string | undefined',
+  ),
   // The continuation walks the spin-off tree (MissionView.readTips): no
   // collection holds the issues whose deps name this one, and each spin-off's
   // origin is read on a member that walk found in memory. POD-7582.
@@ -172,15 +185,6 @@ export const RAW_RELATION_READERS: readonly RawRelationReader[] = [
     'POD-7582',
     'issue-page.ts',
     'get continuation() { return missionView(this.pool).continuation(this.issue, false) }',
-  ),
-  // Incoming dependency edges: no collection holds the issues whose deps name
-  // this one (IN_MEMORY_RELATIONS). POD-7582.
-  ...reader(
-    'IssueModel@*.relationGroups',
-    ['issue.pageDependents'],
-    'POD-7582',
-    'models.ts',
-    'get relationGroups()',
   ),
   // The new phone app (POD-7578) reached integrate in POD-7592; its board and
   // its task rows still read these relations raw. Moving them onto holding

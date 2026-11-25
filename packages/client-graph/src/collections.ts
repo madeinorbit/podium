@@ -566,6 +566,19 @@ export class PoolCollections {
   }
 
   /**
+   * TRACKED: whether the server answered the instance in full without its
+   * marker: it will not say the instance is complete. A reader that waits on
+   * `held` settles on this instead of asking again (`held` asks every time it
+   * is read and clears the refusal).
+   */
+  refused(spec: LoaderInstance): boolean {
+    return this.behind(() => {
+      this.observeMarker(spec)
+      return this.loader()?.wasRefused(spec) ?? false
+    })
+  }
+
+  /**
    * TRACKED: whether the device holds the instance complete; if not, ask
    * for it at the front of the queue. The reader holds it while it reads it.
    * Without a loader, false unless fullDevice explicitly vouches for a fixture.

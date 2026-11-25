@@ -87,10 +87,11 @@ export const IssueProperties = observer(function IssueProperties({
 }) {
   const { size: textSize, accessorySize: size, accessibility } = useDetailLayout()
   const [label, setLabel] = useState('')
-  const relations =
+  const heldRelations =
     'relationGroups' in issue
       ? (issue as import('@podium/client-graph/issue-page').PageIssue).relationGroups
       : groupRelations(issue)
+  const relations = typeof heldRelations === 'symbol' ? [] : heldRelations // POD-7555: LOADING reads as empty on the phone
   // Merge axis only: a shared checkout's `ahead` is not this task's to land.
   const ahead = issue.gitState?.shared ? 0 : (issue.gitState?.ahead ?? 0)
 

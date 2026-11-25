@@ -139,7 +139,7 @@ export interface ModelHost {
   /** The pool's relation reader: what the relation getters follow. */
   readonly relations: RelationReader
   /** The device's collections: a holding relation's read holds its instance or its tree (POD-7545, POD-7582). */
-  readonly collections: Pick<PoolCollections, 'held' | 'subtreeHeld'>
+  readonly collections: Pick<PoolCollections, 'held' | 'subtreeHeld' | 'treeHeld'>
   /** The addressed model: here, loading, or gone. */
   model<E extends EntityName>(entity: E, id: string): Lookup<ModelOf[E]>
   /** Where a row stands; an absent one answers `loading` and its load starts (first access). */
@@ -576,10 +576,21 @@ export class IssueModel extends EntityModel {
   @lazy get exitKind(): ReferentExit | undefined {
     return this.host.issueExitKind(this.id)
   }
-  @lazy get relationGroups() {
+  /** The issue's relations, one group per kind. LOADING until the device
+   * holds the issues that depend on it (`pageDependents`, a holding relation
+   * on the incoming edges, POD-7582) and each of them is here (POD-7579). */
+  @lazy get relationGroups(): ReturnType<typeof groupRelations> | typeof LOADING {
+    const sources = this.pageDependents.members
+    if (sources === LOADING) return LOADING
+    const dependents: { id: string; type: string }[] = []
+    for (const { id } of [...sources].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+      const row = omitGone(this.host.row('issue', id)) as LoadedRow<SliceIssue>
+      if (row === LOADING) return LOADING
+      for (const dep of row?.deps ?? []) if (dep.id === this.id) dependents.push({ id, type: dep.type })
+    }
     return groupRelations({
       deps: (this.storedField('deps') ?? []) as Parameters<typeof groupRelations>[0]['deps'],
-      dependents: this.dependents as Parameters<typeof groupRelations>[0]['dependents'],
+      dependents: dependents as Parameters<typeof groupRelations>[0]['dependents'],
     })
   }
 
@@ -756,15 +767,16 @@ export class IssueModel extends EntityModel {
    * the coordinator when it is one of them, else the most recently active
    * (ties keep the collapse order). Headless seats cannot be opened; a seat
    * still loading is skipped until it lands. Undefined without a visible seat.
-   * Reads the unarchived seats through the holding read: LOADING until the
-   * device holds the issue's sessions (POD-7579). */
+   * LOADING until the device holds the issue's tree: held from its top-level
+   * issue, one instance for the whole parent chain, it comes with every
+   * visible seat (`DECK_SESSION_WHERE`), parked ones included, and never with
+   * archived history (POD-7579). */
   @lazy
   get liveSeatId(): string | undefined {
     const coordinator = this.storedField('coordinatorSessionId')
-    const seats = this.pageSessions.unarchived.members
-    if (seats === LOADING) throw LOADING
+    if (!this.host.collections.treeHeld(this.id)) throw LOADING
     let best: { id: string; at: string } | null = null
-    for (const { id } of seats) {
+    for (const id of this.host.relations.subset('issue', this.id, 'pageSessions', 'unarchived')) {
       if (this.host.queries.collapsed(id)) continue
       const session = this.host.sessionObject(id)
       let at: string

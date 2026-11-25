@@ -53,11 +53,11 @@ function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
     },
     subscribe: (changed) => pool.queries.onMembers('issue', issue.id, 'treeChildren', changed),
   })
-  // No collection is keyed by parentId (POD-7582): the issue's tree, held
-  // like the flight deck holds it, brings every sub-issue (POD-7579).
+  // The child relation's hold (POD-7582): the issue's own subtree, or a
+  // wider tree already held, brings every sub-issue (POD-7579).
   const child = {
     get: (): Loaded<PageIssue[]> =>
-      pool.collections.treeHeld(issue.id) ? childList.get() : LOADING,
+      pool.collections.subtreeHeld(issue.id) ? childList.get() : LOADING,
     dispose: () => childList.dispose(),
   }
   const seats = (
@@ -66,6 +66,8 @@ function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
     archived: boolean | undefined,
     keep: (session: SessionModel) => boolean,
     order?: (session: SessionModel) => string,
+    /** What the list waits for: the issue's sessions, or its tree (`seatsHeld`). */
+    hold: 'sessions' | 'tree' = 'sessions',
   ) => {
     const list = createQueryResult<DetailSession>({
       name: `IssueDetail@${name}:${issue.id}`,
@@ -127,7 +129,9 @@ function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
     })
     return {
       get: (): Loaded<DetailSession[]> =>
-        sessionsHeld(pool, issue.id, relation) ? list.get() : LOADING,
+        (hold === 'tree' ? seatsHeld(pool, issue.id) : sessionsHeld(pool, issue.id, relation))
+          ? list.get()
+          : LOADING,
       dispose: () => list.dispose(),
     }
   }
@@ -150,6 +154,17 @@ function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
     (session) => session.open,
     (session) =>
       `${session.attention ? '0' : '1'}|${session.sessionId === issue.coordinatorSessionId ? '0' : '1'}|${String(9e15 - (session.activityMs ?? 0)).padStart(16, '0')}`,
+  )
+  // A sub-task row in the dock shows only what runs now: its open seats,
+  // behind the tree its parent already holds, never its whole history.
+  const dockOpen = seats(
+    'dock-open',
+    'missionSessions',
+    false,
+    (session) => session.open,
+    (session) =>
+      `${session.attention ? '0' : '1'}|${session.sessionId === issue.coordinatorSessionId ? '0' : '1'}|${String(9e15 - (session.activityMs ?? 0)).padStart(16, '0')}`,
+    'tree',
   )
   const dockRetired = seats(
     'dock-retired',
@@ -187,6 +202,7 @@ function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
     active,
     retired,
     dockActive,
+    dockOpen,
     dockRetired,
     moved,
     phone,
@@ -199,6 +215,7 @@ function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
         active,
         retired,
         dockActive,
+        dockOpen,
         dockRetired,
         moved,
         phone,
@@ -223,8 +240,7 @@ const SESSION_HOLDS = {
  * roster never shows only the sessions that happen to be in memory (a closed
  * issue's live session without its history). One marker read, not a walk of
  * the members: the rosters below keep their own incremental membership.
- * `bornSessions` has no keyed collection to hold (POD-7582) and reads what is
- * in memory.
+ * `bornSessions` holds `session.bornOf` the same way (POD-7582).
  */
 function sessionsHeld(
   pool: MobxPool,
@@ -232,7 +248,24 @@ function sessionsHeld(
   relation: keyof typeof SESSION_HOLDS,
 ): boolean {
   const instance = SESSION_HOLDS[relation]
-  return instance === undefined || pool.collections.held(instance(issueId))
+  if (instance === undefined) return true
+  // The server answered it without a marker: it will never say the history
+  // is complete. Settle on what the device holds rather than asking again on
+  // every read (POD-7579 review F7).
+  if (pool.collections.refused(instance(issueId))) return true
+  return pool.collections.held(instance(issueId))
+}
+
+/**
+ * The open seats of an issue, without its archived history: the issue's tree
+ * (held from its top-level issue, one instance for the whole chain) comes
+ * with every session the flight deck shows (`DECK_SESSION_WHERE`: not
+ * archived, not headless, not a shell), and `session.live` (a policy
+ * collection) holds every starting or live one, shells included. A hibernated
+ * shell is the one open seat neither brings.
+ */
+export function seatsHeld(pool: MobxPool, issueId: string): boolean {
+  return pool.collections.treeHeld(issueId)
 }
 
 const EMPTY_CHILDREN: PageIssue[] = []
@@ -275,7 +308,8 @@ export class IssuePageRow {
     const title = this.issue.authoredTitle
     if (!this.issue.isDraftVessel || (title.trim() && title.trim() !== 'Draft')) return title
     const members = this.lists.liveMembers.get()
-    if (members === LOADING) throw LOADING
+    // Its members still on their way: the draft keeps its own title for now.
+    if (members === LOADING) return title
     return issueDisplayTitle(
       {
         ...here(this.issue.row),
@@ -346,6 +380,10 @@ export class IssuePageRow {
   }
   get dockActiveSessions() {
     return this.lists.dockActive.get() ?? EMPTY_DETAIL_SESSIONS
+  }
+  /** Open seats only, behind the tree hold: a dock sub-task row and "show in deck". */
+  get dockOpenSessions() {
+    return this.lists.dockOpen.get() ?? EMPTY_DETAIL_SESSIONS
   }
   get dockRetiredSessions() {
     return this.lists.dockRetired.get() ?? EMPTY_DETAIL_SESSIONS
@@ -578,6 +616,9 @@ export function createIssuePageViews(pool: MobxPool) {
     if (!rootId) return undefined
     const root = issue(rootId)
     if (!root || root === LOADING) return root
+    // Only an empty draft is no destination: a root that would not be one
+    // even with no sessions is a destination without waiting for them.
+    if (!isEmptyDraftVessel(root, [])) return root
     const members = row(rootId).activeSessions
     return members === LOADING
       ? LOADING
