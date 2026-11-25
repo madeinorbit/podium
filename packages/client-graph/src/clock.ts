@@ -23,6 +23,7 @@ export const UNTRACKED_READS: Readonly<Record<string, string>> = {
   'settings-follow-list': 'Upkeep: opens a discovery list subscription on first read; decides no answer.',
   'pool-sources-ensure': "Upkeep: registers a lazy source's owner; the published by-entity registry is observable.",
   'sorted-lanes-subscribe': 'Upkeep: registers a lane subscriber; lane readers observe the lane map and atoms.',
+  'sorted-lanes-unsubscribe': 'Upkeep: removes a lane subscriber when its query releases or replaces the subscription; decides no answer.',
   'collections-reload': "Upkeep: queues an unloaded record's disk read; the record arrives through the tracked tables.",
   'collections-retry': "Upkeep: forgets a refusal on a view's retry; the loader's markers notification wakes the readers, which ask again.",
   'row-exit-kind': "A found exit observes its row's exit signal, moved by every publication naming the row; a new exit also deletes the table slot the reader observes.",

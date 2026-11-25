@@ -42,7 +42,13 @@ export class SortedLanes<K, S> {
       let listeners = this.listeners.get(key)
       if (!listeners) { listeners = new SideSet('sortedLanes.subscribers'); this.listeners.set(key, listeners) }
       listeners.add(changed)
-      return () => { listeners.delete(changed); if (!listeners.size) this.listeners.delete(key) }
+      return () => {
+        // untracked-read: sorted-lanes-unsubscribe
+        sideStateUpkeep(() => {
+          listeners.delete(changed)
+          if (!listeners.size) this.listeners.delete(key)
+        })
+      }
     })
   }
   private changed(key: K, lane: Lane<S>, id: string) {

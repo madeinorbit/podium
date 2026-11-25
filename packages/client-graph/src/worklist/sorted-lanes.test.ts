@@ -1,4 +1,4 @@
-import { autorun, runInAction } from 'mobx'
+import { autorun, observable, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
 import { createQueryResult } from '../query-result'
 import { SortedLanes } from './sorted-lanes'
@@ -27,6 +27,26 @@ it('notifies reset subscribers once even when they register again during notific
   }
   stop = lanes.subscribe('one', changed)
   try { runInAction(() => lanes.clear()); expect(calls).toBe(1) } finally { stop() }
+})
+
+it('replaces a subscription during a derivation without making bookkeeping a dependency', () => {
+  const lanes = new SortedLanes<string, number>((a, b) => a - b, 'replaced lanes')
+  const version = observable.box(0)
+  const notified: number[] = []
+  let unsubscribe: (() => void) | undefined
+  const stop = autorun(() => {
+    const current = version.get()
+    unsubscribe?.()
+    unsubscribe = lanes.subscribe('one', () => notified.push(current))
+  })
+  try {
+    runInAction(() => version.set(1))
+    runInAction(() => lanes.file('a', 'one', 1))
+    expect(notified).toEqual([1])
+  } finally {
+    stop()
+    unsubscribe?.()
+  }
 })
 
 it('resets a demanded query to empty and publishes the next keyed member', () => {
