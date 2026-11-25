@@ -160,7 +160,8 @@ describe('what the server refused (POD-7595)', () => {
     ]
     const options = {
       world: (server: CollectionServer) => {
-        world(server)
+        server.put('repo', 'repo-1', { id: 'repo-1', prefix: 'POD', name: 'synthetic' })
+        putIssueWithBodies(server, ID, { seq: 1, title: 'The parent task' })
         refuseCollections(server, (instance) => refused.includes(instance.collection))
       },
     }
