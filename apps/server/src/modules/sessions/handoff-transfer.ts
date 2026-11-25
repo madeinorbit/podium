@@ -1,7 +1,8 @@
-import type { SessionId, MachineId } from '@podium/model'
 import { mkdir, open, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { MachineId, SessionId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
+import { TRPCError } from '@trpc/server'
 
 const CHUNK_BYTES = 8 * 1024 * 1024
 
@@ -132,20 +133,34 @@ export async function transferHandoffPackage(input: {
         input.sourceMachineId,
       )
       if (!chunk.ok || chunk.data === undefined)
-        throw new Error(chunk.error ?? 'source package read failed')
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: chunk.error ?? 'source package read failed',
+        })
       const bytes = Buffer.from(chunk.data, 'base64')
-      if (bytes.length === 0) throw new Error('source package ended before advertised size')
+      if (bytes.length === 0)
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'source package ended before advertised size',
+        })
       await file.write(bytes, 0, bytes.length, offset)
       offset += bytes.length
     }
     if (offset !== input.sizeBytes || (await file.stat()).size !== input.sizeBytes)
-      throw new Error('handoff package size mismatch')
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'handoff package size mismatch',
+      })
 
     offset = 0
     while (offset < input.sizeBytes) {
       const bytes = Buffer.alloc(Math.min(CHUNK_BYTES, input.sizeBytes - offset))
       const { bytesRead } = await file.read(bytes, 0, bytes.length, offset)
-      if (bytesRead === 0) throw new Error('server stage ended before advertised size')
+      if (bytesRead === 0)
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'server stage ended before advertised size',
+        })
       const payload = bytes.subarray(0, bytesRead)
       const written = await input.rpc.handoffWriteChunk(
         input.stageToken,
@@ -154,7 +169,10 @@ export async function transferHandoffPackage(input: {
         input.targetMachineId,
       )
       if (!written.ok || written.sizeBytes !== offset + bytesRead)
-        throw new Error(written.error ?? 'target package write failed')
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: written.error ?? 'target package write failed',
+        })
       offset += bytesRead
     }
   } finally {

@@ -37,6 +37,7 @@ import {
 } from '@podium/model'
 import { resolveSpawnDefaults } from '@podium/runtime'
 import type { WriteScope } from '@podium/sync'
+import { TRPCError } from '@trpc/server'
 import type { IssueRow } from '../../../store'
 import { afterCommit, followUpAfterCommit } from '../../../store/executor/executor'
 import { type StoredIssue, toStorage } from '../../../store/issue-storage'
@@ -542,9 +543,10 @@ export class IssueCrudModule {
     }
     if (terminalEvidence) {
       if (!store) {
-        throw new Error(
-          `terminal evidence needs the permanent artifact store. ${terminalEvidenceHelp(row.seq)}`,
-        )
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `terminal evidence needs the permanent artifact store. ${terminalEvidenceHelp(row.seq)}`,
+        })
       }
       if (!session || session.issueId !== row.id) {
         throw new IssueRefusal(
@@ -632,7 +634,11 @@ export class IssueCrudModule {
     artifactId?: ArtifactId,
   ): Promise<{ entry: ArtifactPanelEntry }> {
     const store = this.store.deps.artifacts
-    if (!store) throw new Error('permanent issue artifact storage is unavailable')
+    if (!store)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'permanent issue artifact storage is unavailable',
+      })
     const snap = await store.snapshot({
       issueId: plan.issueId,
       root: plan.root,
@@ -782,7 +788,11 @@ export class IssueCrudModule {
   ): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
     const store = this.store.deps.artifacts
-    if (!store) throw new Error('permanent issue artifact storage is unavailable')
+    if (!store)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'permanent issue artifact storage is unavailable',
+      })
     if (!/^[A-Za-z0-9._-]+$/.test(input.id)) throw new IssueRefusal('invalid draft artifact id')
     const snap = await store.upload({
       issueId: row.id,

@@ -10,6 +10,7 @@ import {
   type ServerTransferManifestEntry,
 } from '@podium/protocol'
 import { fsyncPathAsync } from '@podium/runtime/fsync'
+import { TRPCError } from '@trpc/server'
 
 /**
  * Server authority moves through the authenticated transfer channel: both the
@@ -173,7 +174,10 @@ export async function assertSnapshotCapacity(
     availableBytes ?? (await statfs(stateRoot)).bavail * (await statfs(stateRoot)).bsize
   const required = portableBytes * 2 + TRANSFER_SPACE_MARGIN_BYTES
   if (available < required) {
-    throw new Error(`snapshot requires ${required} bytes but only ${available} are available`)
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: `snapshot requires ${required} bytes but only ${available} are available`,
+    })
   }
 }
 

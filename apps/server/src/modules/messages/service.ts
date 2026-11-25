@@ -93,6 +93,7 @@ import type { SessionFacts } from '../sessions/facts'
 import type { InboxPrincipalReference, QueuedRetract } from '../sessions/inbox'
 import { DeliveryBrakes, SPAWN_BUDGET_PER_DAY } from './brakes'
 import { MessageMailbox } from './mailbox'
+import { MailRefusal } from './refusal'
 import { deliveredByAJob, INLINE_BODY_MAX, MessageRenderer, principalOfRow } from './render'
 import { type DeliveryRunner, DeliveryScheduler, type MessageDeliveryStats } from './scheduler'
 import type { MessageSender, MessageSendInput, MessageSendResult, SendDisposition } from './types'
@@ -1042,7 +1043,8 @@ export class MessageDeliveryService {
         : input.to.kind === 'session'
           ? (input.to.id ?? null)
           : null
-    if (input.to.kind === 'session' && !toId) throw new Error('session recipient needs an id')
+    if (input.to.kind === 'session' && !toId)
+      throw new MailRefusal('invalid', 'session recipient needs an id')
 
     const targetSession =
       input.to.kind === 'session'
@@ -1102,8 +1104,8 @@ export class MessageDeliveryService {
     // Replies (any kind) inherit the original's thread.
     const original = input.inReplyTo ? await this.deps.messages.getMessage(input.inReplyTo) : null
     if (input.kind === 'ack') {
-      if (!input.inReplyTo) throw new Error('an ack needs in_reply_to')
-      if (!original) throw new Error(`unknown message ${input.inReplyTo}`)
+      if (!input.inReplyTo) throw new MailRefusal('invalid', 'an ack needs in_reply_to')
+      if (!original) throw new MailRefusal('target-not-found', `unknown message ${input.inReplyTo}`)
     }
 
     // A response is OPT-IN [POD-835 §04b]: a plain message owes no reply —
@@ -1322,7 +1324,10 @@ export class MessageDeliveryService {
           : null
     const sameAddress = stored.toKind === input.to.kind && stored.toId === toId
     if (!sameAddress || stored.body !== input.body || !(await this.sameSenderAs(from, stored))) {
-      throw new Error(`message id ${stored.id} is already used by a different message`)
+      throw new MailRefusal(
+        'conflict',
+        `message id ${stored.id} is already used by a different message`,
+      )
     }
     if (stored.deliveryStatus === 'stored' && stored.deliveredTo === null) {
       if (spanOpen()) return { message: stored, ...this.deliverAfterCommit(stored) }
@@ -3584,7 +3589,8 @@ export class MessageDeliveryService {
       if (stored === 'legacy-row') return await this.deps.legacyRowOwner()
       const sole = await this.deps.soleActiveMember()
       if (!sole) {
-        throw new Error(
+        throw new MailRefusal(
+          'invalid',
           `a ${from.kind} message sender carries no attribution, and this instance has more than one member`,
         )
       }

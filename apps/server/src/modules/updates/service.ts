@@ -9,6 +9,7 @@ import type {
 } from '@podium/protocol'
 import { isHeadlessPlatform, isProvablyNewer, targetPlatforms } from '@podium/protocol'
 import { updateFingerprint } from '@podium/runtime/machine-update'
+import { TRPCError } from '@trpc/server'
 import { ReleasePublicationPendingError } from './feed-errors'
 import {
   describeGrantCause,
@@ -696,12 +697,16 @@ export class UpdatesService {
   ): Promise<void> {
     const channel = typeof channelOrTarget === 'string' ? channelOrTarget : 'dev'
     const target = typeof channelOrTarget === 'string' ? maybeTarget : channelOrTarget
-    if (!target) throw new Error(`missing ${channel} update target`)
+    if (!target)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `missing ${channel} update target`,
+      })
     const wireRefusal = targetDaemonWireRefusal(target)
     if (wireRefusal) {
       this.unavailableReasons.set(channel, wireRefusal)
       this.recordCheck(channel, { status: 'unavailable', reason: wireRefusal })
-      throw new Error(wireRefusal)
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: wireRefusal })
     }
     if (await this.setTargetResolved(channel, target, { active: false })) {
       this.notifyTargetChangedDeferred(channel)
@@ -734,12 +739,16 @@ export class UpdatesService {
   ): Promise<void> {
     const channel = typeof channelOrTarget === 'string' ? channelOrTarget : 'dev'
     const target = typeof channelOrTarget === 'string' ? maybeTarget : channelOrTarget
-    if (!target) throw new Error(`missing ${channel} update target`)
+    if (!target)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `missing ${channel} update target`,
+      })
     const wireRefusal = targetDaemonWireRefusal(target)
     if (wireRefusal) {
       this.unavailableReasons.set(channel, wireRefusal)
       this.recordCheck(channel, { status: 'unavailable', reason: wireRefusal })
-      throw new Error(wireRefusal)
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: wireRefusal })
     }
     const [active, version] = await Promise.all([
       this.deps.exclusiveOperationActive?.() ?? Promise.resolve(false),
@@ -2145,7 +2154,10 @@ export class UpdatesService {
   ): Promise<string[]> {
     this.assertPersistence()
     if (this.deps.recoveryOnly)
-      throw new Error('Update grants are disabled during recovery-only startup')
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'Update grants are disabled during recovery-only startup',
+      })
     const issued: string[] = []
     for (const machineId of selected) {
       const machine = machines.find((candidate) => candidate.id === machineId)
@@ -2158,7 +2170,10 @@ export class UpdatesService {
       if (coordinatorOwned && !(await coordinatorHandler?.active())) continue
       if (coordinatorOwned) {
         if (!(await this.coordinatorUpdateApproved(channel, target)))
-          throw new Error('Coordinator update requires approval of the exact target.')
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'Coordinator update requires approval of the exact target.',
+          })
       }
       const pending = this.pendingGrants.get(machineId)
       if (

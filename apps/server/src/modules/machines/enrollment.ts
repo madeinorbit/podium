@@ -1,10 +1,11 @@
-import type { MachineId, UserId } from '@podium/model'
 import { createHash } from 'node:crypto'
-import { parseWirePublicKey } from '@podium/runtime/signing'
+import type { MachineId, UserId } from '@podium/model'
 import type { DaemonHandshake, UpdateKeyRotation } from '@podium/protocol'
-import type { MachinesDeps, PairingGrant } from './service'
-import type { SettingsAuditRow } from '../../store/settings-audit'
+import { parseWirePublicKey } from '@podium/runtime/signing'
+import { TRPCError } from '@trpc/server'
 import { afterCommit, spanOpen } from '../../store/executor/executor'
+import type { SettingsAuditRow } from '../../store/settings-audit'
+import type { MachinesDeps, PairingGrant } from './service'
 
 /** Database-owned machine credentials and custody transitions. */
 export interface EnrollmentHost {
@@ -43,7 +44,11 @@ export interface DaemonAuthenticationOptions {
 const transitions = new WeakMap<EnrollmentHost, Map<MachineId, Promise<void>>>()
 
 /** Serialize credential transitions before inspecting or consuming a one-use code. */
-export async function withMachineTransition<T>(host: EnrollmentHost, id: MachineId, run: () => Promise<T>): Promise<T> {
+export async function withMachineTransition<T>(
+  host: EnrollmentHost,
+  id: MachineId,
+  run: () => Promise<T>,
+): Promise<T> {
   let pending = transitions.get(host)
   if (!pending) {
     pending = new Map()
@@ -51,11 +56,15 @@ export async function withMachineTransition<T>(host: EnrollmentHost, id: Machine
   }
   const previous = pending.get(id) ?? Promise.resolve()
   let release!: () => void
-  const held = new Promise<void>((resolve) => { release = resolve })
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
   const tail = previous.then(() => held)
   pending.set(id, tail)
   await previous
-  try { return await run() } finally {
+  try {
+    return await run()
+  } finally {
     release()
     if (pending.get(id) === tail) pending.delete(id)
   }
@@ -89,9 +98,7 @@ export async function machineTransition(
       run,
     )()
   const save = () =>
-    host.deps.compareMachineRecords
-      ? host.deps.compareMachineRecords(write)
-      : write()
+    host.deps.compareMachineRecords ? host.deps.compareMachineRecords(write) : write()
   if (spanOpen()) {
     await save()
     afterCommit(async () => await locked(outside), label)
@@ -117,8 +124,8 @@ async function authenticateDaemonUnlocked(
   host: EnrollmentHost,
   frame: MachineAuthenticationFrame,
   options: DaemonAuthenticationOptions = {},
-):
-  Promise<| {
+): Promise<
+  | {
       ok: true
       machineId: MachineId
       name: string
@@ -128,7 +135,8 @@ async function authenticateDaemonUnlocked(
       updatePubkey?: string
       updateKeyRotations?: readonly UpdateKeyRotation[]
     }
-  | { ok: false; reason: string }> {
+  | { ok: false; reason: string }
+> {
   const deps = host.deps
   if (frame.type === 'pair') {
     // Recovery-only holds a query-only database. Pairing necessarily redeems a
@@ -146,32 +154,51 @@ async function authenticateDaemonUnlocked(
     // hard no — otherwise a valid pair code rebinds someone else's tokenHash.
     const existing = await deps.store.machines.getMachine(frame.machineId)
     const proposedGrant = deps.pairing.peek?.(frame.code)
-    if (proposedGrant?.clientRegistration && (proposedGrant.clientRegistration.machineId !== frame.machineId ||
-      (proposedGrant.clientRegistration.publicKey !== undefined && proposedGrant.clientRegistration.publicKey !== frame.publicKey))) {
+    if (
+      proposedGrant?.clientRegistration &&
+      (proposedGrant.clientRegistration.machineId !== frame.machineId ||
+        (proposedGrant.clientRegistration.publicKey !== undefined &&
+          proposedGrant.clientRegistration.publicKey !== frame.publicKey))
+    ) {
       return { ok: false, reason: HELLO_DENIED_REASON }
     }
     if (existing && (!existing.revokedAt || proposedGrant?.replaceMachineId !== frame.machineId)) {
       return { ok: false, reason: 'machine id already registered' }
     }
-    if (proposedGrant?.replaceMachineId && (!existing || proposedGrant.replaceMachineId !== frame.machineId)) {
+    if (
+      proposedGrant?.replaceMachineId &&
+      (!existing || proposedGrant.replaceMachineId !== frame.machineId)
+    ) {
       return { ok: false, reason: 'replacement target does not match' }
     }
-    if (existing && proposedGrant?.replaceIncarnation !== await deps.store.machines.credentialIncarnation(frame.machineId)) {
+    if (
+      existing &&
+      proposedGrant?.replaceIncarnation !==
+        (await deps.store.machines.credentialIncarnation(frame.machineId))
+    ) {
       return { ok: false, reason: 'replacement credential has changed' }
     }
     const pairingGrant = deps.pairing.redeem(frame.code)
     if (!pairingGrant) {
       return { ok: false, reason: 'invalid or expired code' }
     }
-    if (pairingGrant.clientRegistration && (pairingGrant.clientRegistration.machineId !== frame.machineId ||
-      (pairingGrant.clientRegistration.publicKey !== undefined && pairingGrant.clientRegistration.publicKey !== frame.publicKey))) {
+    if (
+      pairingGrant.clientRegistration &&
+      (pairingGrant.clientRegistration.machineId !== frame.machineId ||
+        (pairingGrant.clientRegistration.publicKey !== undefined &&
+          pairingGrant.clientRegistration.publicKey !== frame.publicKey))
+    ) {
       return { ok: false, reason: HELLO_DENIED_REASON }
     }
     const updatePubkey = deps.updatePubkey?.()
     const updateKeyRotations = deps.updateKeyRotations?.()
     const name = frame.name ?? frame.hostname
     const ownerUserId = pairingGrant.ownerUserId
-    if (!ownerUserId || !deps.installationId || pairingGrant.installationId !== deps.installationId) {
+    if (
+      !ownerUserId ||
+      !deps.installationId ||
+      pairingGrant.installationId !== deps.installationId
+    ) {
       return { ok: false, reason: HELLO_DENIED_REASON }
     }
     const now = new Date().toISOString()
@@ -182,24 +209,57 @@ async function authenticateDaemonUnlocked(
       // before any change to the minter's authority is no longer theirs (POD-6883).
       const member = await deps.store.users.get(ownerUserId)
       if (!member) return 'minter'
-      if (pairingGrant.ownerAuthzGeneration !== undefined &&
-        await deps.store.users.authzGenerationOf(ownerUserId) !== pairingGrant.ownerAuthzGeneration) return 'minter'
-      if (existing && await deps.store.machines.custodian(existing.id) !== ownerUserId &&
-        (pairingGrant.clientRegistration !== undefined || member.role !== 'admin')) return false
-      const changed = await deps.store.machines.enrollMachine({
-        id: frame.machineId, name: pairingGrant.clientRegistration && existing ? existing.name : name, hostname: frame.hostname, tokenHash: '',
-        credentialKind: 'ed25519', publicKey,
-        ownerUserId, podiumManaged: pairingGrant.clientRegistration && existing ? existing.podiumManaged : pairingGrant.podiumManaged ?? true,
-        assignment: pairingGrant.clientRegistration ? { server: false, agentExecution: false }
-          : frame.assignment ?? { server: false, agentExecution: options.source !== 'supervisor' },
-        assignmentEvidence: { version: 1, source: options.source === 'supervisor' ? 'supervisor-enrollment' : 'daemon-enrollment', requestId: frame.machineId },
-      }, existing?.revokedAt ?? undefined, pairingGrant.replaceIncarnation)
-      if (changed && existing) await deps.store.settingsAudit.append({
-        command: 'machines.replace', outcome: 'applied', actorKind: 'user',
-        actorId: ownerUserId, onBehalfOf: ownerUserId,
-        detail: { machineId: frame.machineId, previousRevokedAt: existing.revokedAt },
-        redactedPaths: [], createdAt: now,
-      })
+      if (
+        pairingGrant.ownerAuthzGeneration !== undefined &&
+        (await deps.store.users.authzGenerationOf(ownerUserId)) !==
+          pairingGrant.ownerAuthzGeneration
+      )
+        return 'minter'
+      if (
+        existing &&
+        (await deps.store.machines.custodian(existing.id)) !== ownerUserId &&
+        (pairingGrant.clientRegistration !== undefined || member.role !== 'admin')
+      )
+        return false
+      const changed = await deps.store.machines.enrollMachine(
+        {
+          id: frame.machineId,
+          name: pairingGrant.clientRegistration && existing ? existing.name : name,
+          hostname: frame.hostname,
+          tokenHash: '',
+          credentialKind: 'ed25519',
+          publicKey,
+          ownerUserId,
+          podiumManaged:
+            pairingGrant.clientRegistration && existing
+              ? existing.podiumManaged
+              : (pairingGrant.podiumManaged ?? true),
+          assignment: pairingGrant.clientRegistration
+            ? { server: false, agentExecution: false }
+            : (frame.assignment ?? {
+                server: false,
+                agentExecution: options.source !== 'supervisor',
+              }),
+          assignmentEvidence: {
+            version: 1,
+            source: options.source === 'supervisor' ? 'supervisor-enrollment' : 'daemon-enrollment',
+            requestId: frame.machineId,
+          },
+        },
+        existing?.revokedAt ?? undefined,
+        pairingGrant.replaceIncarnation,
+      )
+      if (changed && existing)
+        await deps.store.settingsAudit.append({
+          command: 'machines.replace',
+          outcome: 'applied',
+          actorKind: 'user',
+          actorId: ownerUserId,
+          onBehalfOf: ownerUserId,
+          detail: { machineId: frame.machineId, previousRevokedAt: existing.revokedAt },
+          redactedPaths: [],
+          createdAt: now,
+        })
       return changed
     })
     if (enrolled === 'minter') return { ok: false, reason: 'invalid or expired code' }
@@ -217,7 +277,11 @@ async function authenticateDaemonUnlocked(
     }
   }
   const verified = frame.keyProof
-    ? await deps.store.machines.verifyMachineSignature(frame.machineId, frame.keyProof.transcript, frame.keyProof.signature)
+    ? await deps.store.machines.verifyMachineSignature(
+        frame.machineId,
+        frame.keyProof.transcript,
+        frame.keyProof.signature,
+      )
     : await deps.store.machines.getMachineByToken(frame.machineId, frame.token)
   if (verified) {
     const row = await deps.store.machines.getMachine(frame.machineId)
@@ -253,7 +317,8 @@ export async function transferOwnership(
   opts: { skipRowUpdate?: boolean; txnId?: string } = {},
 ): Promise<void> {
   const row = await host.deps.store.machines.getMachine(machineId)
-  if (!row || row.revokedAt) throw new Error(`unknown machine '${machineId}'`)
+  if (!row || row.revokedAt)
+    throw new TRPCError({ code: 'NOT_FOUND', message: `unknown machine '${machineId}'` })
   if (opts.skipRowUpdate) return
   await host.deps.store.machines.setMachineOwner(machineId, newOwnerUserId)
 }
@@ -272,7 +337,8 @@ export async function transferMachineOwnership(
   actor: UserId,
   context: MachineManagementContext = {},
 ): Promise<void> {
-  if (!await host.deps.userExists?.(newOwnerUserId)) throw new Error(`unknown user: ${newOwnerUserId}`)
+  if (!(await host.deps.userExists?.(newOwnerUserId)))
+    throw new TRPCError({ code: 'NOT_FOUND', message: `unknown user: ${newOwnerUserId}` })
   const scopeAllowed = context.manage?.(id) !== false
   await machineTransition(
     host,
@@ -280,13 +346,21 @@ export async function transferMachineOwnership(
     async () => {
       await host.deps.store.transact(async () => {
         const machine = await host.deps.store.machines.getMachine(id)
-        if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
+        if (!machine || machine.revokedAt)
+          throw new TRPCError({ code: 'NOT_FOUND', message: `unknown machine '${id}'` })
         const custodian = await host.deps.store.machines.custodian(id)
         const admin = (await host.deps.store.users.roleOf(actor)) === 'admin'
         if (!scopeAllowed || (custodian !== actor && !admin)) {
-          throw new Error('only the machine owner or an admin may transfer ownership')
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'only the machine owner or an admin may transfer ownership',
+          })
         }
-        if (newOwnerUserId === custodian) throw new Error('machine is already owned by that user')
+        if (newOwnerUserId === custodian)
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: 'machine is already owned by that user',
+          })
         await host.deps.store.grants.removeAllForResource('machine', id)
         await host.deps.store.machines.setMachineOwner(id, newOwnerUserId)
         await host.deps.store.settingsAudit.append({
@@ -308,27 +382,41 @@ export async function transferMachineOwnership(
   )
 }
 
-export async function effectiveOwner(host: EnrollmentHost, machineId: MachineId): Promise<UserId | null | undefined> {
-  return await host.deps.store.machines.getMachine(machineId)
-    ? await host.deps.store.machines.custodian(machineId) : undefined
+export async function effectiveOwner(
+  host: EnrollmentHost,
+  machineId: MachineId,
+): Promise<UserId | null | undefined> {
+  return (await host.deps.store.machines.getMachine(machineId))
+    ? await host.deps.store.machines.custodian(machineId)
+    : undefined
 }
 
 /** Adoption is a separate, admin-only transition from explicitly unowned custody. */
-export async function adoptMachine(host: EnrollmentHost, id: MachineId, newOwnerUserId: UserId, actor: UserId, context: MachineManagementContext = {}): Promise<void> {
-  if (context.manage?.(id) === false || await host.deps.store.users.roleOf(actor) !== 'admin') {
-    throw new Error('only an admin may adopt a machine')
+export async function adoptMachine(
+  host: EnrollmentHost,
+  id: MachineId,
+  newOwnerUserId: UserId,
+  actor: UserId,
+  context: MachineManagementContext = {},
+): Promise<void> {
+  if (context.manage?.(id) === false || (await host.deps.store.users.roleOf(actor)) !== 'admin') {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'only an admin may adopt a machine' })
   }
   if (!(await host.deps.userExists?.(newOwnerUserId)))
-    throw new Error(`unknown user: ${newOwnerUserId}`)
+    throw new TRPCError({ code: 'NOT_FOUND', message: `unknown user: ${newOwnerUserId}` })
   await machineTransition(
     host,
     [id],
     async () => {
       await host.deps.store.transact(async () => {
         const machine = await host.deps.store.machines.getMachine(id)
-        if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
+        if (!machine || machine.revokedAt)
+          throw new TRPCError({ code: 'NOT_FOUND', message: `unknown machine '${id}'` })
         if ((await host.deps.store.machines.custodian(id)) !== null)
-          throw new Error('machine already has an owner — use transfer ownership')
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: 'machine already has an owner — use transfer ownership',
+          })
         await host.deps.store.grants.removeAllForResource('machine', id)
         await host.deps.store.machines.setMachineOwner(id, newOwnerUserId)
         await host.deps.store.settingsAudit.append({
@@ -352,27 +440,58 @@ export async function adoptMachine(host: EnrollmentHost, id: MachineId, newOwner
 
 /** One admin-authorized decision for client enrollment and retained revoked identity.
  * The same transition lock and replacement incarnation fence own later redemption. */
-export async function mintClientRegistrationCode(host: EnrollmentHost,
-  request: { machineId: MachineId; publicKey?: string }, actor: UserId): Promise<string> {
+export async function mintClientRegistrationCode(
+  host: EnrollmentHost,
+  request: { machineId: MachineId; publicKey?: string },
+  actor: UserId,
+): Promise<string> {
   return withMachineTransition(host, request.machineId, async () => {
     const grant = await host.deps.store.transact(async () => {
-      if (await host.deps.store.users.roleOf(actor) !== 'admin')
-        throw new Error('client registration requires a current administrator')
+      if ((await host.deps.store.users.roleOf(actor)) !== 'admin')
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'client registration requires a current administrator',
+        })
       if (request.publicKey !== undefined && !parseWirePublicKey(request.publicKey))
-        throw new Error('invalid retained machine key')
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid retained machine key' })
       const row = await host.deps.store.machines.getMachine(request.machineId)
-      if (row?.supersededBy) throw new Error('superseded machine identities cannot be re-enrolled')
-      if (row && !row.revokedAt) throw new Error('machine already registered; reconnect with its retained credential')
-      const incarnation = row ? await host.deps.store.machines.credentialIncarnation(request.machineId) : undefined
+      if (row?.supersededBy)
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'superseded machine identities cannot be re-enrolled',
+        })
+      if (row && !row.revokedAt)
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'machine already registered; reconnect with its retained credential',
+        })
+      const incarnation = row
+        ? await host.deps.store.machines.credentialIncarnation(request.machineId)
+        : undefined
       if (row && (!request.publicKey || incarnation !== request.publicKey))
-        throw new Error('retained machine key does not match the revoked identity')
-      if (row && await host.deps.store.machines.custodian(request.machineId) !== actor)
-        throw new Error('automatic client registration requires the current custodian; use explicit replacement')
-      return { ownerUserId: actor, podiumManaged: row?.podiumManaged ?? true,
-        copyAgentCredentials: false, clientRegistration: request,
-        ...(row ? { replaceMachineId: request.machineId, replaceIncarnation: incarnation } : {}) }
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'retained machine key does not match the revoked identity',
+        })
+      if (row && (await host.deps.store.machines.custodian(request.machineId)) !== actor)
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message:
+            'automatic client registration requires the current custodian; use explicit replacement',
+        })
+      return {
+        ownerUserId: actor,
+        podiumManaged: row?.podiumManaged ?? true,
+        copyAgentCredentials: false,
+        clientRegistration: request,
+        ...(row ? { replaceMachineId: request.machineId, replaceIncarnation: incarnation } : {}),
+      }
     })
-    if (!host.deps.pairing) throw new Error('inbound pairing is disabled on this server')
+    if (!host.deps.pairing)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'inbound pairing is disabled on this server',
+      })
     return host.deps.pairing.mint(grant)
   })
 }

@@ -14,6 +14,7 @@ import {
   type UserId,
 } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
+import { TRPCError } from '@trpc/server'
 import type { SessionStore } from '../../store'
 import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
@@ -64,9 +65,13 @@ export class SessionWorkspace {
     // afford to wait for this connection's report before the harness gate, and
     // must do so before ensureTargetRepo can clone anything onto the target.
     if (agentKind !== 'shell') await this.ports.machines.waitForInventory(input.machineId)
-    await this.ports.machines.resolveMachineForAgent(input.machineId, input.cwd, agentKind, input.use)
-    const sourceRepo = (await this.ports.store.repos
-      .listRepos())
+    await this.ports.machines.resolveMachineForAgent(
+      input.machineId,
+      input.cwd,
+      agentKind,
+      input.use,
+    )
+    const sourceRepo = (await this.ports.store.repos.listRepos())
       .filter((repo) => isMachinePathWithinRoot(repo.path, input.cwd))
       .sort((a, b) => b.path.length - a.path.length)[0]
     if (!sourceRepo || sourceRepo.machineId === input.machineId) {
@@ -75,7 +80,9 @@ export class SessionWorkspace {
     const targetRepo = await this.ensureTargetRepo(sourceRepo, input.machineId)
     const suffix = machinePathRelativeToRoot(sourceRepo.path, input.cwd)
     return {
-      cwd: suffix ? joinMachinePath(targetRepo.path, ...machinePathSegments(suffix, sourceRepo.path)) : targetRepo.path,
+      cwd: suffix
+        ? joinMachinePath(targetRepo.path, ...machinePathSegments(suffix, sourceRepo.path))
+        : targetRepo.path,
       machineId: input.machineId,
     }
   }
@@ -96,11 +103,14 @@ export class SessionWorkspace {
    * not have to ask whether a move is needed.
    */
   async resolveRepoOnMachine(sourceRepoPath: string, targetMachineId: MachineId): Promise<string> {
-    const sourceRepo = (await this.ports.store.repos
-      .listRepos())
+    const sourceRepo = (await this.ports.store.repos.listRepos())
       .filter((repo) => isMachinePathWithinRoot(repo.path, sourceRepoPath))
       .sort((a, b) => b.path.length - a.path.length)[0]
-    if (!sourceRepo) throw new Error(`no registered repository contains ${sourceRepoPath}`)
+    if (!sourceRepo)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `no registered repository contains ${sourceRepoPath}`,
+      })
     if (sourceRepo.machineId === targetMachineId) return sourceRepo.path
     const target = await this.ensureTargetRepo(sourceRepo, targetMachineId)
     return target.path
@@ -150,14 +160,16 @@ export class SessionWorkspace {
     baseCandidates?: string[]
   }): Promise<{ transferred: boolean; startPoint: string }> {
     const { rpc } = this.ports
-    const source = (await this.ports.store.repos
-      .listRepos())
-      .find(
-        (repo) =>
-          machinePathsEqual(repo.path, input.sourceRepoPath) &&
-          (input.sourceMachineId === undefined || repo.machineId === input.sourceMachineId),
-      )
-    if (!source) throw new Error(`no registered repository at ${input.sourceRepoPath}`)
+    const source = (await this.ports.store.repos.listRepos()).find(
+      (repo) =>
+        machinePathsEqual(repo.path, input.sourceRepoPath) &&
+        (input.sourceMachineId === undefined || repo.machineId === input.sourceMachineId),
+    )
+    if (!source)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `no registered repository at ${input.sourceRepoPath}`,
+      })
     const sourceRepoPath = source.path
     const sourceMachineId = source.machineId
     if (sourceMachineId === input.targetMachineId) {
@@ -173,11 +185,17 @@ export class SessionWorkspace {
       sourceMachineId,
     )
     if (!sourceRef.ok) {
-      throw new Error(`source machine cannot resolve ${input.ref}: ${sourceRef.output}`)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `source machine cannot resolve ${input.ref}: ${sourceRef.output}`,
+      })
     }
     const sha = sourceRef.output.trim().split(/\s+/u)[0] ?? ''
     if (!/^[0-9a-f]{40}$/u.test(sha)) {
-      throw new Error(`source machine returned an unusable commit id for ${input.ref}: ${sha}`)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `source machine returned an unusable commit id for ${input.ref}: ${sha}`,
+      })
     }
 
     /**
@@ -208,13 +226,14 @@ export class SessionWorkspace {
       ...new Set([...(input.baseCandidates ?? []), 'main', 'origin/main', input.ref]),
     ]
     const sourceVerified = await Promise.all(
-      candidates.map(async (ref) =>
-        await rpc.repoOp('revParseVerify', sourceRepoPath, { ref }, sourceMachineId),
+      candidates.map(
+        async (ref) => await rpc.repoOp('revParseVerify', sourceRepoPath, { ref }, sourceMachineId),
       ),
     )
     const targetVerified = await Promise.all(
-      verifiedBundleBases(sourceVerified).map(async (ref) =>
-        await rpc.repoOp('revParseVerify', input.targetRepoPath, { ref }, input.targetMachineId),
+      verifiedBundleBases(sourceVerified).map(
+        async (ref) =>
+          await rpc.repoOp('revParseVerify', input.targetRepoPath, { ref }, input.targetMachineId),
       ),
     )
     const bases = verifiedCommonBundleBases(sourceVerified, targetVerified)
@@ -267,7 +286,11 @@ export class SessionWorkspace {
       { token, ref: input.ref, ...(bases.length > 0 ? { bases: bases.join(',') } : {}) },
       sourceMachineId,
     )
-    if (!created.ok) throw new Error(`could not bundle ${input.ref} on the source: ${created.output}`)
+    if (!created.ok)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `could not bundle ${input.ref} on the source: ${created.output}`,
+      })
     // "<sizeBytes>\t<stagePath>" — the path is the SOURCE daemon's own, echoed
     // back exactly as the handoff export echoes its `stagePath`. Only that daemon
     // knows its home directory; a path computed here would be a guess about a
@@ -275,7 +298,10 @@ export class SessionWorkspace {
     const [rawSize, sourceStagePath] = created.output.split('\t')
     const sizeBytes = Number(rawSize)
     if (!Number.isFinite(sizeBytes) || sizeBytes <= 0 || !sourceStagePath) {
-      throw new Error(`source reported an unusable bundle for ${input.ref}: ${created.output}`)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `source reported an unusable bundle for ${input.ref}: ${created.output}`,
+      })
     }
 
     await transferHandoffPackage({
@@ -294,7 +320,10 @@ export class SessionWorkspace {
       input.targetMachineId,
     )
     if (!fetched.ok) {
-      throw new Error(`could not fetch ${input.ref} on the target: ${fetched.output}`)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `could not fetch ${input.ref} on the target: ${fetched.output}`,
+      })
     }
     // Verify the COMMIT, not the name: the objects are what travelled.
     const landed = await rpc.repoOp(
@@ -304,9 +333,10 @@ export class SessionWorkspace {
       input.targetMachineId,
     )
     if (!landed.ok) {
-      throw new Error(
-        `${input.ref} (${sha.slice(0, 12)}) still does not resolve on the target after the bundle transferred: ${landed.output}`,
-      )
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `${input.ref} (${sha.slice(0, 12)}) still does not resolve on the target after the bundle transferred: ${landed.output}`,
+      })
     }
     return { transferred: true, startPoint: sha }
   }
@@ -323,9 +353,9 @@ export class SessionWorkspace {
     targetMachineId: MachineId,
   ) {
     if (!sourceRepo.repoId) return undefined
-    return (await this.ports.store.repos
-      .listRepos(targetMachineId))
-      .find((repo) => repo.repoId === sourceRepo.repoId)
+    return (await this.ports.store.repos.listRepos(targetMachineId)).find(
+      (repo) => repo.repoId === sourceRepo.repoId,
+    )
   }
 
   /**
@@ -339,10 +369,13 @@ export class SessionWorkspace {
    * actionable message. A resolver that clones on absence would make that refusal
    * impossible.
    */
-  async findRepoOnMachine(sourceRepoPath: string, targetMachineId: MachineId): Promise<string | null> {
-    const source = (await this.ports.store.repos
-      .listRepos())
-      .find((repo) => machinePathsEqual(repo.path, sourceRepoPath))
+  async findRepoOnMachine(
+    sourceRepoPath: string,
+    targetMachineId: MachineId,
+  ): Promise<string | null> {
+    const source = (await this.ports.store.repos.listRepos()).find((repo) =>
+      machinePathsEqual(repo.path, sourceRepoPath),
+    )
     if (!source) return null
     if (source.machineId === targetMachineId) return source.path
     return (await this.repoOnMachineByIdentity(source, targetMachineId))?.path ?? null
@@ -370,23 +403,37 @@ export class SessionWorkspace {
     const existing = await this.repoOnMachineByIdentity(sourceRepo, targetMachineId)
     if (existing) return existing
     if (!sourceRepo.originUrl || !sourceRepo.repoId) {
-      throw new Error('target machine lacks this repository and the source has no clone URL')
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'target machine lacks this repository and the source has no clone URL',
+      })
     }
     const home = await this.ports.rpc.browseDirs(undefined, {}, targetMachineId)
     if (!home.listing) {
-      throw new Error(home.error ?? 'target machine did not report its home directory')
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: home.error ?? 'target machine did not report its home directory',
+      })
     }
     const repoName =
       repoNameFromOrigin(sourceRepo.originUrl)?.replace(/[^a-zA-Z0-9._-]+/gu, '-') || 'repository'
     const suffix = sourceRepo.repoId.replace(/[^a-zA-Z0-9]+/gu, '').slice(-8) || 'checkout'
-    const targetPath = joinMachinePath(home.listing.homePath, 'podium-repos', `${repoName}-${suffix}`)
+    const targetPath = joinMachinePath(
+      home.listing.homePath,
+      'podium-repos',
+      `${repoName}-${suffix}`,
+    )
     const cloned = await this.ports.rpc.repoOp(
       'clone',
       home.listing.homePath,
       { originUrl: sourceRepo.originUrl, path: targetPath },
       targetMachineId,
     )
-    if (!cloned.ok) throw new Error(`could not clone repository on target: ${cloned.output}`)
+    if (!cloned.ok)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `could not clone repository on target: ${cloned.output}`,
+      })
     // Through the registry's write funnel, so the cloned repo's record reaches
     // clients with the row. A bare write left it off the feed until the next
     // boot reconcile (POD-6769's finding).
@@ -399,11 +446,14 @@ export class SessionWorkspace {
         sourceRepo.prefix ?? undefined,
       )
     await (this.ports.commitRepoWrite ? this.ports.commitRepoWrite(register) : register())
-    const registered = (await this.ports.store.repos
-      .listRepos(targetMachineId))
-      .find((repo) => machinePathsEqual(repo.path, targetPath))
+    const registered = (await this.ports.store.repos.listRepos(targetMachineId)).find((repo) =>
+      machinePathsEqual(repo.path, targetPath),
+    )
     if (!registered || registered.repoId !== sourceRepo.repoId) {
-      throw new Error('cloned repository identity does not match the handoff source')
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'cloned repository identity does not match the handoff source',
+      })
     }
     this.ports.onWorktreesChanged(targetPath, targetMachineId)
     return registered
@@ -418,13 +468,14 @@ export class SessionWorkspace {
     dirty: boolean
   }> {
     const source =
-      this.ports.getSession(input.sourceSessionId) ?? (await this.ports.readSession?.(input.sourceSessionId))
-    if (!source) throw new Error('unknown source session')
+      this.ports.getSession(input.sourceSessionId) ??
+      (await this.ports.readSession?.(input.sourceSessionId))
+    if (!source) throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown source session' })
     const caller = this.ports.getSession(input.callerSessionId)
-    if (!caller) throw new Error('unknown calling session')
-    const sourceMachine = (await this.ports.machines
-      .listMachines())
-      .find((machine) => machine.id === source.machineId)
+    if (!caller) throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown calling session' })
+    const sourceMachine = (await this.ports.machines.listMachines()).find(
+      (machine) => machine.id === source.machineId,
+    )
     if (source.machineId === caller.machineId) {
       return {
         path: source.cwd,
@@ -435,21 +486,29 @@ export class SessionWorkspace {
         dirty: false,
       }
     }
-    if (!sourceMachine?.online) throw new Error('source machine is offline')
+    if (!sourceMachine?.online)
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'source machine is offline' })
 
     const repos = await this.ports.store.repos.listRepos()
     const sourceRepo = repos
       .filter(
         (repo) =>
-          repo.machineId === source.machineId &&
-          (isMachinePathWithinRoot(repo.path, source.cwd)),
+          repo.machineId === source.machineId && isMachinePathWithinRoot(repo.path, source.cwd),
       )
       .sort((a, b) => b.path.length - a.path.length)[0]
-    if (!sourceRepo?.repoId) throw new Error('source repository is not registered')
+    if (!sourceRepo?.repoId)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'source repository is not registered',
+      })
     const fetcherRepo = repos.find(
       (repo) => repo.machineId === caller.machineId && repo.repoId === sourceRepo.repoId,
     )
-    if (!fetcherRepo) throw new Error('this machine does not have the source repository')
+    if (!fetcherRepo)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'this machine does not have the source repository',
+      })
 
     const issue = source.issueId ? await this.ports.issueAccess.getMeta(source.issueId) : undefined
     const branch = issue?.branch ?? machinePathBasename(source.cwd)
@@ -461,19 +520,29 @@ export class SessionWorkspace {
       ),
     ]
     const sourceVerified = await Promise.all(
-      candidates.map(async (ref) =>
-        await this.ports.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, source.machineId),
+      candidates.map(
+        async (ref) =>
+          await this.ports.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, source.machineId),
       ),
     )
     const sourceBaseShas = verifiedBundleBases(sourceVerified)
     const fetcherVerified = await Promise.all(
-      sourceBaseShas.map(async (ref) =>
-        await this.ports.rpc.repoOp('revParseVerify', fetcherRepo.path, { ref }, caller.machineId),
+      sourceBaseShas.map(
+        async (ref) =>
+          await this.ports.rpc.repoOp(
+            'revParseVerify',
+            fetcherRepo.path,
+            { ref },
+            caller.machineId,
+          ),
       ),
     )
     const baseShas = verifiedCommonBundleBases(sourceVerified, fetcherVerified)
     if (baseShas.length === 0) {
-      throw new Error('no verified common bundle base with the source repository')
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'no verified common bundle base with the source repository',
+      })
     }
 
     // `as const` so the MINT SITE declares the token's shape, the way the
@@ -497,7 +566,10 @@ export class SessionWorkspace {
       exported.sizeBytes === undefined ||
       !exported.manifest
     ) {
-      throw new Error(exported.error ?? 'source failed to export its workspace')
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: exported.error ?? 'source failed to export its workspace',
+      })
     }
     await transferHandoffPackage({
       rpc: this.ports.rpc,
@@ -513,7 +585,10 @@ export class SessionWorkspace {
       caller.machineId,
     )
     if (!imported.ok || !imported.path) {
-      throw new Error(imported.error ?? 'failed to materialize the fetched workspace')
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: imported.error ?? 'failed to materialize the fetched workspace',
+      })
     }
     return {
       path: imported.path,
@@ -527,18 +602,25 @@ export class SessionWorkspace {
 
   async cleanPeeks(input: { callerSessionId: SessionId }): Promise<{ removed: string[] }> {
     const caller = this.ports.getSession(input.callerSessionId)
-    if (!caller) throw new Error('unknown calling session')
-    const repo = (await this.ports.store.repos
-      .listRepos())
+    if (!caller) throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown calling session' })
+    const repo = (await this.ports.store.repos.listRepos())
       .filter(
         (candidate) =>
           candidate.machineId === caller.machineId &&
-          (isMachinePathWithinRoot(candidate.path, caller.cwd)),
+          isMachinePathWithinRoot(candidate.path, caller.cwd),
       )
       .sort((a, b) => b.path.length - a.path.length)[0]
-    if (!repo) throw new Error('calling session is not inside a registered repository')
+    if (!repo)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'calling session is not inside a registered repository',
+      })
     const result = await this.ports.rpc.workspaceClean(repo.path, caller.machineId)
-    if (!result.ok) throw new Error(result.error ?? 'workspace clean failed')
+    if (!result.ok)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: result.error ?? 'workspace clean failed',
+      })
     return { removed: result.removed ?? [] }
   }
 

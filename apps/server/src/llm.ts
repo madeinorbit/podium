@@ -1,3 +1,5 @@
+import { TRPCError } from '@trpc/server'
+
 export { LlmConfigError } from './llm-error'
 
 /**
@@ -63,7 +65,10 @@ async function fetchWithTimeout(
     return await fetchImpl(url, { ...init, signal: AbortSignal.timeout(ms) })
   } catch (err) {
     if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
-      throw new Error(`request timed out after ${Math.round(ms / 1000)}s — ${url}`)
+      throw new TRPCError({
+        code: 'GATEWAY_TIMEOUT',
+        message: `request timed out after ${Math.round(ms / 1000)}s — ${url}`,
+      })
     }
     throw err
   }
@@ -122,7 +127,10 @@ export async function openaiChat(
     body: JSON.stringify(body),
   })
   if (!res.ok) {
-    throw new Error(`${base} ${res.status}: ${truncate(await res.text(), 400)}`)
+    throw new TRPCError({
+      code: 'BAD_GATEWAY',
+      message: `${base} ${res.status}: ${truncate(await res.text(), 400)}`,
+    })
   }
   const data = (await res.json()) as {
     usage?: { prompt_tokens?: number; completion_tokens?: number }
@@ -218,7 +226,10 @@ export async function anthropicMessages(
     }),
   })
   if (!res.ok) {
-    throw new Error(`anthropic ${res.status}: ${truncate(await res.text(), 400)}`)
+    throw new TRPCError({
+      code: 'BAD_GATEWAY',
+      message: `anthropic ${res.status}: ${truncate(await res.text(), 400)}`,
+    })
   }
   const data = (await res.json()) as {
     usage?: { input_tokens?: number; output_tokens?: number }
@@ -319,7 +330,10 @@ export async function openaiResponses(
     }),
   })
   if (!res.ok) {
-    throw new Error(`openai-responses ${res.status}: ${responsesErrorText(await res.text())}`)
+    throw new TRPCError({
+      code: 'BAD_GATEWAY',
+      message: `openai-responses ${res.status}: ${responsesErrorText(await res.text())}`,
+    })
   }
   return await readResponsesStream(res)
 }
@@ -383,11 +397,12 @@ async function readResponsesStream(res: Response): Promise<LlmAnswer> {
       const code = typeof error.code === 'string' ? error.code : undefined
       const message = typeof error.message === 'string' ? error.message : undefined
       if (code === CHATGPT_PLAN_LIMIT_CODE) {
-        throw new Error(`openai-responses 429: ${code}`)
+        throw new TRPCError({ code: 'BAD_GATEWAY', message: `openai-responses 429: ${code}` })
       }
-      throw new Error(
-        `openai-responses failed: ${truncate([code, message].filter(Boolean).join(': ') || 'no reason given', 300)}`,
-      )
+      throw new TRPCError({
+        code: 'BAD_GATEWAY',
+        message: `openai-responses failed: ${truncate([code, message].filter(Boolean).join(': ') || 'no reason given', 300)}`,
+      })
     } else if (type === 'response.incomplete') {
       throw new Error('openai-responses: the answer stopped before it was complete')
     }
@@ -460,7 +475,10 @@ export async function listChatgptModels(
     30_000,
   )
   if (!res.ok) {
-    throw new Error(`openai-responses ${res.status}: ${responsesErrorText(await res.text())}`)
+    throw new TRPCError({
+      code: 'BAD_GATEWAY',
+      message: `openai-responses ${res.status}: ${responsesErrorText(await res.text())}`,
+    })
   }
   const body = (await res.json()) as {
     models?: { slug?: unknown; display_name?: unknown; visibility?: unknown }[]

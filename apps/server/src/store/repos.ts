@@ -1,4 +1,5 @@
 // workspace-scoped (POD-6959)
+
 import { createLogger } from '@podium/logger'
 import {
   isMachinePathWithinRoot,
@@ -6,6 +7,7 @@ import {
   machinePathSeparator,
   normalizeMachinePath,
 } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 /**
  * Repos aggregate — owns the `repos` table (registered repo roots per machine,
  * origin URLs and the stable repo_id identity, #74).
@@ -520,12 +522,18 @@ export class ReposRepository {
    */
   async setRepoPrefix(machineId: MachineId, path: string, prefix: string): Promise<void> {
     if (!isValidPrefix(prefix)) {
-      throw new Error(`invalid repo prefix ${JSON.stringify(prefix)} — must match ^[A-Z]{2,5}$`)
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: `invalid repo prefix ${JSON.stringify(prefix)} — must match ^[A-Z]{2,5}$`,
+      })
     }
     const repoId = await this.resolveRepoIdForPath(normalizeRepoPath(path), machineId)
     const owner = await prefixOwner(this.db).get({ prefix })
     if (owner && owner.repoId !== repoId) {
-      throw new Error(`prefix ${prefix} is already used by another repo`)
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: `prefix ${prefix} is already used by another repo`,
+      })
     }
     await this.invalidateRegistry()
     const upsertPrefix = (this.repoWrites.upsertPrefix ??= prepared((db, t) =>
@@ -713,9 +721,13 @@ export class ReposRepository {
     if ((await this.prefixForRepoId(repoId)) === null) {
       if (prefix !== undefined) {
         if (!isValidPrefix(prefix)) {
-          throw new Error(`invalid repo prefix ${JSON.stringify(prefix)} — must match ^[A-Z]{2,5}$`)
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `invalid repo prefix ${JSON.stringify(prefix)} — must match ^[A-Z]{2,5}$`,
+          })
         }
-        if (await this.isPrefixTaken(prefix)) throw new Error(`prefix ${prefix} is already in use`)
+        if (await this.isPrefixTaken(prefix))
+          throw new TRPCError({ code: 'CONFLICT', message: `prefix ${prefix} is already in use` })
         await this.invalidateRegistry()
         // Same statement and the same enumeration as `ensurePrefixForRepoId`;
         // `prefix` reached here through `isValidPrefix` above.
@@ -937,9 +949,10 @@ export class ReposRepository {
   async resolveRepoIdForPath(repoPath: string, machineId?: MachineId | null): Promise<RepoId> {
     const id = (await this.repoIdResolver())(repoPath, machineId)
     if (!id)
-      throw new Error(
-        `no reporting machine for repo path ${repoPath}; choose a machine or wait for discovery`,
-      )
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `no reporting machine for repo path ${repoPath}; choose a machine or wait for discovery`,
+      })
     return id
   }
 
@@ -1038,9 +1051,10 @@ export class ReposRepository {
   async resolveIssueRepoId(repoPath: string, machineId?: MachineId | null): Promise<RepoId> {
     const id = (await this.issueRepoIdResolver())(repoPath, machineId)
     if (!id)
-      throw new Error(
-        `no reporting machine for repo path ${repoPath}; choose a machine or wait for discovery`,
-      )
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `no reporting machine for repo path ${repoPath}; choose a machine or wait for discovery`,
+      })
     return id
   }
 

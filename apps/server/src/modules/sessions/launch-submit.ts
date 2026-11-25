@@ -45,9 +45,14 @@ export async function refuseUnplaceable(
     const ownership = await ownershipSnapshotFromMachines(modules.machines)
     const failure = checkMachineUse(livePrincipal, input.machineId, ownership)
     if (failure) {
-      throw new Error(
-        machineAccessMessage(failure, input.machineId, ownership.rowFor(input.machineId)?.name),
-      )
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: machineAccessMessage(
+          failure,
+          input.machineId,
+          ownership.rowFor(input.machineId)?.name,
+        ),
+      })
     }
     await modules.machines.resolveMachineForAgent(
       input.machineId,
@@ -84,7 +89,11 @@ async function holdDraftArtifacts(
   artifacts: readonly DraftIssueArtifactInput[],
 ): Promise<HeldDraftArtifact[]> {
   const ownerUserId = onBehalfOfUser(principal)
-  if (ownerUserId === null) throw new Error('session creation requires an accountable human owner')
+  if (ownerUserId === null)
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'session creation requires an accountable human owner',
+    })
   const held: HeldDraftArtifact[] = []
   for (const artifact of artifacts) {
     const upload = await modules.pendingUploads.put({
@@ -155,9 +164,10 @@ export async function createThroughLaunchEffect(
   if (settled?.status === 'failed') {
     throw launches.errorOf(id) ?? new Error(settled.error?.message ?? 'the session could not start')
   }
-  throw new Error(
-    `session ${sessionId} is ${settled?.status ?? 'unknown'}; it shows on the session list`,
-  )
+  throw new TRPCError({
+    code: 'TIMEOUT',
+    message: `session ${sessionId} is ${settled?.status ?? 'unknown'}; it shows on the session list`,
+  })
 }
 
 /**
@@ -219,7 +229,8 @@ export async function resumeThroughLaunchEffect(
       launches.errorOf(id) ?? new Error(settled.error?.message ?? 'the session could not resume')
     )
   }
-  throw new Error(
-    `the resume is ${settled?.status ?? 'unknown'}; its session shows on the session list`,
-  )
+  throw new TRPCError({
+    code: 'TIMEOUT',
+    message: `the resume is ${settled?.status ?? 'unknown'}; its session shows on the session list`,
+  })
 }

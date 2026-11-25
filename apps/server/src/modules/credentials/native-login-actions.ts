@@ -1,5 +1,7 @@
 /** Default-home login and the D11 choice; both act only for the signed-in owner. */
+
 import { asUserId, type MachineId, type UserId } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 import type { RegistryModules, SessionRegistry } from '../../relay'
 
 export interface NativeLoginState {
@@ -38,7 +40,10 @@ export async function useOnMyMachines(
         ),
     )
     if (!observed) {
-      throw new Error(`none of your machines is signed in to that ${input.harness} account`)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `none of your machines is signed in to that ${input.harness} account`,
+      })
     }
   }
   await native.store.nativeLogins.setOptIn(
@@ -66,7 +71,10 @@ export async function useOnMyMachines(
       if (result?.status === 'failed') refused.push(result.reason)
     }
     if (refused.length > 0)
-      throw new Error(`The connection is enabled, but copying was refused: ${refused.join('; ')}`)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `The connection is enabled, but copying was refused: ${refused.join('; ')}`,
+      })
   }
   return { ok: true as const, enabled: input.enabled }
 }

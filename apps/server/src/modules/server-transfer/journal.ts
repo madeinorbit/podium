@@ -12,6 +12,7 @@ import {
 import { join } from 'node:path'
 import type { Operation } from '@podium/protocol'
 import { fsyncPath } from '@podium/runtime/fsync'
+import { TRPCError } from '@trpc/server'
 import { transferLockHeld } from './lock'
 import {
   SERVER_TRANSFER_FORMAT_VERSION,
@@ -119,7 +120,10 @@ export class TransferJournal {
   begin(record: TransferRecord): TransferJournalEntry {
     const current = this.read()
     if (current && current.state !== 'aborted') {
-      throw new Error(`cannot begin transfer while journal is ${current.state}`)
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: `cannot begin transfer while journal is ${current.state}`,
+      })
     }
     const timestamp = this.now().toISOString()
     const entry: TransferJournalEntry = {

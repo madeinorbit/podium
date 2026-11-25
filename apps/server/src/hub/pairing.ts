@@ -1,5 +1,7 @@
 import { randomBytes } from 'node:crypto'
+import { TRPCError } from '@trpc/server'
 import type { PairingGrant } from '../modules/machines/service'
+
 export type { PairingGrant } from '../modules/machines/service'
 
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // no I/O/0/1
@@ -27,7 +29,10 @@ export class PairingManager {
   private readonly minted = new Map<string, { start: number; count: number }>()
   private attempts = { start: 0, count: 0 }
   private admit(bucket: { start: number; count: number }, limit: number, now: number): boolean {
-    if (now < bucket.start || now - bucket.start >= 60_000) { bucket.start = now; bucket.count = 0 }
+    if (now < bucket.start || now - bucket.start >= 60_000) {
+      bucket.start = now
+      bucket.count = 0
+    }
     return ++bucket.count <= limit
   }
   constructor(opts: { randomCode?: () => string; ttlMs?: number; installationId?: string } = {}) {
@@ -37,16 +42,29 @@ export class PairingManager {
   }
   mint(grant: PairingGrant = {}, nowMs = Date.now()): string {
     for (const [code, entry] of this.codes) if (nowMs >= entry.expiresAtMs) this.codes.delete(code)
-    for (const [owner, bucket] of this.minted) if (nowMs - bucket.start >= 60_000) this.minted.delete(owner)
+    for (const [owner, bucket] of this.minted)
+      if (nowMs - bucket.start >= 60_000) this.minted.delete(owner)
     const owner = grant.ownerUserId ?? ''
     const bucket = this.minted.get(owner) ?? { start: nowMs, count: 0 }
     this.minted.set(owner, bucket)
-    if (!this.admit(bucket, PAIR_MINTS_PER_MINUTE, nowMs) || this.codes.size >= MAX_OUTSTANDING_CODES) {
-      throw new Error('pairing code rate limit exceeded')
+    if (
+      !this.admit(bucket, PAIR_MINTS_PER_MINUTE, nowMs) ||
+      this.codes.size >= MAX_OUTSTANDING_CODES
+    ) {
+      throw new TRPCError({
+        code: 'TOO_MANY_REQUESTS',
+        message: 'pairing code rate limit exceeded',
+      })
     }
     const code = this.randomCode()
     if (this.codes.has(code)) throw new Error('pairing code collision')
-    this.codes.set(code, { expiresAtMs: nowMs + this.ttlMs, grant: { ...grant, ...(this.installationId === undefined ? {} : { installationId: this.installationId }) } })
+    this.codes.set(code, {
+      expiresAtMs: nowMs + this.ttlMs,
+      grant: {
+        ...grant,
+        ...(this.installationId === undefined ? {} : { installationId: this.installationId }),
+      },
+    })
     return code
   }
   peek(code: string, nowMs = Date.now()): PairingGrant | undefined {

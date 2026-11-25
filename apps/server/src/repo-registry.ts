@@ -1,5 +1,6 @@
 import type { GitDiscoveryDiagnosticWire, MachineId } from '@podium/model'
 import { isAbsoluteMachinePath, isMachinePathWithinRoot, machinePathsEqual } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 import type { IssueWriter } from './modules/issues/service/types'
 import type { SessionRegistry } from './relay'
 import { normalizeRepoPath, type SessionStore } from './store'
@@ -98,8 +99,9 @@ export class RepoRegistry {
 
   async prepareAdd(path: string, machineId?: MachineId): Promise<PreparedRepoAdd> {
     const p = normalizeRepoPath(path)
-    if (!p) throw new Error('repo path is empty')
-    if (!isAbsoluteMachinePath(p)) throw new Error(`repo path must be absolute: ${p}`)
+    if (!p) throw new TRPCError({ code: 'BAD_REQUEST', message: 'repo path is empty' })
+    if (!isAbsoluteMachinePath(p))
+      throw new TRPCError({ code: 'BAD_REQUEST', message: `repo path must be absolute: ${p}` })
     const mid = machineId ?? (await this.sessionReg.modules.machines.defaultMachine())
     // THE GUARD THE REPO SCREEN NEEDED (POD-2700 §2.5). Every path that registers
     // a repository — `repos.add`, `repos.addMany`, `repos.createRepo`, and
@@ -148,8 +150,9 @@ export class RepoRegistry {
   /** Register a checkout whose origin was established by a machine-side clone. */
   async addKnownOrigin(path: string, machineId: MachineId, originUrl: string): Promise<void> {
     const p = normalizeRepoPath(path)
-    if (!p) throw new Error('repo path is empty')
-    if (!isAbsoluteMachinePath(p)) throw new Error(`repo path must be absolute: ${p}`)
+    if (!p) throw new TRPCError({ code: 'BAD_REQUEST', message: 'repo path is empty' })
+    if (!isAbsoluteMachinePath(p))
+      throw new TRPCError({ code: 'BAD_REQUEST', message: `repo path must be absolute: ${p}` })
     // Same gate as `add` — a clone lands a repo on a machine just as much as a
     // registration does, and this is the second write path (POD-2700).
     await this.sessionReg.modules.machines.requireRepoHostStructure(machineId, p)
@@ -209,7 +212,8 @@ export class RepoRegistry {
     if (name !== null) {
       // A name, not a revision: `refs/heads/<x>` plus the daemon's `^{commit}` would
       // otherwise let `tf.dev~1` resolve and be stored as a branch.
-      if (!isBranchName(name)) throw new Error(`invalid branch name '${name}'`)
+      if (!isBranchName(name))
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `invalid branch name '${name}'` })
       const rpc = this.sessionReg.modules.rpc
       const found = await rpc.repoOp('revParseVerify', p, { ref: `refs/heads/${name}` }, mid)
       if (!found.ok) {
@@ -217,8 +221,14 @@ export class RepoRegistry {
         // rather than blaming the branch.
         const head = await rpc.repoOp('revParseVerify', p, { ref: 'HEAD' }, mid)
         if (!head.ok)
-          throw new Error(`could not read the repository at ${p}: ${head.output.trim()}`)
-        throw new Error(`branch '${name}' does not exist in ${p}`)
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: `could not read the repository at ${p}: ${head.output.trim()}`,
+          })
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: `branch '${name}' does not exist in ${p}`,
+        })
       }
     }
   }

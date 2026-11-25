@@ -32,6 +32,8 @@
 
 import type { TransportTag } from '@podium/commands'
 import { refusalSentence } from '@podium/protocol'
+import { TRPCError } from '@trpc/server'
+import { refusalKindCode } from '../../client-refusal'
 import type { CommandPrincipal } from '../../command-principal'
 import { NO_SUCH_PROCEDURE } from '../issues/relay-gate'
 import type { SyncWriteEntry } from '../sync-write/entry'
@@ -79,7 +81,10 @@ export function workflowRelayWrite(
     )
     if (reply.outcome === 'applied') return reply.result
     if (cause !== undefined) throw cause
-    throw new Error(`${command}: ${refusalSentence(reply.refusal)}`)
+    throw new TRPCError({
+      code: refusalKindCode(reply.refusal.kind),
+      message: `${command}: ${refusalSentence(reply.refusal)}`,
+    })
   }
 }
 
@@ -97,7 +102,10 @@ export async function dispatchWorkflowRpc(
     // command it may not reach does not exist — and then stops telling them the
     // day someone adds `relay` to its exposure.
     if (!isWorkflowProcExposedOn(proc, transport)) {
-      throw new Error(`workflows.${proc} is not available over the ${transport} transport`)
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: `workflows.${proc} is not available over the ${transport} transport`,
+      })
     }
     // A write has one door, the sync write entry point; without one, nothing is
     // written (default-closed: no path quietly runs the handler itself).
@@ -106,7 +114,10 @@ export async function dispatchWorkflowRpc(
   }
   if (isWorkflowQuery(proc)) {
     if (!isWorkflowQueryExposedOn(proc, transport)) {
-      throw new Error(`workflows.${proc} is not available over the ${transport} transport`)
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: `workflows.${proc} is not available over the ${transport} transport`,
+      })
     }
     const query = WORKFLOW_QUERIES[proc as WorkflowQueryName]
     const input = query.input.parse(raw ?? {})

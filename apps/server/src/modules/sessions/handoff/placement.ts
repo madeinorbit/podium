@@ -1,4 +1,5 @@
 import { isMachinePathWithinRoot, machinePathsEqual } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 /**
  * PLACEMENT — where this session is, where it is going, and whether that move
  * is possible AT ALL. The second phase, between admission and the pre-flight.
@@ -114,7 +115,8 @@ export async function resolveHandoffPlacement(
   // Eligibility and both `use` checks already passed in admission — obligation
   // 1 is satisfied there so that a JOINING caller is authorized too.
   const session = ports.getSession(input.sessionId)
-  if (!isResumable(session)) throw new Error(HANDOFF_UNKNOWN_SESSION)
+  if (!isResumable(session))
+    throw new TRPCError({ code: 'NOT_FOUND', message: HANDOFF_UNKNOWN_SESSION })
   // TYPE NARROWING, NOT A SECOND ELIGIBILITY RULE. The export frame and the
   // bundle it produces accept only the exportable kinds, and this is the
   // MANIFEST'S OWN list (the shared schema instance from `packages/model`, whose
@@ -128,7 +130,11 @@ export async function resolveHandoffPlacement(
   const sourceMachineId = asMachineId(session.machineId)
   const targetMachineId = asMachineId(input.machineId)
 
-  if (session.machineId === input.machineId) throw new Error('session is already on that machine')
+  if (session.machineId === input.machineId)
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'session is already on that machine',
+    })
 
   const repos = await ports.listRepos()
   const issue = session.issueId ? await ports.issueMeta(session.issueId) : undefined
@@ -147,9 +153,10 @@ export async function resolveHandoffPlacement(
     )
     .sort((a, b) => b.path.length - a.path.length)[0]
   if (!isRegistered(sourceRepo))
-    throw new Error(
-      `source repository is not registered (machine=${session.machineId}, anchors=${sourceAnchors.join(',')})`,
-    )
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: `source repository is not registered (machine=${session.machineId}, anchors=${sourceAnchors.join(',')})`,
+    })
   // `session.cwd` drifts — the daemon follows the shell, so an
   // agent that ran a command against the main checkout is stamped at the repo
   // root. Its issue's worktree is still its home, so offer that as a fallback
@@ -157,12 +164,20 @@ export async function resolveHandoffPlacement(
   // identity always matches the tree it carries. Which candidate wins is the
   // exporter's call (it asks git); refuse up front only when neither exists.
   const issueWorktree =
-    issue?.machineId === session.machineId && (issue.worktreePath && !machinePathsEqual(issue.worktreePath, sourceRepo.path) && isMachinePathWithinRoot(sourceRepo.path, issue.worktreePath))
+    issue?.machineId === session.machineId &&
+    issue.worktreePath &&
+    !machinePathsEqual(issue.worktreePath, sourceRepo.path) &&
+    isMachinePathWithinRoot(sourceRepo.path, issue.worktreePath)
       ? issue.worktreePath
       : undefined
   if (machinePathsEqual(session.cwd, sourceRepo.path) && !issueWorktree)
-    throw new Error('only worktree sessions can be handed off')
-  const targetMachine = (await ports.listMachines()).find((machine) => machine.id === input.machineId)
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'only worktree sessions can be handed off',
+    })
+  const targetMachine = (await ports.listMachines()).find(
+    (machine) => machine.id === input.machineId,
+  )
   // REACHABILITY IS A DIFFERENT ANSWER FROM AUTHORIZATION (§3.1.4 M5). By the
   // time execution reaches here the principal may `use` this machine, so
   // saying it is offline reveals nothing it could not already see.
@@ -202,7 +217,10 @@ export async function resolveHandoffPlacement(
   }
   const harness = targetMachine.inventory?.agents.find((agent) => agent.kind === session.agentKind)
   if (capability === 'harness-missing' || harness?.login.state === 'out') {
-    throw new Error(`target machine cannot run logged-in ${session.agentKind}`)
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: `target machine cannot run logged-in ${session.agentKind}`,
+    })
   }
   return {
     session,

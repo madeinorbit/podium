@@ -45,6 +45,7 @@ import {
   type UserId,
 } from '@podium/model'
 import type { LedgerWriter } from '@podium/sync'
+import { TRPCError } from '@trpc/server'
 import type { UserDockShellRepository } from '../../store/user-layout'
 
 /** The session facts `forWorktree` needs — a narrow port, not the lifecycle. */
@@ -107,7 +108,10 @@ export class DockShellService {
   ): Promise<ForWorktreeResult> {
     const key = normalizeDockWorktreeKey(worktreePath)
     if (key === null) {
-      throw new Error(`'${worktreePath}' is not an absolute worktree path`)
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: `'${worktreePath}' is not an absolute worktree path`,
+      })
     }
     return await this.withLock(`${userId}\0${key}`, async () => {
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {

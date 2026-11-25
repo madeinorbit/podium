@@ -14,6 +14,7 @@
 
 import type {
   IssueId,
+  MachineId,
   SessionId,
   SessionMeta,
   SessionReadResult,
@@ -21,13 +22,10 @@ import type {
   SessionStatusResult,
   SessionStatusSubagent,
   TranscriptItem,
-  MachineId,
 } from '@podium/model'
 import { shownSessionStatus } from '@podium/model'
-import {
-  parseSessionRef,
-  type SessionIdentifierResolution,
-} from '@podium/protocol'
+import { parseSessionRef, type SessionIdentifierResolution } from '@podium/protocol'
+import { TRPCError } from '@trpc/server'
 import { selectMailNudgeSession } from '../../issue-util'
 import type { EventsRepository } from '../../store/events'
 import type { ReadWatermarksRepository } from '../../store/read-watermarks'
@@ -50,12 +48,7 @@ export const RECAP_CHAR_CAP = 12_000
  *  server's read-toolkit entry point and its consumers import them from it — the
  *  definition moved, the import surface did not. `SessionStatusSubagent` and the
  *  runtime keys ab75ab1e added to `SessionStatusResult` moved with them. */
-export type {
-  SessionReadResult,
-  SessionRecapResult,
-  SessionStatusResult,
-  SessionStatusSubagent,
-}
+export type { SessionReadResult, SessionRecapResult, SessionStatusResult, SessionStatusSubagent }
 
 export interface SessionReadToolkitDeps {
   /**
@@ -71,7 +64,9 @@ export interface SessionReadToolkitDeps {
   /** Sessions whose id starts with a short id. */
   readSessionFactsByIdPrefix(prefix: string): Promise<SessionFacts[]>
   /** The candidates a birth ref can name. */
-  readSessionFactsByBirthRef(ref: { seq: number; letter: string } | { draft: number }): Promise<SessionFacts[]>
+  readSessionFactsByBirthRef(
+    ref: { seq: number; letter: string } | { draft: number },
+  ): Promise<SessionFacts[]>
   /** The member sessions of one issue. */
   readSessionFactsByIssue(worktreePath: string | null, issueId: IssueId): Promise<SessionFacts[]>
   /** The sessions spawned by any of these sessions. */
@@ -104,7 +99,13 @@ export interface SessionReadToolkitDeps {
     anchor?: string
     direction: 'before' | 'after'
     limit: number
-  }): Promise<{ items: TranscriptItem[]; head?: string; tail?: string; reset?: boolean; hasMore: boolean }>
+  }): Promise<{
+    items: TranscriptItem[]
+    head?: string
+    tail?: string
+    reset?: boolean
+    hasMore: boolean
+  }>
   now(): string
 }
 
@@ -236,7 +237,10 @@ export class SessionReadToolkit {
   private async resolveFacts(identifier: string): Promise<SessionFacts | undefined> {
     const match = await this.matchFacts(identifier)
     if (match.kind === 'ambiguous') {
-      throw new Error(ambiguousSessionPrefixMessage(identifier, match.candidates))
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: ambiguousSessionPrefixMessage(identifier, match.candidates),
+      })
     }
     return match.kind === 'session' ? match.facts : undefined
   }
@@ -244,12 +248,16 @@ export class SessionReadToolkit {
   /** {@link resolveFacts}' rule with the ambiguous outcome as a VALUE, so a link
    *  resolver can say "ambiguous" without parsing an error string (POD-4637).
    *  There is one rule; the throwing form above is this plus a throw. */
-  private async matchFacts(identifier: string): Promise<
+  private async matchFacts(
+    identifier: string,
+  ): Promise<
     | { kind: 'session'; facts: SessionFacts }
     | { kind: 'ambiguous'; candidates: SessionId[] }
     | { kind: 'absent' }
   > {
-    const [direct] = identifier ? await this.deps.readSessionFactsByIds([identifier as SessionId]) : []
+    const [direct] = identifier
+      ? await this.deps.readSessionFactsByIds([identifier as SessionId])
+      : []
     if (direct) return { kind: 'session', facts: direct }
     // Unambiguous id PREFIX (POD-4536) — the short id the UI shows. Exact first
     // so a full uuid never scans; a prefix matching exactly one session resolves,
@@ -271,9 +279,9 @@ export class SessionReadToolkit {
     )
     if (candidates.length === 0) return { kind: 'absent' }
     const wired = await this.deps.sessionsById(candidates.map((c) => c.sessionId))
-    const readable = new Set(wired.map(session => session.sessionId))
-    const refs = await this.deps.sessionRefs(candidates.filter(c => readable.has(c.sessionId)))
-    const facts = candidates.find(c => refs.get(c.sessionId) === identifier.trim())
+    const readable = new Set(wired.map((session) => session.sessionId))
+    const refs = await this.deps.sessionRefs(candidates.filter((c) => readable.has(c.sessionId)))
+    const facts = candidates.find((c) => refs.get(c.sessionId) === identifier.trim())
     return facts ? { kind: 'session', facts } : { kind: 'absent' }
   }
 
@@ -343,17 +351,20 @@ export class SessionReadToolkit {
   /** The status as the CLI shows it: `reconnecting` over a running session
    *  whose machine this server has no daemon link to now. */
   private shownStatus(s: { status: string; machineId?: MachineId | undefined }): string {
-    return shownSessionStatus(s.status, s.machineId ? this.deps.machineOnline(s.machineId) : undefined)
+    return shownSessionStatus(
+      s.status,
+      s.machineId ? this.deps.machineOnline(s.machineId) : undefined,
+    )
   }
 
   async status(ref: string, reader: ReaderRef): Promise<SessionStatusResult> {
     const found = await this.resolveTarget(ref)
-    if (!found) throw new Error(`no session found for ${ref}`)
+    if (!found) throw new TRPCError({ code: 'NOT_FOUND', message: `no session found for ${ref}` })
     // SELECTED from facts, WIRED once [POD-3857]. The status payload names the
     // bound driver and checks visibility on this one session. Its machine
     // label is read directly from the machines service.
     const target = await this.deps.sessionById(found.sessionId)
-    if (!target) throw new Error(`no session found for ${ref}`)
+    if (!target) throw new TRPCError({ code: 'NOT_FOUND', message: `no session found for ${ref}` })
     await this.logRead('session.status_read', target.sessionId, reader)
     const issues = this.deps.issues
     const issueId = target.issueId ?? (await issues.reports.issueForCwd(target.cwd))
@@ -385,7 +396,10 @@ export class SessionReadToolkit {
       requestedDriverId: target.requestedDriverId ?? null,
       status: this.shownStatus(target),
       phase,
-      machine: (target.machineId ? await this.deps.machineName(target.machineId) : null) || target.machineId || null,
+      machine:
+        (target.machineId ? await this.deps.machineName(target.machineId) : null) ||
+        target.machineId ||
+        null,
       /**
        * OBSERVED, THEN REQUESTED, THEN LAUNCHED (POD-3081).
        *
@@ -415,10 +429,15 @@ export class SessionReadToolkit {
       nativeSubagentCount: target.agentState?.nativeSubagentCount ?? 0,
       nativeSubagents: target.agentState?.nativeSubagents ?? [],
       subagents: await this.subagentsOf(target),
-      issue: issue ? {
-        seq: issue.seq, stage: issue.stage, title: issue.title, todos,
-        ...(issue.closedReason != null ? { closedReason: issue.closedReason } : {}),
-      } : null,
+      issue: issue
+        ? {
+            seq: issue.seq,
+            stage: issue.stage,
+            title: issue.title,
+            todos,
+            ...(issue.closedReason != null ? { closedReason: issue.closedReason } : {}),
+          }
+        : null,
       commits: lines(log).slice(0, 5),
       // First porcelain -b line is the branch header — keep it (names the branch),
       // then the touched files, capped so status stays ~200 tokens.
@@ -432,7 +451,8 @@ export class SessionReadToolkit {
     reader: ReaderRef,
   ): Promise<SessionReadResult> {
     const target = await this.resolveVisible(input.sessionId)
-    if (!target) throw new Error(`unknown session ${input.sessionId}`)
+    if (!target)
+      throw new TRPCError({ code: 'NOT_FOUND', message: `unknown session ${input.sessionId}` })
     await this.logRead('session.transcript_read', target.sessionId, reader)
     const limit = Math.min(Math.max(1, input.turns ?? 20), READ_TURN_CAP)
     const slice = await this.deps.readTranscript({
@@ -468,14 +488,19 @@ export class SessionReadToolkit {
       })),
       // Truncation can remove the oldest rows. Ask the same source for the
       // retained window's boundary instead of manufacturing a provider cursor.
-      cursor: kept.length > 0 && kept.length < slice.items.length
-        ? (await this.deps.readTranscript({
-            sessionId: target.sessionId,
-            ...(input.cursor ? { anchor: input.cursor } : {}),
-            direction: 'before',
-            limit: kept.length,
-          })).head ?? kept[0]?.cursor ?? null
-        : slice.head ?? kept[0]?.cursor ?? null,
+      cursor:
+        kept.length > 0 && kept.length < slice.items.length
+          ? ((
+              await this.deps.readTranscript({
+                sessionId: target.sessionId,
+                ...(input.cursor ? { anchor: input.cursor } : {}),
+                direction: 'before',
+                limit: kept.length,
+              })
+            ).head ??
+            kept[0]?.cursor ??
+            null)
+          : (slice.head ?? kept[0]?.cursor ?? null),
       hasMore: slice.hasMore || truncated,
       truncated,
     }
@@ -496,10 +521,13 @@ export class SessionReadToolkit {
     reader: ReaderRef,
   ): Promise<SessionRecapResult> {
     const target = await this.resolveVisible(input.sessionId)
-    if (!target) throw new Error(`unknown session ${input.sessionId}`)
+    if (!target)
+      throw new TRPCError({ code: 'NOT_FOUND', message: `unknown session ${input.sessionId}` })
     await this.logRead('session.recap_read', target.sessionId, reader)
     const since =
-      input.since ?? await this.deps.watermarks.getRecapWatermark(reader, target.sessionId) ?? undefined
+      input.since ??
+      (await this.deps.watermarks.getRecapWatermark(reader, target.sessionId)) ??
+      undefined
     // Delta read when a watermark exists ('after' the cursor); first contact
     // summarizes the latest window instead of the whole history.
     const slice = since
@@ -538,7 +566,12 @@ export class SessionReadToolkit {
     const last = [...items].reverse().find((i) => i.cursor)
     const watermark = slice.tail ?? last?.cursor ?? effectiveSince ?? null
     if (watermark) {
-      await this.deps.watermarks.setRecapWatermark(reader, target.sessionId, watermark, this.deps.now())
+      await this.deps.watermarks.setRecapWatermark(
+        reader,
+        target.sessionId,
+        watermark,
+        this.deps.now(),
+      )
     }
     return {
       sessionId: target.sessionId,

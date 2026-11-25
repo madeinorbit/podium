@@ -1,4 +1,5 @@
 import { asUserId, type UserId } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 
 /**
  * THE OWNER OF WORK THAT NAMES NONE (POD-6285).
@@ -14,6 +15,10 @@ export async function soleMemberFor(
   what: string,
 ): Promise<UserId> {
   const sole = await users.soleActiveMember()
-  if (!sole) throw new Error(`${what} names no owner, and this instance has more than one member`)
+  if (!sole)
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: `${what} names no owner, and this instance has more than one member`,
+    })
   return asUserId(sole.id)
 }

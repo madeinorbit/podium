@@ -1,5 +1,6 @@
 import { createLogger } from '@podium/logger'
 import { machinePathBasename } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 /**
  * STARTING A SESSION (POD-1396, from POD-1385's god-object audit).
  *
@@ -348,7 +349,10 @@ export class SessionStart {
     onDraft: (issueId: IssueId) => void,
   ): Promise<SessionSpawnResult> {
     if (process.env.PODIUM_REHEARSAL === '1')
-      throw new Error('Session spawn disabled during upgrade rehearsal')
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'Session spawn disabled during upgrade rehearsal',
+      })
     // A SESSION BELONGS TO WHOEVER STARTED IT (design §2.3, POD-6283): the
     // binding's on-behalf-of human, else the authenticated starter. The task it
     // sits on does not change that: Bob's agent on Alice's task is Bob's. The
@@ -370,7 +374,10 @@ export class SessionStart {
       input.ownerUserId ??
       (await soleMemberFor(this.ports.store.users, 'a session start'))
     if (!(await this.ports.store.users.get(ownerUserId))) {
-      throw new Error('a session start requires an active member as owner')
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'a session start requires an active member as owner',
+      })
     }
     // Read only when a default is needed, as the old per-site reads were.
     let ownerSettingsRead: ReturnType<SessionStore['settings']['getSettingsFor']> | undefined
@@ -417,10 +424,16 @@ export class SessionStart {
     // Resolve the target machine before model validation — the catalog is
     // machine-keyed (POD-1123), so we validate against THIS spawn's host.
     if (input.loginHarness && agentKind !== 'shell') {
-      throw new Error('loginHarness is only valid for shell sessions')
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'loginHarness is only valid for shell sessions',
+      })
     }
     if (input.loginHome && !input.loginHarness) {
-      throw new Error('loginHome is only valid for a sign-in pane')
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'loginHome is only valid for a sign-in pane',
+      })
     }
     const machineId = await this.ports.resolveMachineForAgent(
       input.machineId ?? profileMachineId,
@@ -433,9 +446,10 @@ export class SessionStart {
       const machine = await this.ports.store.machines.getMachine(machineId)
       requestedDriverId = terminalRuntimeDriver(machine, agentKind)?.id
       if (!requestedDriverId) {
-        throw new Error(
-          `machine ${machineId} has no advertised terminal runtime driver for ${agentKind}`,
-        )
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `machine ${machineId} has no advertised terminal runtime driver for ${agentKind}`,
+        })
       }
     }
     // Reject an explicit model/effort the live catalog doesn't list BEFORE any
@@ -458,7 +472,7 @@ export class SessionStart {
     let curatedName: string | undefined
     if (input.name !== undefined) {
       const norm = normalizeAgentName(input.name)
-      if (!norm.ok) throw new Error(norm.reason)
+      if (!norm.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: norm.reason })
       curatedName = norm.name
     }
     const task = input.issueId
@@ -562,7 +576,10 @@ export class SessionStart {
         ...(initialAttachments ? { attachments: initialAttachments } : {}),
       })
       if (!queued.ok) {
-        throw new Error(queued.reason ?? 'initial prompt could not be queued')
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: queued.reason ?? 'initial prompt could not be queued',
+        })
       }
     }
     // Fire-and-forget notification (post-spawn, so subscribers observe the new
@@ -628,12 +645,18 @@ export class SessionStart {
     requestedDriverId?: string
   }): Promise<SessionSpawnResult> {
     if (process.env.PODIUM_REHEARSAL === '1')
-      throw new Error('Session spawn disabled during upgrade rehearsal')
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'Session spawn disabled during upgrade rehearsal',
+      })
     // A server-minted uuid was unique by construction; a client-supplied id is
     // not. Reject a collision rather than let the registry overwrite the live
     // Session (orphaning its PTY/daemon binding) or re-fire a spawn.
     if (input.sessionId && (await this.ports.hasSession(input.sessionId))) {
-      throw new Error(`refusing to reuse an existing session id: ${input.sessionId}`)
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: `refusing to reuse an existing session id: ${input.sessionId}`,
+      })
     }
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
     const machineId = input.machineId
@@ -642,7 +665,10 @@ export class SessionStart {
     const ownerUserId =
       input.ownerUserId ?? (await soleMemberFor(this.ports.store.users, 'a session spawn'))
     if (!(await this.ports.store.users.get(ownerUserId))) {
-      throw new Error('a session spawn requires an active member as owner')
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'a session spawn requires an active member as owner',
+      })
     }
     // The owner's preferences, never the first admin's (POD-6285); read only
     // when a default is needed, as the old per-site reads were.

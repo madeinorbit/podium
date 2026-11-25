@@ -19,6 +19,8 @@ import type {
 } from '@podium/model'
 import { asMutationId, mintDeviceId } from '@podium/model'
 import type { SyncSubmitRefusal, SyncSubmitReply } from '@podium/protocol'
+import { TRPCError } from '@trpc/server'
+import { refusalKindCode } from '../../client-refusal'
 import { attributionOf, type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import {
   canManageMachineCustody,
@@ -326,7 +328,10 @@ export function lifecycleEditsFor(
       // No row: already gone, which is kill's pinned no-op.
       if (reply === undefined || reply.outcome === 'applied') return
       if (reply.refusal.kind === 'target-not-found') return
-      throw new Error(refusedEdit(reply.refusal).reason)
+      throw new TRPCError({
+        code: refusalKindCode(reply.refusal.kind),
+        message: refusedEdit(reply.refusal).reason,
+      })
     },
     // `sessions.create` as a `session.launch` effect record (POD-6398).
     create: async (input) => {

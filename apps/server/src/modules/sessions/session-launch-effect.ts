@@ -46,6 +46,7 @@ import {
   type SessionId,
   type UserId,
 } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import {
   attributionOf,
@@ -537,7 +538,8 @@ export async function settledSpawnLaunch(
       new Error(settled.error?.message ?? 'the agent could not start')
     )
   }
-  throw new Error(
-    `the agent's start is ${settled?.status ?? 'unknown'}; its session shows on the session list`,
-  )
+  throw new TRPCError({
+    code: 'TIMEOUT',
+    message: `the agent's start is ${settled?.status ?? 'unknown'}; its session shows on the session list`,
+  })
 }

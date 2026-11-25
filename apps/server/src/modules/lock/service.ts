@@ -1,6 +1,7 @@
 import type { IssueId, RepoId, SessionId } from '@podium/model'
 import { machinePathKey, machinePathSeparator } from '@podium/model'
 import type { LockAcquireResultWire, LockHolderWire, LockWire } from '@podium/protocol'
+import { TRPCError } from '@trpc/server'
 import { afterCommit } from '../../store/executor/executor'
 import type { LockRow, LockSessionKey, LocksRepository, LockWaiterRow } from '../../store/locks'
 import { isSystemLockSession, OPERATOR_LOCK_SESSION } from '../../store/locks'
@@ -109,7 +110,8 @@ export interface LockServiceDeps {
 export function normalizeWorkspace(raw: string | null | undefined): string | null {
   if (raw == null) return null
   const value = raw.trim()
-  const trimmed = machinePathSeparator(value) === '\\' ? machinePathKey(value) : value.replace(/\/+$/, '')
+  const trimmed =
+    machinePathSeparator(value) === '\\' ? machinePathKey(value) : value.replace(/\/+$/, '')
   return trimmed.length > 0 ? trimmed : null
 }
 
@@ -266,7 +268,10 @@ export class LockService {
     for (let i = 0; i < waiters.length; i++) {
       const w = waiters[i]!
       if (w.sessionId === callerKey) continue
-      const reason = await matches(w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId, w.issueId)
+      const reason = await matches(
+        w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId,
+        w.issueId,
+      )
       if (reason) {
         return {
           kind: 'waiter',
@@ -361,7 +366,9 @@ export class LockService {
           sessionId: w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId,
           issueId: w.issueId,
           label: w.label,
-          workspace: await this.workspaceOf(w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId),
+          workspace: await this.workspaceOf(
+            w.sessionId === OPERATOR_LOCK_SESSION ? null : w.sessionId,
+          ),
         },
         w.ttlSeconds,
         w.note,
@@ -423,9 +430,9 @@ export class LockService {
           // Idempotent re-acquire while already queued: report position, no
           // sibling check (the caller's own entry is the match, not a sibling).
           const key = this.sessionKey(caller)
-          const alreadyQueued = (await this.deps.locks
-            .listWaiters(repoId, input.name))
-            .find((w) => w.sessionId === key)
+          const alreadyQueued = (await this.deps.locks.listWaiters(repoId, input.name)).find(
+            (w) => w.sessionId === key,
+          )
           if (!alreadyQueued && !input.allowSibling) {
             const sibling = await this.findSibling(existing, caller)
             if (sibling) {
@@ -436,13 +443,15 @@ export class LockService {
               const via =
                 sibling.reason === 'workspace' ? 'sharing this worktree' : 'on the same issue'
               if (sibling.kind === 'holder') {
-                throw new Error(
-                  `sibling ${who} already holds lock '${input.name}' (${via}) — coordinate with them, or pass --allow-sibling for serialised multi-session access`,
-                )
+                throw new TRPCError({
+                  code: 'CONFLICT',
+                  message: `sibling ${who} already holds lock '${input.name}' (${via}) — coordinate with them, or pass --allow-sibling for serialised multi-session access`,
+                })
               }
-              throw new Error(
-                `sibling ${who} is already queued for lock '${input.name}' at position ${sibling.position} (${via}) — coordinate with them, or pass --allow-sibling for serialised multi-session access`,
-              )
+              throw new TRPCError({
+                code: 'CONFLICT',
+                message: `sibling ${who} is already queued for lock '${input.name}' at position ${sibling.position} (${via}) — coordinate with them, or pass --allow-sibling for serialised multi-session access`,
+              })
             }
           }
           // Held by someone else → FIFO enqueue (idempotent per session).
@@ -475,11 +484,13 @@ export class LockService {
         this.deps.transact(async () => {
           await this.sweepExpired(repoId)
           const existing = await this.deps.locks.getLock(repoId, input.name)
-          if (!existing) throw new Error(`lock '${input.name}' is not held`)
+          if (!existing)
+            throw new TRPCError({ code: 'NOT_FOUND', message: `lock '${input.name}' is not held` })
           if (!this.sameHolder(existing, caller)) {
-            throw new Error(
-              `lock '${input.name}' is held by ${existing.holderLabel}, not by you — cannot release`,
-            )
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: `lock '${input.name}' is held by ${existing.holderLabel}, not by you — cannot release`,
+            })
           }
           const next = await this.advanceQueue(repoId, input.name)
           return {
@@ -510,13 +521,20 @@ export class LockService {
           await this.sweepExpired(repoId)
           const existing = await this.deps.locks.getLock(repoId, input.name)
           if (existing && this.sameHolder(existing, caller)) {
-            throw new Error(`you hold lock '${input.name}' — use \`release\`, not cancel`)
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: `you hold lock '${input.name}' — use \`release\`, not cancel`,
+            })
           }
           const key = this.sessionKey(caller)
-          const queued = (await this.deps.locks
-            .listWaiters(repoId, input.name))
-            .some((w) => w.sessionId === key)
-          if (!queued) throw new Error(`not queued for lock '${input.name}'`)
+          const queued = (await this.deps.locks.listWaiters(repoId, input.name)).some(
+            (w) => w.sessionId === key,
+          )
+          if (!queued)
+            throw new TRPCError({
+              code: 'NOT_FOUND',
+              message: `not queued for lock '${input.name}'`,
+            })
           await this.deps.locks.removeWaiterBySession(repoId, input.name, key)
           return { cancelled: true as const }
         }),
@@ -534,16 +552,22 @@ export class LockService {
         await this.deps.transact(async () => {
           await this.sweepExpired(repoId)
           const existing = await this.deps.locks.getLock(repoId, input.name)
-          if (!existing) throw new Error(`lock '${input.name}' is not held`)
+          if (!existing)
+            throw new TRPCError({ code: 'NOT_FOUND', message: `lock '${input.name}' is not held` })
           if (!this.sameHolder(existing, caller)) {
-            throw new Error(
-              `lock '${input.name}' is held by ${existing.holderLabel}, not by you — cannot renew`,
-            )
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: `lock '${input.name}' is held by ${existing.holderLabel}, not by you — cannot renew`,
+            })
           }
           const expiresAt = new Date(this.deps.now() + ttl * 1000).toISOString()
           await this.deps.locks.renewLock(repoId, input.name, existing.holderSessionId, expiresAt)
           const row = await this.deps.locks.getLock(repoId, input.name)
-          if (!row) throw new Error(`lock '${input.name}' vanished during renew`)
+          if (!row)
+            throw new TRPCError({
+              code: 'NOT_FOUND',
+              message: `lock '${input.name}' vanished during renew`,
+            })
           return await this.toWire(row)
         }),
     })

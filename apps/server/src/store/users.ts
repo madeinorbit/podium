@@ -1,4 +1,5 @@
 // workspace-scoped (POD-6959)
+import { TRPCError } from '@trpc/server'
 import { captureWrite } from '../sync/capture-pg'
 import { CommittedRows } from './committed-rows'
 import { GrantsRepository } from './grants'
@@ -676,7 +677,8 @@ export class UsersRepository {
 
   /** A member edits their own name and avatar (Account → Profile); never credentials. */
   async writeProfile(userId: UserId, name: string, avatar: string | null): Promise<void> {
-    if (!(await this.get(userId))) throw new Error('Member unavailable')
+    if (!(await this.get(userId)))
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'Member unavailable' })
     await setUserProfile(this.db).run({ id: userId, displayName: name, avatar })
     this.accountsWritten()
   }

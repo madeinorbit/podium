@@ -1,6 +1,7 @@
 import type { IssueTrpc } from '@podium/issue-client'
 import { ISSUE_COMMANDS, type IssueCommand } from '@podium/issue-client'
 import type { ThreadId } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
 import type { McpToolProvider } from './mcp-route'
 
@@ -46,9 +47,7 @@ const toolName = (c: IssueCommand): string => `issue_${c.name.replace(/-/g, '_')
 /** MCP tools for the native issue tracker, generated from the shared command registry. */
 export class IssueToolProvider implements McpToolProvider {
   private client: IssueTrpc | undefined
-  private clientForThread:
-    | ((threadId: ThreadId) => Promise<IssueTrpc> | IssueTrpc)
-    | undefined
+  private clientForThread: ((threadId: ThreadId) => Promise<IssueTrpc> | IssueTrpc) | undefined
   setClient(client: IssueTrpc): void {
     this.client = client
   }
@@ -68,18 +67,23 @@ export class IssueToolProvider implements McpToolProvider {
     threadId?: ThreadId,
   ): Promise<string> {
     const cmd = ISSUE_COMMANDS.find((c) => toolName(c) === name)
-    if (!cmd) throw new Error(`unknown issue tool: ${name}`)
+    if (!cmd) throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue tool: ${name}` })
     const client = threadId
       ? ((await this.clientForThread?.(threadId)) ?? this.client)
       : this.client
-    if (!client) throw new Error('issue MCP requires an owned superagent thread')
+    if (!client)
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'issue MCP requires an owned superagent thread',
+      })
     const parsed = cmd.args.safeParse(args)
     if (!parsed.success)
-      throw new Error(
-        `invalid args: ${parsed.error.issues
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: `invalid args: ${parsed.error.issues
           .map((i) => `${i.path.join('.') || 'args'}: ${i.message}`)
           .join('; ')}`,
-      )
+      })
     const res = await cmd.run(client, parsed.data as Record<string, unknown>)
     return res.text
   }
@@ -105,7 +109,7 @@ export class CompositeMcpProvider implements McpToolProvider {
         break
       }
     }
-    if (!owner) throw new Error(`unknown tool: ${name}`)
+    if (!owner) throw new TRPCError({ code: 'NOT_FOUND', message: `unknown tool: ${name}` })
     return await owner.callMcpTool(name, args, threadId)
   }
 }

@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server'
 /**
  * THE RELAY WRITE ADAPTER (ADR 12 D9, POD-6593): an agent's `podium <verb>`
  * write reaches its registration here, generated from the registries rather
@@ -62,7 +63,8 @@ export async function relayPlainWrite(
   // Bad input answers with the schema's own error, as the relay always did.
   if (reply.refusal.kind === 'invalid') throw reply.refusal.error
   throw (
-    command.registration.refusedOnRelay?.() ?? new Error(`${name} is not permitted for this caller`)
+    command.registration.refusedOnRelay?.() ??
+    new TRPCError({ code: 'FORBIDDEN', message: `${name} is not permitted for this caller` })
   )
 }
 

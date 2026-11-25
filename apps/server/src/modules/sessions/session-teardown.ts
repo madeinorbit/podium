@@ -37,6 +37,7 @@ import { isIssueClosed } from '@podium/model'
 import { AUTO_ARCHIVE_READ_WINDOW_MS } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { WriteScope } from '@podium/sync'
+import { TRPCError } from '@trpc/server'
 import type { AutoContinueController } from '../../auto-continue'
 import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
 import type { ClientRegistry } from '../../gateway/client-registry'
@@ -199,7 +200,7 @@ export class SessionTeardown {
       return
     }
     if (!(await this.gracefulStopThenKill(session)))
-      throw new Error('process retirement was not confirmed')
+      throw new TRPCError({ code: 'TIMEOUT', message: 'process retirement was not confirmed' })
     this.ports.broadcastSessions()
   }
 
@@ -607,7 +608,10 @@ export class SessionTeardown {
     // Only kill if still parked from stop (hibernated/exited) — never a live row.
     if (session.status !== 'hibernated' && session.status !== 'exited') return
     if (!(await this.gracefulStopThenKill(session)))
-      throw new Error('deferred process retirement was not confirmed')
+      throw new TRPCError({
+        code: 'TIMEOUT',
+        message: 'deferred process retirement was not confirmed',
+      })
   }
 
   /**

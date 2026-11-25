@@ -1364,9 +1364,10 @@ export class MachinesService {
       msg.propagation &&
       !this.daemonSupports(machineId, CAP_CREDENTIAL_IDENTITY_GUARD)
     ) {
-      throw new Error(
-        `Upgrade the daemon on ${machineId} before copying a login: the current peer cannot enforce account identity preservation.`,
-      )
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `Upgrade the daemon on ${machineId} before copying a login: the current peer cannot enforce account identity preservation.`,
+      })
     }
     // A SECRET IS NEVER QUEUED (credential management §8). The access was
     // attached for the daemon connected when the launch was resolved; if that
@@ -1460,7 +1461,11 @@ export class MachinesService {
    *  Hub role only — without an injected pairing manager this server does not
    *  accept new machines, so minting is a caller error, surfaced loudly. */
   mintPairingCode(grant: PairingGrant = {}): string {
-    if (!this.deps.pairing) throw new Error('inbound pairing is disabled on this server')
+    if (!this.deps.pairing)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'inbound pairing is disabled on this server',
+      })
     return this.deps.pairing.mint(grant)
   }
 
@@ -1484,16 +1489,31 @@ export class MachinesService {
   ): Promise<string> {
     return credentials.withMachineTransition(this.enrollmentHost, id, async () => {
       const row = await this.deps.store.machines.getMachine(id)
-      if (!row?.revokedAt) throw new Error('replacement requires a revoked machine')
-      if (row.supersededBy) throw new Error('superseded machine identities cannot be re-enrolled')
+      if (!row?.revokedAt)
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'replacement requires a revoked machine',
+        })
+      if (row.supersededBy)
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'superseded machine identities cannot be re-enrolled',
+        })
       if (
         !byAdmin &&
         (!grant.ownerUserId || (await this.deps.store.machines.custodian(id)) !== grant.ownerUserId)
       ) {
-        throw new Error('replacement requires an administrator or the machine grantee')
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'replacement requires an administrator or the machine grantee',
+        })
       }
       const incarnation = await this.deps.store.machines.credentialIncarnation(id)
-      if (!incarnation) throw new Error('replacement credential is absent')
+      if (!incarnation)
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'replacement credential is absent',
+        })
       return this.mintPairingCode({
         ...grant,
         replaceMachineId: id,
@@ -1681,7 +1701,10 @@ export class MachinesService {
     // Reconfiguring an enrolled server never replaces its credential or personal grantee.
     if (existing) {
       if (existing.revokedAt)
-        throw new Error('host machine is revoked; explicit replacement enrollment required')
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'host machine is revoked; explicit replacement enrollment required',
+        })
       await this.deps.store.transact(async () => {
         if (passwordHash) await this.setupPassword(actor, passwordHash)
         await this.grantHostMachineIfUnowned(actor)
@@ -1856,7 +1879,10 @@ export class MachinesService {
           message: `you do not have access to run agents on machine '${machine.name}'`,
         })
       case 'no-daemon':
-        throw new Error(machineRejectionMessage(machine.name, 'no-daemon', `run ${agentKind}`))
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: machineRejectionMessage(machine.name, 'no-daemon', `run ${agentKind}`),
+        })
       case 'offline':
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',
@@ -1878,13 +1904,15 @@ export class MachinesService {
           message: `could not determine whether ${agentKind} is installed on machine '${machine.name}' (probe ${agentProbeTimeoutDescription(machine, agentKind)}); retry`,
         })
       case 'agents-disabled':
-        throw new Error(
-          machineRejectionMessage(machine.name, 'agents-disabled', `run ${agentKind}`),
-        )
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: machineRejectionMessage(machine.name, 'agents-disabled', `run ${agentKind}`),
+        })
       case 'agents-unavailable':
-        throw new Error(
-          machineRejectionMessage(machine.name, 'agents-unavailable', `run ${agentKind}`),
-        )
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: machineRejectionMessage(machine.name, 'agents-unavailable', `run ${agentKind}`),
+        })
       case 'harness-missing': {
         const label =
           this.harnessDescriptorsFor(machineId)?.find((descriptor) => descriptor.kind === agentKind)
@@ -1940,10 +1968,14 @@ export class MachinesService {
     use?: MachineUseResolver,
   ): Promise<void> {
     const machine = (await this.listMachines(use)).find((candidate) => candidate.id === machineId)
-    if (!machine) throw new Error(`unknown machine '${machineId}'`)
+    if (!machine)
+      throw new TRPCError({ code: 'NOT_FOUND', message: `unknown machine '${machineId}'` })
     const rejection = machineRejection(machine, requirement)
     if (rejection === undefined) return
-    throw new Error(machineRejectionMessage(machine.name, rejection, action))
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: machineRejectionMessage(machine.name, rejection, action),
+    })
   }
 
   /** The verdict {@link requireCapability} would throw on, without throwing —
@@ -1986,10 +2018,14 @@ export class MachinesService {
    */
   async requireRepoHostStructure(machineId: MachineId, repoPath?: string): Promise<void> {
     const machine = (await this.listMachines()).find((candidate) => candidate.id === machineId)
-    if (!machine) throw new Error(`unknown machine '${machineId}'`)
+    if (!machine)
+      throw new TRPCError({ code: 'NOT_FOUND', message: `unknown machine '${machineId}'` })
     const rejection = structuralEligibility(machine, HOST_REPOS)
     if (rejection !== undefined)
-      throw new Error(machineRejectionMessage(machine.name, rejection, 'host repositories'))
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: machineRejectionMessage(machine.name, rejection, 'host repositories'),
+      })
     // POD-7501: the path helpers take a path's syntax from its spelling. A POSIX
     // spelling on a Windows machine keeps `\` literal in every server check while
     // the machine treats it as a separator, so `x\..\..` would pass them as one
@@ -1997,11 +2033,13 @@ export class MachinesService {
     // daemon's realpath check still holds the root inside the repository.
     const os = machine.inventory?.os
     if (repoPath !== undefined && os !== undefined && !isMachinePathForOs(repoPath, os)) {
-      throw new Error(
-        os === 'win32'
-          ? `repo path must be a Windows path (C:\\… or \\\\server\\share\\…) on ${machine.name}: ${repoPath}`
-          : `repo path must be a POSIX path starting with / on ${machine.name}: ${repoPath}`,
-      )
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message:
+          os === 'win32'
+            ? `repo path must be a Windows path (C:\\… or \\\\server\\share\\…) on ${machine.name}: ${repoPath}`
+            : `repo path must be a POSIX path starting with / on ${machine.name}: ${repoPath}`,
+      })
     }
   }
 
@@ -2022,20 +2060,25 @@ export class MachinesService {
     // function predates the seam and guards the hottest path.
     const machine = (await this.listMachines()).find((candidate) => candidate.id === machineId)
     if (machine && structuralEligibility(machine, HOST_REPOS) === 'no-daemon') {
-      throw new Error(machineRejectionMessage(name, 'no-daemon', 'host repositories'))
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: machineRejectionMessage(name, 'no-daemon', 'host repositories'),
+      })
     }
     if (!this.daemons.has(machineId)) {
-      throw new Error(
-        `machine '${name}' is offline — bring its daemon online or clear the issue's machine pin`,
-      )
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `machine '${name}' is offline — bring its daemon online or clear the issue's machine pin`,
+      })
     }
     const hasRepo = (await this.deps.store.repos.listRepos(machineId)).some((r) =>
       isMachinePathWithinRoot(r.path, repoPath),
     )
     if (!hasRepo) {
-      throw new Error(
-        `machine '${name}' has no repo registered at ${repoPath} — clone/register the repo on that machine or clear the issue's machine pin`,
-      )
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `machine '${name}' has no repo registered at ${repoPath} — clone/register the repo on that machine or clear the issue's machine pin`,
+      })
     }
   }
 
@@ -2580,7 +2623,8 @@ export class MachinesService {
     writer?: MachineRecordWriter,
   ): Promise<void> {
     const machine = await this.deps.store.machines.getMachine(id)
-    if (!machine || machine.revokedAt) throw new Error(`unknown or revoked machine '${id}'`)
+    if (!machine || machine.revokedAt)
+      throw new TRPCError({ code: 'NOT_FOUND', message: `unknown or revoked machine '${id}'` })
     await this.deps.store.machines.setUpdateChannel(id, channel, writer)
   }
 
@@ -2598,23 +2642,28 @@ export class MachinesService {
     },
   ): Promise<void> {
     const machine = await this.deps.store.machines.getMachine(id)
-    if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
+    if (!machine || machine.revokedAt)
+      throw new TRPCError({ code: 'NOT_FOUND', message: `unknown machine '${id}'` })
     const custodian = await this.deps.store.machines.custodian(id)
     if (
       attribution.manage?.(id) === false ||
       (custodian !== attribution.onBehalfOf &&
         (await this.deps.store.users.roleOf(asUserId(attribution.onBehalfOf))) !== 'admin')
     ) {
-      throw new Error('only the machine owner or an admin may change sharing')
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'only the machine owner or an admin may change sharing',
+      })
     }
     // THE GRANT-TIME WARNING (POD-6300; design §2.4, Q1). Giving another
     // person `use` puts their agents under this machine's one OS account beside
     // the custodian's. There is no accept step, so the grantor is shown the
     // warning and acknowledges it before the grant is written.
     if (verb === 'use' && attribution.acknowledgeSharedMachine === false && custodian !== grantee) {
-      throw new Error(
-        `${SHARED_MACHINE_ACCOUNT_WARNING} Share again with the warning acknowledged to give this person use of the machine.`,
-      )
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `${SHARED_MACHINE_ACCOUNT_WARNING} Share again with the warning acknowledged to give this person use of the machine.`,
+      })
     }
     const actorKind = attribution.actor.startsWith('session:')
       ? 'agent'
@@ -2672,18 +2721,25 @@ export class MachinesService {
     } = {},
   ): Promise<void> {
     const machine = await this.deps.store.machines.getMachine(id)
-    if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
+    if (!machine || machine.revokedAt)
+      throw new TRPCError({ code: 'NOT_FOUND', message: `unknown machine '${id}'` })
     const custodian = await this.deps.store.machines.custodian(id)
     if (
       context.manage?.(id) === false ||
       (custodian !== owner && (await this.deps.store.users.roleOf(asUserId(owner))) !== 'admin')
     ) {
-      throw new Error('only the machine owner or an admin may change sharing')
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'only the machine owner or an admin may change sharing',
+      })
     }
     // The custodian's own edges come and go with custody (transfer, release),
     // never through unshare.
     if (grantee === custodian) {
-      throw new Error('the custodian’s own access cannot be removed; transfer custody instead')
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'the custodian’s own access cannot be removed; transfer custody instead',
+      })
     }
     await this.deps.store.transact(async () => {
       if (!(await this.deps.store.grants.remove('machine', id, grantee, verb))) return

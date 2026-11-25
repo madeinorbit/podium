@@ -25,6 +25,7 @@ import type {
   workflowSkipContract,
 } from '@podium/commands'
 import { asIssueId } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 import { afterCommit } from '../../../store/executor/executor'
 import { unknownRevision, type WorkflowHandlerContext, WorkflowRefusal } from './context'
 
@@ -248,7 +249,8 @@ export async function adoptHandler(
     throw new WorkflowRefusal('conflict', 'only an active workflow run may adopt a revision')
   const coordinatorSessionId = caller.actor.id ?? current.coordinatorSessionId
   const session = await deps.readSession(coordinatorSessionId)
-  if (!session) throw new Error('coordinator session no longer exists')
+  if (!session)
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'coordinator session no longer exists' })
   const revision = await deps.store.getRevision(input.revisionId)
   if (!revision) throw new WorkflowRefusal('not-found', unknownRevision(input.revisionId))
   try {

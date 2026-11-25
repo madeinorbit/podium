@@ -55,6 +55,7 @@ import type {
 } from '@podium/protocol'
 import { hasTranscriptCard, isResumeTimeRecovery } from '@podium/protocol'
 import type { TurnEvent } from '@podium/protocol/daemon'
+import { TRPCError } from '@trpc/server'
 import { afterCommit } from '../../store/executor/executor'
 import type { InteractionRow, InteractionsRepository } from '../../store/interactions'
 import type { InboxPrincipalReference } from '../sessions/inbox'
@@ -734,12 +735,13 @@ export class InteractionService {
   }): Promise<void> {
     if (input.ev.ev === 'asked') {
       const interaction = input.ev.interaction
-      if (interaction.sessionId !== input.sessionId) throw new Error('interaction session mismatch')
+      if (interaction.sessionId !== input.sessionId)
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'interaction session mismatch' })
       return await this.chain(input.sessionId, async () => {
         const existing = await this.deps.store.get(interaction.id)
         if (existing) {
           if (existing.sessionId !== input.sessionId)
-            throw new Error('interaction identity collision')
+            throw new TRPCError({ code: 'CONFLICT', message: 'interaction identity collision' })
           if (
             existing.status === 'asked' &&
             JSON.stringify(existing.payload) !== JSON.stringify(interaction.payload)

@@ -35,8 +35,8 @@ import { type MailHandlerContext, mailWriter, personOf } from './context'
 async function viewable(ctx: MailHandlerContext, id: string): Promise<MessageWire> {
   const { caller, deps, access } = ctx
   const m = await deps.messages.message(id)
-  if (!m) throw new Error(`unknown message ${id}`)
-  if (!(await access.mayViewAs(caller, m))) throw new Error(MAIL_VIEW_REFUSED)
+  if (!m) throw new MailRefusal('target-not-found', `unknown message ${id}`)
+  if (!(await access.mayViewAs(caller, m))) throw new MailRefusal('unauthorized', MAIL_VIEW_REFUSED)
   return await access.wire(m)
 }
 
@@ -73,8 +73,15 @@ export async function dismissHandler(
     personOf(caller) !== undefined
       ? message.toKind === 'operator' && (await access.mayViewAs(caller, message))
       : access.isRecipient(caller.capability, message)
-  if (!recipient) throw new MailRefusal('unauthorized', 'only the recipient of a message may dismiss it')
-  return await access.wire(await svc.dismiss(mailWriter(ctx, 'mail.dismiss'), message.id, caller.capability.actorSessionId ?? null))
+  if (!recipient)
+    throw new MailRefusal('unauthorized', 'only the recipient of a message may dismiss it')
+  return await access.wire(
+    await svc.dismiss(
+      mailWriter(ctx, 'mail.dismiss'),
+      message.id,
+      caller.capability.actorSessionId ?? null,
+    ),
+  )
 }
 
 export async function cancelHandler(

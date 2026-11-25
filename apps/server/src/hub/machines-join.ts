@@ -1,6 +1,7 @@
 import { type InstallerChannel, installerUrls } from '@podium/runtime/installer'
 import { encodeJoin } from '@podium/runtime/join'
 import { wssFrom } from '@podium/runtime/setup'
+import { TRPCError } from '@trpc/server'
 
 // The machine may be a bare distro image with neither curl nor wget. Keep this
 // outer bootstrap limited to fetching install.sh; install.sh itself installs the
@@ -43,7 +44,10 @@ export function buildJoinCommand(p: {
   channel?: JoinReleaseChannel
 }): string {
   if (!p.publicUrl) {
-    throw new Error('No public URL configured yet — finish setup (networking step) first.')
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'No public URL configured yet — finish setup (networking step) first.',
+    })
   }
   const token = encodeJoin({
     v: 1,

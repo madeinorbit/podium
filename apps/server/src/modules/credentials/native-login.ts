@@ -7,6 +7,7 @@ import type {
   UserId,
 } from '@podium/model'
 import { asMachineId } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 import { asSystemWrite } from '../../plain-command-scope'
 import { withReadScope } from '../../store/executor/read-scope'
 import type { EventBus } from '../bus'
@@ -128,15 +129,21 @@ export class NativeLoginService {
             (agent) => agent.kind === input.harness && agent.login.state !== 'in',
           ),
         ) ?? authorized[0])
-    if (!machine) throw new Error(`no online machine of yours can run ${input.harness} login`)
+    if (!machine)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `no online machine of yours can run ${input.harness} login`,
+      })
     const refusal = authorize(machine.id)
-    if (refusal) throw new Error(refusal)
+    if (refusal) throw new TRPCError({ code: 'FORBIDDEN', message: refusal })
     if (!own(machine.id)) {
-      throw new Error(
-        `${machine.name} is someone else's machine: its ${input.harness} login is theirs, and ` +
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message:
+          `${machine.name} is someone else's machine: its ${input.harness} login is theirs, and ` +
           'logging in there would replace it. Log in on a machine you look after, or send one ' +
           'of your connections to this machine.',
-      )
+      })
     }
 
     // THE LOGIN TERMINAL IS A SYSTEM WRITE (ADR 12 D8; POD-6736). `credentials.login`

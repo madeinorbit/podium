@@ -28,6 +28,7 @@ import {
   type ReleaseBuildTimingDeps,
   timeReleaseBuildTask,
 } from '@podium/runtime/release-build-timing'
+import { TRPCError } from '@trpc/server'
 import type { Hono } from 'hono'
 import { registerDevFeedRoutes } from './artifact-route'
 import { buildTask, throwIfBuildAborted, withBuildAttempt } from './build-attempt'
@@ -566,7 +567,8 @@ export async function wireDevBundlePublisher(deps: {
         await buildTask(deps.refreshDevTarget)
       } else if (!published) {
         const reason = publisher.unavailable()
-        if (reason?.startsWith('Target daemon wire range ')) throw new Error(reason)
+        if (reason?.startsWith('Target daemon wire range '))
+          throw new TRPCError({ code: 'PRECONDITION_FAILED', message: reason })
       }
       return published
     } catch (error) {
@@ -594,7 +596,11 @@ export async function wireDevBundlePublisher(deps: {
           },
           () =>
             buildTask(async () => {
-              if (!publisher) throw new Error('This server does not publish development releases.')
+              if (!publisher)
+                throw new TRPCError({
+                  code: 'PRECONDITION_FAILED',
+                  message: 'This server does not publish development releases.',
+                })
               await buildTask(prepareRemoteConsumerSnapshot)
               const blocked = artifactOriginFailure()
               if (blocked) throw blocked

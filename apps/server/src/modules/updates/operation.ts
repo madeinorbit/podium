@@ -1,10 +1,3 @@
-import { updateFingerprint } from '@podium/runtime/machine-update'
-import type { ServerPlacement } from './service'
-import {
-  type PrepareCoordinatorUpdate,
-  type PreparedCoordinatorUpdate,
-  SupervisorUpdateFailure,
-} from './installed-restart'
 import { createLogger, describeError } from '@podium/logger'
 import type { MachineId, UpdateChannel } from '@podium/model'
 import type {
@@ -25,11 +18,13 @@ import {
   isHeadlessPlatform,
   targetPlatforms,
 } from '@podium/protocol'
+import { updateFingerprint } from '@podium/runtime/machine-update'
 import {
   DEFAULT_DOWNLOAD_STALL_TIMEOUT_MS,
   DEFAULT_DOWNLOAD_TIMEOUT_MS,
   PROGRESS_REPORT_INTERVAL_MS,
 } from '@podium/runtime/update-delivery'
+import { TRPCError } from '@trpc/server'
 import type {
   OperationKindDefinition,
   OperationPlan,
@@ -39,15 +34,20 @@ import type {
   StepRunner,
 } from '../operations/kinds'
 import { LIFECYCLE_EXCLUSION_GROUP } from '../operations/lifecycle'
-import type { UpdatesService } from './service'
+import {
+  type PrepareCoordinatorUpdate,
+  type PreparedCoordinatorUpdate,
+  SupervisorUpdateFailure,
+} from './installed-restart'
+import type { ServerPlacement, UpdatesService } from './service'
 import {
   deliveryRefusalReason,
   IN_FLIGHT_STATES,
   isPackagedRolloutTarget,
   machineCanTakeDelivery,
-  machineRefusesDelivery,
   machineCanTakeTargetPlatform,
   machineCanUseTargetTrust,
+  machineRefusesDelivery,
   offeredDeliveries,
   TERMINAL_STATES,
   type WaveMachine,
@@ -536,7 +536,8 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
     case 'artifact-not-published':
       return {
         code: failure.code,
-        message: 'The update package is not published yet. Wait a few minutes, then retry the update.',
+        message:
+          'The update package is not published yet. Wait a few minutes, then retry the update.',
         ...(failure.places ? { places: failure.places } : {}),
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
@@ -575,7 +576,8 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
     case 'supervisor-control-endpoint-missing':
       return {
         code: failure.code,
-        message: 'Supervisor control endpoint missing. The running supervisor cannot receive update grants. Restart the parent service, then retry.',
+        message:
+          'Supervisor control endpoint missing. The running supervisor cannot receive update grants. Restart the parent service, then retry.',
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
     case 'handover-timeout':
@@ -1065,9 +1067,10 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   // to a package for a different checkout. The operator owns that transition.
   const sourceCannotTakeTarget = input.serverInstallKind === 'source' && serverDiffers
   const placement = input.serverPlacement
-  const host = placement.kind === 'fleet'
-    ? input.fleet.find((machine) => machine.id === placement.machineId)
-    : undefined
+  const host =
+    placement.kind === 'fleet'
+      ? input.fleet.find((machine) => machine.id === placement.machineId)
+      : undefined
   // Crash ownership is a local runtime fact, never persisted fleet policy.
   const desktopHosted = input.desktopSupervised === true
   const hostUpdatesThroughFleet =
@@ -1150,7 +1153,8 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   if (
     input.serverPlacement.kind === 'fleet' &&
     !hostUpdatesThroughFleet &&
-    (input.onlyMachines === undefined || input.onlyMachines.includes(input.serverPlacement.machineId)) &&
+    (input.onlyMachines === undefined ||
+      input.onlyMachines.includes(input.serverPlacement.machineId)) &&
     input.serverInstallKind !== 'source' &&
     serverDiffers &&
     input.canRestartServer
@@ -1874,7 +1878,10 @@ const machinesRunner: StepRunner<UpdateOperationContext> = {
   },
 }
 
-type MachineProgressContext = Pick<UpdateOperationContext, 'updates' | 'now' | 'recordOperationDetails'>
+type MachineProgressContext = Pick<
+  UpdateOperationContext,
+  'updates' | 'now' | 'recordOperationDetails'
+>
 
 async function writeWaveRounds(
   operation: Operation,
@@ -1896,9 +1903,14 @@ async function changedTargetBlocker(
   const approved = await updates.approvedTarget(details.channel)
   // The durable approval is the authority. Never borrow a different operation's
   // version as this one's consent.
-  if (!published || !approved || approved.version !== details.target.version ||
+  if (
+    !published ||
+    !approved ||
+    approved.version !== details.target.version ||
     published.version !== approved.version ||
-    updateFingerprint(published) === updateFingerprint(approved)) return undefined
+    updateFingerprint(published) === updateFingerprint(approved)
+  )
+    return undefined
   // ONE FINGERPRINT CHANGE IS NOT A DIFFERENT BUILD: a source-built target
   // acquiring its packed bytes during this operation's own preparation is the
   // SAME update, and `setTargetResolved` accepts it for that reason. Consent was
@@ -1928,9 +1940,16 @@ const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
   const blocker = await changedTargetBlocker(operation, details, context.updates)
   if (blocker) return { ...blocker, state: 'running' }
   if (context.legacyTransferActive?.()) {
-    return { state: 'failed', error: describeUpdateOperationFailure({ code: 'legacy-transfer-in-progress' }) }
+    return {
+      state: 'failed',
+      error: describeUpdateOperationFailure({ code: 'legacy-transfer-in-progress' }),
+    }
   }
-  if (context.serverPlacement.kind === 'fleet' && context.prepareCoordinatorUpdate && context.requestCoordinatorRestart) {
+  if (
+    context.serverPlacement.kind === 'fleet' &&
+    context.prepareCoordinatorUpdate &&
+    context.requestCoordinatorRestart
+  ) {
     const hostId = context.serverPlacement.machineId
     // A host absent at plan time belongs to the later server step. Holding it
     // here prevents auto-ticks on attach from racing that step's snapshot.
@@ -1946,15 +1965,17 @@ const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
         dispatch: (grant) => {
           void ensureCoordinatorReplacement(operation, context, step.id, grant).then(
             (outcome) => {
-              if (outcome.state === 'failed') context.report?.(operation.id, step.id, { ...outcome, state: 'failed' })
+              if (outcome.state === 'failed')
+                context.report?.(operation.id, step.id, { ...outcome, state: 'failed' })
             },
-            (error: unknown) => context.report?.(operation.id, step.id, {
-              state: 'failed',
-              error: describeUpdateOperationFailure({
-                code: 'preparation-failed',
-                detail: describeError(error),
+            (error: unknown) =>
+              context.report?.(operation.id, step.id, {
+                state: 'failed',
+                error: describeUpdateOperationFailure({
+                  code: 'preparation-failed',
+                  detail: describeError(error),
+                }),
               }),
-            }),
           )
         },
       })
@@ -2324,8 +2345,11 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
   ensure: async ({ operation, context }) => {
     if (context.serverPlacement.kind === 'external') return { state: 'skipped' }
     const details = updateOperationDetails(operation)
-    if (context.prepareCoordinatorUpdate && details &&
-        context.appVersion() !== details.target.version) {
+    if (
+      context.prepareCoordinatorUpdate &&
+      details &&
+      context.appVersion() !== details.target.version
+    ) {
       const hostId = context.serverPlacement.machineId
       let replacement: Promise<StepOutcome> | undefined
       // BOTH AWAITED BEFORE `replacement` IS READ. `replacement` is assigned by
@@ -2358,7 +2382,12 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
       // would hide the disk-space reason behind a code with no detail.
       const priorPreflight = coordinatorPreflightFailures.get(operation.id)
       if (priorPreflight && replacement === undefined) return priorPreflight
-      const run = replacement ?? Promise.resolve({ state: 'failed', error: { code: 'coordinator-update-inactive' } } as StepOutcome)
+      const run =
+        replacement ??
+        Promise.resolve({
+          state: 'failed',
+          error: { code: 'coordinator-update-inactive' },
+        } as StepOutcome)
       return run
     }
     return ensureCoordinatorReplacement(operation, context, UPDATE_STEP_SERVER)
@@ -2373,12 +2402,14 @@ function ensureCoordinatorReplacement(
   grant?: UpdateGrantMessage,
 ): Promise<StepOutcome> {
   let runs = coordinatorRuns.get(context.updates)
-  if (!runs) coordinatorRuns.set(context.updates, runs = new Map())
+  if (!runs) coordinatorRuns.set(context.updates, (runs = new Map()))
   const key = JSON.stringify([operation.id, stepId, grant?.grantId])
   const existing = runs.get(key)
   if (existing) return existing
   // Register before any preparation can synchronously report progress and re-enter.
-  const run = Promise.resolve().then(() => runCoordinatorReplacement(operation, context, stepId, grant))
+  const run = Promise.resolve().then(() =>
+    runCoordinatorReplacement(operation, context, stepId, grant),
+  )
   runs.set(key, run)
   return run
 }
@@ -2399,7 +2430,10 @@ async function runCoordinatorReplacement(
   const priorPreflightFailure = coordinatorPreflightFailures.get(operation.id)
   if (priorPreflightFailure) return priorPreflightFailure
   const originalDetails = updateOperationDetails(operation)
-  const details = originalDetails && { ...originalDetails, target: grant?.target ?? originalDetails.target }
+  const details = originalDetails && {
+    ...originalDetails,
+    target: grant?.target ?? originalDetails.target,
+  }
   const active = async () =>
     !canceledCoordinatorUpdates.has(operation.id) &&
     (await context.stepActive?.(operation.id, stepId)) !== false &&
@@ -2435,6 +2469,7 @@ async function runCoordinatorReplacement(
   }
   const preflightDatabaseBackup = context.preflightDatabaseBackup
   const recordOperationDetails = context.recordOperationDetails
+  // biome-ignore lint/complexity/noUselessUndefinedInitialization: TypeScript's definite-assignment check reads it
   let prepared: PreparedCoordinatorUpdate | void = undefined
   if (context.prepareCoordinatorUpdate) {
     try {
@@ -2466,9 +2501,8 @@ async function runCoordinatorReplacement(
       // handover that timed out, or a rollback refused after one, reached the
       // download default below and withdrew the target fleet-wide as "couldn't
       // be downloaded" while the new version was already running.
-      const handover = error instanceof SupervisorUpdateFailure
-        ? handoverFailureCode(error.reasonCode)
-        : undefined
+      const handover =
+        error instanceof SupervisorUpdateFailure ? handoverFailureCode(error.reasonCode) : undefined
       if (handover) {
         return {
           state: 'failed',
@@ -2481,9 +2515,13 @@ async function runCoordinatorReplacement(
       return {
         state: 'failed',
         error: describeUpdateOperationFailure({
-          code: (error instanceof Error ? error.message : String(error)) === 'supervisor control endpoint missing'
-            ? 'supervisor-control-endpoint-missing'
-            : classified === 'artifact-unreachable' || classified === 'artifact-not-published' ? classified : 'download-failed',
+          code:
+            (error instanceof Error ? error.message : String(error)) ===
+            'supervisor control endpoint missing'
+              ? 'supervisor-control-endpoint-missing'
+              : classified === 'artifact-unreachable' || classified === 'artifact-not-published'
+                ? classified
+                : 'download-failed',
           detail: describeError(error),
         }),
       }
@@ -2492,10 +2530,17 @@ async function runCoordinatorReplacement(
   let activated = false
   let cancelReason = 'Coordinator update lost admission before activation.'
   try {
-    if (!(await active())) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
+    if (!(await active()))
+      return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
     if (prepared?.committed && (!grant || details.coordinatorSnapshotGrantId !== grant.grantId)) {
       cancelReason = 'Committed coordinator update has no matching durable preflight receipt.'
-      return { state: 'failed', error: { code: 'preparation-failed', message: 'Committed coordinator update has no matching durable preflight receipt.' } }
+      return {
+        state: 'failed',
+        error: {
+          code: 'preparation-failed',
+          message: 'Committed coordinator update has no matching durable preflight receipt.',
+        },
+      }
     }
     // THE SAFETY CHECK THAT SURVIVED THE MOVE (POD-3068, POD-6255). A disk
     // that cannot hold the successor's pre-migration backup is a structured
@@ -2565,7 +2610,8 @@ async function runCoordinatorReplacement(
         }
       }
     }
-    if (!(await active())) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
+    if (!(await active()))
+      return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
     try {
       if (prepared) await prepared.activate()
       else await context.requestCoordinatorRestart()
@@ -2599,7 +2645,10 @@ async function runCoordinatorReplacement(
       try {
         await prepared.cancel(cancelReason)
       } catch (error) {
-        log.warn('could not cancel held coordinator preparation', { operationId: operation.id, err: error })
+        log.warn('could not cancel held coordinator preparation', {
+          operationId: operation.id,
+          err: error,
+        })
       }
     }
   }
@@ -3117,11 +3166,19 @@ export function supersededDeferredPlaces(
  * never shown as an error).
  */
 export async function planInputFrom(context: UpdateOperationContext): Promise<UpdatePlanInput> {
-  if (context.serverPlacement.kind === 'fleet' && context.prepareCoordinatorUpdate && context.requestCoordinatorRestart) {
+  if (
+    context.serverPlacement.kind === 'fleet' &&
+    context.prepareCoordinatorUpdate &&
+    context.requestCoordinatorRestart
+  ) {
     context.updates.reserveCoordinatorUpdate(context.serverPlacement.machineId)
   }
   const target = context.updates.target(context.channel)
-  if (!target) throw new Error(`no ${context.channel} update target is published`)
+  if (!target)
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: `no ${context.channel} update target is published`,
+    })
   return {
     target,
     channel: context.channel,

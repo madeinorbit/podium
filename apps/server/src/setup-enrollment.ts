@@ -35,7 +35,7 @@ export async function enrollSetupMachine(
       message: 'Host machine enrollment is unavailable on this server.',
     })
   if (!installationId || !parseWirePublicKey(request.publicKey))
-    throw new Error('invalid setup enrollment identity')
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid setup enrollment identity' })
   return store.transact(async () => {
     const prior = await readSetupEnrollment(store, installationId, request)
     if (prior) {
@@ -44,13 +44,19 @@ export async function enrollSetupMachine(
         prior.agentExecution !== request.agentExecution ||
         (actor !== null && prior.actor !== actor)
       )
-        throw new Error('setup enrollment request was already committed with different values')
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'setup enrollment request was already committed with different values',
+        })
       return prior
     }
     if (actor !== null) {
       const member = await store.users.get(actor)
       if (!member || member.disabledAt || member.role !== 'admin')
-        throw new Error('setup enrollment requires an active admin')
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'setup enrollment requires an active admin',
+        })
     }
     const id = asMachineId(request.machineId)
     const enrolled = await store.machines.enrollMachine({
@@ -65,7 +71,8 @@ export async function enrollSetupMachine(
       assignment: { server: true, agentExecution: request.agentExecution },
       assignmentEvidence: { version: 1, source: 'setup', requestId: request.requestId },
     })
-    if (!enrolled) throw new Error('setup machine id is already enrolled')
+    if (!enrolled)
+      throw new TRPCError({ code: 'CONFLICT', message: 'setup machine id is already enrolled' })
     const receipt = { ...request, installationId, actor }
     await store.settings.recordSetupEnrollment(
       receiptKey(installationId, request),
@@ -134,7 +141,7 @@ export async function adoptLegacyHostMachine(
       message: 'Host machine enrollment is unavailable on this server.',
     })
   if (!installationId || !parseWirePublicKey(request.publicKey))
-    throw new Error('invalid setup enrollment identity')
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid setup enrollment identity' })
   return store.transact(async () => {
     const prior = await readSetupEnrollment(store, installationId, request)
     if (prior) return prior

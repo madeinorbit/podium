@@ -20,6 +20,7 @@ import {
 } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { LedgerWriter } from '@podium/sync'
+import { TRPCError } from '@trpc/server'
 import { attributionOf, type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import type { EffectRow, EffectsRepository } from '../../store/effects'
 import { withWriteProvenance } from '../../write-provenance'
@@ -360,7 +361,7 @@ export class ApprovalService {
     const row = id ? await this.deps.effects.get(id) : undefined
     const approval = row === undefined ? undefined : approvalOf(row)
     if (row === undefined || approval === undefined) {
-      throw new Error(`unknown approval request: ${id}`)
+      throw new TRPCError({ code: 'NOT_FOUND', message: `unknown approval request: ${id}` })
     }
     return await this.toWire(row, approval)
   }

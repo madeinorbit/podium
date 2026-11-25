@@ -6,6 +6,7 @@ import type {
   SessionUserOverlay,
   UserId,
 } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 import { userCommandPrincipal } from '../../command-principal'
 import { harnessCapabilitiesFor } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
@@ -263,7 +264,11 @@ export class SessionView {
 
   async principalForTrustedUser(userId: UserId): Promise<SessionStatePrincipal> {
     const role = await this.ports.store.users.roleOf(userId)
-    if (!role) throw new Error(`refused: no active account for session-state user ${userId}`)
+    if (!role)
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: `refused: no active account for session-state user ${userId}`,
+      })
     return sessionStatePrincipalFor(
       userCommandPrincipal(this.ports.store.workspaceId, userId, role),
     )

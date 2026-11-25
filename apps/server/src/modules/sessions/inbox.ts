@@ -46,6 +46,7 @@ import type {
   TurnReceipt,
 } from '@podium/protocol/daemon'
 import type { LedgerWriter } from '@podium/sync'
+import { TRPCError } from '@trpc/server'
 import type { CommandPrincipal } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
@@ -2412,7 +2413,10 @@ export const inboxActorColumns = (
   actor: ActorRef,
 ): { actorKind: 'user' | 'agent' | 'system'; actorId: string } => {
   if (actor.kind === 'machine') {
-    throw new Error('machine principals cannot originate session inbox input')
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'machine principals cannot originate session inbox input',
+    })
   }
   return {
     actorKind: actor.kind,

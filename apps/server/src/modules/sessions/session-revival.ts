@@ -41,6 +41,7 @@ import type { IssueId, MachineId, ResumeRef, SessionId, SessionMeta, UserId } fr
 import { type AgentKind, asSessionId } from '@podium/model'
 import type { SessionBindingAdoptLaunchInstruction } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { TRPCError } from '@trpc/server'
 import type { AutoContinueController } from '../../auto-continue'
 import { type ResolvedLaunchSelection, resolveLaunchSelection } from '../../model-validation'
 import { soleMemberFor } from '../../sole-member'
@@ -184,7 +185,7 @@ export class SessionRevival {
     // another person's conversation neither wakes their session nor mints a
     // parallel one. It answers as a conversation that does not exist.
     if (existing && input.ownerUserId !== undefined && existing.ownerUserId !== input.ownerUserId) {
-      throw new Error('session not found')
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'session not found' })
     }
     if (existing) {
       if (existing.status === 'hibernated' || existing.status === 'exited') {
@@ -192,9 +193,13 @@ export class SessionRevival {
           { sessionId: existing.sessionId, ...input.wake },
           issues,
         )
-        if (!woke.ok) throw new Error(woke.reason ?? 'failed to resume parked session')
+        if (!woke.ok)
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: woke.reason ?? 'failed to resume parked session',
+          })
       } else if (input.wake !== undefined) {
-        throw new Error(EXPLICIT_WAKE_ON_LIVE)
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: EXPLICIT_WAKE_ON_LIVE })
       } else {
         // Reopening a still-live but long-idle session also resets its hibernation
         // timer — the user is back on it even with no new message. (resurrectSession

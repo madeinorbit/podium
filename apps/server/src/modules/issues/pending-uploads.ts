@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { type BlobKey, type BlobStore, joinKey, keySegment } from '@podium/blob-store'
 import type { IssueId, UserId } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 import type { PendingUploadRow, PendingUploadsRepository } from '../../store/pending-uploads'
 import { artifactContentType } from './artifact-store'
 
@@ -80,7 +81,8 @@ export function plainFilename(name: string): string {
 
 /** The key of an upload's file. Throws for an entry too long to store as a key segment. */
 export function pendingUploadKey(upload: { id: string; entry: string }): BlobKey {
-  if (!isPendingUploadId(upload.id)) throw new Error('bad upload id')
+  if (!isPendingUploadId(upload.id))
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'bad upload id' })
   return joinKey(PENDING_UPLOADS, upload.id, 'file', keySegment(upload.entry))
 }
 
@@ -127,7 +129,10 @@ export class PendingUploadStore {
     try {
       key = this.fileKey(meta)
     } catch {
-      throw new Error(`the file name ${meta.entry} is too long to store`)
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: `the file name ${meta.entry} is too long to store`,
+      })
     }
     await this.files.put(key, input.bytes, { contentType: artifactContentType(meta.entry) })
     try {

@@ -1,4 +1,6 @@
 import type { IssueId } from '@podium/model'
+import { TRPCError } from '@trpc/server'
+
 /**
  * Minimal Linear GraphQL client for the superagent's ticket tools. Raw fetch —
  * three queries don't justify an SDK. All functions throw on HTTP/GraphQL
@@ -17,10 +19,17 @@ async function gql<T>(
     headers: { 'content-type': 'application/json', authorization: apiKey },
     body: JSON.stringify({ query, variables }),
   })
-  if (!res.ok) throw new Error(`linear ${res.status}: ${(await res.text()).slice(0, 300)}`)
+  if (!res.ok)
+    throw new TRPCError({
+      code: 'BAD_GATEWAY',
+      message: `linear ${res.status}: ${(await res.text()).slice(0, 300)}`,
+    })
   const data = (await res.json()) as { data?: T; errors?: { message: string }[] }
   if (data.errors?.length)
-    throw new Error(`linear: ${data.errors.map((e) => e.message).join('; ')}`)
+    throw new TRPCError({
+      code: 'BAD_GATEWAY',
+      message: `linear: ${data.errors.map((e) => e.message).join('; ')}`,
+    })
   if (!data.data) throw new Error('linear: empty response')
   return data.data
 }
@@ -71,9 +80,10 @@ export async function createIssue(
   const teams = await gql<Teams>(apiKey, 'query { teams(first: 50) { nodes { id key } } }')
   const team = teams.teams.nodes.find((t) => t.key.toLowerCase() === input.teamKey.toLowerCase())
   if (!team) {
-    throw new Error(
-      `no team with key "${input.teamKey}" — available: ${teams.teams.nodes.map((t) => t.key).join(', ')}`,
-    )
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: `no team with key "${input.teamKey}" — available: ${teams.teams.nodes.map((t) => t.key).join(', ')}`,
+    })
   }
   type Created = {
     issueCreate: {
@@ -124,7 +134,10 @@ export async function moveIssue(
       .filter((s) => s.team.id === found.issue.team.id)
       .map((s) => s.name)
       .join(', ')
-    throw new Error(`no state "${input.stateName}" on that team — options: ${options}`)
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: `no state "${input.stateName}" on that team — options: ${options}`,
+    })
   }
   await gql(
     apiKey,

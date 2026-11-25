@@ -21,6 +21,7 @@
 import type { IssueId, MachineId, SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { WriteScope } from '@podium/sync'
+import { TRPCError } from '@trpc/server'
 import type { AutoContinueController } from '../../auto-continue'
 import type { ClientRegistry } from '../../gateway/client-registry'
 import type { SessionStore } from '../../store'
@@ -105,7 +106,11 @@ export class SessionKill {
         ...(input.durableLabel ? { durableLabel: input.durableLabel } : {}),
       })
     }
-    if (!confirmed) throw new Error('session removed durably; process retirement was not confirmed')
+    if (!confirmed)
+      throw new TRPCError({
+        code: 'TIMEOUT',
+        message: 'session removed durably; process retirement was not confirmed',
+      })
   }
 
   /** Resolve routing before commit so the irreversible apply step cannot yield. */

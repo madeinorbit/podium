@@ -139,7 +139,7 @@ export const SESSION_QUERIES = {
     // must be the caller's own, and someone else's answers like no session.
     const found = await s.modules.readToolkit.resolveTarget(input.ref)
     if (!found || !(await s.privateAccess.ownsSession(found.sessionId))) {
-      throw new Error(`no session found for ${input.ref}`)
+      throw new TRPCError({ code: 'NOT_FOUND', message: `no session found for ${input.ref}` })
     }
     return await s.modules.readToolkit.status(
       found.sessionId,

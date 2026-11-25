@@ -19,13 +19,20 @@
  * registry.
  */
 
-import { asAgentIdentityId, type IssueId, type SessionDelegation, type SessionId, type UserId } from '@podium/model'
+import {
+  asAgentIdentityId,
+  type IssueId,
+  type SessionDelegation,
+  type SessionId,
+  type UserId,
+} from '@podium/model'
 import type {
   BindingMachineAccess,
   SessionBindingReattachInstruction,
   SessionBindingSpawnInstruction,
   SessionBindingSpawnPrincipal,
 } from '@podium/protocol'
+import { TRPCError } from '@trpc/server'
 
 /** Declared-scope containment is checked by the authoring server, never the daemon. */
 export function scopeWithin(
@@ -80,18 +87,28 @@ export function authorSpawnBinding(input: {
     ? { kind: 'subtree', rootId: issueId }
     : { kind: 'none' }
   const grantedScope = input.requestedScope ?? narrowDefault
-  if (principal.kind === 'agent' && !scopeWithin(grantedScope, parent!.grantedScope, parent!.onBehalfOf))
-    throw new Error('child delegation cannot widen its parent scope')
+  if (
+    principal.kind === 'agent' &&
+    !scopeWithin(grantedScope, parent!.grantedScope, parent!.onBehalfOf)
+  )
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'child delegation cannot widen its parent scope',
+    })
   if (
     principal.kind === 'user' &&
     !input.scopeOverrideConfirmed &&
     !scopeWithin(grantedScope, narrowDefault)
   )
-    throw new Error('scope override is not authorized')
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'scope override is not authorized' })
   const delegation: SessionDelegation = {
     actor: asAgentIdentityId(sessionId),
     onBehalfOf:
-      principal.kind === 'system' ? null : principal.kind === 'user' ? principal.userId : parent!.onBehalfOf,
+      principal.kind === 'system'
+        ? null
+        : principal.kind === 'user'
+          ? principal.userId
+          : parent!.onBehalfOf,
     grantedScope,
     parentBindingId: principal.kind === 'agent' ? principal.parentBindingId : null,
     revision: 1,

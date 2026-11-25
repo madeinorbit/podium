@@ -1,5 +1,6 @@
 import type { IssueId, IssueReport, SessionId, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
+import { TRPCError } from '@trpc/server'
 import type { InlineButton } from './types'
 
 const KNOWN_COMMANDS = new Set([
@@ -237,7 +238,7 @@ export async function registerTelegramCommands(botToken: string): Promise<void> 
   if (res.ok && parsed.ok === true) return
   const description =
     typeof parsed.description === 'string' ? parsed.description : `HTTP ${res.status}`
-  throw new Error(description)
+  throw new TRPCError({ code: 'BAD_REQUEST', message: description })
 }
 
 export const HELP_TEXT = `Podium Telegram commands:

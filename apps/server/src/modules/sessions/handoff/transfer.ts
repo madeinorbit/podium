@@ -45,6 +45,7 @@
 
 import { createLogger } from '@podium/logger'
 import { asMachineId } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 import { transferHandoffPackage } from '../handoff-transfer'
 import { recordHandoff } from './attribution'
 import type { HandoffPlacement } from './placement'
@@ -105,9 +106,7 @@ export class HandoffTransfer {
     const delegation = requireDelegation(session)
     const { targetRepo, branch, baseShas } = prepared
     const source = { machineId: session.machineId, cwd: session.cwd, status: session.status }
-    const wasRunning =
-      session.status === 'live' ||
-      session.status === 'starting'
+    const wasRunning = session.status === 'live' || session.status === 'starting'
     if (wasRunning) {
       this.ports.onSessionGone(session.sessionId)
       await this.ports.write(session, (draft) => {
@@ -138,7 +137,10 @@ export class HandoffTransfer {
         await this.ports.write(session, (draft) => {
           draft.handoffTargetMachineId = undefined
         })
-        throw new Error('source process retirement was not confirmed')
+        throw new TRPCError({
+          code: 'TIMEOUT',
+          message: 'source process retirement was not confirmed',
+        })
       }
     }
 
@@ -181,7 +183,10 @@ export class HandoffTransfer {
         !exported.manifest ||
         !exported.binding
       ) {
-        throw new Error(exported.error ?? 'source failed to export session')
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: exported.error ?? 'source failed to export session',
+        })
       }
       await transferHandoffPackage({
         rpc: this.ports.rpc,
@@ -238,7 +243,10 @@ export class HandoffTransfer {
         },
       )
       if (!imported.ok || !imported.newCwd || imported.observationGeneration === undefined)
-        throw new Error(imported.error ?? 'target failed to import session')
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: imported.error ?? 'target failed to import session',
+        })
       targetClaimed = true
       importedLocation = {
         newCwd: imported.newCwd,
@@ -267,7 +275,10 @@ export class HandoffTransfer {
         source.machineId,
       )
       if (!finalizedSource.ok) {
-        throw new Error(finalizedSource.error ?? 'source binding finalize failed')
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: finalizedSource.error ?? 'source binding finalize failed',
+        })
       }
       sourceCommitted = true
       const finalizedTarget = await this.ports.rpc.handoffBindingFinalize(
@@ -284,7 +295,10 @@ export class HandoffTransfer {
         input.machineId,
       )
       if (!finalizedTarget.ok) {
-        throw new Error(finalizedTarget.error ?? 'target binding finalize failed')
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: finalizedTarget.error ?? 'target binding finalize failed',
+        })
       }
 
       // THE RE-HOMING IS ONE DRAFTED WRITE [POD-3330]. Placement, path and
@@ -338,7 +352,10 @@ export class HandoffTransfer {
         },
       })
       if (!resumed.ok || (session.status as string) !== 'starting')
-        throw new Error('target session failed to resume')
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'target session failed to resume',
+        })
       await recordHandoff(this.ports, session, sourceMachineId, targetMachineId, caller)
       return { ok: true, newCwd: imported.newCwd }
     } catch (error) {

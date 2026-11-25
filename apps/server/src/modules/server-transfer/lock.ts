@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, open, readFile, rm } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { fsyncPath } from '@podium/runtime/fsync'
+import { TRPCError } from '@trpc/server'
 
 function processIsAlive(pid: number): boolean {
   try {
@@ -55,10 +56,13 @@ export class TransferLock {
         try {
           owner = JSON.parse(await readFile(this.path, 'utf8')) as { pid?: unknown }
         } catch {
-          throw new Error('another server transfer owns an unreadable lock')
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: 'another server transfer owns an unreadable lock',
+          })
         }
         if (typeof owner.pid !== 'number' || processIsAlive(owner.pid)) {
-          throw new Error('another server transfer is active')
+          throw new TRPCError({ code: 'CONFLICT', message: 'another server transfer is active' })
         }
         await rm(this.path, { force: true })
         fsyncPath(dirname(this.path))

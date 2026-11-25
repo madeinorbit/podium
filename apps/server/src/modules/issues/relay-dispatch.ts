@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server'
 import { commandAccess } from './command-ctx'
 /**
  * THE AGENT-RELAY DISPATCH ARM (POD-418).
@@ -273,15 +274,27 @@ export function makeAgentRelayDispatch(
     }
     if (router === 'machines' && proc === 'reprobe') {
       const raw = (input ?? {}) as Record<string, unknown>
-      if (typeof raw.id !== 'string' || !raw.id) throw new Error('machine id is required')
+      if (typeof raw.id !== 'string' || !raw.id)
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'machine id is required' })
       const machine = (await visibleMachinesFor(modules(), capability)).find(
         (candidate) => candidate.id === raw.id,
       )
-      if (!machine) throw new Error(`no visible machine with id '${raw.id}'`)
+      if (!machine)
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: `no visible machine with id '${raw.id}'`,
+        })
       if (machine.use !== 'granted') {
-        throw new Error(`you do not have access to re-probe machine '${machine.name}'`)
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: `you do not have access to re-probe machine '${machine.name}'`,
+        })
       }
-      if (!machine.online) throw new Error(`machine '${machine.name}' is offline`)
+      if (!machine.online)
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `machine '${machine.name}' is offline`,
+        })
       modules().machines.toMachine(asMachineId(machine.id), { type: 'inventoryRequest' })
       return await Promise.resolve({ machineId: machine.id, requested: true })
     }
@@ -331,7 +344,10 @@ export function makeAgentRelayDispatch(
     if (router === 'workspace') {
       const actorSessionId = capability.actorSessionId
       if (!actorSessionId) {
-        throw new Error(`workspace.${proc} is only callable by a session (no actor bound)`)
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: `workspace.${proc} is only callable by a session (no actor bound)`,
+        })
       }
       if (proc === 'clean') {
         return await sessionsSvc.workspace.cleanPeeks({
@@ -341,12 +357,13 @@ export function makeAgentRelayDispatch(
       if (proc !== 'fetch') return NO_SUCH_PROCEDURE
       return await (async () => {
         const raw = (input ?? {}) as Record<string, unknown>
-        if (typeof raw.ref !== 'string' || !raw.ref) throw new Error('ref is required')
+        if (typeof raw.ref !== 'string' || !raw.ref)
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'ref is required' })
         const target = await readToolkit.resolveTarget(raw.ref)
         // Fetch exposes private session paths and dirty worktree bytes. Shared
         // task access and --outside-scope never grant another member's session.
         if (!target || !(await sessionsSvc.mayReachSession(capability, target.sessionId))) {
-          throw new Error(`no session found for ${raw.ref}`)
+          throw new TRPCError({ code: 'NOT_FOUND', message: `no session found for ${raw.ref}` })
         }
         const targetIssueId = target.issueId ?? (await issues.reports.issueForCwd(target.cwd))
         if (targetIssueId) {
@@ -382,16 +399,16 @@ export function makeAgentRelayDispatch(
     if (router === 'concertmaster') {
       if (proc !== 'list') return NO_SUCH_PROCEDURE
       const actor = capability.actorSessionId
-      if (!actor) throw new Error('`podium concertmaster` is only callable by an agent session')
-      try {
-        const service = modules().concertmaster
-        if (service === undefined) throw new ConcertmasterRefusal('unauthorized', NOT_SERVED)
-        return await service.list(actor, concertmasterListInput.parse(input ?? {}))
-      } catch (error) {
-        // The service's refusal reaches the agent in its own sentence.
-        if (error instanceof ConcertmasterRefusal) throw new Error(error.message)
-        throw error
-      }
+      if (!actor)
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: '`podium concertmaster` is only callable by an agent session',
+        })
+      // The service's refusal reaches the agent in its own sentence: the gate
+      // answers a branded refusal with its message (POD-7617).
+      const service = modules().concertmaster
+      if (service === undefined) throw new ConcertmasterRefusal('unauthorized', NOT_SERVED)
+      return await service.list(actor, concertmasterListInput.parse(input ?? {}))
     }
     if (router === 'sessions') {
       // Read toolkit tiers 1–2 (#237): status is
@@ -409,13 +426,16 @@ export function makeAgentRelayDispatch(
           const raw = (input ?? {}) as Record<string, unknown>
           const ref = proc === 'status' ? raw.ref : raw.sessionId
           if (typeof ref !== 'string' || !ref) {
-            throw new Error(`${proc === 'status' ? 'ref' : 'sessionId'} is required`)
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: `${proc === 'status' ? 'ref' : 'sessionId'} is required`,
+            })
           }
           const target = await readToolkit.resolveTarget(ref)
           // Sessions are private (POD-6283): another person's session answers
           // exactly as a missing one, whatever task it sits on.
           if (!target || !(await sessionsSvc.mayReachSession(capability, target.sessionId))) {
-            throw new Error(`no session found for ${ref}`)
+            throw new TRPCError({ code: 'NOT_FOUND', message: `no session found for ${ref}` })
           }
           const targetIssueId = target.issueId ?? (await issues.reports.issueForCwd(target.cwd))
           if (targetIssueId) {
@@ -438,9 +458,10 @@ export function makeAgentRelayDispatch(
                 id: capability.actorSessionId,
               })
             if (!isOperator && !isParent) {
-              throw new Error(
-                'target session has no issue; only its parent or the operator may read it',
-              )
+              throw new TRPCError({
+                code: 'FORBIDDEN',
+                message: 'target session has no issue; only its parent or the operator may read it',
+              })
             }
           }
           const reader = capability.actorSessionId ?? 'operator'
@@ -494,15 +515,17 @@ export function makeAgentRelayDispatch(
               : undefined
           const sessionId = requestedId ?? actorSessionId
           if (!sessionId) {
-            throw new Error(
-              'sessions.stop needs a session id, or must be called from a session (self-stop)',
-            )
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message:
+                'sessions.stop needs a session id, or must be called from a session (self-stop)',
+            })
           }
           const selfStop = actorSessionId !== undefined && sessionId === actorSessionId
           if (!selfStop) {
             const target = await sessionsSvc.sessionById(sessionId)
             if (!target || !(await sessionsSvc.mayReachSession(capability, sessionId))) {
-              throw new Error('session not found')
+              throw new TRPCError({ code: 'NOT_FOUND', message: 'session not found' })
             }
             const targetIssueId = target.issueId ?? (await issues.reports.issueForCwd(target.cwd))
             if (targetIssueId) {
@@ -521,9 +544,11 @@ export function makeAgentRelayDispatch(
                 actorSessionId !== undefined &&
                 isSpawnedBy(target.spawnedBy, { kind: 'session', id: actorSessionId })
               if (!isOperator && !isParent && !overrideScope) {
-                throw new Error(
-                  'target session has no issue and is outside your tree; re-run with --outside-scope to confirm human permission',
-                )
+                throw new TRPCError({
+                  code: 'FORBIDDEN',
+                  message:
+                    'target session has no issue and is outside your tree; re-run with --outside-scope to confirm human permission',
+                })
               }
             }
           }
@@ -538,7 +563,11 @@ export function makeAgentRelayDispatch(
             'stopped',
             raw.force === true,
           )
-          if (!r.ok) throw new Error(r.reason ?? 'stop refused')
+          if (!r.ok)
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: r.reason ?? 'stop refused',
+            })
           return r
         })()
       }

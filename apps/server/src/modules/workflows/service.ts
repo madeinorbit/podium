@@ -21,6 +21,7 @@ import type {
   WorkflowScope,
   WorkflowWire,
 } from '@podium/protocol'
+import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
 import type { CommandPrincipal } from '../../command-principal'
 import type { Capability } from '../../issue-authz'
@@ -354,9 +355,10 @@ export class WorkflowService implements WorkflowEngine {
     if (!step.agentProfileId) return null
     const profile = step.agentProfileSnapshot
     if (!profile) {
-      throw new Error(
-        `workflow step ${input.stepId} names agent profile ${step.agentProfileId}, which did not exist when the run started`,
-      )
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: `workflow step ${input.stepId} names agent profile ${step.agentProfileId}, which did not exist when the run started`,
+      })
     }
     // PLACEMENT AT APPLY (readiness §3.1.4 M5, and the second half of the check
     // `assignStep` makes at write time).
@@ -367,7 +369,11 @@ export class WorkflowService implements WorkflowEngine {
     // correct for REPRODUCIBILITY but must never become the model for
     // AUTHORIZATION (POD-730 §4). So the machine is re-checked here, against
     // the current grants, every time work is actually placed.
-    if (!input.caller) throw new Error('workflow launch requires an authenticated caller')
+    if (!input.caller)
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'workflow launch requires an authenticated caller',
+      })
     await this.access.assertMayPlaceOn(
       input.caller,
       profile.machineId === null ? null : asMachineId(profile.machineId),
@@ -466,7 +472,10 @@ export class WorkflowService implements WorkflowEngine {
       (workflow.scopeRef === input.sessionId || workflow.scopeRef === input.issueId)
     )
       return
-    throw new Error(`workflow revision ${revision.id} is outside the requested start scope`)
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: `workflow revision ${revision.id} is outside the requested start scope`,
+    })
   }
 
   async resolveRevision(input: {
@@ -477,7 +486,11 @@ export class WorkflowService implements WorkflowEngine {
   }): Promise<WorkflowRevisionWire | null> {
     if (input.explicitRevisionId) {
       const revision = await this.deps.store.getRevision(input.explicitRevisionId)
-      if (!revision) throw new Error(`unknown workflow revision: ${input.explicitRevisionId}`)
+      if (!revision)
+        throw new WorkflowRefusal(
+          'not-found',
+          `unknown workflow revision: ${input.explicitRevisionId}`,
+        )
       await this.assertRevisionMatchesStart(revision, input)
       return revision
     }
@@ -503,7 +516,10 @@ export class WorkflowService implements WorkflowEngine {
       : null
     if (existing) {
       if (input.explicitRevisionId && input.explicitRevisionId !== existing.revisionId)
-        throw new Error('the issue already has a pinned workflow; adopt a new revision explicitly')
+        throw new WorkflowRefusal(
+          'conflict',
+          'the issue already has a pinned workflow; adopt a new revision explicitly',
+        )
       const revision = await this.deps.store.getRevision(existing.revisionId)
       if (!revision) throw new Error(`workflow run ${existing.id} lost its revision`)
       return { revision, prompt: await this.renderRevisionPrompt(revision) }
@@ -553,12 +569,13 @@ export class WorkflowService implements WorkflowEngine {
     const existing = await this.deps.store.findLiveRun(subjectKind, subjectId)
     if (existing && !input.supersedesRunId) return await this.toRun(existing)
     const revision = await this.deps.store.getRevision(input.revisionId)
-    if (!revision) throw new Error(`unknown workflow revision: ${input.revisionId}`)
+    if (!revision)
+      throw new WorkflowRefusal('not-found', `unknown workflow revision: ${input.revisionId}`)
     const startPosition = input.startStepId
       ? revision.steps.findIndex((step) => step.id === input.startStepId)
       : 0
     if (input.startStepId && startPosition < 0)
-      throw new Error(`workflow has no step ${input.startStepId}`)
+      throw new WorkflowRefusal('invalid', `workflow has no step ${input.startStepId}`)
     const now = this.deps.now()
     const ownerUserId =
       input.onBehalfOf !== undefined
@@ -566,7 +583,11 @@ export class WorkflowService implements WorkflowEngine {
         : this.access.owner({
             actor: { kind: 'session', id: input.sessionId },
           })
-    if (ownerUserId === null) throw new Error('workflow run has no live owner')
+    if (ownerUserId === null)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'workflow run has no live owner',
+      })
     const run: WorkflowRunRow = {
       id: `wrun_${randomUUID()}`,
       subjectKind,

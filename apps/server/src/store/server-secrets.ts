@@ -50,6 +50,7 @@ import {
   type InstallationIdentity,
   parseInstallationIdentity,
 } from '@podium/runtime/installation-identity'
+import { TRPCError } from '@trpc/server'
 import { eq, sql } from 'drizzle-orm'
 import { FINGERPRINT_SECRET_KEY } from '../fingerprint-key-import'
 import type { SealedSecret, SecretBinding, Vault } from '../modules/credentials/vault'
@@ -376,7 +377,11 @@ export class ServerSecretsRepository {
   /** The stored form of a value: sealed for the vault's keys, refused when it cannot seal. */
   private async storedForm(key: ServerSecretKey, value: string): Promise<string> {
     if (!isVaultSealedKey(key)) return value
-    if (!this.vault) throw new Error('The vault is not open, so this secret cannot be stored.')
+    if (!this.vault)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'The vault is not open, so this secret cannot be stored.',
+      })
     const plaintext = Buffer.from(value, 'utf8')
     try {
       return envelopeOf(await this.vault.seal(bindingFor(key), plaintext))

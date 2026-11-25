@@ -200,7 +200,8 @@ function sessionStateProcedure<N extends TrpcSessionStateName>(name: N): Session
       run: async ({ submit }): Promise<SessionStateOutputs[N]> => {
         const { reply } = await submit()
         if (reply.outcome === 'applied') return reply.result as SessionStateOutputs[N]
-        if (reply.refusal.kind === 'invalid') throw new Error(`invalid input for ${name}`)
+        if (reply.refusal.kind === 'invalid')
+          throw new TRPCError({ code: 'BAD_REQUEST', message: `invalid input for ${name}` })
         return undefined as SessionStateOutputs[N]
       },
     }) as unknown as SessionStateProcedure<N>

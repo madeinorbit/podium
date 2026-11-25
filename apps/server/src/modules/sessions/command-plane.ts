@@ -694,7 +694,8 @@ function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
       // A relayed agent's absent target throws; an operator's dead-letters. Both
       // POD-379-pinned, and they differ because the TRANSPORTS differ — not because
       // the target resolution does.
-      if (ctx.principal.kind === 'agent') throw new Error(SESSION_NOT_FOUND)
+      if (ctx.principal.kind === 'agent')
+        throw new TRPCError({ code: 'NOT_FOUND', message: SESSION_NOT_FOUND })
       return { ...UNADDRESSABLE_SEND }
     }
     // NO REFUSAL FOR A MACHINE THAT IS `reconnecting` (POD-4775). The server
@@ -833,14 +834,21 @@ export async function createSessionNow(ctx: SessionCommandCtx, input: CreateInpu
   // A shell has no driver to hand files to, so it refuses them before any
   // claim or spawn, as a send to one does (POD-2148).
   if (attachments?.length && rest.agentKind === 'shell') {
-    throw new Error('this agent cannot accept file attachments')
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'this agent cannot accept file attachments',
+    })
   }
   // Explicit placement is gated BEFORE the target is prepared, because
   // preparing may clone a repository onto the target machine — a side effect
   // a denied principal must never cause.
   if (rest.machineId !== undefined) ctx.assertMachineUse(rest.machineId)
   const ownership = createdOwnership(ctx.principal)
-  if (!ownership.owner) throw new Error('session creation requires an accountable human owner')
+  if (!ownership.owner)
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'session creation requires an accountable human owner',
+    })
   // THE NAMED CREDENTIAL, BEFORE ANYTHING IS PREPARED (credential management
   // §9): an id the owner cannot use creates no clone, no draft and no session.
   if (rest.credentialId) {
@@ -868,15 +876,23 @@ export async function createSessionNow(ctx: SessionCommandCtx, input: CreateInpu
   // resolve it from the same principal.
   try {
     if (draftArtifacts?.length) {
-      if (!createdDraftId) throw new Error('draft artifacts require a newly-created draft issue')
+      if (!createdDraftId)
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'draft artifacts require a newly-created draft issue',
+        })
       await ctx.deps.attachDraftArtifacts(createdDraftId, draftArtifacts)
     }
     // The task's files join its issue before the session exists, so the
     // first prompt's row can be staged the moment it is forwarded (POD-2148).
     if (attachments?.length) {
-      if (!rest.initialPrompt?.trim()) throw new Error('file attachments need a first prompt')
+      if (!rest.initialPrompt?.trim())
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'file attachments need a first prompt',
+        })
       const refusal = await claimHeldUploads(ctx, issueId, attachments)
-      if (refusal) throw new Error(refusal)
+      if (refusal) throw new TRPCError({ code: 'BAD_REQUEST', message: refusal })
     }
     return await ctx.sessions.createSession({
       ...rest,
@@ -919,7 +935,11 @@ export async function resumeSessionNow(
 ): Promise<{ sessionId: SessionId }> {
   if (input.machineId !== undefined) ctx.assertMachineUse(input.machineId)
   const ownership = createdOwnership(ctx.principal)
-  if (!ownership.owner) throw new Error('session resume requires an accountable human owner')
+  if (!ownership.owner)
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'session resume requires an accountable human owner',
+    })
   // A resume landing on an EXISTING row keeps that row's provenance; the stamp
   // here is the fresh-spawn fallback only.
   return await ctx.sessions.resumeSession({

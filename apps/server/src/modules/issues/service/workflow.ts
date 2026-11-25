@@ -19,6 +19,7 @@ import {
 } from '@podium/model'
 import { formatIssueRef, type WorktreeGcObservation } from '@podium/protocol'
 import { resolveSpawnDefaults } from '@podium/runtime'
+import { TRPCError } from '@trpc/server'
 import {
   type CommandAttribution,
   type CommandPrincipal,
@@ -610,7 +611,10 @@ export class IssueGitWorkflowModule {
     } else if (row.branch) {
       const ensured = await this.ensureWorktree(id, startMachineId)
       if (!ensured.ok || !ensured.worktreePath) {
-        throw new Error(ensured.output || 'failed to recreate worktree from branch')
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: ensured.output || 'failed to recreate worktree from branch',
+        })
       }
       path = ensured.worktreePath
     } else {
@@ -685,7 +689,11 @@ export class IssueGitWorkflowModule {
           // already had its start point shipped, so a missing parent is not why.
           (startRepoPath === row.repoPath
             ? await this.missingParentBranch(row, worktreeMachineId)
-            : null) ?? new Error(`worktree add failed: ${res.output}`)
+            : null) ??
+          new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: `worktree add failed: ${res.output}`,
+          })
         )
       }
       // POD-665: the daemon just created this worktree out from under connected
@@ -2052,7 +2060,10 @@ export class IssueGitWorkflowModule {
       if (!row.branch) throw new IssueRefusal('issue not started')
       return this.ensureWorktree(id).then(async (ensured) => {
         if (!ensured.ok || !ensured.worktreePath) {
-          throw new Error(ensured.output || 'failed to recreate worktree from branch')
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: ensured.output || 'failed to recreate worktree from branch',
+          })
         }
         return await this.spawnAddedSession(id, agentKind, opts)
       })

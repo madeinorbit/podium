@@ -1,4 +1,5 @@
 import { machinePathBasename } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 /**
  * PRE-FLIGHT — the last phase that can still be abandoned.
  *
@@ -106,14 +107,26 @@ export class HandoffPreflight {
         ),
       ]
       const sourceVerified = await Promise.all(
-        candidates.map(async (ref) =>
-          await this.ports.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, session.machineId),
+        candidates.map(
+          async (ref) =>
+            await this.ports.rpc.repoOp(
+              'revParseVerify',
+              sourceRepo.path,
+              { ref },
+              session.machineId,
+            ),
         ),
       )
       const sourceBaseShas = verifiedBundleBases(sourceVerified)
       const targetVerified = await Promise.all(
-        sourceBaseShas.map(async (ref) =>
-          await this.ports.rpc.repoOp('revParseVerify', targetRepo.path, { ref }, input.machineId),
+        sourceBaseShas.map(
+          async (ref) =>
+            await this.ports.rpc.repoOp(
+              'revParseVerify',
+              targetRepo.path,
+              { ref },
+              input.machineId,
+            ),
         ),
       )
       baseShas = verifiedCommonBundleBases(sourceVerified, targetVerified)
@@ -135,20 +148,35 @@ export class HandoffPreflight {
        */
       if (baseShas.length === 0) {
         const targetCandidates = await Promise.all(
-          candidates.map(async (ref) =>
-            await this.ports.rpc.repoOp('revParseVerify', targetRepo.path, { ref }, input.machineId),
+          candidates.map(
+            async (ref) =>
+              await this.ports.rpc.repoOp(
+                'revParseVerify',
+                targetRepo.path,
+                { ref },
+                input.machineId,
+              ),
           ),
         )
         const targetBaseShas = verifiedBundleBases(targetCandidates)
         const sourceVerifiedTargetBases = await Promise.all(
-          targetBaseShas.map(async (ref) =>
-            await this.ports.rpc.repoOp('revParseVerify', sourceRepo.path, { ref }, session.machineId),
+          targetBaseShas.map(
+            async (ref) =>
+              await this.ports.rpc.repoOp(
+                'revParseVerify',
+                sourceRepo.path,
+                { ref },
+                session.machineId,
+              ),
           ),
         )
         baseShas = verifiedCommonBundleBases(targetCandidates, sourceVerifiedTargetBases)
       }
       if (baseShas.length === 0)
-        throw new Error('target repository has no verified common bundle base')
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'target repository has no verified common bundle base',
+        })
       // OBLIGATION 2, first checkpoint: the clone and the base handshake above
       // can take minutes. Re-authorize BOTH machines here, while the last act is
       // still reversible — the next statement stops a live process.

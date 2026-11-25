@@ -77,6 +77,7 @@ import {
   type WriteScope,
 } from '@podium/sync'
 import { FEED_RESCOPE_THRESHOLD } from '@podium/sync/bootstrap-worker'
+import { TRPCError } from '@trpc/server'
 import { IssueAttachOrchestrator } from './application/issue-attach-orchestrator'
 import { bootStage } from './boot-timing'
 import { serverBuildVersion } from './build-version'
@@ -3231,7 +3232,11 @@ export class SessionRegistry {
                 notifyOwner: true,
               }),
           )
-          if (!stopped.ok) throw new Error(stopped.reason ?? 'the session did not stop')
+          if (!stopped.ok)
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: stopped.reason ?? 'the session did not stop',
+            })
         },
         // Judged as a launch is, from the durable row: no secret is read
         // (POD-7591). The credential is the one a revival reads, a headless
@@ -4385,7 +4390,10 @@ export class SessionRegistry {
           const existing =
             existingSessionId === null ? null : await sessionsSvc.sessionById(existingSessionId)
           if (existingSessionId !== null && !existing) {
-            throw new Error(`unknown target session: ${existingSessionId}`)
+            throw new TRPCError({
+              code: 'NOT_FOUND',
+              message: `unknown target session: ${existingSessionId}`,
+            })
           }
           const fresh = op.target.kind === 'fresh' ? op.target : null
           const principal = await sessionsSvc.principalFor(
@@ -4655,7 +4663,10 @@ export class SessionRegistry {
               input.custody.machineId,
             )
             if (!resolved.ok || resolved.content === undefined) {
-              throw new Error(resolved.error ?? 'shipping evidence was refused')
+              throw new TRPCError({
+                code: 'PRECONDITION_FAILED',
+                message: resolved.error ?? 'shipping evidence was refused',
+              })
             }
             materialized.push(
               await shippingEvidence.materialize({
@@ -4703,7 +4714,7 @@ export class SessionRegistry {
       issues: {
         get: async (id) => {
           const issue = await issues.reports.get(id)
-          if (!issue) throw new Error(`unknown issue ${id}`)
+          if (!issue) throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${id}` })
           return issue
         },
         children: async (id, recursive) => await issues.reports.children(id, recursive),
@@ -4755,15 +4766,25 @@ export class SessionRegistry {
             role: import('@podium/model').UserRole,
           ): Promise<void> => {
             if (await mayShipTask(humanId, role, issue.id)) return
-            throw new Error(`only the task's assignee or an admin may ${action} a shipping order`)
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: `only the task's assignee or an admin may ${action} a shipping order`,
+            })
           }
           if (principal.kind === 'system') {
-            throw new Error(`system job ${principal.job} cannot ${action} a shipping order`)
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: `system job ${principal.job} cannot ${action} a shipping order`,
+            })
           }
           const humanId = onBehalfOfUser(principal)
           if (!humanId) throw new Error('shipping command has no human authorization owner')
           const liveRole = await this.store.users.roleOf(humanId)
-          if (!liveRole) throw new Error(`shipping requester ${humanId} is no longer active`)
+          if (!liveRole)
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: `shipping requester ${humanId} is no longer active`,
+            })
           // Shipping writes intersect an agent's live delegated subtree with
           // the human owner's current rights. Receipt reads are not scoped
           // writes: they use only the active human's current owner/grant read.
@@ -4795,7 +4816,11 @@ export class SessionRegistry {
           const userId = attribution.onBehalfOf
           if (!userId) throw new Error('shipping order has no human authorization owner')
           const role = await this.store.users.roleOf(userId)
-          if (!role) throw new Error(`shipping requester ${userId} is no longer active`)
+          if (!role)
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: `shipping requester ${userId} is no longer active`,
+            })
           const humanPrincipal = userCommandPrincipal(this.store.workspaceId, userId, role)
           let principal: CommandPrincipal
           if (attribution.actor.kind === 'agent') {
@@ -4830,9 +4855,10 @@ export class SessionRegistry {
             )
           }
           if (!(await mayShipTask(userId, role, issue.id))) {
-            throw new Error(
-              `shipping requester ${userId} is no longer the task's assignee or an admin`,
-            )
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: `shipping requester ${userId} is no longer the task's assignee or an admin`,
+            })
           }
           const machineAccess = checkMachineUse(
             principal,
@@ -4840,11 +4866,13 @@ export class SessionRegistry {
             await ownershipSnapshotFromMachines(machines),
           )
           if (machineAccess) {
-            throw new Error(
-              machineAccess === 'absent'
-                ? `shipping machine ${machineId} is unavailable`
-                : `shipping requester may no longer use machine ${machineId}`,
-            )
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message:
+                machineAccess === 'absent'
+                  ? `shipping machine ${machineId} is unavailable`
+                  : `shipping requester may no longer use machine ${machineId}`,
+            })
           }
         },
       },
@@ -4943,7 +4971,11 @@ export class SessionRegistry {
         (await machines.listMachines()).find((machine) => machine.id === machineId)?.deliveryCaps ??
         [],
       resolveBranchTip: async (issue) => {
-        if (!issue.branch) throw new Error(`issue ${issue.id} has no branch`)
+        if (!issue.branch)
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: `issue ${issue.id} has no branch`,
+          })
         const machineId =
           issue.machineId ?? (await machines.pickMachineForRepo(undefined, issue.repoPath))
         const result = await rpc.repoOp(
@@ -4954,9 +4986,10 @@ export class SessionRegistry {
         )
         const tip = result.ok ? result.output.trim().split(/\s+/)[0] : undefined
         if (!tip) {
-          throw new Error(
-            `could not freeze ${issue.displayRef ?? issue.id} branch tip: ${result.output}`,
-          )
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: `could not freeze ${issue.displayRef ?? issue.id} branch tip: ${result.output}`,
+          })
         }
         return tip
       },
@@ -4971,7 +5004,10 @@ export class SessionRegistry {
         )
         const tip = result.ok ? result.output.trim().split(/\s+/)[0] : undefined
         if (!tip) {
-          throw new Error(`could not freeze target ${ref}: ${result.output}`)
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: `could not freeze target ${ref}: ${result.output}`,
+          })
         }
         return tip
       },

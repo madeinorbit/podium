@@ -1,3 +1,5 @@
+import { TRPCError } from '@trpc/server'
+
 export interface PortableStateWriteFence {
   assertWritable(): void
   runWriter<T>(writer: () => Promise<T>): Promise<T>
@@ -10,7 +12,11 @@ export class PortableStateFence implements PortableStateWriteFence {
   private readonly waiters = new Set<() => void>()
 
   assertWritable(): void {
-    if (this.held) throw new Error('portable state is fenced for server transfer')
+    if (this.held)
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: 'portable state is fenced for server transfer',
+      })
   }
 
   async runWriter<T>(writer: () => Promise<T>): Promise<T> {

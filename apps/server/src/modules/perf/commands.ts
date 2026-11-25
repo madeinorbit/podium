@@ -36,6 +36,7 @@ import { createLogger } from '@podium/logger'
 import type { LoopMinuteWire, MachineId, WorkspaceId } from '@podium/model'
 import type { Principal } from '@podium/protocol'
 import type { LoopAccountingHandle } from '@podium/runtime/loop-accounting'
+import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
 import { perfPrincipal } from './principal'
 import type { PerfRegistry } from './registry'
@@ -94,7 +95,10 @@ export const PERF_COMMANDS_TRPC = {
       // MUST NOT decide the partition — a client could otherwise write into
       // another principal's ring (ADR 3 Am1 D17; POD-1230).
       if (state.feedPrincipal === undefined) {
-        throw new Error('authenticated feed principal required to report a client switch trace')
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'authenticated feed principal required to report a client switch trace',
+        })
       }
       state.perf.pushClientTrace(input, perfPrincipal(state.workspaceId, state.feedPrincipal))
       // Live visibility, MOVED VERBATIM from the router procedure it replaces:

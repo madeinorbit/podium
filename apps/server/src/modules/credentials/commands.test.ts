@@ -239,10 +239,11 @@ describe('acceptance 1: who may run which command', () => {
       // A sign-in on a machine (Task 9): MACHINE is the stranger's, so it is
       // `machine-not-allowed` for everyone else and, for its custodian, refused
       // because it is not connected; cancelling a sign-in nobody started is
-      // not found for all.
+      // not found for all. A login or a copy with no machine of the caller's to
+      // run it on is refused as a precondition (POD-7617), not a server fault.
       expected:
         name === 'login' || name === 'useOnMyMachines'
-          ? 'INTERNAL_SERVER_ERROR'
+          ? 'PRECONDITION_FAILED'
           : name === 'add' || name === 'chatgptSignInStart'
             ? 'applied'
             : name === 'chatgptSignInComplete'

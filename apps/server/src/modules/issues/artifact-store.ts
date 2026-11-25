@@ -25,6 +25,7 @@ import {
   normalizeMachinePath,
   resolveMachinePath,
 } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 import type { ArtifactUploadsRepository } from '../../store/artifact-uploads'
 
 /**
@@ -218,7 +219,8 @@ function pickEntry(relPaths: string[]): string {
 }
 
 function assertIds(...ids: string[]): void {
-  for (const id of ids) if (!ID_RE.test(id)) throw new Error('bad artifact ref')
+  for (const id of ids)
+    if (!ID_RE.test(id)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'bad artifact ref' })
 }
 
 function artifactPrefix(issueId: IssueId, artifactId: ArtifactId): BlobKey {
@@ -240,7 +242,10 @@ function storableMemberKey(issueId: IssueId, artifactId: ArtifactId, relPath: st
   try {
     return joinKey(prefix, ...relPath.split('/').map(keySegment))
   } catch {
-    throw new Error(`artifact member ${relPath} has a name too long to store`)
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: `artifact member ${relPath} has a name too long to store`,
+    })
   }
 }
 
@@ -288,27 +293,39 @@ function assertMemberPaths(packet: BeginPacket): void {
             /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(part),
         )
     ) {
-      throw new Error('artifact members must have relative paths without traversal')
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'artifact members must have relative paths without traversal',
+      })
     }
-    if (paths.has(file.path)) throw new Error('duplicate artifact member')
+    if (paths.has(file.path))
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'duplicate artifact member' })
     paths.add(file.path)
     for (const part of file.path.split('/')) {
       try {
         keySegment(part)
       } catch {
-        throw new Error(`artifact member ${file.path} has a name too long to store`)
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `artifact member ${file.path} has a name too long to store`,
+        })
       }
     }
   }
-  if (!paths.has(packet.entry)) throw new Error('artifact entry must name a bundle member')
+  if (!paths.has(packet.entry))
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'artifact entry must name a bundle member',
+    })
   if (packet.files.reduce((sum, file) => sum + file.size, 0) > ARTIFACT_BUNDLE_CAP_BYTES) {
-    throw new Error('artifact bundle exceeds 500MB')
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'artifact bundle exceeds 500MB' })
   }
 }
 
 function parseBegin(json: string): BeginPacket {
   const meta = ArtifactUploadPacket.parse(JSON.parse(json))
-  if (meta.action !== 'begin') throw new Error('invalid artifact upload metadata')
+  if (meta.action !== 'begin')
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid artifact upload metadata' })
   return meta
 }
 
@@ -332,7 +349,7 @@ export class IssueArtifactStore {
     raw: ArtifactUploadPacket,
   ): Promise<{ snapshot: ArtifactSnapshot; path: string; title?: string } | undefined> {
     const packet = ArtifactUploadPacket.parse(raw)
-    if (!ID_RE.test(issueId)) throw new Error('bad issue ref')
+    if (!ID_RE.test(issueId)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'bad issue ref' })
     switch (packet.action) {
       case 'abort':
         await this.discardUpload(issueId, packet.uploadId)
@@ -345,7 +362,11 @@ export class IssueArtifactStore {
         return
       case 'commit': {
         const row = await this.uploads.get(issueId, packet.uploadId)
-        if (!row) throw new Error('no artifact upload is staged under this id')
+        if (!row)
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'no artifact upload is staged under this id',
+          })
         return await this.publishStaged(
           issueId,
           packet.uploadId,
@@ -368,7 +389,8 @@ export class IssueArtifactStore {
       received: packet.files.map(() => 0),
       createdAt: this.now(),
     })
-    if (!created) throw new Error('this artifact upload has already begun')
+    if (!created)
+      throw new TRPCError({ code: 'CONFLICT', message: 'this artifact upload has already begun' })
   }
 
   /**
@@ -386,18 +408,25 @@ export class IssueArtifactStore {
       bytes.toString('base64') !== packet.dataBase64 ||
       bytes.length > ARTIFACT_UPLOAD_CHUNK_BYTES
     ) {
-      throw new Error('invalid artifact chunk')
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid artifact chunk' })
     }
     for (let attempt = 0; attempt < ACCEPT_ATTEMPTS; attempt += 1) {
       const row = await this.uploads.get(issueId, packet.uploadId)
-      if (!row) throw new Error('no artifact upload is staged under this id')
+      if (!row)
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'no artifact upload is staged under this id',
+        })
       const meta = parseBegin(row.beginJson)
       const member = meta.files.findIndex((file) => file.path === packet.file)
       const file = meta.files[member]
-      if (!file) throw new Error('unknown artifact member')
+      if (!file) throw new TRPCError({ code: 'BAD_REQUEST', message: 'unknown artifact member' })
       const received = row.received[member] ?? 0
       if (packet.offset + bytes.length > file.size || packet.offset > received) {
-        throw new Error('artifact chunk exceeds the declared size or skips bytes')
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'artifact chunk exceeds the declared size or skips bytes',
+        })
       }
       const key = chunkKey(issueId, packet.uploadId, member, packet.offset)
       if (packet.offset < received) {
@@ -411,7 +440,10 @@ export class IssueArtifactStore {
       if (await this.uploads.advance(issueId, packet.uploadId, row.received, next)) return
       // Another packet of this upload was accepted since the read: read again.
     }
-    throw new Error('artifact upload is busy; send the packet again')
+    throw new TRPCError({
+      code: 'CONFLICT',
+      message: 'artifact upload is busy; send the packet again',
+    })
   }
 
   private async putChunk(key: BlobKey, bytes: Buffer): Promise<void> {
@@ -432,7 +464,10 @@ export class IssueArtifactStore {
   private async assertSameChunk(key: BlobKey, bytes: Buffer): Promise<void> {
     const stored = await this.files.get(key)
     if (!stored || !(await bytesOf(stored.body)).equals(bytes)) {
-      throw new Error('artifact chunk conflicts with previously uploaded bytes')
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: 'artifact chunk conflicts with previously uploaded bytes',
+      })
     }
   }
 
@@ -448,7 +483,8 @@ export class IssueArtifactStore {
     uploadId: string,
     artifactId: ArtifactId,
   ): Promise<PublishedUpload | undefined> {
-    if (!ID_RE.test(issueId) || !ID_RE.test(uploadId)) throw new Error('bad upload ref')
+    if (!ID_RE.test(issueId) || !ID_RE.test(uploadId))
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'bad upload ref' })
     const row = await this.uploads.get(issueId, uploadId)
     if (!row) return undefined
     return await this.publishStaged(
@@ -580,7 +616,11 @@ export class IssueArtifactStore {
             o.root,
           ),
         }))
-        if (plan.length === 0) throw new Error(`directory ${o.sourcePath} has no files`)
+        if (plan.length === 0)
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `directory ${o.sourcePath} has no files`,
+          })
       } else {
         const paths = [o.sourcePath, ...(o.extraPaths ?? [])]
         plan = paths.map((p) => ({
@@ -590,7 +630,10 @@ export class IssueArtifactStore {
         }))
       }
       if (plan.length > ARTIFACT_FILE_COUNT_CAP) {
-        throw new Error(`artifact bundle has ${plan.length} files (cap ${ARTIFACT_FILE_COUNT_CAP})`)
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `artifact bundle has ${plan.length} files (cap ${ARTIFACT_FILE_COUNT_CAP})`,
+        })
       }
       let bundleBytes = 0
       const files: ArtifactManifestFile[] = []
@@ -603,9 +646,10 @@ export class IssueArtifactStore {
         )
         bundleBytes += size
         if (bundleBytes > ARTIFACT_BUNDLE_CAP_BYTES) {
-          throw new Error(
-            `artifact bundle exceeds ${ARTIFACT_BUNDLE_CAP_BYTES / (1024 * 1024)}MB at ${src}`,
-          )
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `artifact bundle exceeds ${ARTIFACT_BUNDLE_CAP_BYTES / (1024 * 1024)}MB at ${src}`,
+          })
         }
         files.push({ path: rel, size })
       }
@@ -632,13 +676,17 @@ export class IssueArtifactStore {
       o.filename.includes('\\') ||
       o.filename.includes('\0')
     ) {
-      throw new Error('artifact filename must be a plain filename')
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'artifact filename must be a plain filename',
+      })
     }
     const bytes = Buffer.from(o.dataBase64, 'base64')
     if (bytes.length > ARTIFACT_FILE_CAP_BYTES) {
-      throw new Error(
-        `${o.filename} is ${bytes.length} bytes (per-file cap ${ARTIFACT_FILE_CAP_BYTES / (1024 * 1024)}MB)`,
-      )
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: `${o.filename} is ${bytes.length} bytes (per-file cap ${ARTIFACT_FILE_CAP_BYTES / (1024 * 1024)}MB)`,
+      })
     }
     const artifactId = asArtifactId(randomBytes(6).toString('hex'))
     await this.files.put(storableMemberKey(o.issueId, artifactId, o.filename), bytes, {
@@ -698,7 +746,10 @@ export class IssueArtifactStore {
     if (keys.length === 0) return
     const [member] = keys
     if (keys.length !== 1 || member === undefined) {
-      throw new Error(`artifact ${o.artifactId} holds ${keys.length} files, not one chat upload`)
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: `artifact ${o.artifactId} holds ${keys.length} files, not one chat upload`,
+      })
     }
     if ((await this.files.head(o.to)) === undefined) await this.files.copy(member, o.to)
     await this.deletePrefix(prefix)
@@ -717,13 +768,20 @@ export class IssueArtifactStore {
       const relDir = pending.shift() as string
       const absDir = relDir ? joinMachinePath(dirAbs, relDir) : dirAbs
       const r = await this.rpc.listDir({ ...machine, root, path: absDir })
-      if (!r.ok) throw new Error(r.error ?? `cannot list ${absDir}`)
+      if (!r.ok)
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: r.error ?? `cannot list ${absDir}`,
+        })
       for (const e of r.entries) {
         const rel = relDir ? `${relDir}/${e.name}` : e.name
         if (e.isDir) pending.push(rel)
         else out.push({ src: joinMachinePath(dirAbs, rel), rel })
         if (out.length > ARTIFACT_FILE_COUNT_CAP) {
-          throw new Error(`artifact bundle exceeds ${ARTIFACT_FILE_COUNT_CAP} files`)
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: `artifact bundle exceeds ${ARTIFACT_FILE_COUNT_CAP} files`,
+          })
         }
       }
     }
