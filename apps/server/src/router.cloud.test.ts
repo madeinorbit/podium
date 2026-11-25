@@ -1,7 +1,7 @@
 import type { SessionId, UserId } from '@podium/model'
 import { asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
   CloudAgentRequest,
   CloudMachineRequest,
@@ -9,6 +9,8 @@ import type {
   CloudRuntimeProvider,
 } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
+import type { Capability } from './issue-authz'
+import { CLOUD_SESSION_READ_FAILED } from './modules/cloud/service'
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -544,10 +546,9 @@ describe('cloud.moveSession acts on the caller’s own sessions only', () => {
       sessionOf.set(id, sessionId)
     }
 
-    const as = async (user: UserId, role: 'admin' | 'member') => {
-      // As the edge mints a signed-in person's capability.
-      const { capability } = userCommandPrincipal(registry.workspaceId, user, role)
-      return appRouter.createCaller({
+    /** A caller holding `capability`, resolved as the served edge resolves it. */
+    const holding = async (capability: Capability) =>
+      appRouter.createCaller({
         registry,
         repos,
         boundWorkspace: registry.sessionStore.workspaceId,
@@ -557,9 +558,25 @@ describe('cloud.moveSession acts on the caller’s own sessions only', () => {
         // The served resolver, over this store's member rows (POD-7558).
         principal: await registry.modules.sessions.principalFor(capability),
       })
-    }
+    // As the edge mints a signed-in person's capability.
+    const as = async (user: UserId, role: 'admin' | 'member') =>
+      await holding(userCommandPrincipal(registry.workspaceId, user, role).capability)
     const session = (owner: UserId) => sessionOf.get(owner)!
-    return { cloud, registry, as, session }
+    /** Another resumable session of `owner`'s, on their own machine. */
+    const another = async (owner: UserId) =>
+      (
+        await registry.modules.issueSessionLifecycle.resumeSession({
+          ownerUserId: owner,
+          agentKind: 'codex',
+          cwd: '/workspace/podium',
+          resume: { kind: 'codex-thread', value: `thread-${crypto.randomUUID()}` },
+          conversationId: `conversation-${crypto.randomUUID()}`,
+          title: `another of ${owner}`,
+          machineId: asMachineId(`machine-${owner}`),
+          spawnedBy: 'user',
+        })
+      ).sessionId
+    return { cloud, registry, store, as, holding, session, another }
   }
 
   const notFound = { code: 'NOT_FOUND', message: 'session not found' }
@@ -606,5 +623,287 @@ describe('cloud.moveSession acts on the caller’s own sessions only', () => {
       `thread-${ALICE}`,
       `thread-${ADMIN}`,
     ])
+  })
+
+  it('an agent moves its human’s sessions inside its issue scope only', async () => {
+    const { cloud, registry, store, holding, session, another } = await world()
+    // The tasks' repo, away from the sessions' cwd: each session is attached to
+    // its task explicitly below.
+    await store.repos.addRepo('/workspace/tasks', registry.sessionStore.hostMachine!.id)
+    const writer = registry.issues.reports.store.serverWriter
+    const create = async (title: string) =>
+      await registry.issues.crud.create(writer, {
+        repoPath: '/workspace/tasks',
+        title,
+        // Named, so create does not wait on a daemon to probe the repo's base.
+        parentBranch: 'main',
+        startNow: false,
+      })
+    const inScope = await create('the agent’s task')
+    const elsewhere = await create('another task')
+    const attach = async (sessionId: SessionId, issueId: string) =>
+      await registry.modules.sessions.setSessionIssueId(
+        registry.modules.sessions.serverWriter,
+        sessionId,
+        issueId as never,
+      )
+    // Alice's agent works on `inScope`; it acts for Alice and nobody else.
+    const agentSession = await another(ALICE)
+    await attach(agentSession, inScope.id)
+    const sameTask = await another(ALICE)
+    await attach(sameTask, inScope.id)
+    const otherTask = await another(ALICE)
+    await attach(otherTask, elsewhere.id)
+    // The capability the relay mints for the agent's own calls.
+    const capability = await registry.modules.sessions.capabilityForSession(agentSession)
+    expect(await registry.modules.sessions.principalFor(capability)).toMatchObject({
+      kind: 'agent',
+      onBehalfOf: ALICE,
+    })
+    const agentCaller = await holding(capability)
+    // Inside its scope: the move goes through.
+    await agentCaller.cloud.moveSession({ sessionId: sameTask, repo })
+    expect(cloud.createdAgents.map((request) => request.sourceSession?.sessionId)).toEqual([
+      sameTask,
+    ])
+    // Its human's session on another task: refused by the scope rule, and the
+    // agent cannot confirm through it, since a move takes no override.
+    await expect(
+      agentCaller.cloud.moveSession({ sessionId: otherTask, repo }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: /outside your subtree/ })
+    // Another member's session reads as missing, as it does for a person.
+    await expect(
+      agentCaller.cloud.moveSession({ sessionId: session(BOB), repo }),
+    ).rejects.toMatchObject(notFound)
+    expect(cloud.createdAgents).toHaveLength(1)
+  })
+
+  it('the owner is refused once their use of the session’s machine is taken away', async () => {
+    const { cloud, registry, as, session } = await world()
+    const admin = await as(ADMIN, 'admin')
+    const alice = await as(ALICE, 'member')
+    // The admin takes custody of Alice's machine: Alice still owns her session
+    // on it, but may no longer run agents there.
+    await admin.machines.transferOwnership({
+      id: asMachineId(`machine-${ALICE}`),
+      newOwnerUserId: ADMIN,
+    })
+    const refused = alice.cloud.moveSession({
+      sessionId: session(ALICE),
+      repo,
+      hibernateLocal: true,
+    })
+    // Her own session, so the refusal names its rule rather than hiding it.
+    await expect(refused).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: /you do not have access to run agents on machine/,
+    })
+    expect(cloud.createdAgents).toEqual([])
+    expect((await registry.modules.sessions.sessionById(session(ALICE)))?.status).not.toBe(
+      'hibernated',
+    )
+    // And custody gives the admin no move of the session either.
+    await expect(
+      admin.cloud.moveSession({ sessionId: session(ALICE), repo }),
+    ).rejects.toMatchObject(notFound)
+    expect(cloud.createdAgents).toEqual([])
+  })
+
+  it('a failed read beneath the gate is a generic internal error, never the driver’s text', async () => {
+    const { cloud, registry, as, session } = await world()
+    const driverText = 'SQLITE_BUSY: database is locked (pool timeout on sessions_pkey)'
+    const read = vi
+      .spyOn(registry.modules.sessions, 'sessionById')
+      .mockRejectedValue(new Error(driverText))
+    try {
+      const alice = await as(ALICE, 'member')
+      const admin = await as(ADMIN, 'admin')
+      const generic = { code: 'INTERNAL_SERVER_ERROR', message: CLOUD_SESSION_READ_FAILED }
+      const moved = alice.cloud.moveSession({ sessionId: session(ALICE), repo })
+      await expect(moved).rejects.toMatchObject(generic)
+      const seeded = admin.cloud.createAgent({
+        displayName: 'Seeded',
+        repo,
+        sourceSession: { sessionId: session(ADMIN), agent: 'codex' },
+      })
+      await expect(seeded).rejects.toMatchObject(generic)
+      for (const attempt of [moved, seeded]) {
+        const error = await attempt.catch((caught: unknown) => caught)
+        expect(JSON.stringify(error)).not.toContain('SQLITE_BUSY')
+        expect((error as { cause?: unknown }).cause).toBeUndefined()
+      }
+      expect(read).toHaveBeenCalled()
+      expect(cloud.createdAgents).toEqual([])
+    } finally {
+      read.mockRestore()
+    }
+  })
+})
+
+/**
+ * A NEW AGENT IS SEEDED FROM THE CALLER'S OWN SESSION ONLY (POD-7612).
+ * `cloud.createAgent` is admin-only, and on hosted a workspace has several
+ * admins; sessions stay private from all of them (design §2.3). The source
+ * goes through the same gate as a move, before anything is read, forwarded or
+ * provisioned, and what reaches the provider is built from the session's row.
+ */
+describe('cloud.createAgent seeds from the caller’s own session only', () => {
+  const open: SessionStore[] = []
+  afterEach(async () => {
+    await open[0]?.close()
+    open.length = 0
+  })
+
+  const ADMIN = asUserId('usr_seed_admin')
+  const ALICE = asUserId('usr_seed_alice')
+  const repo = { provider: 'github', owner: 'madeinorbit', name: 'podium' } as const
+
+  async function world() {
+    const [store] = await openWorkspaceStores(['ws_cloud_seed'], { path: ':memory:' })
+    open.push(store)
+    for (const [id, role] of [
+      [ADMIN, 'admin'],
+      [ALICE, 'member'],
+    ] as const) {
+      await memberFacts(store).create({
+        id,
+        displayName: id,
+        email: null,
+        role,
+        createdAt: '2026-11-25T10:00:00.000Z',
+        disabledAt: null,
+      })
+    }
+    const cloud = captureCloudProvider()
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const repos = new RepoRegistry(registry, registry.sessionStore)
+    const superagent = await SuperagentService.create(
+      registry.modules,
+      repos,
+      registry.sessionStore,
+    )
+    const sessionOf = new Map<UserId, SessionId>()
+    for (const id of [ADMIN, ALICE]) {
+      const machineId = asMachineId(`machine-${id}`)
+      await store.machines.upsertMachine({
+        id: machineId,
+        name: machineId,
+        hostname: machineId,
+        tokenHash: `${machineId}-token`,
+        ownerUserId: id,
+        assignment: { server: false, agentExecution: true },
+      })
+      await attachDaemonWithInventory(registry, machineId)
+      const { sessionId } = await registry.modules.issueSessionLifecycle.resumeSession({
+        ownerUserId: id,
+        agentKind: 'codex',
+        cwd: `/workspace/${id}`,
+        resume: { kind: 'codex-thread', value: `thread-${id}` },
+        conversationId: `conversation-${id}`,
+        title: `${id}'s session`,
+        machineId,
+        spawnedBy: 'user',
+      })
+      sessionOf.set(id, sessionId)
+    }
+    const as = async (user: UserId, role: 'admin' | 'member') => {
+      const { capability } = userCommandPrincipal(registry.workspaceId, user, role)
+      return appRouter.createCaller({
+        registry,
+        repos,
+        boundWorkspace: registry.sessionStore.workspaceId,
+        superagent,
+        cloud: cloud.provider,
+        capability,
+        principal: await registry.modules.sessions.principalFor(capability),
+      })
+    }
+    return { cloud, as, session: (owner: UserId) => sessionOf.get(owner)! }
+  }
+
+  const notFound = { code: 'NOT_FOUND', message: 'session not found' }
+  const seed = (sourceSession: {
+    sessionId: SessionId
+    agent: 'codex' | 'claude-code'
+    resumeRef?: string
+    cwd?: string
+    machineId?: ReturnType<typeof asMachineId>
+  }) => ({ displayName: 'Seeded agent', repo, sourceSession })
+
+  it('an admin naming a member’s session is refused exactly like a missing one', async () => {
+    const { cloud, as, session } = await world()
+    const admin = await as(ADMIN, 'admin')
+    // Even with every field the member's row holds, stated correctly.
+    await expect(
+      admin.cloud.createAgent(
+        seed({
+          sessionId: session(ALICE),
+          agent: 'codex',
+          resumeRef: `thread-${ALICE}`,
+          cwd: `/workspace/${ALICE}`,
+          machineId: asMachineId(`machine-${ALICE}`),
+        }),
+      ),
+    ).rejects.toMatchObject(notFound)
+    await expect(
+      admin.cloud.createAgent(seed({ sessionId: 'ses_missing' as SessionId, agent: 'codex' })),
+    ).rejects.toMatchObject(notFound)
+    expect(cloud.createdAgents).toEqual([])
+  })
+
+  it('a member is refused the command, foreign source or missing alike', async () => {
+    const { cloud, as, session } = await world()
+    const alice = await as(ALICE, 'member')
+    const foreign = await alice.cloud
+      .createAgent(seed({ sessionId: session(ADMIN), agent: 'codex' }))
+      .catch((error: unknown) => error)
+    const missing = await alice.cloud
+      .createAgent(seed({ sessionId: 'ses_missing' as SessionId, agent: 'codex' }))
+      .catch((error: unknown) => error)
+    expect(foreign).toMatchObject({ code: 'FORBIDDEN' })
+    expect(missing).toMatchObject({
+      code: (foreign as { code: string }).code,
+      message: (foreign as { message: string }).message,
+    })
+    expect(cloud.createdAgents).toEqual([])
+  })
+
+  it('the owner seeds from their own session, and the row is what is forwarded', async () => {
+    const { cloud, as, session } = await world()
+    const admin = await as(ADMIN, 'admin')
+    await admin.cloud.createAgent(seed({ sessionId: session(ADMIN), agent: 'codex' }))
+    expect(cloud.createdAgents.at(-1)?.sourceSession).toEqual({
+      sessionId: session(ADMIN),
+      agent: 'codex',
+      resumeRef: `thread-${ADMIN}`,
+      cwd: `/workspace/${ADMIN}`,
+      machineId: asMachineId(`machine-${ADMIN}`),
+    })
+  })
+
+  it('the owner cannot pair their session with another machine or resume ref', async () => {
+    const { cloud, as, session } = await world()
+    const admin = await as(ADMIN, 'admin')
+    await expect(
+      admin.cloud.createAgent(
+        seed({
+          sessionId: session(ADMIN),
+          agent: 'codex',
+          machineId: asMachineId(`machine-${ALICE}`),
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: 'sourceSession.machineId does not match the session',
+    })
+    await expect(
+      admin.cloud.createAgent(
+        seed({ sessionId: session(ADMIN), agent: 'codex', resumeRef: `thread-${ALICE}` }),
+      ),
+    ).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: 'sourceSession.resumeRef does not match the session',
+    })
+    expect(cloud.createdAgents).toEqual([])
   })
 })

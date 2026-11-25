@@ -88,6 +88,7 @@ import {
   resolveSessionTarget,
   SESSION_NOT_FOUND,
   type SessionAccessDeps,
+  SessionGateRefusal,
   type SessionTargetRow,
 } from './session-access'
 import type { ExplicitWake } from './session-revival'
@@ -376,7 +377,9 @@ export function assertMachineUseFor(
 ): void {
   const failure = checkMachineUse(principal, machineId, ownership)
   if (!failure) return
-  throw new Error(machineAccessMessage(failure, machineId, ownership.rowFor(machineId)?.name))
+  throw new SessionGateRefusal(
+    machineAccessMessage(failure, machineId, ownership.rowFor(machineId)?.name),
+  )
 }
 
 /** What {@link commandSessionTarget} reads through. */
@@ -419,7 +422,9 @@ export async function commandSessionTarget(
   const resolved = await resolveSessionTarget(principal, sessionId, deps.access)
   if (resolved.kind === 'absent') return undefined
   if (resolved.kind === 'ambiguous') {
-    throw new Error(ambiguousSessionPrefixMessage(resolved.prefix, resolved.candidates))
+    throw new SessionGateRefusal(
+      ambiguousSessionPrefixMessage(resolved.prefix, resolved.candidates),
+    )
   }
   await assertMayCommandSession(principal, resolved.session, proc, deps.access, deps.overrideScope)
   const row = await deps.sessionById(resolved.session.sessionId)

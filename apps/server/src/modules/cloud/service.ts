@@ -44,6 +44,7 @@
  * "unauthorized stays distinguishable from unreachable" true.
  */
 
+import { createLogger } from '@podium/logger'
 import { isAgentKind, type SessionId, type WorkspaceId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import {
@@ -61,7 +62,9 @@ import { harnessSupportsCloud } from '../../harness-manifest'
 import type { RegistryModules, SessionRegistry } from '../../relay'
 import { canonicalizeRepoOrigin } from '../../repo-id'
 import type { RepoRegistry } from '../../repo-registry'
-import { SESSION_NOT_FOUND } from '../sessions/session-access'
+import { SESSION_NOT_FOUND, SessionGateRefusal } from '../sessions/session-access'
+
+const log = createLogger('server:cloud')
 
 export interface CloudServiceDeps {
   /** Absent on deployments with no cloud provider; the disabled provider is
@@ -81,7 +84,10 @@ export interface CloudServiceDeps {
    * alike, so the move is no existence oracle. A refusal past the owner check
    * (an agent's issue scope, machine `use` on the session's host) throws.
    */
-  readonly commandableSession: (sessionId: SessionId) => Promise<CloudSourceSession | undefined>
+  readonly commandableSession: (
+    sessionId: SessionId,
+    proc: CloudSessionProc,
+  ) => Promise<CloudSourceSession | undefined>
   readonly repos: RepoRegistry
   readonly store: SessionRegistry['sessionStore']
   /**
@@ -91,6 +97,9 @@ export interface CloudServiceDeps {
    */
   readonly hibernateLocal: (sessionId: SessionId) => Promise<{ ok: boolean; reason?: string }>
 }
+
+/** The commands that read a session through the gate, named to its scope check. */
+export type CloudSessionProc = 'cloud.moveSession' | 'cloud.createAgent'
 
 /** The session row a move reads: the sessions service's own by-id type. */
 export type CloudSourceSession = NonNullable<
@@ -102,6 +111,10 @@ export type CloudSourceSession = NonNullable<
 export type CloudMachineInput = Omit<CloudMachineRequest, 'tenantId'>
 export type CloudAgentInput = Omit<CloudAgentRequest, 'tenantId'>
 
+/** What a caller may say about the session a new agent is seeded from. Only the
+ *  id picks the session; the rest must agree with its row (see `sourceOf`). */
+type StatedSourceSession = NonNullable<CloudAgentInput['sourceSession']>
+
 /** The shipped mapping, moved verbatim: an unconfigured provider is a
  *  PRECONDITION, not an internal error. */
 function cloudError(error: unknown): never {
@@ -110,6 +123,9 @@ function cloudError(error: unknown): never {
   }
   throw error
 }
+
+/** The one answer a failed read beneath the session gate gives the caller. */
+export const CLOUD_SESSION_READ_FAILED = 'could not read the session; try again'
 
 /** An unknown runtime id and another workspace's fail alike (the contract's
  *  D20.2 note), so the id space cannot be iterated. */
@@ -145,10 +161,27 @@ export class CloudService {
     }
   }
 
+  /**
+   * Provision a cloud agent. A `sourceSession` is gated FIRST, before anything
+   * is read, forwarded or provisioned (POD-7612): it must be a session the
+   * caller may command, which is its owner's alone, admin or not, exactly as
+   * for `moveSession`. A session that is someone else's answers as one that
+   * does not exist. What is forwarded is then built from the session's own row,
+   * never from the caller's copy of it.
+   */
   async createCloudAgent(input: CloudAgentInput) {
+    const { sourceSession: stated, ...rest } = input
+    const sourceSession = stated === undefined ? undefined : await this.sourceOf(stated)
     try {
       const tenantId = this.tenantOfConfiguredProvider()
-      return this.owned(await this.provider.createCloudAgent({ ...input, tenantId }), tenantId)
+      return this.owned(
+        await this.provider.createCloudAgent({
+          ...rest,
+          ...(sourceSession ? { sourceSession } : {}),
+          tenantId,
+        }),
+        tenantId,
+      )
     } catch (error) {
       cloudError(error)
     }
@@ -245,7 +278,7 @@ export class CloudService {
     repo?: CloudRepoRequest | undefined
     hibernateLocal?: boolean | undefined
   }) {
-    const session = await this.commandable(input.sessionId)
+    const session = await this.commandable(input.sessionId, 'cloud.moveSession')
     if (!session) {
       throw new TRPCError({ code: 'NOT_FOUND', message: SESSION_NOT_FOUND })
     }
@@ -306,19 +339,59 @@ export class CloudService {
     }
   }
 
-  /** The gate's throw past the owner check (an agent's scope, machine `use`)
-   *  as the FORBIDDEN it is. Its own not-found, should the owner check throw
-   *  rather than answer, stays the one not-found every refusal gives. */
-  private async commandable(sessionId: SessionId): Promise<CloudSourceSession | undefined> {
+  /**
+   * The session a new agent is seeded from, as the provider should see it: the
+   * caller's own session, or NOT_FOUND (one answer for missing and foreign
+   * alike), then built from its row as `moveSession` builds it. A field the
+   * caller stated must agree with the row: the session is the caller's own by
+   * now, so the refusal hides nothing, and it keeps a caller from pairing their
+   * session's id with another machine or resume ref.
+   */
+  private async sourceOf(stated: StatedSourceSession) {
+    const session = await this.commandable(stated.sessionId, 'cloud.createAgent')
+    if (!session) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: SESSION_NOT_FOUND })
+    }
+    const source = toCloudAgentSourceSession({
+      sessionId: session.sessionId,
+      agent: this.cloudAgentKind(session.agentKind),
+      resume: session.resume,
+      cwd: session.cwd,
+      ...(session.machineId ? { machineId: session.machineId } : {}),
+    })
+    for (const field of ['agent', 'resumeRef', 'cwd', 'machineId'] as const) {
+      if (stated[field] !== undefined && stated[field] !== source[field]) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `sourceSession.${field} does not match the session`,
+        })
+      }
+    }
+    return source
+  }
+
+  /**
+   * The gate's own refusals past the owner check (an agent's scope, machine
+   * `use`) as the FORBIDDEN they are, and its not-found, should the owner check
+   * throw rather than answer, as the one not-found every refusal gives. Anything
+   * else is a failed read beneath the gate (a store or driver error): its detail
+   * goes to the server log, and the caller gets a generic internal error rather
+   * than a permission refusal carrying the driver's text (POD-7612).
+   */
+  private async commandable(
+    sessionId: SessionId,
+    proc: CloudSessionProc,
+  ): Promise<CloudSourceSession | undefined> {
     try {
-      return await this.deps.commandableSession(sessionId)
+      return await this.deps.commandableSession(sessionId, proc)
     } catch (error) {
       if (error instanceof TRPCError) throw error
-      if (error instanceof Error && error.message === SESSION_NOT_FOUND) return undefined
-      throw new TRPCError({
-        code: 'FORBIDDEN',
-        message: error instanceof Error ? error.message : String(error),
-      })
+      if (error instanceof SessionGateRefusal) {
+        if (error.message === SESSION_NOT_FOUND) return undefined
+        throw new TRPCError({ code: 'FORBIDDEN', message: error.message })
+      }
+      log.error('cloud session gate failed', { sessionId, error })
+      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: CLOUD_SESSION_READ_FAILED })
     }
   }
 

@@ -29,22 +29,22 @@ import { lifecycleEditsFor } from '../sessions/command-ctx'
 import { commandSessionTarget } from '../sessions/command-plane'
 import { asyncSessionIssueAccess } from '../sessions/session-access'
 import { CLOUD_COMMANDS_TRPC } from './registry'
-import { CloudService, type CloudSourceSession } from './service'
+import { CloudService, type CloudSessionProc, type CloudSourceSession } from './service'
 
 /**
  * The session a move may read, as the caller (POD-7606): the session commands'
- * own target gate, so a move reaches exactly the sessions the caller could
- * hibernate or stop. That is the session's owner, and nobody else's, admin or
- * not (design §2.3); an agent also needs its issue scope. The id is matched
- * exactly, as before: a move never resolves a prefix. A call with no principal
- * reaches nothing.
+ * own target gate, so a move, and a new agent seeded from a session (POD-7612),
+ * reaches exactly the sessions the caller could hibernate. That is the
+ * session's owner, and nobody else's, admin or not (design §2.3); an agent also
+ * needs its issue scope. The id is matched exactly, as before: a move never
+ * resolves a prefix. A call with no principal reaches nothing.
  */
 const commandableAs =
   (state: FamilyState, principal: CommandPrincipal | undefined) =>
-  async (sessionId: SessionId): Promise<CloudSourceSession | undefined> => {
+  async (sessionId: SessionId, proc: CloudSessionProc): Promise<CloudSourceSession | undefined> => {
     if (principal === undefined) return undefined
     const sessions = state.modules.sessions
-    const gated = await commandSessionTarget(principal, sessionId, 'cloud.moveSession', {
+    const gated = await commandSessionTarget(principal, sessionId, proc, {
       access: {
         sessionById: async (id) => await sessions.sessionById(id),
         ownerOf: async (id) => (await sessions.sessionOwner(id))?.owner,

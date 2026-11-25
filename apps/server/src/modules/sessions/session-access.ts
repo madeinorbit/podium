@@ -134,6 +134,17 @@ export type SessionTarget =
 /** The message every absent target produces, on every command. */
 export const SESSION_NOT_FOUND = 'session not found'
 
+/**
+ * A refusal the session target gate makes BY ITS OWN RULE: not found, an
+ * agent's issueless target, machine `use`, an ambiguous prefix (POD-7612).
+ *
+ * It is still a plain `Error` with the same message and name, so every caller
+ * that reads the message reads it unchanged. The type is for a caller that maps
+ * errors: it tells the gate's answer from a failure of a read beneath it (a
+ * store or driver error), whose text is for the server log and never the client.
+ */
+export class SessionGateRefusal extends Error {}
+
 /** The message an ambiguous prefix produces — names the candidates, so it can
  *  never be mistaken for "the session is gone". Sorted for determinism. */
 export function ambiguousSessionPrefixMessage(
@@ -205,7 +216,8 @@ export async function assertMayCommandSession(
   if (principal.kind === 'system') return
   // The private-class gate again, for a caller that did not resolve the target
   // through `resolveSessionTarget`: one answer, whichever door was used.
-  if (!(await ownerReaches(principal, session, deps))) throw new Error(SESSION_NOT_FOUND)
+  if (!(await ownerReaches(principal, session, deps)))
+    throw new SessionGateRefusal(SESSION_NOT_FOUND)
   // A person driving their own session needs nothing more: not write access to
   // the task it sits on (Bob drives his session on Alice's task), and no scope.
   if (principal.kind === 'user') return
@@ -229,6 +241,8 @@ export async function assertMayCommandSession(
     isSpawnedBy(session.spawnedBy, { kind: 'session', id: capability.actorSessionId })
   const confirmedStop = overrideScope === true && proc === 'sessions.stop'
   if (!isParent && !confirmedStop) {
-    throw new Error('target session has no issue; only its parent or the operator may message it')
+    throw new SessionGateRefusal(
+      'target session has no issue; only its parent or the operator may message it',
+    )
   }
 }
