@@ -180,6 +180,8 @@ export const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = 
   ['apps/server/src/store/credentials.ts:credentialsByIds', SIZES],
   ['apps/server/src/store/credentials.ts:allowedMachinesOfMany', SIZES],
   ['apps/server/src/store/grants.ts:grantsToGrantees', SIZES],
+  // A removed member's keys (POD-7594): their grants, chunked at 500.
+  ['apps/server/src/store/grants.ts:deleteGrantsOfCredentials', SIZES],
   // The notice inbox (POD-6881): the open notices a record build names, chunked at 500.
   ['apps/server/src/store/notices.ts:openOfIds', SIZES],
   // A Concertmaster's conversation (POD-7211): the entries a record build names, chunked at 500.

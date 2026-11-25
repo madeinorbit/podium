@@ -1414,8 +1414,11 @@ describe('after the daemon reconnects (Task 5)', () => {
       expect(await refuses(store, bobs)).toHaveLength(0)
     })
 
-    // The coordinator's trace: disabling the only admin, who is also the host's
-    // custodian, must stop that person's own session as it stops anyone's.
+    // The sole-admin trace: disabling the only admin, who is also the host's
+    // custodian, must stop that person's own session as it stops anyone's. It
+    // did not: an in-process view read answers nothing while no admin is
+    // active, so the session read as not running. Its standing now comes from
+    // the session's facts. Each step is recorded, so a failure says where.
     it("disabling the only admin stops that admin's own session", async () => {
       const { store, alice, reg, daemon, alicesSession } = await twoMembers()
       const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })

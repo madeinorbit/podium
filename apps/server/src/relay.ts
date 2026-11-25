@@ -3107,7 +3107,7 @@ export class SessionRegistry {
       }
     }
     const raiseStopFlag = async (sessionId: SessionId, prompt: string): Promise<void> => {
-      if ((await sessionsSvc.sessionById(sessionId))?.headless) return
+      if ((await sessionsSvc.readSessionFactsById(sessionId))?.headless) return
       const spec = {
         kind: 'recovery' as const,
         payload: {
@@ -3167,8 +3167,12 @@ export class SessionRegistry {
             ownerUserId: facts.ownerUserId,
             credentialId: credentialNamedBy(facts),
           })),
+        // From the session's facts, not the projected view: an in-process view
+        // read answers nothing while the instance has no active admin, so with
+        // the only admin disabled every session read as not running and none
+        // was stopped (POD-7594, the sole-admin trace).
         standing: async (sessionId) => {
-          const session = await sessionsSvc.sessionById(sessionId)
+          const session = await sessionsSvc.readSessionFactsById(sessionId)
           if (!session || session.status === 'hibernated' || session.status === 'exited') {
             return 'not-running'
           }
@@ -3197,7 +3201,7 @@ export class SessionRegistry {
           // and refused with the reason (POD-7594, F5).
           // The interrupt is not awaited: its turn's own end reports the outcome,
           // and a judgement of many sessions does not wait on each daemon.
-          if ((await sessionsSvc.sessionById(sessionId))?.headless) {
+          if ((await sessionsSvc.readSessionFactsById(sessionId))?.headless) {
             void sessionsSvc.headless.headlessInterrupt(sessionId)
             return
           }
@@ -5383,7 +5387,8 @@ export class SessionRegistry {
         return
       }
       void (async () => {
-        const session = await sessionsSvc.sessionById(sessionId)
+        // Facts, not the view: the view answers nothing with no active admin.
+        const session = await sessionsSvc.readSessionFactsById(sessionId)
         // A headless session's credential is its account (POD-7594, F5).
         const credentialId = session ? credentialNamedBy(session) : null
         if (enteredError && next.error && credentialId) {
