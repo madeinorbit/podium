@@ -77,6 +77,8 @@ export interface CollectionLoaderPort {
   /** All surviving disk-index holders of this record are stale; one fresh holder clears it. */
   recordStale?(entity: string, id: string): boolean
   wasRefused(spec: LoaderInstance): boolean
+  /** POD-7595 — forget a refusal (of one instance, or every one): asked again when next read. */
+  retryRefused?(spec?: LoaderInstance): void
   stubOf(entity: string, entityId: string): Readonly<Record<string, unknown>> | undefined
   stubsByParent(parentId: string): readonly string[]
   stubRows(

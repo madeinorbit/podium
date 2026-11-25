@@ -32,6 +32,7 @@ import { SideMap, SideSet, sideStateUpkeep, signalledRead } from '@podium/sync/s
 import { action, createAtom, type IAtom, runInAction, spy } from 'mobx'
 import { LOADING } from './loading'
 import { type Gone, NOT_VISIBLE } from './lookup'
+import type { Holding } from './shared/holding-relations'
 import type { CollectionLoaderPort, LoaderInstance } from './shared/source'
 
 /** The record kind of a pool entity whose records the loader fetches one by one. */
@@ -76,11 +77,16 @@ export function stagePriorityPage(stage: string, priority: number): LoaderInstan
   return { collection: 'issueProjection.byStagePriority', args: { stage, priority }, part: 'main' }
 }
 
-/** How a view reads an instance or a lookup: here, on its way, or not loadable offline. */
-export type Availability = 'complete' | 'refreshing' | 'loading' | 'offline'
+/**
+ * How a view reads an instance or a lookup: here, on its way, not loadable
+ * offline, or refused by the server (`unavailable`, POD-7595).
+ */
+export type Availability = 'complete' | 'refreshing' | 'loading' | 'offline' | 'unavailable'
 
 /** Freshness is separate from presence: refreshing answers remain usable. */
-export type Reading = 'here' | 'refreshing' | 'loading' | 'offline' | 'gone'
+export type Reading = 'here' | 'refreshing' | 'loading' | 'offline' | 'unavailable' | 'gone'
+
+export type { Holding }
 export type AnswerSource = LoaderInstance | { readonly entity: LoaderEntity; readonly id: string }
 
 /** Child counts as the issue close contract counts them: every child, only `done` completed. */
@@ -447,6 +453,7 @@ export class PoolCollections {
       this.connection.reportObserved()
       const loader = this.loader()
       if (loader?.isComplete(spec) !== undefined && loader.isStale?.(spec)) return 'refreshing'
+      if (loader?.isComplete(spec) === undefined && loader?.wasRefused(spec)) return 'unavailable'
       return (
         loader?.status(spec) ?? (this.fullDeviceFixture && !this.disposed ? 'complete' : 'loading')
       )
@@ -492,19 +499,20 @@ export class PoolCollections {
    * Without a
    * connection a load cannot start: the view shows "not available offline"
    * (`offline`), never an endless loading row; it recovers by itself when the
-   * connection returns and the record arrives.
+   * connection returns and the record arrives. An answer from an instance
+   * the server refused is `unavailable` (POD-7595): settled on what the
+   * device holds, never an endless loading row.
    */
   reading(answer: unknown, instances: readonly AnswerSource[] = []): Reading {
-    if (answer === LOADING) return this.online ? 'loading' : 'offline'
     if (typeof answer === 'object' && answer !== null && (answer as Gone).kind === 'gone')
       return 'gone'
-    return instances.some((spec) =>
-      'collection' in spec
-        ? this.status(spec) === 'refreshing'
-        : this.recordStale(spec.entity, spec.id),
+    const statuses = instances.map((spec) =>
+      'collection' in spec ? this.status(spec) : this.recordStale(spec.entity, spec.id),
     )
-      ? 'refreshing'
-      : 'here'
+    const refused = statuses.includes('unavailable')
+    if (answer === LOADING) return refused ? 'unavailable' : this.online ? 'loading' : 'offline'
+    if (statuses.some((status) => status === 'refreshing' || status === true)) return 'refreshing'
+    return refused ? 'unavailable' : 'here'
   }
 
   /** TRACKED: freshness of a lookup/search hit, regardless of which instance fetched it. */
@@ -529,8 +537,9 @@ export class PoolCollections {
       this.observeMarker(spec)
       this.holdWhileRead(spec)
       const marker = loader?.isComplete(spec)
-      if (marker === undefined) loader?.request([spec], 'visible')
-      return marker !== undefined && (marker.range === undefined || marker.range.end)
+      // A refused page is not asked again because it is read (`Holding`).
+      if (marker === undefined) return loader?.wasRefused(spec) === true ? false : this.ask(spec)
+      return marker.range === undefined || marker.range.end
     })
   }
 
@@ -544,7 +553,7 @@ export class PoolCollections {
       this.observeMarker(spec)
       this.holdWhileRead(spec)
       const marker = loader?.isComplete(spec)
-      if (marker === undefined) loader?.request([spec], 'visible')
+      if (marker === undefined && loader?.wasRefused(spec) !== true) this.ask(spec)
       return marker?.total ?? LOADING
     })
   }
@@ -567,31 +576,59 @@ export class PoolCollections {
 
   /**
    * TRACKED: whether the server answered the instance in full without its
-   * marker: it will not say the instance is complete. A reader that waits on
-   * `held` settles on this instead of asking again (`held` asks every time it
-   * is read and clears the refusal).
+   * marker, and the device does not hold it complete: it will not say the
+   * instance is complete. The reads below answer not held and ask for
+   * nothing more (`Holding`).
    */
   refused(spec: LoaderInstance): boolean {
     return this.behind(() => {
       this.observeMarker(spec)
-      return this.loader()?.wasRefused(spec) ?? false
+      const loader = this.loader()
+      return loader?.isComplete(spec) === undefined && (loader?.wasRefused(spec) ?? false)
     })
   }
 
   /**
-   * TRACKED: whether the device holds the instance complete; if not, ask
-   * for it at the front of the queue. The reader holds it while it reads it.
-   * Without a loader, false unless fullDevice explicitly vouches for a fixture.
+   * POD-7595 — ask for a refused instance again, or for every refused one: a
+   * view's "try again". Its readers read it as loading until it is answered.
+   * The connection's return and an access change retry by themselves.
+   */
+  retry(spec?: LoaderInstance): void {
+    // untracked-read: collections-retry
+    sideStateUpkeep(() => {
+      this.loader()?.retryRefused?.(spec)
+    })
+  }
+
+  /**
+   * TRACKED: whether the device holds the instance complete; if not, and
+   * the server has not refused it, ask for it at the front of the queue. The
+   * reader holds it while it reads it. Without a loader, false unless
+   * fullDevice explicitly vouches for a fixture. A refused instance answers
+   * false and asks for nothing: a reader that shows it reads `holding` to
+   * say it is unavailable.
    */
   held(spec: LoaderInstance): boolean {
+    return this.holding(spec) === 'held'
+  }
+
+  /** TRACKED: where a read of the instance stands (`Holding`); asks for it while loading. */
+  holding(spec: LoaderInstance): Holding {
     return this.behind(() => {
       const loader = this.loader()
-      if (loader === undefined) return this.fullDeviceFixture && !this.disposed
+      if (loader === undefined) return this.fullDeviceFixture && !this.disposed ? 'held' : 'loading'
       this.holdWhileRead(spec)
-      if (this.complete(spec)) return true
-      loader.request([spec], 'visible')
-      return false
+      if (this.complete(spec)) return 'held'
+      if (loader.wasRefused(spec)) return 'refused'
+      this.ask(spec)
+      return 'loading'
     })
+  }
+
+  /** Ask for an instance a reader waits on, at the front of the queue. The loader drops a refused one. */
+  private ask(spec: LoaderInstance): false {
+    this.loader()?.request([spec], 'visible')
+    return false
   }
 
   /**
@@ -829,15 +866,21 @@ export class PoolCollections {
    * false unless fullDevice explicitly vouches for a fixture.
    */
   treeHeld(id: string): boolean {
+    return this.treeHolding(id) === 'held'
+  }
+
+  /** TRACKED: where `treeHeld`'s read stands (`Holding`): a refused tree is not asked again. */
+  treeHolding(id: string): Holding {
     return this.behind(() => {
       const loader = this.loader()
-      if (loader === undefined) return this.fullDeviceFixture && !this.disposed
+      if (loader === undefined) return this.fullDeviceFixture && !this.disposed ? 'held' : 'loading'
       const own = this.complete(treeOf(id, 'main'))
       const root = own ? id : (this.topOf(id) ?? id)
       this.holdWhileRead(treeOf(root, 'main'))
-      if (own || this.complete(treeOf(root, 'main'))) return true
-      loader.request([treeOf(root, 'main')], 'visible')
-      return false
+      if (own || this.complete(treeOf(root, 'main'))) return 'held'
+      if (loader.wasRefused(treeOf(root, 'main'))) return 'refused'
+      this.ask(treeOf(root, 'main'))
+      return 'loading'
     })
   }
 
@@ -855,9 +898,18 @@ export class PoolCollections {
    * read under it from that one instance.
    */
   subtreeHeld(id: string): boolean {
+    return this.subtreeHolding(id) === 'held'
+  }
+
+  /**
+   * TRACKED: where `subtreeHeld`'s read stands (`Holding`). An ancestor's
+   * tree the server refused is not waited on; the source's own refused tree
+   * is not asked again.
+   */
+  subtreeHolding(id: string): Holding {
     return this.behind(() => {
       const loader = this.loader()
-      if (loader === undefined) return this.fullDeviceFixture && !this.disposed
+      if (loader === undefined) return this.fullDeviceFixture && !this.disposed ? 'held' : 'loading'
       const chain = this.chainOf(id)
       // The widest complete tree: once an ancestor's completes, the source's
       // own subtree is no longer held for this read.
@@ -865,19 +917,20 @@ export class PoolCollections {
         const tree = treeOf(at, 'main')
         if (!this.complete(tree)) continue
         this.holdWhileRead(tree)
-        return true
+        return 'held'
       }
       // An ancestor's: the source's own tree is asked for below, as every read asks.
       for (const at of chain.slice(1)) {
         const tree = treeOf(at, 'main')
-        if (!this.heldByView(tree)) continue
+        if (!this.heldByView(tree) || loader.wasRefused(tree)) continue
         this.holdWhileRead(tree)
-        return false
+        return 'loading'
       }
       const own = treeOf(id, 'main')
       this.holdWhileRead(own)
-      loader.request([own], 'visible')
-      return false
+      if (loader.wasRefused(own)) return 'refused'
+      this.ask(own)
+      return 'loading'
     })
   }
 

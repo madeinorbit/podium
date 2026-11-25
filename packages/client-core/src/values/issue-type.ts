@@ -80,6 +80,13 @@ export type IssueBodyFields = {
   readonly notesUpdatedAt?: string | undefined | typeof LOADING
   /** The human summary's text; empty when there is none; `LOADING` until it is on the device. */
   readonly description: string | typeof LOADING
+  /**
+   * POD-7595 — the server refused the brief's or the description's records:
+   * the field answers `LOADING` and will not load by itself. Absent on a
+   * painted row, which carries its text.
+   */
+  readonly briefUnavailable?: boolean
+  readonly descriptionUnavailable?: boolean
 }
 
 /** An issue a screen shows with its bodies: `IssueModel` and `PageIssue` are one. */

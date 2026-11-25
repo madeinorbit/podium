@@ -139,7 +139,10 @@ export interface ModelHost {
   /** The pool's relation reader: what the relation getters follow. */
   readonly relations: RelationReader
   /** The device's collections: a holding relation's read holds its instance or its tree (POD-7545, POD-7582). */
-  readonly collections: Pick<PoolCollections, 'held' | 'subtreeHeld' | 'treeHeld'>
+  readonly collections: Pick<
+    PoolCollections,
+    'held' | 'holding' | 'subtreeHeld' | 'subtreeHolding' | 'treeHeld'
+  >
   /** The addressed model: here, loading, or gone. */
   model<E extends EntityName>(entity: E, id: string): Lookup<ModelOf[E]>
   /** Where a row stands; an absent one answers `loading` and its load starts (first access). */
@@ -347,8 +350,19 @@ export interface LazyCollection<M> {
    * a rebootstrap (its marker stays, stale). Offline, `LOADING` reads as
    * `offline` through `pool.collections.reading`. Any other collection answers
    * `LOADING` while a member is on its way.
+   *
+   * A holding relation's instance the server refused SETTLES (POD-7595):
+   * `members` stays `LOADING` (what is in memory is not every member),
+   * `unavailable` is true, and nothing is asked again because it is read.
    */
   readonly members: readonly M[] | typeof LOADING
+  /**
+   * TRACKED: the server refused what this holding relation reads for its
+   * owner: `members` answers `LOADING` and will not load by itself. A view
+   * shows the list as unavailable, never as loading or empty. False for any
+   * other collection.
+   */
+  readonly unavailable: boolean
 }
 
 class ModelCollection implements LazyCollection<EntityModel> {
@@ -383,10 +397,15 @@ class ModelCollection implements LazyCollection<EntityModel> {
 
   @lazy({ equals: compareShallow })
   get members(): readonly EntityModel[] | typeof LOADING {
-    if (this.holding !== undefined && !this.holding(this.host.collections, this.owner))
+    if (this.holding !== undefined && this.holding(this.host.collections, this.owner) !== 'held')
       return LOADING
     if (this.loading > 0) return LOADING
     return this.ready
+  }
+
+  @lazy
+  get unavailable(): boolean {
+    return this.holding?.(this.host.collections, this.owner) === 'refused'
   }
 }
 
@@ -475,6 +494,17 @@ export class IssueModel extends EntityModel {
     if (painted !== undefined) return painted as string
     const records = this.briefRecords.members
     return records === LOADING ? LOADING : records[0]?.text
+  }
+  /**
+   * POD-7595 — the server refused the brief's or the description's records:
+   * the field answers LOADING and will not load by itself. A view says the
+   * text is unavailable, never "loading" or an empty text to edit.
+   */
+  @lazy get briefUnavailable(): boolean {
+    return this.briefRecords.unavailable
+  }
+  @lazy get descriptionUnavailable(): boolean {
+    return this.descriptionRecords.unavailable
   }
   @lazy({ equals: compareShallow }) get panelTodos(): IssuePanelTodoModel[] | typeof LOADING {
     const records = this.panelTodoRecords.members

@@ -14,7 +14,11 @@ import { type CollectionServer, session } from '../../sync/src/conformance/colle
 import { issuePages } from './issue-page'
 import { LOADING } from './loading'
 import { closedValue, ISSUE } from './test-support/device.test.fixture'
-import { type EmptyDevice, openEmptyDevice } from './test-support/empty-device.test.fixture'
+import {
+  type EmptyDevice,
+  openEmptyDevice,
+  refuseCollections,
+} from './test-support/empty-device.test.fixture'
 
 const devices: EmptyDevice[] = []
 afterEach(() => {
@@ -156,25 +160,17 @@ describe('the issue page of a closed issue opened from search', () => {
     expect(device.liveHolds(TREE)).toBe(0)
   })
 
-  it('a refused session history settles on what the device holds, asked once', async () => {
+  it('a refused session history reads as unavailable, never partial, asked once', async () => {
     const device = await openOldIssue()
     // The server answers the sessions of the issue without saying they are complete.
-    const answer = device.server.collections.bind(device.server)
-    device.server.collections = (instances) =>
-      (async function* () {
-        for await (const chunk of answer(instances))
-          yield chunk.complete === undefined
-            ? chunk
-            : {
-                ...chunk,
-                complete: chunk.complete.filter(
-                  (marker) => marker.collection !== 'session.ofIssue',
-                ),
-              }
-      })()
-    const page = openPage(device, (views) => ids(views.row('old').memberSessions))
+    refuseCollections(device.server, (instance) => instance.collection === 'session.ofIssue')
+    const page = openPage(device, (views) => ({
+      sessions: ids(views.row('old').memberSessions),
+      unavailable: views.row('old').sessionsUnavailable,
+    }))
     await device.untilIdle()
-    expect(page.answers.at(-1)).toEqual(['now', 'past'])
+    // POD-7595: not the sessions in memory as if they were all (POD-7579 settled on them).
+    expect(page.answers.at(-1)).toEqual({ sessions: 'LOADING', unavailable: true })
     expect(device.pool.collections.refused(SESSIONS)).toBe(true)
     await device.untilIdle()
     expect(

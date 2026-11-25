@@ -18,7 +18,7 @@ import { missionView } from './mission-view'
 import type { ModelOf, SessionModel } from './models'
 import type { MobxPool } from './pool'
 import { createQueryResult } from './query-result'
-import { holdingInstanceOf } from './shared/holding-relations'
+import { type Holding, holdingInstanceOf } from './shared/holding-relations'
 import { SCHEMA } from './shared/schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -58,6 +58,8 @@ function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
   const child = {
     get: (): Loaded<PageIssue[]> =>
       pool.collections.subtreeHeld(issue.id) ? childList.get() : LOADING,
+    /** The server refused the subtree: `get` stays LOADING (POD-7595). */
+    unavailable: (): boolean => pool.collections.subtreeHolding(issue.id) === 'refused',
     dispose: () => childList.dispose(),
   }
   const seats = (
@@ -127,11 +129,14 @@ function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
         }
       },
     })
+    const holding = (): Holding =>
+      hold === 'tree'
+        ? pool.collections.treeHolding(issue.id)
+        : sessionsHolding(pool, issue.id, relation)
     return {
-      get: (): Loaded<DetailSession[]> =>
-        (hold === 'tree' ? seatsHeld(pool, issue.id) : sessionsHeld(pool, issue.id, relation))
-          ? list.get()
-          : LOADING,
+      get: (): Loaded<DetailSession[]> => (holding() === 'held' ? list.get() : LOADING),
+      /** The server refused what the list waits for: `get` stays LOADING (POD-7595). */
+      unavailable: (): boolean => holding() === 'refused',
       dispose: () => list.dispose(),
     }
   }
@@ -247,13 +252,23 @@ function sessionsHeld(
   issueId: string,
   relation: keyof typeof SESSION_HOLDS,
 ): boolean {
+  return sessionsHolding(pool, issueId, relation) === 'held'
+}
+
+/**
+ * Where `sessionsHeld` stands (`Holding`). A history the server refused is
+ * not held, so no roster or count takes the sessions in memory for all of
+ * them, and it is not asked again because it is read (POD-7595, replacing
+ * POD-7579's narrow settle on what the device holds).
+ */
+function sessionsHolding(
+  pool: MobxPool,
+  issueId: string,
+  relation: keyof typeof SESSION_HOLDS,
+): Holding {
   const instance = SESSION_HOLDS[relation]
-  if (instance === undefined) return true
-  // The server answered it without a marker: it will never say the history
-  // is complete. Settle on what the device holds rather than asking again on
-  // every read (POD-7579 review F7).
-  if (pool.collections.refused(instance(issueId))) return true
-  return pool.collections.held(instance(issueId))
+  if (instance === undefined) return 'held'
+  return pool.collections.holding(instance(issueId))
 }
 
 /**
@@ -368,6 +383,26 @@ export class IssuePageRow {
   }
   get children() {
     return this.lists.children.get() ?? EMPTY_CHILDREN
+  }
+  /**
+   * POD-7595 — the server refused what a list waits for: it answers LOADING
+   * and will not load by itself. A screen says the list is unavailable and
+   * shows no rows, no empty state and no count.
+   */
+  get childrenUnavailable(): boolean {
+    return this.lists.children.unavailable()
+  }
+  /** The issue's session history (`session.ofIssue`) was refused: rosters and counts. */
+  get sessionsUnavailable(): boolean {
+    return this.lists.members.unavailable() || this.lists.dockActive.unavailable()
+  }
+  /** The sessions born on the issue (`session.bornOf`) were refused: "moved on". */
+  get movedOnUnavailable(): boolean {
+    return this.lists.moved.unavailable()
+  }
+  /** The issue's tree was refused: a dock sub-task row's open seats. */
+  get dockOpenUnavailable(): boolean {
+    return this.lists.dockOpen.unavailable()
   }
   get memberSessions() {
     return this.lists.members.get() ?? EMPTY_DETAIL_SESSIONS

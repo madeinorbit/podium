@@ -101,23 +101,37 @@ export type HoldingRead =
   | { readonly collection: string; readonly tree: true }
   | { readonly problem: string }
 
+/**
+ * POD-7595 — where a holding read stands: the device holds what it reads
+ * (`held`), it is on its way (`loading`), or the server answered without
+ * saying it is complete (`refused`). A refused read SETTLES: it is not held,
+ * so no reader takes what happens to be in memory for the whole answer (an
+ * empty list, a zero count, an empty description), and nothing is asked
+ * again because it is read. A view that shows it says it is unavailable,
+ * never loading. It is asked again only on a real trigger: the connection
+ * returns, this viewer's access changes, or a view retries it
+ * (`PoolCollections.retry`).
+ */
+export type Holding = 'held' | 'loading' | 'refused'
+
 /** What a holding read asks of the pool's collections (`collections.ts`). */
 export interface HoldingCollections {
-  held(spec: LoaderInstance): boolean
-  subtreeHeld(id: string): boolean
+  holding(spec: LoaderInstance): Holding
+  subtreeHolding(id: string): Holding
 }
 
 /**
- * Whether the device holds, for `owner`, all a holding relation reads: its
- * instance, or its tree. TRACKED like the reads it makes: the reader holds
- * what it reads while it reads it.
+ * Where, for `owner`, all a holding relation reads stands: its instance, or
+ * its tree, is held, on its way, or refused by the server (settled,
+ * POD-7595). TRACKED like the reads it makes: the reader holds what it reads
+ * while it reads it.
  */
-export type HoldingCheck = (collections: HoldingCollections, owner: string) => boolean
+export type HoldingCheck = (collections: HoldingCollections, owner: string) => Holding
 
 /** The check a holding read makes, from the derivation. */
 export function holdingCheckOf(read: HoldingRead): HoldingCheck | undefined {
-  if ('instance' in read) return (collections, owner) => collections.held(read.instance(owner))
-  if ('tree' in read) return (collections, owner) => collections.subtreeHeld(owner)
+  if ('instance' in read) return (collections, owner) => collections.holding(read.instance(owner))
+  if ('tree' in read) return (collections, owner) => collections.subtreeHolding(owner)
   return undefined
 }
 

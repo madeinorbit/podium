@@ -247,3 +247,27 @@ export async function openEmptyDevice(options: DeviceOptions = {}) {
     },
   })
 }
+
+/** What `refuseCollections` matches: an instance's collection and arguments. */
+export type RefusedInstance = { collection: string; args?: Readonly<Record<string, unknown>> }
+
+/**
+ * POD-7595 — the server answers every instance `refuses` matches in full,
+ * WITHOUT its marker, while `state.on`: it never says they are complete.
+ * Install it in the `world` (before the first download) or after.
+ */
+export function refuseCollections(
+  server: CollectionServer,
+  refuses: (instance: RefusedInstance) => boolean,
+  state: { on: boolean } = { on: true },
+): { on: boolean } {
+  const answer = server.collections.bind(server)
+  server.collections = (instances) =>
+    (async function* () {
+      for await (const chunk of answer(instances))
+        yield !state.on || chunk.complete === undefined
+          ? chunk
+          : { ...chunk, complete: chunk.complete.filter((marker) => !refuses(marker)) }
+    })()
+  return state
+}
