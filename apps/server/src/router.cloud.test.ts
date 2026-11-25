@@ -448,10 +448,14 @@ describe('cloud failures keep internal details in the server log', () => {
       // desire's first store read happens only after the provider succeeds.
       vi.spyOn(registry.modules.sessions, 'desiredStateOf').mockRejectedValue(detail)
     } else {
-      vi.spyOn(repos, 'inferFromPath').mockResolvedValue('/workspace/podium')
-      const read = vi.spyOn(registry.sessionStore.repos, 'listRepos')
-      if (path === 'fallback repos') read.mockResolvedValueOnce([])
-      read.mockRejectedValue(detail)
+      vi.spyOn(repos, 'inferFromPath').mockImplementation(async () => {
+        // The session gate also reads repo rows; fail only the inference reads
+        // after that gate, including the machine-less fallback lookup.
+        const read = vi.spyOn(registry.sessionStore.repos, 'listRepos')
+        if (path === 'fallback repos') read.mockResolvedValueOnce([])
+        read.mockRejectedValue(detail)
+        return '/workspace/podium'
+      })
     }
     await expectCloudFailure(
       () =>
