@@ -774,9 +774,10 @@ export class SessionStart {
     })
     // A LAUNCH IN FLIGHT ACROSS A MEMBER'S LEAVING (POD-7594, security review
     // F6). The access above may have been resolved before a removal or a
-    // disable committed; that change stops what is registered, so a secret goes
-    // out only while its owner is still a member, read right before the row is.
-    if (access.access && !(await this.ports.store.users.get(ownerUserId))) {
+    // disable committed; that change stops what is registered, so a launch, with
+    // a secret or on a machine's own login, goes out only while its owner is
+    // still a member, read right before the row is (final review N4).
+    if (!(await this.ports.store.users.get(ownerUserId))) {
       throw new CredentialRefusal('not-yours', ACCESS_REFUSAL_MESSAGES['not-yours'])
     }
     this.ports.registerSession(session)

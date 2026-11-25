@@ -657,8 +657,9 @@ export class SessionRevival {
     // F6): its access may have been resolved before a removal or a disable
     // committed. Read again right before the row becomes `starting`, from which
     // on that change stops it; nothing is sent for someone who is no longer a
-    // member, and nothing is left to undo.
-    if (access.access && !(await this.ports.store.users.get(session.ownerUserId))) {
+    // member, with a secret or without (final review N4), and nothing is left
+    // to undo.
+    if (!(await this.ports.store.users.get(session.ownerUserId))) {
       return { ok: false, reason: ACCESS_REFUSAL_MESSAGES['not-yours'] }
     }
     await this.ports.repository.write(this.ports.writer, session, (draft) => {

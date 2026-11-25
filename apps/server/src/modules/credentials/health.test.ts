@@ -88,6 +88,7 @@ function fakeSessions(on: Record<string, SessionId[]> = {}) {
     stops: 'now' | 'at-turn-end'
   }[] = []
   const unflagged: SessionId[] = []
+  const unflaggedOwners: UserId[] = []
   const released: SessionId[] = []
   /** What judging each session again answers; absent: still allowed. */
   const access = new Map<SessionId, AccessRefusal>()
@@ -122,8 +123,11 @@ function fakeSessions(on: Record<string, SessionId[]> = {}) {
     flagOwnerLeft: async (sessionId, change, stops) => {
       ownerFlags.push({ sessionId, change, stops })
     },
-    unflag: async (sessionId) => {
+    unflagWithdrawn: async (sessionId) => {
       unflagged.push(sessionId)
+    },
+    unflagOwnerLeft: async (memberId) => {
+      unflaggedOwners.push(memberId)
     },
     inputReleased: (sessionId) => {
       released.push(sessionId)
@@ -143,6 +147,7 @@ function fakeSessions(on: Record<string, SessionId[]> = {}) {
     flagModes,
     ownerFlags,
     unflagged,
+    unflaggedOwners,
     released,
     on,
     access,
@@ -1157,12 +1162,48 @@ describe('a member removed or disabled', () => {
       expect(f.health.holdsInput(id, null)).toBe(false)
       expect(f.health.holdsInput(id, credentialId)).toBe(false)
     }
-    expect([...f.sessions.unflagged].sort()).toEqual([busy, refreshed].sort())
+    // The credential flag by its session; the "was disabled" flags by the person.
+    expect(f.sessions.unflagged).toEqual([refreshed])
+    expect(f.sessions.unflaggedOwners).toEqual([OTHER])
     expect(f.sessions.released).toEqual(expect.arrayContaining([busy, refreshed]))
     expect(f.timers.live()).toEqual([])
     f.sessions.standing.set(busy, 'between-turns')
     await f.health.onTurnBoundary(busy, null)
     expect(f.sessions.stopped).toEqual([])
+  })
+
+  // Final review N3: a disable's stop took the place of a credential stop
+  // that still stands; the re-enable must not erase it.
+  it('a re-enable judges the lifted session again, and a withdrawal still stops it', async () => {
+    const f = await setup()
+    const { credentialId } = await f.add(GOOD)
+    const busy = asSessionId('ses_reenabled_still_withdrawn')
+    f.sessions.running.push({ sessionId: busy, ownerUserId: OTHER, credentialId })
+    f.sessions.standing.set(busy, 'in-turn')
+    await f.health.accessWithdrawn(busy, credentialId, 'machine-not-allowed')
+    await f.health.afterMemberLeft(OTHER, 'disabled')
+    // Still not allowed on that machine when the owner comes back.
+    f.sessions.access.set(busy, 'machine-not-allowed')
+    await f.health.afterMemberReturned(OTHER)
+    expect(f.sessions.judged).toEqual([busy])
+    expect(f.health.waitingFor(busy)).toBe('stop')
+    expect(f.health.holdsInput(busy, credentialId)).toBe(true)
+    f.sessions.standing.set(busy, 'between-turns')
+    await f.health.onTurnBoundary(busy, credentialId)
+    expect(f.sessions.stopped).toEqual([busy])
+  })
+
+  it('one credential that fails to be removed does not keep the others', async () => {
+    const f = await setup()
+    const { credentialId: first } = await f.add(GOOD)
+    const { credentialId: second } = await f.add(RENEWED, 'openai.api-key', 'OpenAI')
+    const remove = f.store.credentials.remove.bind(f.store.credentials)
+    f.store.credentials.remove = async (id) => {
+      if (id === first) throw new Error('store unavailable')
+      await remove(id)
+    }
+    await f.health.removeMemberCredentials(OWNER)
+    expect((await f.store.credentials.get(second))?.status).toBe('revoked')
   })
 
   // Review F6: a launch that registered while the leaving was handled.

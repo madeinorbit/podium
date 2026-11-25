@@ -177,8 +177,16 @@ export interface CredentialSessionPort {
     change: 'removed' | 'disabled',
     stops: 'now' | 'at-turn-end',
   ): Promise<void>
-  /** Withdraw the flags above: the stop they announced will not happen (a re-enable). */
-  unflag(sessionId: SessionId): Promise<void>
+  /**
+   * Withdraw the credential flag on this session: the stop it announced will
+   * not happen (a re-enable made the resolver allow it again).
+   */
+  unflagWithdrawn(sessionId: SessionId): Promise<void>
+  /**
+   * Withdraw the "was disabled" flags on every session of this person, running
+   * or not: they were enabled again (POD-7594, final review nits).
+   */
+  unflagOwnerLeft(memberId: UserId): Promise<void>
   /** The session's input hold ended without a stop: deliver what waited for it. */
   inputReleased(sessionId: SessionId): void
 }
@@ -199,7 +207,8 @@ export const NO_SESSIONS: CredentialSessionPort = {
   flagWithdrawn: async () => {},
   accessOf: async () => ({ ok: true }),
   flagOwnerLeft: async () => {},
-  unflag: async () => {},
+  unflagWithdrawn: async () => {},
+  unflagOwnerLeft: async () => {},
   inputReleased: () => {},
 }
 
@@ -727,23 +736,24 @@ export class CredentialHealth {
       log.warn('could not list the running sessions after a member returned', { err, memberId })
       return
     }
+    const lifted: RunningSession[] = []
     for (const r of running) {
       const action = this.pending.get(r.sessionId)
       if (action?.kind !== 'stop') {
         if (this.holding.get(r.sessionId) === key) this.unhold(r.sessionId)
         continue
       }
+      if (action.key === key) {
+        this.dropStop(r.sessionId, key)
+        lifted.push(r)
+        continue
+      }
+      if (isMemberKey(action.key) || action.mode === 'now') continue
       try {
-        if (action.key === key) {
-          this.dropStop(r.sessionId, key)
-          await this.sessions.unflag(r.sessionId)
-          continue
-        }
-        if (isMemberKey(action.key) || action.mode === 'now') continue
         const access = await this.sessions.accessOf(r.sessionId)
         if (!access.ok) continue
         this.dropStop(r.sessionId, action.key)
-        await this.sessions.unflag(r.sessionId)
+        await this.sessions.unflagWithdrawn(r.sessionId)
       } catch (err) {
         log.warn('could not lift a stop after a member returned', {
           err,
@@ -751,6 +761,21 @@ export class CredentialHealth {
         })
       }
     }
+    try {
+      await this.sessions.unflagOwnerLeft(memberId)
+    } catch (err) {
+      log.warn('could not withdraw the flags of a member who returned', { err, memberId })
+    }
+    // A member stop may have taken the place of a credential stop that still
+    // stands (a machine withdrawn meanwhile): judge each lifted session again,
+    // and a withdrawal stops it as before (final review N3).
+    await inParallel(
+      lifted.map(
+        (r) => async () =>
+          await this.judgeRunning(r.sessionId, r.credentialId ? { id: r.credentialId } : undefined),
+      ),
+      MEMBER_STOP_PARALLELISM,
+    )
   }
 
   /** Stop a session because the person it runs for left (POD-7594, review F1). */
@@ -843,8 +868,16 @@ export class CredentialHealth {
     memberId: UserId,
     actorUserId: UserId | SystemCredentialActor = MEMBERSHIP_ACTOR,
   ): Promise<void> {
+    // One that fails does not keep the rest (final review N1): each is tried.
     for (const record of await this.store.credentials.listVisibleTo(memberId)) {
-      await this.removeEverywhere(record.id, actorUserId)
+      try {
+        await this.removeEverywhere(record.id, actorUserId)
+      } catch (err) {
+        log.warn('could not remove a credential of a removed member', {
+          err,
+          credentialId: record.id,
+        })
+      }
     }
   }
 

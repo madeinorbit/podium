@@ -151,7 +151,8 @@ async function world() {
       flagWithdrawn: async () => {},
       accessOf: async () => ({ ok: true }),
       flagOwnerLeft: async () => {},
-      unflag: async () => {},
+      unflagWithdrawn: async () => {},
+      unflagOwnerLeft: async () => {},
       inputReleased: () => {},
     },
   })

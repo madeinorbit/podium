@@ -11,7 +11,7 @@ import { MachineRecordWrites } from './machine-record-writes'
 
 import type { GrantVerb } from '@podium/model'
 import { GRANT_VERBS } from '@podium/model'
-import { asc, count, eq, type SQL, sql } from 'drizzle-orm'
+import { and, asc, count, eq, inArray, type SQL, sql } from 'drizzle-orm'
 import type { grants } from '../migrations/schema'
 import { operationLoader } from './executor/operation-loader'
 import type {
@@ -249,6 +249,44 @@ const deleteGrantsOfGrantee = prepared((db, t) =>
     db
       .delete(t.grants)
       .where(inWorkspace(t.grants, eq(t.grants.grantee, param(t.grants.grantee, 'grantee'))))
+      .returning(),
+  ).prepare(),
+)
+
+/** The resource kind of a credential's grant edges (`CREDENTIAL_RESOURCE_KIND`). */
+const CREDENTIAL_KIND = 'credential'
+
+/**
+ * Every grant on the credentials one person owns (POD-7594, final review N1):
+ * the shares of a removed member's keys end in the removal's own transaction,
+ * so nobody else can use them even if the cleanup after it never runs. Through
+ * the grants primary key's `(resource_kind, resource_id)` prefix, for the ids
+ * `idx_credentials_owner` yields.
+ */
+const deleteCredentialGrantsOfOwner = prepared((db, t) =>
+  captureWrite(
+    db
+      .delete(t.grants)
+      .where(
+        inWorkspace(
+          t.grants,
+          and(
+            eq(t.grants.resourceKind, CREDENTIAL_KIND),
+            inArray(
+              t.grants.resourceId,
+              db
+                .select({ id: t.credentials.id })
+                .from(t.credentials)
+                .where(
+                  inWorkspace(
+                    t.credentials,
+                    eq(t.credentials.ownerUserId, param(t.credentials.ownerUserId, 'ownerUserId')),
+                  ),
+                ),
+            ),
+          ),
+        ),
+      )
       .returning(),
   ).prepare(),
 )
@@ -603,6 +641,18 @@ export class GrantsRepository {
   }
 
   /** Member removal revokes their incoming rights, preserving everyone else's shares. */
+  /** Remove every grant on the credentials `ownerUserId` owns (a removed member, POD-7594). */
+  async removeCredentialGrantsOfOwner(ownerUserId: string): Promise<void> {
+    await this.machineRecordWrites.compare(async () => {
+      const result = await this.committed.write(
+        async () => await deleteCredentialGrantsOfOwner(this.db).all({ ownerUserId }),
+        'delete',
+      )
+      this.resourceGrants.invalidate()
+      if (result.changes > 0) this.visibilityRevisionValue += 1
+    })
+  }
+
   async removeAllForGrantee(grantee: string): Promise<void> {
     await this.machineRecordWrites.compare(async () => {
       const result = await this.committed.write(

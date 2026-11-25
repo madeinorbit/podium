@@ -130,6 +130,39 @@ describe('mayUse', () => {
     expect(await mayUse(store, CAROL, credential)).toBe('use')
   })
 
+  // POD-7594, final review N1: a removal ends the shares of the keys the person
+  // owns, in its own transaction. It also ends their own grants, their manage
+  // grant included, so what they gave through it ends too (unlike a disable).
+  it('removing a member ends the shares of their keys at once, and the grants they gave as a manager', async () => {
+    await grant(MANAGER, 'manage', OWNER)
+    await grant(CAROL, 'use', MANAGER)
+    const managers = await store.credentials.insert({
+      ownerUserId: MANAGER,
+      label: 'Manager key',
+      type: 'anthropic.api-key',
+    })
+    await store.grants.upsert({
+      resourceKind: 'credential',
+      resourceId: managers.id,
+      grantee: BOB,
+      verb: 'use',
+      owner: MANAGER,
+      visibility: 'secret',
+      createdAt: new Date().toISOString(),
+      actorKind: 'user',
+      actorId: MANAGER,
+      onBehalfOf: MANAGER,
+    })
+    expect(await mayUse(store, BOB, managers)).toBe('use')
+    await memberFacts(store).removeMember(MANAGER, ADMIN)
+    // Their own key: no share left, before any cleanup runs.
+    expect(await store.grants.listForResource('credential', managers.id)).toEqual([])
+    expect(await mayUse(store, BOB, managers)).toBeNull()
+    // Their manage grant on the owner's key went with them, and what they gave
+    // through it with that.
+    expect(await mayUse(store, CAROL, credential)).toBeNull()
+  })
+
   // POD-7594, review F2: a refresh or a re-judge for a person who left says no.
   it('a member who was removed may use nothing, through the all-members grant included', async () => {
     await grant(ALL_MEMBERS_GRANTEE, 'use', OWNER)

@@ -3087,6 +3087,25 @@ export class SessionRegistry {
     const STOP_SENTENCES = [STOP_NOW_SENTENCE, STOP_AT_END_SENTENCE]
     const stopSentence = (stops: 'now' | 'at-turn-end') =>
       stops === 'now' ? STOP_NOW_SENTENCE : STOP_AT_END_SENTENCE
+    const WITHDRAWN_FLAG = 'Choose another credential to continue.'
+    const OWNER_DISABLED_FLAG = 'The person this session runs for was disabled.'
+    const flagPromptOf = (row: { kind: string; payload: unknown }): string | undefined => {
+      const prompt = (row.payload as { prompt?: unknown } | null)?.prompt
+      return row.kind === 'recovery' && typeof prompt === 'string' ? prompt : undefined
+    }
+    const closeStopFlags = async (
+      rows: readonly { id: string; kind: string; payload: unknown }[],
+      sentence: string,
+    ): Promise<void> => {
+      const at = new Date(this.now()).toISOString()
+      for (const row of rows) {
+        const prompt = flagPromptOf(row)
+        if (!prompt?.includes(sentence) || !STOP_SENTENCES.some((s) => prompt.includes(s))) continue
+        await asSystemWrite(
+          async () => await this.store.interactions.close(row.id, 'superseded', at),
+        )
+      }
+    }
     const raiseStopFlag = async (sessionId: SessionId, prompt: string): Promise<void> => {
       if ((await sessionsSvc.sessionById(sessionId))?.headless) return
       const spec = {
@@ -3232,31 +3251,35 @@ export class SessionRegistry {
             refusal === 'revoked'
               ? `The credential "${credential.label}" this session runs on was removed.`
               : `This session may no longer use the credential "${credential.label}": ${ACCESS_REFUSAL_MESSAGES[refusal]}`
-          await raiseStopFlag(
-            sessionId,
-            `${why} ${stopSentence(stops)} Choose another credential to continue.`,
-          )
+          await raiseStopFlag(sessionId, `${why} ${stopSentence(stops)} ${WITHDRAWN_FLAG}`)
         },
         flagOwnerLeft: async (sessionId, change, stops) => {
           const why =
             change === 'removed'
               ? 'The person this session runs for was removed from the workspace.'
-              : 'The person this session runs for was disabled.'
+              : OWNER_DISABLED_FLAG
           await raiseStopFlag(sessionId, `${why} ${stopSentence(stops)}`)
         },
         // A re-enable lifted the stop (POD-7594, review F4): the flags that
-        // announced it are withdrawn.
-        unflag: async (sessionId) => {
-          const open = await this.store.interactions.listOpen(sessionId)
-          const at = new Date(this.now()).toISOString()
-          for (const row of open) {
-            const prompt = (row.payload as { prompt?: unknown } | null)?.prompt
-            if (row.kind !== 'recovery' || typeof prompt !== 'string') continue
-            if (!STOP_SENTENCES.some((sentence) => prompt.includes(sentence))) continue
-            await asSystemWrite(
-              async () => await this.store.interactions.close(row.id, 'superseded', at),
-            )
-          }
+        // announced it are withdrawn, each kind by its own sentence.
+        unflagWithdrawn: async (sessionId) => {
+          await closeStopFlags(await this.store.interactions.listOpen(sessionId), WITHDRAWN_FLAG)
+        },
+        unflagOwnerLeft: async (memberId) => {
+          // Every open flag, not only a running session's: a disable whose stop
+          // already ran left its flag on a parked session (final review nit).
+          const open = (await this.store.interactions.listOpen()).filter((row) =>
+            flagPromptOf(row)?.includes(OWNER_DISABLED_FLAG),
+          )
+          const owners = new Map(
+            (await sessionsSvc.readSessionFactsByIds(open.map((row) => row.sessionId))).map(
+              (facts) => [facts.sessionId, facts.ownerUserId],
+            ),
+          )
+          await closeStopFlags(
+            open.filter((row) => owners.get(row.sessionId) === memberId),
+            OWNER_DISABLED_FLAG,
+          )
         },
         // A hold that ended without a stop: what it kept queued goes out now,
         // not at the next sweep.
@@ -5936,8 +5959,12 @@ export class SessionRegistry {
             await credentialHealth.afterMemberReturned(memberId)
             return
           }
-          // Removed: their credentials go first, on every removal path
-          // (security review F2), so a session on one stops as removed.
+          // Started first, not awaited: it holds every affected session before
+          // its first await (final review N2), so nothing waits on the removal
+          // below to stop taking input.
+          const leaving = credentialHealth.afterMemberLeft(memberId, reason)
+          // Removed: their credentials go everywhere, on every removal path
+          // (security review F2); their shares already went with the removal.
           if (reason === 'removed') {
             try {
               await credentialHealth.removeMemberCredentials(memberId)
@@ -5948,7 +5975,7 @@ export class SessionRegistry {
               })
             }
           }
-          await credentialHealth.afterMemberLeft(memberId, reason)
+          await leaving
         })
       }),
     ]

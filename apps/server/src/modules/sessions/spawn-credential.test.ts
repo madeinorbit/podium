@@ -1414,6 +1414,40 @@ describe('after the daemon reconnects (Task 5)', () => {
       expect(await refuses(store, bobs)).toHaveLength(0)
     })
 
+    // The coordinator's trace: disabling the only admin, who is also the host's
+    // custodian, must stop that person's own session as it stops anyone's.
+    it("disabling the only admin stops that admin's own session", async () => {
+      const { store, alice, reg, daemon, alicesSession } = await twoMembers()
+      const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
+      const alices = await alicesSession(id)
+      const health = reg.modules.credentialHealth
+      const seen: string[] = []
+      const left = health.afterMemberLeft.bind(health)
+      health.afterMemberLeft = async (memberId, change) => {
+        seen.push(`left ${memberId === alice ? 'alice' : memberId} ${change}`)
+        await left(memberId, change)
+      }
+      const stop = health.sessions.stop
+      health.sessions.stop = async (sessionId) => {
+        seen.push('stop')
+        try {
+          await stop(sessionId)
+          seen.push('stopped')
+        } catch (err) {
+          seen.push(`stop failed: ${err instanceof Error ? err.message : String(err)}`)
+          throw err
+        }
+      }
+      await memberFacts(store).disable(alice, AT, BOB)
+      await vi
+        .waitFor(() => expect(seen).toContain('stopped'), { timeout: 5000 })
+        .catch(() => {
+          throw new Error(`the admin's session did not stop: ${JSON.stringify(seen)}`)
+        })
+      expect(seen[0]).toBe('left alice disabled')
+      expect(stopRequests(daemon, alices)).toHaveLength(1)
+    })
+
     // Security review F6: a launch whose access was resolved before the removal
     // committed sends no secret.
     it('a launch in flight across the removal sends no secret', async () => {
