@@ -319,9 +319,11 @@ describe("a schema's own ZodError", () => {
 describe('a wrapper that keeps a failure as text (POD-7617)', () => {
   it("keeps a refusal's words and logs nothing", () => {
     const warned: unknown[] = []
-    const text = failureTextLogged(new IssueRefusal('issue is closed'), {
-      warn: (...args: unknown[]) => warned.push(args),
-    })
+    const text = failureTextLogged(
+      new IssueRefusal('issue is closed'),
+      { warn: (...args: unknown[]) => warned.push(args) },
+      'spawn on wake failed',
+    )
     expect(text).toBe('issue is closed')
     expect(warned).toEqual([])
   })
