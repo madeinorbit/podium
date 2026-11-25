@@ -37,6 +37,7 @@ import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
 import type { SessionStore } from '../../store'
 import { type CredentialRecord, newCredentialId } from '../../store/credentials'
+import type { GrantRow } from '../../store/grants'
 import type { PlainTargetCheck } from '../plain-command/entry'
 import { SignInRefused } from './chatgpt-plan/authorize'
 import { type ChatgptPlanService, LoopbackUnavailable } from './chatgpt-plan/service'
@@ -185,6 +186,23 @@ async function granteeColumn(
 
 const describeGrantee = (grantee: CredentialGrantee): string =>
   grantee === 'all-members' ? ALL_MEMBERS_GRANTEE : grantee.userId
+
+/** How many shares an audit detail names before it only counts the rest. */
+const ENDED_NAMED = 50
+
+/**
+ * The shares a manage revocation ended with it, for the audit detail
+ * (POD-7605): who lost what, and who had given it, so an owner can find why a
+ * person lost the key. Empty when the revocation ended nothing else.
+ */
+function endedWith(ended: readonly GrantRow[]): string {
+  if (ended.length === 0) return ''
+  const named = ended
+    .slice(0, ENDED_NAMED)
+    .map((edge) => `${edge.verb} from ${edge.grantee} (given by ${edge.owner})`)
+  const more = ended.length - named.length
+  return `, and ${ended.length} ${ended.length === 1 ? 'share' : 'shares'} given through it: ${named.join(', ')}${more > 0 ? `, and ${more} more` : ''}`
+}
 
 type In<N extends CredentialContractName> = z.infer<(typeof CREDENTIAL_CONTRACTS)[N]['input']>
 
@@ -386,39 +404,48 @@ export const CREDENTIAL_COMMANDS_TRPC = {
     contract: CREDENTIAL_CONTRACTS.share,
     targetPermitted: personOnly,
     handler: (async (state, input) => {
-      const { record } = await writable(state, input.credentialId)
-      if (input.acknowledgeDisclosure !== true) {
-        throw badRequest(
-          `${CREDENTIAL_SHARE_DISCLOSURE} Share again with the disclosure acknowledged.`,
-        )
-      }
-      const sharing = isCredentialTypeId(record.type)
-        ? CREDENTIAL_TYPES[record.type].sharing
-        : 'warn'
-      if (sharing === 'warn' && input.acknowledgeWarning !== true) {
-        throw badRequest(`${CREDENTIAL_SHARE_WARNING} Share again with the warning acknowledged.`)
-      }
-      if (input.grantee === 'all-members' && input.verb !== 'use') {
-        throw badRequest('Only use can be given to all members; give manage to a person.')
-      }
-      const grantee = await granteeColumn(state, record, input.grantee)
       const caller = state.callerUserId
-      await state.store.grants.upsert({
-        resourceKind: CREDENTIAL_RESOURCE_KIND,
-        resourceId: record.id,
-        grantee,
-        verb: input.verb,
-        owner: caller,
-        visibility: 'secret',
-        createdAt: new Date().toISOString(),
-        actorKind: 'user',
-        actorId: caller,
-        onBehalfOf: caller,
-      })
-      await event(state, {
-        kind: 'share',
-        credentialId: record.id,
-        detail: `${input.verb} to ${grantee}`,
+      // The caller's right to share and the edge it writes are ONE write
+      // (POD-7605). Writes are serialised per workspace, so a revocation of the
+      // caller's manage either committed before this check, which then refuses,
+      // or waits for this edge and its cascade deletes it. Checked outside, a
+      // revocation could land between the check and the write and leave an edge
+      // from a granter no longer in the chain, which a re-grant would revive.
+      const record = await state.store.transact(async () => {
+        const { record } = await writable(state, input.credentialId)
+        if (input.acknowledgeDisclosure !== true) {
+          throw badRequest(
+            `${CREDENTIAL_SHARE_DISCLOSURE} Share again with the disclosure acknowledged.`,
+          )
+        }
+        const sharing = isCredentialTypeId(record.type)
+          ? CREDENTIAL_TYPES[record.type].sharing
+          : 'warn'
+        if (sharing === 'warn' && input.acknowledgeWarning !== true) {
+          throw badRequest(`${CREDENTIAL_SHARE_WARNING} Share again with the warning acknowledged.`)
+        }
+        if (input.grantee === 'all-members' && input.verb !== 'use') {
+          throw badRequest('Only use can be given to all members; give manage to a person.')
+        }
+        const grantee = await granteeColumn(state, record, input.grantee)
+        await state.store.grants.upsert({
+          resourceKind: CREDENTIAL_RESOURCE_KIND,
+          resourceId: record.id,
+          grantee,
+          verb: input.verb,
+          owner: caller,
+          visibility: 'secret',
+          createdAt: new Date().toISOString(),
+          actorKind: 'user',
+          actorId: caller,
+          onBehalfOf: caller,
+        })
+        await event(state, {
+          kind: 'share',
+          credentialId: record.id,
+          detail: `${input.verb} to ${grantee}`,
+        })
+        return record
       })
       await state.health.afterShare(record, input.grantee, input.verb, caller)
       return { ok: true as const }
@@ -428,23 +455,35 @@ export const CREDENTIAL_COMMANDS_TRPC = {
     contract: CREDENTIAL_CONTRACTS.unshare,
     targetPermitted: personOnly,
     handler: (async (state, input) => {
-      const { record } = await writable(state, input.credentialId)
-      const grantee = describeGrantee(input.grantee)
-      let removed = false
-      for (const verb of input.verb ? [input.verb] : (['use', 'manage'] as const)) {
-        if (await state.store.grants.remove(CREDENTIAL_RESOURCE_KIND, record.id, grantee, verb)) {
-          removed = true
+      // One write, check included, as for share (POD-7605); both verbs go
+      // together or not at all.
+      const { record, removed } = await state.store.transact(async () => {
+        const { record } = await writable(state, input.credentialId)
+        const grantee = describeGrantee(input.grantee)
+        const ended: GrantRow[] = []
+        let removed = false
+        for (const verb of input.verb ? [input.verb] : (['use', 'manage'] as const)) {
+          const deleted = await state.store.grants.revoke(
+            CREDENTIAL_RESOURCE_KIND,
+            record.id,
+            grantee,
+            verb,
+          )
+          if (deleted.length > 0) removed = true
+          // The named edge comes first; the rest were given through it.
+          ended.push(...deleted.slice(1))
         }
-      }
-      if (removed) {
-        await event(state, {
-          kind: 'unshare',
-          credentialId: record.id,
-          detail: `${input.verb ?? 'use and manage'} from ${grantee}`,
-        })
-        // A session that ran on the grant stops at once, its turn cut (POD-7591).
-        await state.health.afterWithdraw(record)
-      }
+        if (removed) {
+          await event(state, {
+            kind: 'unshare',
+            credentialId: record.id,
+            detail: `${input.verb ?? 'use and manage'} from ${grantee}${endedWith(ended)}`,
+          })
+        }
+        return { record, removed }
+      })
+      // A session that ran on the grant stops at once, its turn cut (POD-7591).
+      if (removed) await state.health.afterWithdraw(record)
       return { ok: true as const, removed }
     }) satisfies CredentialHandler<In<'unshare'>, unknown>,
   },

@@ -715,11 +715,27 @@ export class GrantsRepository {
     grantee: string,
     verb: GrantVerb,
   ): Promise<boolean> {
+    return (await this.revoke(resourceKind, resourceId, grantee, verb)).length > 0
+  }
+
+  /**
+   * {@link remove}, answering with every edge the revocation deleted: the named
+   * edge first, then what a credential manage revocation ended with it (POD-7605:
+   * the audit names the shares a cascade ended). Empty when nothing was removed.
+   */
+  async revoke(
+    resourceKind: string,
+    resourceId: string,
+    grantee: string,
+    verb: GrantVerb,
+  ): Promise<GrantRow[]> {
     return this.machineRecordWrites.compare(async () => {
       const edge = { resourceKind, resourceId, grantee, verb }
+      let ended: GrantSelection[] = []
       const result = await this.committed.write(async () => {
         await this.noteVisibilityAudience(resourceKind, resourceId, grantee)
         const deleted = await deleteEdge(this.db).all(edge)
+        ended = deleted
         if (resourceKind !== CREDENTIAL_KIND || verb !== 'manage' || deleted.length === 0) {
           return deleted
         }
@@ -761,9 +777,8 @@ export class GrantsRepository {
         return deleted
       }, 'delete')
       this.resourceGrants.invalidate()
-      const removed = result.changes > 0
-      if (removed) this.visibilityRevisionValue += 1
-      return removed
+      if (result.changes > 0) this.visibilityRevisionValue += 1
+      return ended.flatMap((row) => grantFromRow(row) ?? [])
     })
   }
 

@@ -7,5 +7,12 @@ import type { SessionStore } from '../../store'
 
 export type CredentialsStore = Pick<
   SessionStore,
-  'credentials' | 'vault' | 'grants' | 'users' | 'machines' | 'settingsAudit' | 'secrets'
+  | 'credentials'
+  | 'vault'
+  | 'grants'
+  | 'users'
+  | 'machines'
+  | 'settingsAudit'
+  | 'secrets'
+  | 'transact'
 >
