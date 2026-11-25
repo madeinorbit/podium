@@ -1,7 +1,7 @@
-import { createLogger, describeError } from '@podium/logger'
+import { createLogger } from '@podium/logger'
 import type { ThreadId } from '@podium/model'
 import type { Hono } from 'hono'
-import { CLIENT_ERROR_DIAGNOSTICS } from './client-error-diagnostics'
+import { CLIENT_ERROR_DIAGNOSTICS, errorTextForClient } from './client-error-diagnostics'
 
 const log = createLogger('server:mcp')
 
@@ -134,8 +134,8 @@ export function registerMcpRoute(
         const text = await provider.callMcpTool(name, body.params?.arguments ?? {}, threadId)
         return c.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text }] } })
       } catch (err) {
-        log.info('mcp tool call failed', { tool: name, err })
-        const text = diagnostics ? describeError(err) : messageOf(err)
+        log.warn('mcp tool call failed', { tool: name, err })
+        const text = errorTextForClient(err, diagnostics)
         return c.json({
           jsonrpc: '2.0',
           id,
@@ -152,9 +152,4 @@ export function registerMcpRoute(
       error: { code: -32601, message: `method not found: ${method}` },
     })
   })
-}
-
-/** The error's own sentence, without what lies under it. */
-function messageOf(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
 }

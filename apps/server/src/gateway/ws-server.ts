@@ -22,6 +22,7 @@ import {
   WireVersionOffer,
 } from '@podium/protocol'
 import { measureTask } from '@podium/runtime/task-attribution'
+import { CLIENT_ERROR_DIAGNOSTICS } from '../client-error-diagnostics'
 
 export interface NativeServer<T> {
   readonly port: number
@@ -87,13 +88,43 @@ export interface NativeServeOptions<T> {
     request: Request,
     server: NativeServer<T>,
   ): Response | undefined | Promise<Response | undefined>
+  /** Bun's development mode; {@link CLIENT_ERROR_DIAGNOSTICS} when absent. */
+  development?: boolean
 }
 
+/** What Bun.serve itself receives: the options plus the error handler below. */
+interface BunServeOptions<T> extends NativeServeOptions<T> {
+  development: boolean
+  error(error: Error): Response
+}
+
+/**
+ * Bun.serve, with its error answer fixed (POD-7615).
+ *
+ * A throw that escapes `fetch` (the websocket upgrade's database reads, a
+ * plugin) never reaches Hono's `onError`; Bun answers it. Left to itself Bun
+ * picks its HTML error page, with the message, stack and source excerpts,
+ * whenever `development` is on, and `development` defaults from NODE_ENV, which
+ * an installed service does not set. So the mode follows the same production
+ * rule as the tRPC shapes, and every such throw is logged in full here and
+ * answered with one plain sentence, in either mode: the log is where a stack
+ * belongs, and the upgrade path is reached before any credential is checked.
+ */
 export function serveNative<T>(options: NativeServeOptions<T>): NativeServer<T> {
   const runtime = globalThis as typeof globalThis & {
-    Bun: { serve<U>(options: NativeServeOptions<U>): NativeServer<U> }
+    Bun: { serve<U>(options: BunServeOptions<U>): NativeServer<U> }
   }
-  return runtime.Bun.serve(options)
+  return runtime.Bun.serve({
+    ...options,
+    development: options.development ?? CLIENT_ERROR_DIAGNOSTICS,
+    error(error) {
+      log.warn('request failed outside the router', { err: error })
+      return new Response('Internal Server Error', {
+        status: 500,
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+      })
+    },
+  })
 }
 
 import type { SessionRegistry } from '../relay'

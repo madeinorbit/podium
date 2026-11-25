@@ -1,3 +1,5 @@
+import { describeError } from '@podium/logger'
+
 /**
  * Whether an error a client receives may carry the server's own diagnostics: the
  * stack (absolute install paths, internal function names) and the cause chain
@@ -28,3 +30,13 @@ export const CLIENT_ERROR_DIAGNOSTICS = clientErrorDiagnostics({
   packagedVersion: process.env.PODIUM_APP_VERSION,
   nodeEnv: process.env.NODE_ENV,
 })
+
+/**
+ * The text a client gets for an unexpected failure: the whole cause chain where
+ * diagnostics go to clients, the error's own sentence otherwise. The caller logs
+ * the error itself, which keeps the chain either way.
+ */
+export function errorTextForClient(error: unknown, diagnostics: boolean): string {
+  if (diagnostics) return describeError(error)
+  return error instanceof Error ? error.message : String(error)
+}

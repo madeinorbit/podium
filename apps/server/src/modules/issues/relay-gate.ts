@@ -1,7 +1,8 @@
-import { createLogger, describeError } from '@podium/logger'
+import { createLogger } from '@podium/logger'
 import type { MachineId, SessionId, WorkspaceId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
+import { CLIENT_ERROR_DIAGNOSTICS, errorTextForClient } from '../../client-error-diagnostics'
 import type { Capability } from '../../issue-authz'
 
 const log = createLogger('server:issues')
@@ -241,6 +242,9 @@ export interface AgentRelayGateDeps {
     msg: Extract<DaemonMessage, { type: 'agentRelayRequest' }>,
     result: unknown,
   ): void
+  /** Whether an unexpected failure's reply carries its cause chain
+   *  ({@link CLIENT_ERROR_DIAGNOSTICS}, the default). */
+  diagnostics?: boolean
 }
 
 /**
@@ -333,13 +337,15 @@ export class AgentRelayGate {
       })
       // Expected refusals already carry their public message. Diagnostic class
       // names and causes must not rewrite that contract. Unexpected failures
-      // still include the cause that explains an opaque database wrapper.
+      // include the cause that explains an opaque database wrapper only where
+      // diagnostics go to clients; in production the log line above keeps it
+      // and the agent gets the error's own sentence (POD-7615).
       reply({
         ok: false,
         error:
           err instanceof TRPCError && err.code !== 'INTERNAL_SERVER_ERROR'
             ? err.message
-            : describeError(err),
+            : errorTextForClient(err, this.deps.diagnostics ?? CLIENT_ERROR_DIAGNOSTICS),
       })
     }
   }

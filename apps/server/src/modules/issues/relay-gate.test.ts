@@ -18,7 +18,10 @@ import { AgentRelayGate } from './relay-gate'
 const machineId = asMachineId('m1')
 const sessionId = asSessionId('s1')
 
-function gateFor(dispatch: () => Promise<unknown>): {
+function gateFor(
+  dispatch: () => Promise<unknown>,
+  diagnostics?: boolean,
+): {
   gate: AgentRelayGate
   sent: ControlMessage[]
 } {
@@ -27,6 +30,7 @@ function gateFor(dispatch: () => Promise<unknown>): {
     dispatch,
     capabilityForSession: () => ({}) as Capability,
     toMachine: (_machine, msg) => sent.push(msg),
+    ...(diagnostics === undefined ? {} : { diagnostics }),
   })
   return { gate, sent }
 }
@@ -54,16 +58,20 @@ describe('a relayed agent command that fails', () => {
     const logs = captureLogs()
     try {
       const { gate, sent } = gateFor(() =>
-        Promise.reject(new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: 're-run with --outside-scope to confirm',
-          cause: new Error('private policy context'),
-        })),
+        Promise.reject(
+          new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 're-run with --outside-scope to confirm',
+            cause: new Error('private policy context'),
+          }),
+        ),
       )
       await relay(gate)
       const reply = sent[0] as Extract<ControlMessage, { type: 'agentRelayResult' }>
       expect(reply.error).toBe('re-run with --outside-scope to confirm')
-      expect(logs.at('warn').find((entry) => entry.msg === 'agent command failed')?.err).toMatchObject({
+      expect(
+        logs.at('warn').find((entry) => entry.msg === 'agent command failed')?.err,
+      ).toMatchObject({
         cause: { message: 'private policy context' },
       })
     } finally {
@@ -73,17 +81,19 @@ describe('a relayed agent command that fails', () => {
 
   it('retains diagnostic causes for an internal tRPC failure', async () => {
     const { gate, sent } = gateFor(() =>
-      Promise.reject(new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: 'command failed',
-        cause: wrappedRefusal(),
-      })),
+      Promise.reject(
+        new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'command failed',
+          cause: wrappedRefusal(),
+        }),
+      ),
     )
     await relay(gate)
     const reply = sent[0] as Extract<ControlMessage, { type: 'agentRelayResult' }>
     expect(reply.error).toBe(
       'TRPCError: command failed ← Failed query: insert into "locks" ← ' +
-      'ParallelNestedTransactionError: transaction 4 has an open nested scope (5)',
+        'ParallelNestedTransactionError: transaction 4 has an open nested scope (5)',
     )
   })
 
@@ -139,5 +149,63 @@ describe('a relayed agent command that fails', () => {
     } finally {
       logs.restore()
     }
+  })
+})
+
+describe('a relayed agent command that fails on a production server (POD-7615)', () => {
+  it('tells the agent the error, not the driver text under it, and logs the chain', async () => {
+    const logs = captureLogs()
+    try {
+      const { gate, sent } = gateFor(() => Promise.reject(wrappedRefusal()), false)
+
+      await relay(gate)
+
+      const reply = sent[0] as Extract<ControlMessage, { type: 'agentRelayResult' }>
+      expect(reply.error).toBe('Failed query: insert into "locks"')
+      expect(
+        logs.at('warn').find((entry) => entry.msg === 'agent command failed')?.err,
+      ).toMatchObject({
+        cause: { name: 'ParallelNestedTransactionError' },
+      })
+    } finally {
+      logs.restore()
+    }
+  })
+
+  it('gives an internal tRPC failure its own message only', async () => {
+    const { gate, sent } = gateFor(
+      () =>
+        Promise.reject(
+          new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'command failed',
+            cause: wrappedRefusal(),
+          }),
+        ),
+      false,
+    )
+
+    await relay(gate)
+
+    const reply = sent[0] as Extract<ControlMessage, { type: 'agentRelayResult' }>
+    expect(reply.error).toBe('command failed')
+  })
+
+  it('keeps an expected refusal message as it was', async () => {
+    const { gate, sent } = gateFor(
+      () =>
+        Promise.reject(
+          new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 're-run with --outside-scope to confirm',
+          }),
+        ),
+      false,
+    )
+
+    await relay(gate)
+
+    const reply = sent[0] as Extract<ControlMessage, { type: 'agentRelayResult' }>
+    expect(reply.error).toBe('re-run with --outside-scope to confirm')
   })
 })

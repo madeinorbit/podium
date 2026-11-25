@@ -12,7 +12,9 @@ import { getErrorShape } from '@trpc/server/unstable-core-do-not-import'
 import { Hono } from 'hono'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { clientErrorDiagnostics } from './client-error-diagnostics'
+import { attachWebSockets, serveNative } from './gateway/ws-server'
 import { registerMcpRoute } from './mcp-route'
+import { captureLogs } from './test-support/capture-logs'
 
 /** A store failure as it reaches a procedure: Drizzle's wrapper over the driver. */
 function storeFailure(): TRPCError {
@@ -24,9 +26,20 @@ function storeFailure(): TRPCError {
   })
 }
 
-async function wireShapeWhenLoadedWith(env: Record<string, string>) {
+/** Load-time env for each mode. The source mode states both values, because a
+ *  runner may carry either one in its own environment. */
+const PACKAGED = { PODIUM_APP_VERSION: '1.2.3', NODE_ENV: undefined }
+const NODE_ENV_PRODUCTION = { PODIUM_APP_VERSION: undefined, NODE_ENV: 'production' }
+const FROM_SOURCE = { PODIUM_APP_VERSION: undefined, NODE_ENV: 'test' }
+type LoadEnv = Record<string, string | undefined>
+
+function stubLoadEnv(env: LoadEnv): void {
   vi.resetModules()
   for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value)
+}
+
+async function wireShapeWhenLoadedWith(env: LoadEnv) {
+  stubLoadEnv(env)
   const { t } = await import('./trpc')
   return getErrorShape({
     config: t._config,
@@ -45,7 +58,7 @@ afterEach(() => {
 
 describe('the tRPC error shape on the wire', () => {
   it('carries no stack and no cause chain from a packaged server', async () => {
-    const shape = await wireShapeWhenLoadedWith({ PODIUM_APP_VERSION: '1.2.3' })
+    const shape = await wireShapeWhenLoadedWith(PACKAGED)
 
     expect(shape.data).not.toHaveProperty('stack')
     expect(shape.data).not.toHaveProperty('causeChain')
@@ -58,14 +71,14 @@ describe('the tRPC error shape on the wire', () => {
   })
 
   it('carries none either when NODE_ENV says production', async () => {
-    const shape = await wireShapeWhenLoadedWith({ NODE_ENV: 'production' })
+    const shape = await wireShapeWhenLoadedWith(NODE_ENV_PRODUCTION)
 
     expect(shape.data).not.toHaveProperty('stack')
     expect(shape.data).not.toHaveProperty('causeChain')
   })
 
   it('still carries both from a server run from source', async () => {
-    const shape = await wireShapeWhenLoadedWith({})
+    const shape = await wireShapeWhenLoadedWith(FROM_SOURCE)
 
     expect(shape.data.stack).toEqual(expect.stringContaining('client-error-diagnostics.test.ts'))
     expect(shape.data).toHaveProperty(
@@ -89,9 +102,12 @@ describe('when a server counts as production', () => {
 })
 
 describe('a failed MCP tool call', () => {
-  async function toolErrorText(diagnostics: boolean): Promise<string | undefined> {
+  async function toolErrorText(
+    diagnostics: boolean | undefined,
+    register: typeof registerMcpRoute = registerMcpRoute,
+  ): Promise<string | undefined> {
     const app = new Hono()
-    registerMcpRoute(
+    register(
       app,
       {
         mcpToolSpecs: () => [],
@@ -102,7 +118,7 @@ describe('a failed MCP tool call', () => {
         },
       },
       'token',
-      { diagnostics },
+      diagnostics === undefined ? {} : { diagnostics },
     )
     const res = await app.request('/mcp', {
       method: 'POST',
@@ -117,9 +133,73 @@ describe('a failed MCP tool call', () => {
     expect(await toolErrorText(false)).toBe('error: could not start the session')
   })
 
+  it('follows the production rule when the route is given no mode', async () => {
+    stubLoadEnv(PACKAGED)
+    const packaged = await import('./mcp-route')
+    expect(await toolErrorText(undefined, packaged.registerMcpRoute)).toBe(
+      'error: could not start the session',
+    )
+  })
+
   it('keeps the chain in development', async () => {
     expect(await toolErrorText(true)).toBe(
       'error: could not start the session ← Failed query: select * from "sessions"',
     )
+  })
+})
+
+describe('a request that throws before the router', () => {
+  /** The websocket upgrade path, whose workspace binding reads the database
+   *  before any credential is checked, with that read failing. */
+  function serveUpgradeThatThrows(development: boolean | undefined) {
+    const handle = attachWebSockets(
+      {} as never,
+      {
+        bindWorkspace: async () => {
+          throw new Error('connect ECONNREFUSED 10.0.0.9:5432')
+        },
+      },
+      { timers: { setInterval: () => 0, clearInterval: () => {} } },
+    )
+    const server = serveNative({
+      port: 0,
+      hostname: '127.0.0.1',
+      ...(development === undefined ? {} : { development }),
+      websocket: handle.websocket,
+      async fetch(request, native) {
+        const result = await handle.handleRequest(request, native)
+        return result ?? new Response('not found', { status: 404 })
+      },
+    })
+    return {
+      url: `http://127.0.0.1:${server.port}/daemon`,
+      close: async () => {
+        await handle.close()
+        await server.stop(true)
+      },
+    }
+  }
+
+  it.each([
+    { mode: 'production', development: false },
+    { mode: 'development', development: true },
+    { mode: 'this process', development: undefined },
+  ])('is answered in $mode with a plain 500 and logged in full', async ({ development }) => {
+    const logs = captureLogs()
+    const served = serveUpgradeThatThrows(development)
+    try {
+      const response = await fetch(served.url)
+      const body = await response.text()
+
+      expect(response.status).toBe(500)
+      expect(response.headers.get('content-type')).toMatch(/^text\/plain/)
+      expect(body).toBe('Internal Server Error')
+      expect(body).not.toMatch(/ECONNREFUSED|\.ts|at /)
+      const record = logs.at('warn').find((r) => r.msg === 'request failed outside the router')
+      expect(record?.err).toMatchObject({ message: 'connect ECONNREFUSED 10.0.0.9:5432' })
+    } finally {
+      logs.restore()
+      await served.close()
+    }
   })
 })
